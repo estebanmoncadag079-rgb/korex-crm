@@ -134,15 +134,18 @@ export async function processMessagesValue(value: WebhookValue): Promise<void> {
   }
 }
 
-export async function ingestInboundMessage(input: {
-  organizationId: string;
-  from: string;
-  profileName: string | null;
-  waMessageId: string;
-  type: string;
-  text: string | null;
-  timestamp: string;
-}): Promise<void> {
+export async function ingestInboundMessage(
+  input: {
+    organizationId: string;
+    from: string;
+    profileName: string | null;
+    waMessageId: string;
+    type: string;
+    text: string | null;
+    timestamp: string;
+  },
+  opts?: { triggerAgent?: boolean }
+): Promise<void> {
   const db = getDb();
   const { organizationId } = input;
 
@@ -198,7 +201,10 @@ export async function ingestInboundMessage(input: {
     data: { conversation: { id: conversation.id } },
   });
 
-  await maybeRunAgentTurn(conversation.id);
+  // Modo observación: se ingiere y publica el mensaje, pero NO responde el agente.
+  if (opts?.triggerAgent !== false) {
+    await maybeRunAgentTurn(conversation.id);
+  }
 }
 
 function toDate(timestamp: string): Date {

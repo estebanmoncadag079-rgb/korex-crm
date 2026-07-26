@@ -29,6 +29,13 @@ const envSchema = z.object({
   ALLOW_SIGNUP: z.string().optional(),
   AGENT_COALESCE_MS: z.coerce.number().int().min(0).default(6000),
   WA_MOCK_ENABLED: z.string().optional(),
+  // --- YCloud (proveedor oficial de WhatsApp Business API) ---
+  YCLOUD_API_KEY: z.string().optional(),
+  YCLOUD_BASE_URL: z.string().url().default("https://api.ycloud.com"),
+  YCLOUD_WEBHOOK_SECRET: z.string().optional(),
+  // Modo observación: enruta los mensajes de este WABA a esta organización, SIN agente.
+  YCLOUD_OBSERVE_WABA: z.string().optional(),
+  YCLOUD_OBSERVE_ORG: z.string().optional(),
   NODE_ENV: z.string().default("development"),
 });
 

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
+import { isYcloudEnabled, ycloudSendText } from "@/lib/ycloud/client";
 import { publish } from "@/server/events/bus";
 import {
   getCredentialsByOrg,
@@ -86,12 +87,30 @@ export async function sendText(input: {
     );
   }
 
-  const waMessageId = await callGraphSend(credentials, {
-    messaging_product: "whatsapp",
-    to: normalizeRecipient(row.contact.phone),
-    type: "text",
-    text: { body: input.text },
-  });
+  const to = normalizeRecipient(row.contact.phone);
+  let waMessageId: string;
+  if (isYcloudEnabled()) {
+    // Envío por YCloud (proveedor oficial): from = número del negocio.
+    try {
+      waMessageId = await ycloudSendText({
+        from: credentials.displayPhoneNumber ?? "",
+        to,
+        text: input.text,
+      });
+    } catch (err) {
+      throw new SendError(
+        "meta_error",
+        err instanceof Error ? err.message : "Error enviando por YCloud"
+      );
+    }
+  } else {
+    waMessageId = await callGraphSend(credentials, {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body: input.text },
+    });
+  }
 
   const inserted = await db
     .insert(schema.message)

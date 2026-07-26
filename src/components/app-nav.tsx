@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { KorexMark } from "@/components/korex-mark";
 import {
   FlaskConical,
   Inbox,
@@ -61,10 +62,10 @@ export function AppNav({
       {/* Brand white-label */}
       <div className="mb-4 flex items-center gap-2.5 px-2">
         <span
-          className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-sm bg-brand text-[15px] font-bold text-white"
+          className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-sm bg-brand text-white"
           aria-hidden
         >
-          {branding.name.charAt(0).toUpperCase()}
+          <KorexMark className="h-[18px] w-[18px]" />
         </span>
         <span className="min-w-0">
           <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight">

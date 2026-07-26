@@ -58,20 +58,20 @@ export function AppNav({
   });
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r bg-subtle px-3 pb-3.5 pt-4">
+    <aside className="flex w-56 shrink-0 flex-col border-r border-[#26262a] bg-[#0e0e10] px-3 pb-3.5 pt-4 text-white">
       {/* Brand white-label */}
       <div className="mb-4 flex items-center gap-2.5 px-2">
         <span
-          className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-sm bg-brand text-white"
+          className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-sm bg-white/10 text-white"
           aria-hidden
         >
           <KorexMark className="h-[18px] w-[18px]" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight">
+          <span className="block truncate text-[16px] font-[650] leading-tight tracking-tight text-white">
             {branding.name}
           </span>
-          <span className="block text-[11px] text-text-3">CRM · WhatsApp</span>
+          <span className="block text-[11px] text-[#8a8a92]">CRM · WhatsApp</span>
         </span>
       </div>
 
@@ -86,12 +86,12 @@ export function AppNav({
               className={cn(
                 "flex items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium transition-colors",
                 active
-                  ? "bg-brand-tint font-semibold text-brand-text"
-                  : "text-text-2 hover:bg-accent"
+                  ? "bg-white/10 font-semibold text-white"
+                  : "text-[#9a9aa2] hover:bg-white/[0.06] hover:text-white"
               )}
             >
               <item.icon
-                className={cn("h-[18px] w-[18px]", active ? "text-brand" : "text-text-3")}
+                className={cn("h-[18px] w-[18px]", active ? "text-white" : "text-[#6e6e76]")}
                 strokeWidth={1.7}
               />
               <span className="flex-1">{item.label}</span>
@@ -99,7 +99,7 @@ export function AppNav({
                 <span
                   className={cn(
                     "flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1.5 text-[10.5px] font-semibold",
-                    active ? "bg-brand text-white" : "bg-border-strong text-text-2"
+                    active ? "bg-white text-[#0e0e10]" : "bg-white/15 text-[#c8c8d0]"
                   )}
                 >
                   {unread}
@@ -117,34 +117,34 @@ export function AppNav({
         className={cn(
           "flex items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium transition-colors",
           pathname.startsWith("/settings")
-            ? "bg-brand-tint font-semibold text-brand-text"
-            : "text-text-2 hover:bg-accent"
+            ? "bg-white/10 font-semibold text-white"
+            : "text-[#9a9aa2] hover:bg-white/[0.06] hover:text-white"
         )}
       >
         <Settings
           className={cn(
             "h-[18px] w-[18px]",
-            pathname.startsWith("/settings") ? "text-brand" : "text-text-3"
+            pathname.startsWith("/settings") ? "text-white" : "text-[#6e6e76]"
           )}
           strokeWidth={1.7}
         />
         Ajustes
       </Link>
 
-      <div className="mt-1 flex items-center gap-2.5 rounded-sm px-2.5 py-2 hover:bg-accent">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-xs font-semibold text-brand-text">
+      <div className="mt-1 flex items-center gap-2.5 rounded-sm px-2.5 py-2 hover:bg-white/[0.06]">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
           {initials(userName)}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-semibold">{userName}</span>
-          <span className="block text-[11px] text-text-3">
+          <span className="block truncate text-[13px] font-semibold text-white">{userName}</span>
+          <span className="block text-[11px] text-[#8a8a92]">
             {role === "owner" ? "Propietario" : "Equipo"} · En línea
           </span>
         </span>
         <button
           aria-label="Cerrar sesión"
           title="Cerrar sesión"
-          className="rounded p-1 text-text-3 hover:text-foreground"
+          className="rounded p-1 text-[#8a8a92] hover:text-white"
           onClick={async () => {
             await signOut();
             router.push("/login");

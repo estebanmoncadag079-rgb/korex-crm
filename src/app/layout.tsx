@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Manrope, Sora } from "next/font/google";
 import { accentCssVariables, DEFAULT_BRANDING } from "@/lib/branding";
 import { getBranding } from "@/server/branding";
 import "./globals.css";
@@ -8,6 +8,20 @@ import "./globals.css";
 const geist = Geist({
   subsets: ["latin"],
   variable: "--font-geist",
+  display: "swap",
+});
+
+// Tipografía de la landing pública (no afecta al CRM, que usa `font-sans`).
+// Manrope para el cuerpo y Sora para los titulares, expuestas como variables CSS.
+const manrope = Manrope({
+  subsets: ["latin"],
+  variable: "--font-manrope",
+  display: "swap",
+});
+
+const sora = Sora({
+  subsets: ["latin"],
+  variable: "--font-sora",
   display: "swap",
 });
 
@@ -26,7 +40,10 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const branding = await getBranding().catch(() => DEFAULT_BRANDING);
   return (
-    <html lang="es" className={geist.variable}>
+    <html
+      lang="es"
+      className={`${geist.variable} ${manrope.variable} ${sora.variable}`}
+    >
       <head>
         {/* Acento white-label inyectado en SSR: sin flash de tema */}
         <style

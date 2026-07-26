@@ -7,10 +7,10 @@ export default async function AuthLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const branding = await getBranding().catch(() => DEFAULT_BRANDING);
   return (
-    <main className="flex min-h-screen items-center justify-center bg-subtle p-4">
+    <main className="auth-dark flex min-h-screen items-center justify-center bg-subtle p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-2 text-center">
-          <span className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white">
+          <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white/10 text-white">
             <KorexMark className="h-6 w-6" />
           </span>
           <div>

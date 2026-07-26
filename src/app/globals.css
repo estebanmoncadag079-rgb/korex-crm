@@ -81,3 +81,28 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+/*
+  Superficie oscura de marca (login / registro) — "matiz" de la landing.
+  Redefine los tokens en un scope: los componentes (Card, Input, Button…)
+  se adaptan solos sin tocar el tema global (claro).
+*/
+.auth-dark {
+  --bg: #0e0e10;
+  --bg-subtle: #0e0e10;
+  --bg-panel: #161619;
+  --bg-hover: #1e1e22;
+  --text: #ededed;
+  --text-2: #b4b4bc;
+  --text-3: #8a8a92;
+  --text-4: #6e6e76;
+  --border: #2a2a2e;
+  --border-strong: #3a3a42;
+  --accent: #3f3f46;
+  --accent-hover: #52525b;
+  --accent-soft: #26262a;
+  --accent-tint: #1c1c20;
+  --accent-text: #ededed;
+  --bg-active: #1c1c20;
+  color: var(--text);
+}

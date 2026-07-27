@@ -9,6 +9,7 @@ const TABS = [
   { href: "/settings/branding", label: "Marca" },
   { href: "/settings/templates", label: "Plantillas" },
   { href: "/settings/team", label: "Equipo" },
+  { href: "/settings/cuenta", label: "Mi cuenta" },
 ] as const;
 
 export function SettingsNav() {

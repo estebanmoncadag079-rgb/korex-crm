@@ -69,6 +69,9 @@ async function handleEvent(event: YcloudEvent): Promise<void> {
       type: msg.type,
       text: msg.text,
       timestamp: msg.unixTs,
+      mediaUrl: msg.mediaUrl,
+      mediaId: msg.mediaId,
+      mimeType: msg.mimeType,
     },
     { triggerAgent: route.triggerAgent }
   );

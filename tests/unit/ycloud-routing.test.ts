@@ -46,6 +46,9 @@ function inbound(over: Partial<ParsedInbound> = {}): ParsedInbound {
     type: "text",
     text: "hola",
     unixTs: "1700000000",
+    mediaUrl: null,
+    mediaId: null,
+    mimeType: null,
     ...over,
   };
 }

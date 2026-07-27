@@ -143,6 +143,9 @@ export async function ingestInboundMessage(
     type: string;
     text: string | null;
     timestamp: string;
+    mediaUrl?: string | null;
+    mediaId?: string | null;
+    mimeType?: string | null;
   },
   opts?: { triggerAgent?: boolean }
 ): Promise<void> {
@@ -173,6 +176,9 @@ export async function ingestInboundMessage(
       type: input.type,
       text: input.text,
       status: "delivered",
+      mediaUrl: input.mediaUrl ?? null,
+      mediaId: input.mediaId ?? null,
+      mimeType: input.mimeType ?? null,
       waTimestamp,
     })
     .onConflictDoNothing({ target: [schema.message.waMessageId] })
@@ -222,6 +228,9 @@ export function serializeMessage(m: typeof schema.message.$inferSelect) {
     text: m.text,
     status: m.status,
     aiGenerated: m.aiGenerated,
+    // El enlace del proveedor NO viaja al navegador: se sirve por /api/media.
+    hasMedia: Boolean(m.mediaUrl),
+    mimeType: m.mimeType,
     createdAt: (m.waTimestamp ?? m.createdAt).toISOString(),
   };
 }

@@ -23,6 +23,9 @@ export type MessageDto = {
   text: string | null;
   status: "pending" | "sent" | "delivered" | "read" | "failed";
   aiGenerated: boolean;
+  /** Trae adjunto descargable en /api/media/{id} (comprobantes, fotos). */
+  hasMedia?: boolean;
+  mimeType?: string | null;
   createdAt: string;
 };
 

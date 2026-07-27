@@ -222,6 +222,14 @@ export const message = pgTable(
       .notNull()
       .default("pending"),
     error: text("error"),
+    /**
+     * Adjunto recibido (comprobantes de pago, fotos). Se guarda la REFERENCIA,
+     * no el archivo: `media_url` es el enlace del proveedor, que se descarga
+     * con la API key desde el servidor (nunca se expone al navegador).
+     */
+    mediaUrl: text("media_url"),
+    mediaId: text("media_id"),
+    mimeType: text("mime_type"),
     aiGenerated: boolean("ai_generated").notNull().default(false),
     waTimestamp: timestamp("wa_timestamp"),
     createdAt: timestamp("created_at").notNull().defaultNow(),

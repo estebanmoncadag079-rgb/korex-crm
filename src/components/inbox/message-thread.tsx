@@ -93,6 +93,39 @@ export function MessageThread({ messages }: { messages: MessageDto[] }) {
                   <span className="whitespace-pre-wrap break-words">
                     {m.text}
                   </span>
+                ) : m.hasMedia && m.type === "image" ? (
+                  // El comprobante de pago se ve aquí mismo; al pulsarlo se
+                  // abre a tamaño completo para leer el número de referencia.
+                  <a
+                    href={`/api/media/${m.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/media/${m.id}`}
+                      alt={m.text ?? "Imagen recibida"}
+                      className="max-h-72 w-auto rounded-md"
+                      loading="lazy"
+                    />
+                    {m.text && (
+                      <span className="mt-1 block whitespace-pre-wrap break-words">
+                        {m.text}
+                      </span>
+                    )}
+                  </a>
+                ) : m.hasMedia ? (
+                  <a
+                    href={`/api/media/${m.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-text-3 underline-offset-2 hover:underline"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" strokeWidth={1.7} />
+                    {mediaLabel(m.type)}
+                    {m.text ? ` — ${m.text}` : ""}
+                  </a>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-text-3">
                     <Paperclip className="h-3.5 w-3.5" strokeWidth={1.7} />

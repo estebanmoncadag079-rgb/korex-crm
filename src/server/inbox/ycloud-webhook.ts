@@ -43,6 +43,17 @@ export function verifyYcloudSignature(
 
 /* ---------- Payload de YCloud (subconjunto: mensaje entrante de WhatsApp) ---------- */
 
+/** Adjunto de WhatsApp: image, audio, video, document y sticker comparten forma. */
+type YcloudMedia = {
+  id?: string;
+  /** Enlace de descarga de YCloud (requiere X-API-Key pasados unos minutos). */
+  link?: string;
+  mime_type?: string;
+  mimeType?: string;
+  caption?: string;
+  filename?: string;
+};
+
 export type YcloudEvent = {
   id?: string;
   type?: string;
@@ -55,6 +66,11 @@ export type YcloudEvent = {
     sendTime?: string; // ISO 8601
     type?: string; // "text", "image", ...
     text?: { body?: string };
+    image?: YcloudMedia;
+    audio?: YcloudMedia;
+    video?: YcloudMedia;
+    document?: YcloudMedia;
+    sticker?: YcloudMedia;
   };
 };
 
@@ -67,6 +83,10 @@ export type ParsedInbound = {
   type: string;
   text: string | null;
   unixTs: string; // segundos unix como string (lo que espera el ingest)
+  /** Adjunto: el enlace se descarga desde el servidor con la API key. */
+  mediaUrl: string | null;
+  mediaId: string | null;
+  mimeType: string | null;
 };
 
 const stripPlus = (n: string) => n.replace(/^\+/, "");
@@ -76,6 +96,7 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
   const m = event.whatsappInboundMessage;
   if (!m?.id || !m.wabaId || !m.from) return null;
   const ms = m.sendTime ? Date.parse(m.sendTime) : Date.now();
+  const media = m.image ?? m.document ?? m.video ?? m.audio ?? m.sticker ?? null;
   return {
     id: m.id,
     wabaId: m.wabaId,
@@ -83,7 +104,11 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
     to: stripPlus(m.to ?? ""),
     name: m.customerProfile?.name ?? null,
     type: m.type ?? "text",
-    text: m.text?.body ?? null,
+    // El pie de foto es el texto del mensaje (un comprobante suele traer nota).
+    text: m.text?.body ?? media?.caption ?? media?.filename ?? null,
     unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
+    mediaUrl: media?.link ?? null,
+    mediaId: media?.id ?? null,
+    mimeType: media?.mime_type ?? media?.mimeType ?? null,
   };
 }

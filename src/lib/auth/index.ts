@@ -40,10 +40,26 @@ function isInternalSignup(): boolean {
 
 const RATE_LIMITED_PATHS = new Set(["/sign-in/email", "/sign-up/email"]);
 
+/**
+ * Orígenes de confianza para las rutas de auth. Incluye siempre APP_BASE_URL
+ * (URL interna cuando hay proxy) más los dominios públicos declarados: sin el
+ * dominio real, el navegador manda `Origin: https://…` y el login responde 403
+ * INVALID_ORIGIN aunque las credenciales sean correctas.
+ */
+function trustedOrigins(baseUrl: string, extra: string | undefined): string[] {
+  const origins = new Set<string>([baseUrl.replace(/\/+$/, "")]);
+  for (const raw of (extra ?? "").split(",")) {
+    const value = raw.trim().replace(/\/+$/, "");
+    if (value) origins.add(value);
+  }
+  return [...origins];
+}
+
 function createAuth() {
   const env = getEnv();
   return betterAuth({
     baseURL: env.APP_BASE_URL,
+    trustedOrigins: trustedOrigins(env.APP_BASE_URL, env.APP_TRUSTED_ORIGINS),
     secret: env.BETTER_AUTH_SECRET,
     database: drizzleAdapter(getDb(), {
       provider: "pg",

@@ -10,6 +10,13 @@ import { z } from "zod";
 
 const envSchema = z.object({
   APP_BASE_URL: z.string().url(),
+  /**
+   * Dominios públicos adicionales desde los que se sirve la app (separados por
+   * coma). Better Auth rechaza el login si el Origin del navegador no está
+   * entre los de confianza: con la app detrás de un proxy, APP_BASE_URL suele
+   * ser la URL interna y el usuario entra por el dominio.
+   */
+  APP_TRUSTED_ORIGINS: z.string().optional(),
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(16),
   ENCRYPTION_KEY: z

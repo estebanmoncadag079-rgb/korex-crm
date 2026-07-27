@@ -237,7 +237,11 @@ export async function ingestInboundMessage(
     );
   }
 
-  await maybeRunAgentTurn(conversation.id);
+  // Sin mensajes previos = el cliente acaba de saludar: se le responde sin la
+  // espera de agrupación, que ahí solo se siente como demora.
+  await maybeRunAgentTurn(conversation.id, {
+    immediate: previousMessageAt === null,
+  });
 }
 
 /**

@@ -37,8 +37,18 @@ function coalesceMap(): Map<string, CoalesceEntry> {
   return globalForAgent.__agentCoalesce;
 }
 
-/** Punto de entrada con debounce (mensajes entrantes reales). */
-export function scheduleAgentTurn(conversationId: string): void {
+/**
+ * Punto de entrada con debounce (mensajes entrantes reales).
+ *
+ * `immediate` salta la espera: se usa en el PRIMER mensaje de una conversación,
+ * donde no hay nada que agrupar (quien saluda con "hola" no viene escribiendo
+ * en ráfaga) y la espera solo se nota — es el momento en que el cliente aún no
+ * tiene nada que leer mientras el agente piensa.
+ */
+export function scheduleAgentTurn(
+  conversationId: string,
+  opts?: { immediate?: boolean }
+): void {
   const map = coalesceMap();
   const entry = map.get(conversationId) ?? {
     timer: null,
@@ -52,7 +62,7 @@ export function scheduleAgentTurn(conversationId: string): void {
     return;
   }
   if (entry.timer) clearTimeout(entry.timer);
-  const delay = getEnv().AGENT_COALESCE_MS;
+  const delay = opts?.immediate ? 0 : getEnv().AGENT_COALESCE_MS;
   entry.timer = setTimeout(() => {
     entry.timer = null;
     void executeTurn(conversationId);

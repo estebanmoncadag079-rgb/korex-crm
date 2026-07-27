@@ -20,6 +20,9 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  // Rol de PLATAFORMA (por encima de las organizaciones): la agencia que
+  // hospeda la instancia. NULL = usuario normal, acotado a sus membresías.
+  platformRole: text("platform_role", { enum: ["superadmin"] }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -256,6 +259,10 @@ export const metaCredentials = pgTable(
     uniqueIndex("meta_credentials_org_uq").on(t.organizationId),
     // El webhook enruta por phone_number_id: debe ser único en la instancia.
     uniqueIndex("meta_credentials_phone_uq").on(t.phoneNumberId),
+    // YCloud no manda phone_number_id: el webhook enruta por el número del
+    // negocio (`to`). Guardado normalizado (solo dígitos) y único por instancia
+    // para que el mensaje de un cliente jamás caiga en la bandeja de otro.
+    uniqueIndex("meta_credentials_display_phone_uq").on(t.displayPhoneNumber),
   ]
 );
 

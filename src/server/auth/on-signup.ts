@@ -1,15 +1,7 @@
-import { count, eq, sql } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
-
-/** Etapas sembradas del pipeline (US2). */
-const SEED_STAGES: { name: string; kind: "open" | "won" | "lost" }[] = [
-  { name: "Nuevo", kind: "open" },
-  { name: "En conversación", kind: "open" },
-  { name: "Interesado", kind: "open" },
-  { name: "Cliente", kind: "won" },
-  { name: "Perdido", kind: "lost" },
-];
+import { provisionOrganization } from "@/server/auth/provisioning";
 
 /**
  * Primer registro de la instancia: crea la organización, deja al usuario como
@@ -31,8 +23,8 @@ export async function onUserCreated(userId: string, userName: string) {
     if ((orgs?.n ?? 0) > 0) return;
 
     const orgId = newId("organization");
-    await tx.insert(schema.organization).values({
-      id: orgId,
+    await provisionOrganization(tx, {
+      organizationId: orgId,
       name: userName ? `Negocio de ${userName}` : "Mi negocio",
       slug: "principal",
     });
@@ -42,29 +34,21 @@ export async function onUserCreated(userId: string, userName: string) {
       userId,
       role: "owner",
     });
-    await tx.insert(schema.pipelineStage).values(
-      SEED_STAGES.map((s, i) => ({
-        id: newId("stage"),
-        organizationId: orgId,
-        name: s.name,
-        position: i,
-        kind: s.kind,
-      }))
-    );
-    await tx.insert(schema.agentProfile).values({
-      id: newId("agentProfile"),
-      organizationId: orgId,
-    });
   });
 }
 
-/** Organización activa de un usuario (su primera membresía). */
+/** Organización activa de un usuario (su membresía más antigua). */
 export async function resolveActiveOrganizationId(
   userId: string
 ): Promise<string | null> {
   return (await resolveMembership(userId))?.organizationId ?? null;
 }
 
+/**
+ * Membresía "de casa" del usuario: la más antigua. El orden es explícito
+ * porque un superadmin pertenece a varias organizaciones y su organización
+ * propia debe ganar siempre (sin ORDER BY, cuál sale es azar del planner).
+ */
 export async function resolveMembership(
   userId: string
 ): Promise<{ organizationId: string; role: string } | null> {
@@ -76,6 +60,29 @@ export async function resolveMembership(
     })
     .from(schema.member)
     .where(eq(schema.member.userId, userId))
+    .orderBy(asc(schema.member.createdAt), asc(schema.member.id))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Membresía concreta del usuario en una organización (null si no pertenece). */
+export async function findMembership(
+  userId: string,
+  organizationId: string
+): Promise<{ organizationId: string; role: string } | null> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      organizationId: schema.member.organizationId,
+      role: schema.member.role,
+    })
+    .from(schema.member)
+    .where(
+      and(
+        eq(schema.member.userId, userId),
+        eq(schema.member.organizationId, organizationId)
+      )
+    )
     .limit(1);
   return rows[0] ?? null;
 }

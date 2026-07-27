@@ -5,14 +5,15 @@ import {
   parseYcloudInbound,
   type YcloudEvent,
 } from "@/server/inbox/ycloud-webhook";
+import { resolveInboundRoute } from "@/server/inbox/ycloud-routing";
 import { ingestInboundMessage } from "@/server/inbox/ingest";
 
 /**
  * Webhook de YCloud (WhatsApp Business API oficial).
- * MODO OBSERVACIÓN: por ahora solo enruta el WABA configurado en
- * YCLOUD_OBSERVE_WABA hacia YCLOUD_OBSERVE_ORG, e ingiere SIN disparar el
- * agente (no responde). Cualquier otro WABA se ignora → no interfiere con
- * bots de clientes vivos (ej. CHURRA con su propio bot).
+ *
+ * La cuenta de YCloud es de la agencia y recibe los mensajes de TODOS los
+ * números conectados: cada evento se enruta al cliente dueño del número
+ * (`src/server/inbox/ycloud-routing.ts`). Número desconocido → se descarta.
  */
 export const dynamic = "force-dynamic";
 
@@ -47,20 +48,21 @@ export async function POST(req: Request) {
 async function handleEvent(event: YcloudEvent): Promise<void> {
   if (event.type !== "whatsapp.inbound_message.received") return;
 
-  const env = getEnv();
-  const observeWaba = env.YCLOUD_OBSERVE_WABA;
-  const observeOrg = env.YCLOUD_OBSERVE_ORG;
-  if (!observeWaba || !observeOrg) return; // modo observación no configurado
-
   const msg = parseYcloudInbound(event);
   if (!msg) return;
 
-  // Solo el WABA en observación; los demás se descartan (seguridad).
-  if (msg.wabaId !== observeWaba) return;
+  const route = await resolveInboundRoute(msg);
+  if (!route) {
+    console.warn(
+      `[ycloud webhook] mensaje para un número sin cliente (to=${msg.to}, ` +
+        `waba=${msg.wabaId}): regístralo en el panel de clientes`
+    );
+    return;
+  }
 
   await ingestInboundMessage(
     {
-      organizationId: observeOrg,
+      organizationId: route.organizationId,
       from: msg.from,
       profileName: msg.name,
       waMessageId: msg.id,
@@ -68,6 +70,6 @@ async function handleEvent(event: YcloudEvent): Promise<void> {
       text: msg.text,
       timestamp: msg.unixTs,
     },
-    { triggerAgent: false } // OBSERVACIÓN: no responder
+    { triggerAgent: route.triggerAgent }
   );
 }

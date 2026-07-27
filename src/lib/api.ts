@@ -36,6 +36,25 @@ export function withAuth<Args extends unknown[]>(
   };
 }
 
+/**
+ * Igual que withAuth pero exige rol de PLATAFORMA (la agencia dueña de la
+ * instancia). Es el gate del panel /admin: alta de clientes y entrar como.
+ */
+export function withPlatformAdmin<Args extends unknown[]>(
+  handler: (session: SessionContext, ...args: Args) => Promise<Response>
+): (...args: Args) => Promise<Response> {
+  return withAuth(async (session, ...args: Args) => {
+    if (session.platformRole !== "superadmin") {
+      return apiError(
+        403,
+        "forbidden",
+        "Solo el administrador de la plataforma puede hacer esto"
+      );
+    }
+    return handler(session, ...args);
+  });
+}
+
 /** Parsea el body JSON con un esquema Zod; inválido → Response 422. */
 export async function parseBody<T>(
   req: Request,

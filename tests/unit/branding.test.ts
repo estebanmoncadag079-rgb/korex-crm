@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCENT_PRESETS,
+  DEFAULT_BRANDING,
   isValidHex,
   normalizeBranding,
   resolveAccentSet,
@@ -34,14 +35,16 @@ describe("white-label: acento", () => {
 });
 
 describe("white-label: normalización", () => {
-  it("nombre vacío o nulo → default 'Vocero'; se recorta a 30", () => {
-    expect(normalizeBranding(null).name).toBe("Vocero");
-    expect(normalizeBranding({ name: "   " }).name).toBe("Vocero");
+  it("nombre vacío o nulo → marca por defecto de la instancia; se recorta a 30", () => {
+    expect(normalizeBranding(null).name).toBe(DEFAULT_BRANDING.name);
+    expect(normalizeBranding({ name: "   " }).name).toBe(DEFAULT_BRANDING.name);
     expect(normalizeBranding({ name: "x".repeat(50) }).name).toHaveLength(30);
   });
 
   it("acento inválido → default", () => {
-    expect(normalizeBranding({ accent: "azul" }).accent).toBe("#3f5972");
+    expect(normalizeBranding({ accent: "azul" }).accent).toBe(
+      DEFAULT_BRANDING.accent
+    );
     expect(normalizeBranding({ accent: "#3F6B66" }).accent).toBe("#3f6b66");
   });
 });

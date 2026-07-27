@@ -34,6 +34,15 @@ function toCredentials(row: Row): Credentials {
   };
 }
 
+/**
+ * Número a solo dígitos (E.164 sin '+'): es la CLAVE DE ENRUTAMIENTO de los
+ * mensajes entrantes hacia su organización, así que se guarda y se consulta
+ * siempre normalizado (Meta lo devuelve como "+57 315 513 6091").
+ */
+export function normalizePhoneNumber(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
 /** Resuelve la conexión por phone_number_id (enrutamiento del webhook). */
 export async function getCredentialsByPhoneNumberId(
   phoneNumberId: string
@@ -56,6 +65,24 @@ export async function getCredentialsByWabaId(
     .select()
     .from(schema.metaCredentials)
     .where(eq(schema.metaCredentials.wabaId, wabaId))
+    .limit(1);
+  return rows[0] ? toCredentials(rows[0]) : null;
+}
+
+/**
+ * Resuelve la conexión por el número del negocio (enrutamiento del webhook de
+ * YCloud, que no envía phone_number_id).
+ */
+export async function getCredentialsByDisplayPhone(
+  phone: string
+): Promise<Credentials | null> {
+  const normalized = normalizePhoneNumber(phone);
+  if (!normalized) return null;
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.metaCredentials)
+    .where(eq(schema.metaCredentials.displayPhoneNumber, normalized))
     .limit(1);
   return rows[0] ? toCredentials(rows[0]) : null;
 }
@@ -89,7 +116,9 @@ export async function saveCredentials(input: {
       organizationId: input.organizationId,
       wabaId: input.wabaId,
       phoneNumberId: input.phoneNumberId,
-      displayPhoneNumber: input.displayPhoneNumber ?? null,
+      displayPhoneNumber: input.displayPhoneNumber
+        ? normalizePhoneNumber(input.displayPhoneNumber)
+        : null,
       verifiedName: input.verifiedName ?? null,
       tokenCipher: enc.cipher,
       tokenIv: enc.iv,
@@ -101,7 +130,9 @@ export async function saveCredentials(input: {
       set: {
         wabaId: input.wabaId,
         phoneNumberId: input.phoneNumberId,
-        displayPhoneNumber: input.displayPhoneNumber ?? null,
+        displayPhoneNumber: input.displayPhoneNumber
+          ? normalizePhoneNumber(input.displayPhoneNumber)
+          : null,
         verifiedName: input.verifiedName ?? null,
         tokenCipher: enc.cipher,
         tokenIv: enc.iv,
@@ -110,6 +141,32 @@ export async function saveCredentials(input: {
         updatedAt: new Date(),
       },
     });
+}
+
+/**
+ * Registra el número de WhatsApp de un cliente cuando el proveedor es YCloud.
+ *
+ * Con YCloud la credencial de red es la API key de la cuenta (global, en el
+ * entorno), no un token por número: aquí solo se ata el NÚMERO a su
+ * organización, que es lo que necesita el enrutamiento entrante y el envío
+ * (`from`). El token queda vacío a propósito.
+ */
+export async function saveYcloudNumber(input: {
+  organizationId: string;
+  phone: string;
+  wabaId?: string | null;
+  verifiedName?: string | null;
+}): Promise<void> {
+  const phone = normalizePhoneNumber(input.phone);
+  if (!phone) throw new Error("Número inválido");
+  await saveCredentials({
+    organizationId: input.organizationId,
+    wabaId: input.wabaId || `ycloud:${phone}`,
+    phoneNumberId: `ycloud:${phone}`,
+    displayPhoneNumber: phone,
+    verifiedName: input.verifiedName ?? null,
+    token: "",
+  });
 }
 
 /** Marca la conexión como vencida (token inválido detectado en runtime). */

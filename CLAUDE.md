@@ -1,9 +1,19 @@
 # Vocero CRM — Guía para Claude
 
 Vocero es un CRM de WhatsApp open source (MIT), self-hosted, con agente de IA y
-Laboratorio de auto-evaluación. Una instancia = un negocio. Este archivo guía a
-Claude Code (u otro asistente) para operar y **modificar** este repositorio —
-el caso típico: una agencia adaptando Vocero para un cliente.
+Laboratorio de auto-evaluación. Este archivo guía a Claude Code (u otro
+asistente) para operar y **modificar** este repositorio — el caso típico: una
+agencia hospedando a sus clientes.
+
+**Una instancia = varios clientes.** Cada cliente es una organización aislada
+(sus conversaciones, contactos, embudo, agente y marca). La agencia se
+identifica con `user.platform_role = 'superadmin'`: ve el panel `/admin`, da de
+alta clientes y puede entrar en la cuenta de cualquiera ("entrar como", con
+banner visible). Un usuario normal solo alcanza las organizaciones donde tiene
+membresía — la organización activa de la sesión se revalida en cada petición
+(`src/lib/auth/session.ts`). Los mensajes entrantes se enrutan al cliente dueño
+del NÚMERO destino (`src/server/inbox/ycloud-routing.ts`); un número sin dueño
+se descarta.
 
 ## Stack
 
@@ -32,6 +42,7 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | Campos/tablas | `src/lib/db/schema.ts` → `pnpm db:generate` → migración nueva en `drizzle/` |
 | La ingesta/envío de mensajes | `src/server/inbox/` (ingest idempotente, send con guard de sandbox, ventana 24h) |
 | UI | `src/components/` + `src/app/(app)/` |
+| El alta de clientes y el panel de agencia | `src/server/auth/provisioning.ts` · `src/server/admin/` · `src/app/api/admin/` · `src/app/(app)/admin/` |
 
 Los mocks del entorno de pruebas viven en `src/app/api/dev/` (wa-mock +
 ai-mock) tras un gate único (`src/lib/dev-guard.ts`): 404 incondicional en

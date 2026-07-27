@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { KorexMark } from "@/components/korex-mark";
 import {
+  Building2,
   FlaskConical,
   Inbox,
   Kanban,
@@ -30,10 +31,12 @@ export function AppNav({
   branding,
   userName,
   role,
+  isPlatformAdmin = false,
 }: {
   branding: Branding;
   userName: string;
   role: string;
+  isPlatformAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -112,6 +115,27 @@ export function AppNav({
 
       <div className="flex-1" />
 
+      {isPlatformAdmin && (
+        <Link
+          href="/admin"
+          className={cn(
+            "flex items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium transition-colors",
+            pathname.startsWith("/admin")
+              ? "bg-white/10 font-semibold text-white"
+              : "text-[#9a9aa2] hover:bg-white/[0.06] hover:text-white"
+          )}
+        >
+          <Building2
+            className={cn(
+              "h-[18px] w-[18px]",
+              pathname.startsWith("/admin") ? "text-white" : "text-[#6e6e76]"
+            )}
+            strokeWidth={1.7}
+          />
+          Clientes
+        </Link>
+      )}
+
       <Link
         href="/settings"
         className={cn(
@@ -138,7 +162,12 @@ export function AppNav({
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold text-white">{userName}</span>
           <span className="block text-[11px] text-[#8a8a92]">
-            {role === "owner" ? "Propietario" : "Equipo"} · En línea
+            {isPlatformAdmin
+              ? "Agencia"
+              : role === "owner"
+                ? "Propietario"
+                : "Equipo"}{" "}
+            · En línea
           </span>
         </span>
         <button

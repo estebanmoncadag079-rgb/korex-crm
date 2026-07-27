@@ -285,6 +285,13 @@ export const agentProfile = pgTable(
      * grupos: son mensajes 1:1 a cada persona del equipo.
      */
     notifyPhones: text("notify_phones"),
+    /**
+     * Plantilla aprobada con un parámetro para el aviso de pedido. Sin ella el
+     * aviso va como texto libre y Meta lo rechaza si el destinatario no
+     * escribió al negocio en las últimas 24 h.
+     */
+    notifyTemplate: text("notify_template"),
+    notifyTemplateLang: text("notify_template_lang"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

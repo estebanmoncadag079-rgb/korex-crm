@@ -1,7 +1,11 @@
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
-import { isYcloudEnabled, ycloudSendText } from "@/lib/ycloud/client";
+import {
+  isYcloudEnabled,
+  ycloudSendText,
+  ycloudSendTemplate,
+} from "@/lib/ycloud/client";
 import { callGraphSend } from "@/server/inbox/send";
 import {
   getCredentialsByOrg,
@@ -57,12 +61,18 @@ export async function notifyTeam(input: {
 }): Promise<NotifyResult> {
   const db = getDb();
   const rows = await db
-    .select({ notifyPhones: schema.agentProfile.notifyPhones })
+    .select({
+      notifyPhones: schema.agentProfile.notifyPhones,
+      notifyTemplate: schema.agentProfile.notifyTemplate,
+      notifyTemplateLang: schema.agentProfile.notifyTemplateLang,
+    })
     .from(schema.agentProfile)
     .where(scoped(schema.agentProfile.organizationId, input.organizationId))
     .limit(1);
 
   const phones = parseNotifyPhones(rows[0]?.notifyPhones);
+  const template = rows[0]?.notifyTemplate?.trim() || null;
+  const templateLang = rows[0]?.notifyTemplateLang?.trim() || "es";
   if (phones.length === 0) {
     return {
       sent: 0,
@@ -85,11 +95,20 @@ export async function notifyTeam(input: {
   for (const to of phones) {
     try {
       if (isYcloudEnabled()) {
-        await ycloudSendText({
-          from: credentials.displayPhoneNumber ?? "",
-          to,
-          text,
-        });
+        const from = credentials.displayPhoneNumber ?? "";
+        // Con plantilla configurada se usa SIEMPRE: es lo único que atraviesa
+        // la ventana de 24 h, y dentro de ella también vale.
+        if (template) {
+          await ycloudSendTemplate({
+            from,
+            to,
+            name: template,
+            language: templateLang,
+            bodyParams: [text.replace(/\n/g, " · ")],
+          });
+        } else {
+          await ycloudSendText({ from, to, text });
+        }
       } else {
         await callGraphSend(credentials, {
           messaging_product: "whatsapp",
@@ -107,12 +126,16 @@ export async function notifyTeam(input: {
   if (errors.length > 0) {
     console.error(`[aviso pedido] fallaron ${errors.length}: ${errors.join(" | ")}`);
   }
+  // "aceptado" ≠ "entregado": WhatsApp acepta el envío y puede rechazarlo
+  // después (ventana de 24 h). Sin plantilla eso es lo normal, así que el
+  // texto lo dice en vez de dar por bueno un aviso que quizá no llegó.
+  const cierre = template ? "" : " (sin plantilla: puede rechazarse fuera de la ventana de 24 h)";
   return {
     sent,
     failed: errors.length,
     detail: errors.length
-      ? `avisados ${sent} de ${phones.length} — ${errors.join(" | ")}`
-      : `avisados ${sent} número(s)`,
+      ? `enviado a ${sent} de ${phones.length}${cierre} — ${errors.join(" | ")}`
+      : `enviado a ${sent} número(s)${cierre}`,
   };
 }
 

@@ -24,6 +24,8 @@ export const GET = withAuth(async (session) => {
       escalationRules: p.escalationRules,
       greeting: p.greeting,
       notifyPhones: p.notifyPhones,
+      notifyTemplate: p.notifyTemplate,
+      notifyTemplateLang: p.notifyTemplateLang,
     },
     aiConfigured: isAiConfigured(),
   });
@@ -38,6 +40,9 @@ const putSchema = z.object({
   greeting: z.string().max(1000).nullable().optional(),
   /** Números del equipo que reciben el aviso de pedido (CSV). */
   notifyPhones: z.string().max(400).nullable().optional(),
+  /** Plantilla aprobada para el aviso (atraviesa la ventana de 24 h). */
+  notifyTemplate: z.string().max(120).nullable().optional(),
+  notifyTemplateLang: z.string().max(10).nullable().optional(),
 });
 
 export const PUT = withAuth(async (session, req: Request) => {

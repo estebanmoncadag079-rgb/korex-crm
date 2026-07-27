@@ -17,6 +17,8 @@ type Profile = {
   escalationRules: string | null;
   greeting: string | null;
   notifyPhones: string | null;
+  notifyTemplate: string | null;
+  notifyTemplateLang: string | null;
 };
 
 type KbEntry = {
@@ -195,10 +197,28 @@ function ProfileSection({
           />
           <p className="text-xs text-muted-foreground">
             Cuando un cliente confirme un pedido, estas personas reciben el
-            detalle por WhatsApp. Con indicativo y separados por coma. Ojo:
-            WhatsApp solo permite escribirle a quien haya escrito al negocio en
-            las últimas 24 horas — el pedido siempre queda en la bandeja aunque
-            el aviso falle.
+            detalle por WhatsApp. Con indicativo y separados por coma. El pedido
+            siempre queda en la bandeja aunque el aviso falle.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-notify-template">
+            Plantilla del aviso{" "}
+            <span className="text-muted-foreground">(recomendada)</span>
+          </Label>
+          <Input
+            id="agent-notify-template"
+            placeholder="aviso_pedido"
+            value={form.notifyTemplate ?? ""}
+            onChange={(e) =>
+              setForm({ ...form, notifyTemplate: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Sin plantilla aprobada, WhatsApp bloquea el aviso si la persona no
+            le escribió al negocio en las últimas 24 horas — que es lo normal en
+            el equipo. Con una plantilla de un parámetro, el aviso llega
+            siempre.
           </p>
         </div>
         <Button onClick={() => void onSave(form)}>Guardar comportamiento</Button>

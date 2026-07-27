@@ -23,6 +23,7 @@ export const GET = withAuth(async (session) => {
       instructions: p.instructions,
       escalationRules: p.escalationRules,
       greeting: p.greeting,
+      notifyPhones: p.notifyPhones,
     },
     aiConfigured: isAiConfigured(),
   });
@@ -32,9 +33,11 @@ const putSchema = z.object({
   enabled: z.boolean().optional(),
   name: z.string().trim().min(1).max(60).optional(),
   tone: z.string().max(500).nullable().optional(),
-  instructions: z.string().max(8000).nullable().optional(),
+  instructions: z.string().max(40000).nullable().optional(),
   escalationRules: z.string().max(4000).nullable().optional(),
   greeting: z.string().max(1000).nullable().optional(),
+  /** Números del equipo que reciben el aviso de pedido (CSV). */
+  notifyPhones: z.string().max(400).nullable().optional(),
 });
 
 export const PUT = withAuth(async (session, req: Request) => {

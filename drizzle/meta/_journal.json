@@ -15,6 +15,13 @@
       "when": 1785121596117,
       "tag": "0001_lively_retro_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785128478366,
+      "tag": "0002_white_miracleman",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { isWindowOpen } from "@/server/inbox/window";
 import { SendError, sendText } from "@/server/inbox/send";
 import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
+import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 
 /**
@@ -198,6 +199,28 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
       if (action.farewell) {
         await deliverReply(conversation, action.farewell);
       }
+      await applyHandoff(conversationId, organizationId, "modelo");
+      return;
+    }
+    case "notify_order": {
+      // Orden deliberado: primero el registro (fuente de verdad), después el
+      // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
+      // despedida — así un pedido nunca se pierde por un fallo de envío.
+      const phone = await contactPhoneOf(conversation.contactId);
+      const result = await notifyTeam({
+        organizationId,
+        summary: action.summary,
+        customerPhone: phone,
+      });
+      await appendLeadNote(
+        organizationId,
+        conversation.contactId,
+        `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
+      );
+      if (action.farewell) {
+        await deliverReply(conversation, action.farewell);
+      }
+      // Pedido cerrado = lo toma una persona (coordinar entrega y pago).
       await applyHandoff(conversationId, organizationId, "modelo");
       return;
     }

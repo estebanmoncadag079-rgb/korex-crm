@@ -279,6 +279,12 @@ export const agentProfile = pgTable(
     instructions: text("instructions"),
     escalationRules: text("escalation_rules"),
     greeting: text("greeting"),
+    /**
+     * Números (E.164 sin '+', separados por coma) a los que se avisa por
+     * WhatsApp cuando el agente cierra un pedido. La Cloud API no escribe a
+     * grupos: son mensajes 1:1 a cada persona del equipo.
+     */
+    notifyPhones: text("notify_phones"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

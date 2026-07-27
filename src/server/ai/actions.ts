@@ -23,6 +23,15 @@ export const AgentAction = z.discriminatedUnion("action", [
     reason: z.string().optional(),
     farewell: z.string().optional(),
   }),
+  /**
+   * Pedido cerrado: se registra en el lead, se avisa por WhatsApp al equipo
+   * del negocio y la conversación pasa a manos humanas (el agente calla).
+   */
+  z.object({
+    action: z.literal("notify_order"),
+    summary: z.string().min(1),
+    farewell: z.string().optional(),
+  }),
 ]);
 
 export type AgentActionType = z.infer<typeof AgentAction>;

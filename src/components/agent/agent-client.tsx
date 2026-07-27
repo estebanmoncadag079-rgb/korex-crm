@@ -16,6 +16,7 @@ type Profile = {
   instructions: string | null;
   escalationRules: string | null;
   greeting: string | null;
+  notifyPhones: string | null;
 };
 
 type KbEntry = {
@@ -183,6 +184,22 @@ function ProfileSection({
             value={form.greeting ?? ""}
             onChange={(e) => setForm({ ...form, greeting: e.target.value })}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-notify">Avisar pedidos a estos WhatsApp</Label>
+          <Input
+            id="agent-notify"
+            placeholder="573001112233, 573004445566"
+            value={form.notifyPhones ?? ""}
+            onChange={(e) => setForm({ ...form, notifyPhones: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Cuando un cliente confirme un pedido, estas personas reciben el
+            detalle por WhatsApp. Con indicativo y separados por coma. Ojo:
+            WhatsApp solo permite escribirle a quien haya escrito al negocio en
+            las últimas 24 horas — el pedido siempre queda en la bandeja aunque
+            el aviso falle.
+          </p>
         </div>
         <Button onClick={() => void onSave(form)}>Guardar comportamiento</Button>
       </CardContent>

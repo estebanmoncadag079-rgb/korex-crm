@@ -200,25 +200,30 @@ function ProfileSection({
             detalle por WhatsApp. Con indicativo y separados por coma. El pedido
             siempre queda en la bandeja aunque el aviso falle.
           </p>
+          <p className="text-xs text-muted-foreground">
+            <strong>Importante:</strong> WhatsApp solo deja escribirle a quien
+            le haya escrito al negocio en las últimas 24 horas. Que cada persona
+            de esta lista le mande un mensaje al número del negocio a diario
+            (basta un &quot;hola&quot;) para seguir recibiendo los pedidos.
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="agent-notify-template">
             Plantilla del aviso{" "}
-            <span className="text-muted-foreground">(recomendada)</span>
+            <span className="text-muted-foreground">(opcional, tiene costo)</span>
           </Label>
           <Input
             id="agent-notify-template"
-            placeholder="aviso_pedido"
+            placeholder="vacío = mensaje normal, sin costo"
             value={form.notifyTemplate ?? ""}
             onChange={(e) =>
               setForm({ ...form, notifyTemplate: e.target.value })
             }
           />
           <p className="text-xs text-muted-foreground">
-            Sin plantilla aprobada, WhatsApp bloquea el aviso si la persona no
-            le escribió al negocio en las últimas 24 horas — que es lo normal en
-            el equipo. Con una plantilla de un parámetro, el aviso llega
-            siempre.
+            Una plantilla aprobada llega siempre, sin depender de las 24 horas,
+            pero WhatsApp cobra cada envío. Déjalo vacío para usar mensajes
+            normales.
           </p>
         </div>
         <Button onClick={() => void onSave(form)}>Guardar comportamiento</Button>

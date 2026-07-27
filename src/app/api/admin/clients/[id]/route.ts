@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
+import { getDb, schema } from "@/lib/db";
 import { findOrganization } from "@/server/admin/clients";
 import {
   getCredentialsByDisplayPhone,
@@ -52,3 +54,63 @@ export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) 
   });
   return Response.json({ ok: true, phone });
 });
+
+const deleteSchema = z.object({
+  /** Nombre exacto del cliente: confirmación explícita, se borra todo lo suyo. */
+  confirmName: z.string().trim().min(1),
+});
+
+/**
+ * Elimina un cliente con TODO lo suyo (conversaciones, contactos, embudo,
+ * agente, número y cuentas de acceso, por cascada). Pensado para deshacer un
+ * alta equivocada o cerrar un contrato — por eso exige escribir el nombre.
+ */
+export const DELETE = withPlatformAdmin(
+  async (session, req: Request, ctx: Ctx) => {
+    const { id } = await ctx.params;
+    const organization = await findOrganization(id);
+    if (!organization) {
+      return apiError(404, "not_found", "Cliente no encontrado");
+    }
+    if (id === session.organizationId) {
+      return apiError(
+        409,
+        "conflict",
+        "Estás dentro de esa cuenta: vuelve a la tuya antes de eliminarla"
+      );
+    }
+    const body = await parseBody(req, deleteSchema);
+    if (!body.ok) return body.response;
+    if (body.data.confirmName !== organization.name) {
+      return apiError(
+        422,
+        "invalid",
+        "El nombre no coincide: escríbelo tal cual para confirmar"
+      );
+    }
+
+    const db = getDb();
+    // Las cuentas cuya ÚNICA membresía era este cliente se quedarían sin
+    // organización (sesión inválida): se borran con él.
+    const members = await db
+      .select({ userId: schema.member.userId })
+      .from(schema.member)
+      .where(eq(schema.member.organizationId, id));
+
+    await db.delete(schema.organization).where(eq(schema.organization.id, id));
+
+    for (const { userId } of members) {
+      const remaining = await db
+        .select({ id: schema.member.id })
+        .from(schema.member)
+        .where(eq(schema.member.userId, userId))
+        .limit(1);
+      if (!remaining[0]) {
+        await db.delete(schema.user).where(eq(schema.user.id, userId));
+      }
+    }
+
+    console.info(`[admin] ${session.userId} eliminó la organización ${id}`);
+    return Response.json({ deleted: true });
+  }
+);

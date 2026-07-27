@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Plus,
   Sparkles,
+  Trash2,
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -145,6 +146,7 @@ export function AdminClients({
               setCredentials(cred);
               void refetch();
             }}
+            onDeleted={() => void refetch()}
           />
         ))}
       </div>
@@ -311,6 +313,7 @@ function ClientCard({
   isActive,
   onEnter,
   onAccountCreated,
+  onDeleted,
 }: {
   client: Client;
   isActive: boolean;
@@ -320,6 +323,7 @@ function ClientCard({
     email: string;
     password: string;
   }) => void;
+  onDeleted: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
@@ -386,6 +390,11 @@ function ClientCard({
         {open && (
           <>
             <ClientNumber clientId={client.id} phone={client.phone} />
+            <DeleteClient
+              client={client}
+              isActive={isActive}
+              onDeleted={onDeleted}
+            />
             <ClientAccounts
               clientId={client.id}
               clientName={client.name}
@@ -467,6 +476,77 @@ function ClientNumber({
       {state?.ok === false && (
         <p className="text-xs text-destructive">{state.message}</p>
       )}
+    </div>
+  );
+}
+
+/** Baja de un cliente: destructiva, por eso pide escribir su nombre. */
+function DeleteClient({
+  client,
+  isActive,
+  onDeleted,
+}: {
+  client: Client;
+  isActive: boolean;
+  onDeleted: () => void;
+}) {
+  const [confirmName, setConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setDeleting(true);
+    setError(null);
+    const res = await fetch(`/api/admin/clients/${client.id}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirmName }),
+    }).catch(() => null);
+    setDeleting(false);
+    if (!res?.ok) {
+      const data = (await res?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setError(data?.error?.message ?? "No se pudo eliminar el cliente");
+      return;
+    }
+    setConfirmName("");
+    onDeleted();
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/[0.03] p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Eliminar cliente
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Borra sus conversaciones, contactos, embudo, agente y cuentas. No se
+        puede deshacer. Escribe <strong>{client.name}</strong> para confirmar.
+      </p>
+      <div className="flex gap-2">
+        <Input
+          value={confirmName}
+          onChange={(e) => setConfirmName(e.target.value)}
+          placeholder={client.name}
+          aria-label="Confirmar nombre del cliente"
+          disabled={isActive}
+        />
+        <Button
+          variant="outline"
+          className="border-destructive/40 text-destructive hover:bg-destructive/10"
+          disabled={deleting || isActive || confirmName !== client.name}
+          onClick={() => void remove()}
+        >
+          <Trash2 className="h-4 w-4" />
+          {deleting ? "Eliminando…" : "Eliminar"}
+        </Button>
+      </div>
+      {isActive && (
+        <p className="text-xs text-muted-foreground">
+          Estás dentro de esta cuenta: vuelve a la tuya para poder eliminarla.
+        </p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }

@@ -184,7 +184,8 @@ export const conversation = pgTable(
     aiEnabled: boolean("ai_enabled").notNull().default(true),
     handoffAt: timestamp("handoff_at"),
     handoffReason: text("handoff_reason", {
-      enum: ["cliente", "modelo", "error", "ventana"],
+      // "operador": una persona escribió en la bandeja y tomó la conversación.
+      enum: ["cliente", "modelo", "error", "ventana", "operador"],
     }),
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),

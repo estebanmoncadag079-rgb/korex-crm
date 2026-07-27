@@ -6,6 +6,7 @@ import { getCredentialsByPhoneNumberId } from "@/server/whatsapp/credentials";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
 import { onLeadActivity } from "@/server/inbox/lead-activity";
+import { clearHandoff, resumeReason } from "@/server/inbox/handoff-policy";
 import { maybeRunAgentTurn } from "@/server/ai/trigger";
 
 /** Tipos de contenido soportados; el resto se ignora sin error. */
@@ -162,6 +163,11 @@ export async function ingestInboundMessage(
     contact.id
   );
 
+  // El momento del mensaje ANTERIOR: con él se sabe si el cliente vuelve tras
+  // un silencio largo (y el agente puede retomar) o si el equipo está
+  // atendiendo ahora mismo (y no hay que interrumpirlo).
+  const previousMessageAt = conversation.lastMessageAt;
+
   const waTimestamp = toDate(input.timestamp);
 
   // Idempotencia dura: mismo wa_message_id → sin efectos adicionales.
@@ -208,9 +214,25 @@ export async function ingestInboundMessage(
   });
 
   // Modo observación: se ingiere y publica el mensaje, pero NO responde el agente.
-  if (opts?.triggerAgent !== false) {
-    await maybeRunAgentTurn(conversation.id);
+  if (opts?.triggerAgent === false) return;
+
+  // Conversación en manos de una persona: el agente solo vuelve si el cliente
+  // lo pide con "0" o si nadie contestó en horas. Si no, silencio: dos voces
+  // respondiendo a la vez es peor que una respuesta lenta.
+  if (conversation.handoffAt) {
+    const reason = resumeReason({
+      handoffAt: conversation.handoffAt,
+      text: input.text,
+      lastMessageAt: previousMessageAt,
+    });
+    if (!reason) return;
+    await clearHandoff(conversation.id, organizationId);
+    console.info(
+      `[agente] retoma la conversación ${conversation.id} por ${reason}`
+    );
   }
+
+  await maybeRunAgentTurn(conversation.id);
 }
 
 function toDate(timestamp: string): Date {

@@ -97,15 +97,26 @@ export async function notifyTeam(input: {
       if (isYcloudEnabled()) {
         const from = credentials.displayPhoneNumber ?? "";
         // Con plantilla configurada se usa SIEMPRE: es lo único que atraviesa
-        // la ventana de 24 h, y dentro de ella también vale.
+        // la ventana de 24 h, y dentro de ella también vale. Si la plantilla
+        // aún no está aprobada, se cae a texto libre: llegará a quien tenga la
+        // ventana abierta en vez de no llegar a nadie.
         if (template) {
-          await ycloudSendTemplate({
-            from,
-            to,
-            name: template,
-            language: templateLang,
-            bodyParams: [text.replace(/\n/g, " · ")],
-          });
+          try {
+            await ycloudSendTemplate({
+              from,
+              to,
+              name: template,
+              language: templateLang,
+              bodyParams: [text.replace(/\n/g, " · ")],
+            });
+          } catch (templateErr) {
+            console.warn(
+              `[aviso pedido] plantilla "${template}" no utilizable (${
+                templateErr instanceof Error ? templateErr.message : "error"
+              }): se intenta texto libre`
+            );
+            await ycloudSendText({ from, to, text });
+          }
         } else {
           await ycloudSendText({ from, to, text });
         }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Sparkles, Trash2 } from "lucide-react";
+import { Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -293,26 +293,12 @@ function KbSection({
 
         <ul className="space-y-2">
           {entries.map((e) => (
-            <li key={e.id} className="flex items-start gap-2 rounded-md border p-3">
-              <div className="min-w-0 flex-1 text-sm">
-                {e.kind === "qa" ? (
-                  <>
-                    <p className="font-medium">{e.question}</p>
-                    <p className="mt-0.5 text-muted-foreground">{e.answer}</p>
-                  </>
-                ) : (
-                  <p className="whitespace-pre-wrap text-muted-foreground">{e.content}</p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Eliminar entrada"
-                onClick={() => void remove(e.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </li>
+            <KbRow
+              key={e.id}
+              entry={e}
+              onChanged={onChanged}
+              onRemove={() => void remove(e.id)}
+            />
           ))}
           {entries.length === 0 && (
             <p className="py-2 text-center text-xs text-muted-foreground">
@@ -322,5 +308,135 @@ function KbSection({
         </ul>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Entrada del conocimiento: se lee y se corrige en el sitio. Antes solo se
+ * podía borrar y volver a escribir, que es lo peor cuando lo único mal es un
+ * horario o un precio.
+ */
+function KbRow({
+  entry,
+  onChanged,
+  onRemove,
+}: {
+  entry: KbEntry;
+  onChanged: () => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [question, setQuestion] = useState(entry.question ?? "");
+  const [answer, setAnswer] = useState(entry.answer ?? "");
+  const [content, setContent] = useState(entry.content ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isQa = entry.kind === "qa";
+  const unchanged = isQa
+    ? question === (entry.question ?? "") && answer === (entry.answer ?? "")
+    : content === (entry.content ?? "");
+  const incomplete = isQa
+    ? !question.trim() || !answer.trim()
+    : !content.trim();
+
+  function cancel() {
+    setQuestion(entry.question ?? "");
+    setAnswer(entry.answer ?? "");
+    setContent(entry.content ?? "");
+    setError(null);
+    setEditing(false);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/kb/${entry.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(isQa ? { question, answer } : { content }),
+    }).catch(() => null);
+    setSaving(false);
+    if (!res?.ok) {
+      setError("No se pudo guardar el cambio");
+      return;
+    }
+    setEditing(false);
+    onChanged();
+  }
+
+  if (!editing) {
+    return (
+      <li className="flex items-start gap-2 rounded-md border p-3">
+        <div className="min-w-0 flex-1 text-sm">
+          {isQa ? (
+            <>
+              <p className="font-medium">{entry.question}</p>
+              <p className="mt-0.5 text-muted-foreground">{entry.answer}</p>
+            </>
+          ) : (
+            <p className="whitespace-pre-wrap text-muted-foreground">
+              {entry.content}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Editar entrada"
+          onClick={() => setEditing(true)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Eliminar entrada"
+          onClick={onRemove}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </li>
+    );
+  }
+
+  return (
+    <li className="space-y-2 rounded-md border p-3">
+      {isQa ? (
+        <>
+          <Input
+            aria-label="Pregunta"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+          />
+          <Textarea
+            aria-label="Respuesta"
+            rows={3}
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+          />
+        </>
+      ) : (
+        <Textarea
+          aria-label="Contenido"
+          rows={4}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+        />
+      )}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={saving || incomplete || unchanged}
+          onClick={() => void save()}
+        >
+          {saving ? "Guardando…" : "Guardar"}
+        </Button>
+        <Button size="sm" variant="outline" onClick={cancel}>
+          Cancelar
+        </Button>
+      </div>
+    </li>
   );
 }

@@ -41,6 +41,7 @@ export function AppNav({
   const pathname = usePathname();
   const router = useRouter();
   const [unread, setUnread] = useState(0);
+  const [leaving, setLeaving] = useState(false);
 
   async function refetchUnread() {
     const res = await fetch("/api/conversations").catch(() => null);
@@ -155,7 +156,7 @@ export function AppNav({
         Ajustes
       </Link>
 
-      <div className="mt-1 flex items-center gap-2.5 rounded-sm px-2.5 py-2 hover:bg-white/[0.06]">
+      <div className="mt-1 flex items-center gap-2.5 rounded-sm px-2.5 py-2">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
           {initials(userName)}
         </span>
@@ -170,19 +171,23 @@ export function AppNav({
             · En línea
           </span>
         </span>
-        <button
-          aria-label="Cerrar sesión"
-          title="Cerrar sesión"
-          className="rounded p-1 text-[#8a8a92] hover:text-white"
-          onClick={async () => {
-            await signOut();
-            router.push("/login");
-            router.refresh();
-          }}
-        >
-          <LogOut className="h-4 w-4" strokeWidth={1.7} />
-        </button>
       </div>
+
+      {/* Salir devuelve a la página inicial, no al login: quien cierra sesión
+          normalmente quiere irse, no volver a entrar. */}
+      <button
+        className="flex items-center gap-[11px] rounded-sm px-2.5 py-2 text-sm font-medium text-[#9a9aa2] transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-60"
+        disabled={leaving}
+        onClick={async () => {
+          setLeaving(true);
+          await signOut();
+          router.push("/");
+          router.refresh();
+        }}
+      >
+        <LogOut className="h-[18px] w-[18px] text-[#6e6e76]" strokeWidth={1.7} />
+        {leaving ? "Saliendo…" : "Salir"}
+      </button>
     </aside>
   );
 }

@@ -57,6 +57,27 @@ type YcloudMedia = {
 export type YcloudEvent = {
   id?: string;
   type?: string;
+  /**
+   * Eco de un mensaje enviado desde la APP de WhatsApp Business del negocio
+   * (coexistencia). Sin esto, cuando el dueño responde desde su celular el CRM
+   * no se entera y el agente le contesta encima al mismo cliente.
+   */
+  whatsappMessage?: {
+    wamid?: string;
+    id?: string;
+    wabaId?: string;
+    from?: string; // número del negocio
+    to?: string; // número del cliente
+    sendTime?: string;
+    createTime?: string;
+    type?: string;
+    // En el eco `text` llega como string plano; en el entrante como objeto.
+    text?: string | { body?: string };
+    image?: YcloudMedia;
+    document?: YcloudMedia;
+    video?: YcloudMedia;
+    audio?: YcloudMedia;
+  };
   whatsappInboundMessage?: {
     id?: string;
     wabaId?: string;
@@ -90,6 +111,45 @@ export type ParsedInbound = {
 };
 
 const stripPlus = (n: string) => n.replace(/^\+/, "");
+
+/** Mensaje que el negocio envió desde su celular (no por el CRM). */
+export type ParsedEcho = {
+  waMessageId: string;
+  wabaId: string;
+  businessPhone: string; // quien lo envió: el número del negocio
+  customerPhone: string; // a quién
+  type: string;
+  text: string | null;
+  unixTs: string;
+  mediaUrl: string | null;
+  mediaId: string | null;
+  mimeType: string | null;
+};
+
+export function parseYcloudEcho(event: YcloudEvent): ParsedEcho | null {
+  const m = event.whatsappMessage;
+  const waMessageId = m?.wamid ?? m?.id;
+  if (!m || !waMessageId || !m.to) return null;
+
+  const media = m.image ?? m.document ?? m.video ?? m.audio ?? null;
+  const text =
+    typeof m.text === "string" ? m.text : (m.text?.body ?? media?.caption ?? null);
+  const iso = m.sendTime ?? m.createTime;
+  const ms = iso ? Date.parse(iso) : Date.now();
+
+  return {
+    waMessageId,
+    wabaId: m.wabaId ?? "",
+    businessPhone: stripPlus(m.from ?? ""),
+    customerPhone: stripPlus(m.to),
+    type: m.type ?? "text",
+    text,
+    unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
+    mediaUrl: media?.link ?? null,
+    mediaId: media?.id ?? null,
+    mimeType: media?.mime_type ?? media?.mimeType ?? null,
+  };
+}
 
 /** Extrae el mensaje entrante del evento; null si no es procesable. */
 export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {

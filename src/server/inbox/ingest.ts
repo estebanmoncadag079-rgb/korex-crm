@@ -6,7 +6,12 @@ import { getCredentialsByPhoneNumberId } from "@/server/whatsapp/credentials";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
 import { onLeadActivity } from "@/server/inbox/lead-activity";
-import { clearHandoff, resumeReason } from "@/server/inbox/handoff-policy";
+import {
+  clearHandoff,
+  isReturnToAgentPhrase,
+  markHumanTookOver,
+  resumeReason,
+} from "@/server/inbox/handoff-policy";
 import { maybeRunAgentTurn } from "@/server/ai/trigger";
 
 /** Tipos de contenido soportados; el resto se ignora sin error. */
@@ -233,6 +238,77 @@ export async function ingestInboundMessage(
   }
 
   await maybeRunAgentTurn(conversation.id);
+}
+
+/**
+ * Registra un mensaje que el negocio envió desde su CELULAR (coexistencia) y
+ * cede el turno: si una persona está respondiendo por su cuenta, el agente
+ * calla — si no, los dos le escriben al mismo cliente a la vez.
+ *
+ * Idempotente por `wa_message_id`: un eco repetido no vuelve a tocar el turno.
+ */
+export async function ingestOutboundEcho(input: {
+  organizationId: string;
+  toPhone: string;
+  waMessageId: string;
+  type: string;
+  text: string | null;
+  timestamp: string;
+  mediaUrl?: string | null;
+  mediaId?: string | null;
+  mimeType?: string | null;
+}): Promise<void> {
+  const db = getDb();
+  const { organizationId } = input;
+
+  const { contact } = await getOrCreateContact(organizationId, input.toPhone);
+  const conversation = await getOrCreateConversation(organizationId, contact.id);
+  const waTimestamp = toDate(input.timestamp);
+
+  const inserted = await db
+    .insert(schema.message)
+    .values({
+      id: newId("message"),
+      organizationId,
+      conversationId: conversation.id,
+      waMessageId: input.waMessageId,
+      direction: "out",
+      type: input.type,
+      text: input.text,
+      // Ya salió por WhatsApp: nació entregado, no "pendiente".
+      status: "sent",
+      aiGenerated: false,
+      mediaUrl: input.mediaUrl ?? null,
+      mediaId: input.mediaId ?? null,
+      mimeType: input.mimeType ?? null,
+      waTimestamp,
+    })
+    .onConflictDoNothing({ target: [schema.message.waMessageId] })
+    .returning();
+  const message = inserted[0];
+  if (!message) return; // eco duplicado: ya estaba registrado
+
+  await db
+    .update(schema.conversation)
+    .set({ lastMessageAt: waTimestamp, updatedAt: new Date() })
+    .where(eq(schema.conversation.id, conversation.id));
+
+  publish(organizationId, {
+    type: "message.new",
+    data: { conversationId: conversation.id, message: serializeMessage(message) },
+  });
+  publish(organizationId, {
+    type: "conversation.updated",
+    data: { conversation: { id: conversation.id } },
+  });
+
+  // Mismo trato que si hubiera escrito desde la bandeja: toma la conversación,
+  // salvo que esté devolviéndole el turno al agente.
+  if (isReturnToAgentPhrase(input.text)) {
+    await clearHandoff(conversation.id, organizationId);
+  } else {
+    await markHumanTookOver(conversation.id, organizationId);
+  }
 }
 
 function toDate(timestamp: string): Date {

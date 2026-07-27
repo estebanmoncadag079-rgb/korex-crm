@@ -24,10 +24,24 @@ export type InboundRoute = {
 export async function resolveInboundRoute(
   msg: ParsedInbound
 ): Promise<InboundRoute | null> {
+  return resolveRoute(msg.to, msg.wabaId);
+}
+
+/**
+ * Organización dueña de un número del negocio. Sirve tanto para los mensajes
+ * que entran (`to` = el negocio) como para los ecos de la app del celular
+ * (`from` = el negocio).
+ */
+export async function resolveRoute(
+  businessPhone: string,
+  wabaId: string
+): Promise<InboundRoute | null> {
   const env = getEnv();
 
-  const byPhone = msg.to ? await getCredentialsByDisplayPhone(msg.to) : null;
-  const credentials = byPhone ?? (await getCredentialsByWabaId(msg.wabaId));
+  const byPhone = businessPhone
+    ? await getCredentialsByDisplayPhone(businessPhone)
+    : null;
+  const credentials = byPhone ?? (wabaId ? await getCredentialsByWabaId(wabaId) : null);
 
   let organizationId = credentials?.organizationId ?? null;
 
@@ -37,7 +51,7 @@ export async function resolveInboundRoute(
     !organizationId &&
     env.YCLOUD_OBSERVE_WABA &&
     env.YCLOUD_OBSERVE_ORG &&
-    msg.wabaId === env.YCLOUD_OBSERVE_WABA
+    wabaId === env.YCLOUD_OBSERVE_WABA
   ) {
     organizationId = env.YCLOUD_OBSERVE_ORG;
   }

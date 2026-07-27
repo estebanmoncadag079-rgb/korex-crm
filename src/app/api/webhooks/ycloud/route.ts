@@ -2,11 +2,12 @@ import { after } from "next/server";
 import { getEnv } from "@/lib/env";
 import {
   verifyYcloudSignature,
+  parseYcloudEcho,
   parseYcloudInbound,
   type YcloudEvent,
 } from "@/server/inbox/ycloud-webhook";
-import { resolveInboundRoute } from "@/server/inbox/ycloud-routing";
-import { ingestInboundMessage } from "@/server/inbox/ingest";
+import { resolveInboundRoute, resolveRoute } from "@/server/inbox/ycloud-routing";
+import { ingestInboundMessage, ingestOutboundEcho } from "@/server/inbox/ingest";
 
 /**
  * Webhook de YCloud (WhatsApp Business API oficial).
@@ -46,6 +47,10 @@ export async function POST(req: Request) {
 }
 
 async function handleEvent(event: YcloudEvent): Promise<void> {
+  if (event.type === "whatsapp.smb.message.echoes") {
+    await handleEcho(event);
+    return;
+  }
   if (event.type !== "whatsapp.inbound_message.received") return;
 
   const msg = parseYcloudInbound(event);
@@ -75,4 +80,33 @@ async function handleEvent(event: YcloudEvent): Promise<void> {
     },
     { triggerAgent: route.triggerAgent }
   );
+}
+
+/**
+ * El negocio respondió desde la app de WhatsApp de su celular: se registra en
+ * el hilo (para que el historial no tenga huecos) y el agente cede el turno.
+ */
+async function handleEcho(event: YcloudEvent): Promise<void> {
+  const echo = parseYcloudEcho(event);
+  if (!echo) return;
+
+  const route = await resolveRoute(echo.businessPhone, echo.wabaId);
+  if (!route) {
+    console.warn(
+      `[ycloud webhook] eco de un número sin cliente (from=${echo.businessPhone})`
+    );
+    return;
+  }
+
+  await ingestOutboundEcho({
+    organizationId: route.organizationId,
+    toPhone: echo.customerPhone,
+    waMessageId: echo.waMessageId,
+    type: echo.type,
+    text: echo.text,
+    timestamp: echo.unixTs,
+    mediaUrl: echo.mediaUrl,
+    mediaId: echo.mediaId,
+    mimeType: echo.mimeType,
+  });
 }

@@ -33,9 +33,12 @@ export function nowForBusiness(now: Date = new Date(), timeZone = BUSINESS_TIMEZ
     weekday: "long",
     day: "numeric",
     month: "long",
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
-    hour12: true,
+    // 24 horas a propósito: con am/pm el agente leía las 12:02 de la
+    // madrugada como si cayeran dentro de un horario que abre a las 12:30 pm,
+    // y le decía al cliente que el negocio estaba abierto a medianoche.
+    hour12: false,
   }).format(now);
 }
 
@@ -52,7 +55,7 @@ export function buildAgentSystemPrompt(input: {
   const stageNames = input.stages.map((s) => s.name).join(" | ");
   return [
     `Eres "${profile.name}", el asistente de WhatsApp de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
-    `Ahora mismo es ${nowForBusiness(input.now)} en Colombia. Compáralo con el horario de atención para saber si el negocio está abierto en este momento.`,
+    `Ahora mismo es ${nowForBusiness(input.now)} en Colombia (hora en formato 24 h). Compáralo con el horario de atención para saber si el negocio está abierto AHORA. Convierte el horario a 24 h antes de compararlo: 12:30 pm son las 12:30 y 8:30 pm son las 20:30, así que 00:02 está FUERA de ese horario.`,
     profile.tone ? `Tono: ${profile.tone}` : null,
     profile.instructions ? `Instrucciones del negocio:\n${profile.instructions}` : null,
     profile.escalationRules

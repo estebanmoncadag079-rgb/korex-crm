@@ -90,6 +90,30 @@ async function executeTurn(conversationId: string): Promise<void> {
 }
 
 /**
+ * Convierte el historial guardado en los turnos que ve el agente.
+ *
+ * Sus respuestas se le devuelven CON el envoltorio de acción. De la respuesta
+ * solo se guarda el texto que salió al cliente, y verse a sí mismo hablando en
+ * prosa le hacía abandonar el formato a mitad de la conversación: contestaba
+ * bien pero sin envoltorio, se agotaban los reintentos y el pedido terminaba
+ * derivado a una persona.
+ */
+export function toChatHistory(
+  history: { direction: string; text: string | null }[]
+): ChatMessage[] {
+  return history
+    .filter((m) => m.text)
+    .map((m) =>
+      m.direction === "in"
+        ? { role: "user" as const, content: m.text! }
+        : {
+            role: "assistant" as const,
+            content: JSON.stringify({ action: "reply", text: m.text! }),
+          }
+    );
+}
+
+/**
  * Ejecuta UN turno del agente ahora (el Laboratorio lo llama directo, con
  * debounce 0 y sin pasar por el coalesce).
  */
@@ -158,12 +182,7 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
       role: "system",
       content: buildAgentSystemPrompt({ profile, kb, stages }),
     },
-    ...history
-      .filter((m) => m.text)
-      .map((m) => ({
-        role: m.direction === "in" ? ("user" as const) : ("assistant" as const),
-        content: m.text!,
-      })),
+    ...toChatHistory(history),
   ];
 
   const result = await chatJson(AgentAction, messages);

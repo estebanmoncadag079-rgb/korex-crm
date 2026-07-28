@@ -22,15 +22,37 @@ export function renderKb(entries: KbEntry[]): string {
  * System prompt del agente (v1: inyecta el KB completo — el límite se
  * documenta con el contador de tamaño en la UI).
  */
+/**
+ * Fecha y hora del negocio en palabras. El agente no tiene reloj: sin esto no
+ * puede saber si el cliente está escribiendo dentro del horario de atención,
+ * y un negocio necesita responder distinto a las 3 de la tarde que a medianoche.
+ */
+export function nowForBusiness(now: Date = new Date(), timeZone = BUSINESS_TIMEZONE): string {
+  return new Intl.DateTimeFormat("es-CO", {
+    timeZone,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(now);
+}
+
+/** Zona del negocio. Hoy todos los clientes son colombianos. */
+const BUSINESS_TIMEZONE = "America/Bogota";
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
   stages: { name: string }[];
+  now?: Date;
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
   return [
     `Eres "${profile.name}", el asistente de WhatsApp de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
+    `Ahora mismo es ${nowForBusiness(input.now)} en Colombia. Compáralo con el horario de atención para saber si el negocio está abierto en este momento.`,
     profile.tone ? `Tono: ${profile.tone}` : null,
     profile.instructions ? `Instrucciones del negocio:\n${profile.instructions}` : null,
     profile.escalationRules

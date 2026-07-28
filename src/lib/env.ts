@@ -33,6 +33,11 @@ const envSchema = z.object({
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api"),
   OPENROUTER_MODEL: z.string().optional(),
   OPENROUTER_JUDGE_MODEL: z.string().optional(),
+  /**
+   * Modelo de rescate: si el de diario no logra una respuesta usable, se
+   * gasta una llamada en este antes de derivar la conversación a una persona.
+   */
+  OPENROUTER_FALLBACK_MODEL: z.string().optional(),
   ALLOW_SIGNUP: z.string().optional(),
   /** WhatsApp de la agencia para pedir asesoría desde el login (E.164 sin '+'). */
   SUPPORT_WHATSAPP: z.string().optional(),

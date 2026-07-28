@@ -46,6 +46,32 @@ export async function chatJson<T>(
     };
   }
 
+  const intento = await intentarCon(model, schema, messages, opts?.timeoutMs);
+  if (intento.ok) return intento;
+
+  /**
+   * Red de seguridad: el modelo de diario es barato, y si un día se atasca con
+   * el formato preferimos gastar una llamada en uno más capaz antes que dejar
+   * al cliente sin respuesta y el pedido en manos de una persona.
+   */
+  const respaldo = getEnv().OPENROUTER_FALLBACK_MODEL?.trim();
+  if (respaldo && respaldo !== model && !opts?.judge && !opts?.model) {
+    console.warn(
+      `[ia] ${model} no devolvió una respuesta usable; reintentando con ${respaldo}`
+    );
+    const rescate = await intentarCon(respaldo, schema, messages, opts?.timeoutMs);
+    if (rescate.ok) return rescate;
+  }
+  return intento;
+}
+
+/** Los MAX_ATTEMPTS intentos contra UN modelo. */
+async function intentarCon<T>(
+  model: string,
+  schema: z.ZodType<T>,
+  messages: ChatMessage[],
+  timeoutMs?: number
+): Promise<ChatJsonResult<T>> {
   let lastDetail = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const attemptMessages: ChatMessage[] =
@@ -60,7 +86,7 @@ export async function chatJson<T>(
             },
           ];
     try {
-      const raw = await callProvider(model, attemptMessages, opts?.timeoutMs);
+      const raw = await callProvider(model, attemptMessages, timeoutMs);
       const extracted = extractJson(raw);
       if (extracted === null) {
         lastDetail = `sin JSON extraíble (raw=${truncate(raw)})`;

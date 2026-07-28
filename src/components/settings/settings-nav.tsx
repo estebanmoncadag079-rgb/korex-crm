@@ -4,19 +4,25 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+/**
+ * La conexión del número no se le muestra al cliente: ahí viven las
+ * credenciales con las que su bot sale a WhatsApp, y sobrescribirlas lo deja
+ * sin servicio sin que sea evidente por qué. La conecta la agencia al dar de
+ * alta el cliente.
+ */
 const TABS = [
-  { href: "/settings/whatsapp", label: "WhatsApp" },
-  { href: "/settings/branding", label: "Marca" },
-  { href: "/settings/templates", label: "Plantillas" },
-  { href: "/settings/team", label: "Equipo" },
-  { href: "/settings/cuenta", label: "Mi cuenta" },
+  { href: "/settings/whatsapp", label: "WhatsApp", soloAgencia: true },
+  { href: "/settings/branding", label: "Marca", soloAgencia: false },
+  { href: "/settings/templates", label: "Plantillas", soloAgencia: false },
+  { href: "/settings/team", label: "Equipo", soloAgencia: false },
+  { href: "/settings/cuenta", label: "Mi cuenta", soloAgencia: false },
 ] as const;
 
-export function SettingsNav() {
+export function SettingsNav({ esAgencia = false }: { esAgencia?: boolean }) {
   const pathname = usePathname();
   return (
     <nav className="w-44 shrink-0 space-y-1 border-r p-3">
-      {TABS.map((t) => (
+      {TABS.filter((t) => esAgencia || !t.soloAgencia).map((t) => (
         <Link
           key={t.href}
           href={t.href}

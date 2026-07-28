@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
 import {
   getCredentialsByOrg,
   saveCredentials,
@@ -9,7 +9,16 @@ import { subscribeAppToWaba, testConnection } from "@/server/whatsapp/connect";
 
 export const dynamic = "force-dynamic";
 
-export const GET = withAuth(async (session) => {
+/**
+ * Conectar el número es cosa de la agencia.
+ *
+ * Aquí se sobrescriben las credenciales con las que el bot del cliente sale a
+ * WhatsApp — incluida la API key de su cuenta de YCloud, que vive en el mismo
+ * campo. Si un cliente las toca, su bot deja de responder. El GET tampoco es
+ * suyo: devuelve los últimos dígitos de esa credencial.
+ */
+
+export const GET = withPlatformAdmin(async (session) => {
   const creds = await getCredentialsByOrg(session.organizationId);
   if (!creds) return Response.json({ connection: null });
   return Response.json({
@@ -31,7 +40,7 @@ const putSchema = z.object({
 });
 
 /** Guarda la conexión: re-valida contra Meta, cifra y suscribe (FR-040). */
-export const PUT = withAuth(async (session, req: Request) => {
+export const PUT = withPlatformAdmin(async (session, req: Request) => {
   const body = await parseBody(req, putSchema);
   if (!body.ok) return body.response;
 

@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
 import { testConnection } from "@/server/whatsapp/connect";
 
 export const dynamic = "force-dynamic";
+
+/** Prueba de credenciales: parte del alta que hace la agencia. */
 
 const bodySchema = z.object({
   phoneNumberId: z.string().trim().min(1),
@@ -10,7 +12,7 @@ const bodySchema = z.object({
 });
 
 /** Prueba de conexión: valida token↔número, NO guarda (FR-040). */
-export const POST = withAuth(async (_session, req: Request) => {
+export const POST = withPlatformAdmin(async (_session, req: Request) => {
   const body = await parseBody(req, bodySchema);
   if (!body.ok) return body.response;
 

@@ -4,6 +4,7 @@ import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isAiConfigured } from "@/lib/env";
 import { RunConflictError, startRun } from "@/server/lab/runner";
+import { labQuota, quotaExhausted } from "@/server/lab/quota";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,14 @@ export const GET = withAuth(async (session) => {
           : null,
     };
   });
-  return Response.json({ runs: withDelta, aiConfigured: isAiConfigured() });
+  const quota = await labQuota(session.organizationId, {
+    isAgency: session.platformRole === "superadmin",
+  });
+  return Response.json({
+    runs: withDelta,
+    aiConfigured: isAiConfigured(),
+    quota,
+  });
 });
 
 export const POST = withAuth(async (session) => {
@@ -45,6 +53,18 @@ export const POST = withAuth(async (session) => {
       "Configura tu proveedor de IA para correr el Laboratorio"
     );
   }
+  // Cada corrida cuesta unas 33 llamadas al modelo, y las paga la agencia.
+  const quota = await labQuota(session.organizationId, {
+    isAgency: session.platformRole === "superadmin",
+  });
+  if (quotaExhausted(quota)) {
+    return apiError(
+      429,
+      "lab_quota_exceeded",
+      `Ya usaste las ${quota.limit} pruebas de este mes. El cupo se renueva el día 1; si necesitas más, escríbenos.`
+    );
+  }
+
   try {
     const runId = await startRun(session.organizationId);
     return Response.json({ runId }, { status: 202 });

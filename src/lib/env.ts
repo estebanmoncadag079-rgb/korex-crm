@@ -37,6 +37,12 @@ const envSchema = z.object({
   /** WhatsApp de la agencia para pedir asesoría desde el login (E.164 sin '+'). */
   SUPPORT_WHATSAPP: z.string().optional(),
   AGENT_COALESCE_MS: z.coerce.number().int().min(0).default(6000),
+  /**
+   * Corridas del Laboratorio que puede lanzar un CLIENTE al mes. Cada una
+   * simula seis conversaciones completas y las califica con IA — la paga la
+   * agencia, que por eso no tiene cupo.
+   */
+  LAB_RUNS_PER_MONTH: z.coerce.number().int().min(0).default(5),
   WA_MOCK_ENABLED: z.string().optional(),
   // --- YCloud (proveedor oficial de WhatsApp Business API) ---
   YCLOUD_API_KEY: z.string().optional(),

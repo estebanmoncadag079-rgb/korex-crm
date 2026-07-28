@@ -57,6 +57,8 @@ const TIPO_LABELS: Record<Hallazgo["tipo"], string> = {
 export function LabClient() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [aiConfigured, setAiConfigured] = useState(true);
+  // null = la agencia, que no tiene cupo.
+  const [quota, setQuota] = useState<{ used: number; limit: number | null; left: number | null } | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ run: Run; cases: Case[] } | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -66,9 +68,14 @@ export function LabClient() {
   const refetchRuns = useCallback(async () => {
     const res = await fetch("/api/lab/runs").catch(() => null);
     if (!res?.ok) return;
-    const data = (await res.json()) as { runs: Run[]; aiConfigured: boolean };
+    const data = (await res.json()) as {
+      runs: Run[];
+      aiConfigured: boolean;
+      quota?: { used: number; limit: number | null; left: number | null };
+    };
     setRuns(data.runs);
     setAiConfigured(data.aiConfigured);
+    setQuota(data.quota ?? null);
     if (!selectedRunId && data.runs[0]) setSelectedRunId(data.runs[0].id);
   }, [selectedRunId]);
 
@@ -143,7 +150,8 @@ export function LabClient() {
         running={running}
         launching={launching}
         onLaunch={() => void launch()}
-        disabled={false}
+        disabled={quota?.left === 0}
+        quota={quota}
       />
       {error && <p className="px-6 pt-3 text-sm text-destructive">{error}</p>}
 
@@ -189,11 +197,13 @@ function Header({
   launching,
   onLaunch,
   disabled,
+  quota,
 }: {
   running: boolean;
   launching: boolean;
   onLaunch: () => void;
   disabled: boolean;
+  quota?: { used: number; limit: number | null; left: number | null } | null;
 }) {
   return (
     <header className="flex items-center justify-between border-b px-6 py-4">
@@ -203,6 +213,16 @@ function Header({
         </h2>
         <p className="text-xs text-muted-foreground">
           Sandbox interno — no envía mensajes reales
+          {quota?.limit != null && (
+            <>
+              {" · "}
+              <span className={quota.left === 0 ? "text-destructive" : undefined}>
+                {quota.left === 0
+                  ? `Sin pruebas este mes (${quota.limit} de ${quota.limit} usadas)`
+                  : `Te quedan ${quota.left} de ${quota.limit} pruebas este mes`}
+              </span>
+            </>
+          )}
         </p>
       </div>
       <Button onClick={onLaunch} disabled={disabled || running || launching}>

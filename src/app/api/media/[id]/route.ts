@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { apiError, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
-import { getEnv } from "@/lib/env";
+import { getYcloudApiKey } from "@/server/whatsapp/credentials";
 
 export const dynamic = "force-dynamic";
 
@@ -52,13 +52,13 @@ export const GET = withAuth(async (session, _req: Request, ctx: Ctx) => {
     return apiError(404, "not_found", "Ese mensaje no tiene archivo adjunto");
   }
 
-  const env = getEnv();
+  // El adjunto vive en la cuenta de YCloud por la que entró el mensaje: la del
+  // propio cliente si trajo la suya, si no la de la agencia.
+  const apiKey = await getYcloudApiKey(session.organizationId);
   let upstream: Response;
   try {
     upstream = await fetch(message.mediaUrl, {
-      headers: env.YCLOUD_API_KEY
-        ? { "X-API-Key": env.YCLOUD_API_KEY }
-        : undefined,
+      headers: apiKey ? { "X-API-Key": apiKey } : undefined,
     });
   } catch {
     return apiError(502, "unavailable", "No se pudo descargar el archivo");

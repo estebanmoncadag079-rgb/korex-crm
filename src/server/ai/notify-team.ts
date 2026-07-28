@@ -6,7 +6,7 @@ import {
   ycloudSendText,
   ycloudSendTemplate,
 } from "@/lib/ycloud/client";
-import { callGraphSend } from "@/server/inbox/send";
+import { callGraphSend, ycloudApiKeyOf } from "@/server/inbox/send";
 import {
   getCredentialsByOrg,
   normalizePhoneNumber,
@@ -90,11 +90,13 @@ export async function notifyTeam(input: {
   const link = input.customerPhone ? waMeLink(input.customerPhone) : null;
   const text = link ? `${input.summary}\n${link}` : input.summary;
 
+  const apiKey = ycloudApiKeyOf(credentials);
+
   let sent = 0;
   const errors: string[] = [];
   for (const to of phones) {
     try {
-      if (isYcloudEnabled()) {
+      if (apiKey || isYcloudEnabled()) {
         const from = credentials.displayPhoneNumber ?? "";
         // Con plantilla configurada se usa SIEMPRE: es lo único que atraviesa
         // la ventana de 24 h, y dentro de ella también vale. Si la plantilla
@@ -108,6 +110,7 @@ export async function notifyTeam(input: {
               name: template,
               language: templateLang,
               bodyParams: [text.replace(/\n/g, " · ")],
+              apiKey,
             });
           } catch (templateErr) {
             console.warn(
@@ -115,10 +118,10 @@ export async function notifyTeam(input: {
                 templateErr instanceof Error ? templateErr.message : "error"
               }): se intenta texto libre`
             );
-            await ycloudSendText({ from, to, text });
+            await ycloudSendText({ from, to, text, apiKey });
           }
         } else {
-          await ycloudSendText({ from, to, text });
+          await ycloudSendText({ from, to, text, apiKey });
         }
       } else {
         await callGraphSend(credentials, {

@@ -34,6 +34,7 @@ type Client = {
   unread: number;
   agentEnabled: boolean;
   phone: string | null;
+  ownAccount: boolean;
   connectionStatus: "connected" | "reconnect_required" | null;
 };
 
@@ -389,7 +390,11 @@ function ClientCard({
 
         {open && (
           <>
-            <ClientNumber clientId={client.id} phone={client.phone} />
+            <ClientNumber
+              clientId={client.id}
+              phone={client.phone}
+              ownAccount={client.ownAccount}
+            />
             <DeleteClient
               client={client}
               isActive={isActive}
@@ -414,14 +419,18 @@ function ClientCard({
 function ClientNumber({
   clientId,
   phone,
+  ownAccount,
 }: {
   clientId: string;
   phone: string | null;
+  ownAccount: boolean;
 }) {
   const [value, setValue] = useState(phone ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [saving, setSaving] = useState(false);
   const [state, setState] = useState<
-    { ok: true } | { ok: false; message: string } | null
+    { ok: true; webhookUrl: string | null } | { ok: false; message: string } | null
   >(null);
 
   async function save() {
@@ -430,7 +439,14 @@ function ClientNumber({
     const res = await fetch(`/api/admin/clients/${clientId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ phone: value }),
+      body: JSON.stringify({
+        phone: value,
+        // Vacío = no se toca lo guardado (corregir el número no borra sus claves).
+        ...(apiKey.trim() ? { ycloudApiKey: apiKey.trim() } : {}),
+        ...(webhookSecret.trim()
+          ? { ycloudWebhookSecret: webhookSecret.trim() }
+          : {}),
+      }),
     }).catch(() => null);
     setSaving(false);
     if (!res?.ok) {
@@ -443,7 +459,12 @@ function ClientNumber({
       });
       return;
     }
-    setState({ ok: true });
+    const data = (await res.json().catch(() => null)) as {
+      webhookUrl?: string | null;
+    } | null;
+    setApiKey("");
+    setWebhookSecret("");
+    setState({ ok: true, webhookUrl: data?.webhookUrl ?? null });
   }
 
   return (
@@ -476,6 +497,43 @@ function ClientNumber({
       {state?.ok === false && (
         <p className="text-xs text-destructive">{state.message}</p>
       )}
+
+      <details className="pt-2">
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          Cuenta propia de YCloud{" "}
+          {ownAccount ? "· configurada ✓" : "· opcional"}
+        </summary>
+        <div className="space-y-2 pt-2">
+          <p className="text-xs text-muted-foreground">
+            Si el cliente trae su propia cuenta de YCloud, paga sus mensajes y
+            aporta su cupo de número: no consume ninguno de los tuyos. Déjalo
+            vacío para que salga por la cuenta de la agencia.
+          </p>
+          <Input
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="API key del cliente"
+            type="password"
+            aria-label="API key de YCloud del cliente"
+          />
+          <Input
+            value={webhookSecret}
+            onChange={(e) => setWebhookSecret(e.target.value)}
+            placeholder="Secreto del webhook (whsec_…)"
+            type="password"
+            aria-label="Secreto del webhook de YCloud del cliente"
+          />
+          {state?.ok === true && state.webhookUrl && (
+            <div className="rounded border bg-background p-2">
+              <p className="text-xs text-muted-foreground">
+                Pega esta dirección como webhook en la consola de YCloud del
+                cliente:
+              </p>
+              <code className="block break-all text-xs">{state.webhookUrl}</code>
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

@@ -12,7 +12,10 @@ export type Credentials = {
   displayPhoneNumber: string | null;
   verifiedName: string | null;
   status: "connected" | "reconnect_required";
+  /** Meta directo: token de acceso. YCloud: API key del cliente ("" = la de la agencia). */
   token: string;
+  /** Secreto del webhook de la cuenta YCloud del cliente (null = la de la agencia). */
+  webhookSecret: string | null;
 };
 
 type Row = typeof schema.metaCredentials.$inferSelect;
@@ -31,6 +34,14 @@ function toCredentials(row: Row): Credentials {
       iv: row.tokenIv,
       tag: row.tokenTag,
     }),
+    webhookSecret:
+      row.webhookSecretCipher && row.webhookSecretIv && row.webhookSecretTag
+        ? decryptSecret({
+            cipher: row.webhookSecretCipher,
+            iv: row.webhookSecretIv,
+            tag: row.webhookSecretTag,
+          })
+        : null,
   };
 }
 
@@ -106,9 +117,25 @@ export async function saveCredentials(input: {
   token: string;
   displayPhoneNumber?: string | null;
   verifiedName?: string | null;
+  /** `undefined` conserva el secreto guardado; `null` lo borra. */
+  webhookSecret?: string | null;
 }): Promise<void> {
   const db = getDb();
   const enc = encryptSecret(input.token);
+  const secret =
+    input.webhookSecret === undefined
+      ? undefined
+      : input.webhookSecret
+        ? encryptSecret(input.webhookSecret)
+        : null;
+  const secretColumns =
+    secret === undefined
+      ? {}
+      : {
+          webhookSecretCipher: secret?.cipher ?? null,
+          webhookSecretIv: secret?.iv ?? null,
+          webhookSecretTag: secret?.tag ?? null,
+        };
   await db
     .insert(schema.metaCredentials)
     .values({
@@ -124,6 +151,7 @@ export async function saveCredentials(input: {
       tokenIv: enc.iv,
       tokenTag: enc.tag,
       status: "connected",
+      ...secretColumns,
     })
     .onConflictDoUpdate({
       target: [schema.metaCredentials.organizationId],
@@ -139,6 +167,7 @@ export async function saveCredentials(input: {
         tokenTag: enc.tag,
         status: "connected",
         updatedAt: new Date(),
+        ...secretColumns,
       },
     });
 }
@@ -146,27 +175,61 @@ export async function saveCredentials(input: {
 /**
  * Registra el número de WhatsApp de un cliente cuando el proveedor es YCloud.
  *
- * Con YCloud la credencial de red es la API key de la cuenta (global, en el
- * entorno), no un token por número: aquí solo se ata el NÚMERO a su
- * organización, que es lo que necesita el enrutamiento entrante y el envío
- * (`from`). El token queda vacío a propósito.
+ * Dos formas de conectar un cliente, y las dos conviven:
+ *
+ * 1. **Por la cuenta de la agencia** (sin `apiKey`): solo se ata el NÚMERO a su
+ *    organización y los envíos salen con la API key del entorno. Es como está
+ *    conectada La Churra y gasta un cupo del plan de la agencia.
+ * 2. **Con la cuenta propia del cliente** (`apiKey` + `webhookSecret`): cada
+ *    negocio paga sus mensajes y aporta su propio cupo, así que la agencia no
+ *    tiene techo de clientes. Sus eventos entran por `/api/webhooks/ycloud/<org>`.
  */
 export async function saveYcloudNumber(input: {
   organizationId: string;
   phone: string;
   wabaId?: string | null;
   verifiedName?: string | null;
+  /** `undefined` conserva la key guardada; `""` vuelve a la cuenta de la agencia. */
+  apiKey?: string | null;
+  webhookSecret?: string | null;
 }): Promise<void> {
   const phone = normalizePhoneNumber(input.phone);
   if (!phone) throw new Error("Número inválido");
+
+  // Corregir el número de un cliente no puede costarle sus credenciales: si no
+  // llegan en esta llamada, se conservan las que ya tenía. Solo se heredan de
+  // una conexión que YA era de YCloud — el token de Meta no es una API key.
+  let apiKey = input.apiKey?.trim() ?? "";
+  if (input.apiKey === undefined) {
+    const current = await getCredentialsByOrg(input.organizationId);
+    apiKey = current?.phoneNumberId.startsWith("ycloud:")
+      ? current.token.trim()
+      : "";
+  }
+
   await saveCredentials({
     organizationId: input.organizationId,
     wabaId: input.wabaId || `ycloud:${phone}`,
     phoneNumberId: `ycloud:${phone}`,
     displayPhoneNumber: phone,
     verifiedName: input.verifiedName ?? null,
-    token: "",
+    token: apiKey,
+    webhookSecret: input.webhookSecret,
   });
+}
+
+/**
+ * API key de YCloud con la que hay que enviar por cuenta de una organización:
+ * la suya si tiene cuenta propia, si no la de la agencia. Devuelve `null`
+ * cuando no hay ninguna configurada.
+ */
+export async function getYcloudApiKey(
+  organizationId: string
+): Promise<string | null> {
+  const credentials = await getCredentialsByOrg(organizationId);
+  const own = credentials?.token.trim();
+  if (own) return own;
+  return process.env.YCLOUD_API_KEY?.trim() || null;
 }
 
 /** Marca la conexión como vencida (token inválido detectado en runtime). */

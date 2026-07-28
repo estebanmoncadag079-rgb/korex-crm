@@ -32,6 +32,17 @@ export class SendError extends Error {
 type SendResult = { messageId: string };
 
 /**
+ * API key propia del cliente, si trajo su cuenta de YCloud. Se distingue por
+ * `phoneNumberId` ("ycloud:<número>" lo pone `saveYcloudNumber`): en una
+ * conexión de Meta directo ese mismo campo guarda el token de Graph, que no
+ * sirve aquí.
+ */
+export function ycloudApiKeyOf(credentials: Credentials): string | undefined {
+  if (!credentials.phoneNumberId.startsWith("ycloud:")) return undefined;
+  return credentials.token.trim() || undefined;
+}
+
+/**
  * Envía un mensaje de texto libre por WhatsApp.
  *
  * ASERCIÓN DURA (FR-031): una conversación de prueba del Laboratorio jamás
@@ -88,14 +99,16 @@ export async function sendText(input: {
   }
 
   const to = normalizeRecipient(row.contact.phone);
+  const clientApiKey = ycloudApiKeyOf(credentials);
   let waMessageId: string;
-  if (isYcloudEnabled()) {
+  if (clientApiKey || isYcloudEnabled()) {
     // Envío por YCloud (proveedor oficial): from = número del negocio.
     try {
       waMessageId = await ycloudSendText({
         from: credentials.displayPhoneNumber ?? "",
         to,
         text: input.text,
+        apiKey: clientApiKey,
       });
     } catch (err) {
       throw new SendError(

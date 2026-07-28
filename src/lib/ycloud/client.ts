@@ -2,8 +2,13 @@ import { getEnv } from "@/lib/env";
 
 /**
  * Cliente de salida hacia YCloud (WhatsApp Business API oficial).
- * Frontera única de envío por YCloud. El API key es de cuenta (env), y el
- * remitente es el número del negocio (`from`).
+ * Frontera única de envío por YCloud; el remitente es el número del negocio
+ * (`from`).
+ *
+ * La API key puede venir de dos sitios: la del CLIENTE (si trajo su propia
+ * cuenta de YCloud, guardada cifrada junto a su número) o la de la agencia, en
+ * el entorno. Quien llama pasa la que toque; sin `apiKey` se usa la del
+ * entorno.
  */
 export function isYcloudEnabled(): boolean {
   const k = process.env.YCLOUD_API_KEY;
@@ -21,31 +26,41 @@ export async function ycloudSendTemplate(input: {
   name: string;
   language: string;
   bodyParams: string[];
+  apiKey?: string | null;
 }): Promise<string> {
-  const env = getEnv();
-  if (!env.YCLOUD_API_KEY) throw new Error("YCLOUD_API_KEY no configurada");
+  const key = resolveApiKey(input.apiKey);
   if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
 
-  return sendDirectly({
-    from: input.from,
-    to: input.to,
-    type: "template",
-    template: {
-      name: input.name,
-      language: { code: input.language },
-      components: input.bodyParams.length
-        ? [
-            {
-              type: "body",
-              parameters: input.bodyParams.map((text) => ({
-                type: "text",
-                text,
-              })),
-            },
-          ]
-        : [],
+  return sendDirectly(
+    {
+      from: input.from,
+      to: input.to,
+      type: "template",
+      template: {
+        name: input.name,
+        language: { code: input.language },
+        components: input.bodyParams.length
+          ? [
+              {
+                type: "body",
+                parameters: input.bodyParams.map((text) => ({
+                  type: "text",
+                  text,
+                })),
+              },
+            ]
+          : [],
+      },
     },
-  });
+    key
+  );
+}
+
+/** La key del cliente manda; si no trajo la suya, la de la agencia. */
+function resolveApiKey(apiKey?: string | null): string {
+  const key = apiKey?.trim() || getEnv().YCLOUD_API_KEY?.trim();
+  if (!key) throw new Error("YCLOUD_API_KEY no configurada");
+  return key;
 }
 
 /** Envía un texto libre por WhatsApp vía YCloud (sendDirectly). Devuelve el wamid. */
@@ -53,21 +68,27 @@ export async function ycloudSendText(input: {
   from: string;
   to: string;
   text: string;
+  apiKey?: string | null;
 }): Promise<string> {
-  const env = getEnv();
-  if (!env.YCLOUD_API_KEY) throw new Error("YCLOUD_API_KEY no configurada");
+  const key = resolveApiKey(input.apiKey);
   if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
 
-  return sendDirectly({
-    from: input.from,
-    to: input.to,
-    type: "text",
-    text: { body: input.text },
-  });
+  return sendDirectly(
+    {
+      from: input.from,
+      to: input.to,
+      type: "text",
+      text: { body: input.text },
+    },
+    key
+  );
 }
 
 /** POST único a sendDirectly: traduce el error de YCloud y devuelve el wamid. */
-async function sendDirectly(payload: Record<string, unknown>): Promise<string> {
+async function sendDirectly(
+  payload: Record<string, unknown>,
+  apiKey: string
+): Promise<string> {
   const env = getEnv();
   const res = await fetch(
     `${env.YCLOUD_BASE_URL}/v2/whatsapp/messages/sendDirectly`,
@@ -75,7 +96,7 @@ async function sendDirectly(payload: Record<string, unknown>): Promise<string> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": env.YCLOUD_API_KEY ?? "",
+        "X-API-Key": apiKey,
       },
       body: JSON.stringify(payload),
     }

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
+import { getEnv } from "@/lib/env";
 import { findOrganization } from "@/server/admin/clients";
 import {
   getCredentialsByDisplayPhone,
@@ -17,6 +18,14 @@ const patchSchema = z.object({
   /** Número del negocio en E.164 (con o sin '+'); es la clave de enrutamiento. */
   phone: z.string().trim().min(8).max(20),
   wabaId: z.string().trim().max(64).optional(),
+  /**
+   * Credenciales de la cuenta de YCloud DEL CLIENTE. Opcionales: sin ellas el
+   * cliente sale por la cuenta de la agencia y gasta uno de sus cupos. Con
+   * ellas paga sus propios mensajes y aporta su propio cupo.
+   * Cadena vacía = volver a la cuenta de la agencia.
+   */
+  ycloudApiKey: z.string().trim().max(200).optional(),
+  ycloudWebhookSecret: z.string().trim().max(200).optional(),
 });
 
 /**
@@ -51,8 +60,21 @@ export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) 
     organizationId: id,
     phone,
     wabaId: body.data.wabaId ?? null,
+    apiKey: body.data.ycloudApiKey,
+    webhookSecret: body.data.ycloudWebhookSecret,
   });
-  return Response.json({ ok: true, phone });
+
+  // Con cuenta propia, el cliente debe apuntar SU webhook aquí: se devuelve ya
+  // armada para copiar y pegar en su consola de YCloud.
+  const ownAccount = Boolean(body.data.ycloudApiKey?.trim());
+  return Response.json({
+    ok: true,
+    phone,
+    ownAccount,
+    webhookUrl: ownAccount
+      ? `${getEnv().APP_BASE_URL.replace(/\/$/, "")}/api/webhooks/ycloud/${id}`
+      : null,
+  });
 });
 
 const deleteSchema = z.object({

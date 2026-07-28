@@ -36,6 +36,13 @@
       "when": 1785133250931,
       "tag": "0004_fair_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785209759930,
+      "tag": "0005_material_inertia",
+      "breakpoints": true
     }
   ]
 }

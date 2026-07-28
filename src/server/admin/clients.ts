@@ -13,6 +13,8 @@ export type ClientSummary = {
   agentEnabled: boolean;
   phone: string | null;
   connectionStatus: "connected" | "reconnect_required" | null;
+  /** true = el cliente trajo su propia cuenta de YCloud (no gasta cupo de la agencia). */
+  ownAccount: boolean;
 };
 
 /**
@@ -34,6 +36,10 @@ export async function listClients(): Promise<ClientSummary[]> {
       agentEnabled: schema.agentProfile.enabled,
       phone: schema.metaCredentials.displayPhoneNumber,
       connectionStatus: schema.metaCredentials.status,
+      // Señal de cuenta propia: el secreto de webhook solo se rellena cuando el
+      // cliente trae su cuenta (cifrar el token vacío también produce datos,
+      // así que ese campo no sirve de indicador). La credencial no sale de la BD.
+      ownAccountSecret: schema.metaCredentials.webhookSecretCipher,
     })
     .from(schema.organization)
     .leftJoin(
@@ -80,6 +86,7 @@ export async function listClients(): Promise<ClientSummary[]> {
     agentEnabled: o.agentEnabled ?? false,
     phone: o.phone,
     connectionStatus: o.connectionStatus,
+    ownAccount: Boolean(o.ownAccountSecret),
   }));
 }
 

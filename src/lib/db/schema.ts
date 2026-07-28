@@ -255,9 +255,18 @@ export const metaCredentials = pgTable(
     phoneNumberId: text("phone_number_id").notNull(),
     displayPhoneNumber: text("display_phone_number"),
     verifiedName: text("verified_name"),
+    // Con Meta directo es el token de acceso; con YCloud, la API key de la
+    // cuenta del cliente. Vacío = el cliente va por la cuenta de la agencia
+    // (la del entorno).
     tokenCipher: text("token_cipher").notNull(),
     tokenIv: text("token_iv").notNull(),
     tokenTag: text("token_tag").notNull(),
+    // Secreto del webhook de la cuenta YCloud del cliente: sin él no se puede
+    // verificar la firma de SUS eventos. Nulo mientras use la cuenta de la
+    // agencia.
+    webhookSecretCipher: text("webhook_secret_cipher"),
+    webhookSecretIv: text("webhook_secret_iv"),
+    webhookSecretTag: text("webhook_secret_tag"),
     status: text("status", { enum: ["connected", "reconnect_required"] })
       .notNull()
       .default("connected"),

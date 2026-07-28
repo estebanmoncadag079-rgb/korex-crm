@@ -5,7 +5,7 @@ import { publish } from "@/server/events/bus";
 import { getCredentialsByPhoneNumberId } from "@/server/whatsapp/credentials";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
-import { onLeadActivity } from "@/server/inbox/lead-activity";
+import { onLeadActivity, onLeadReplied } from "@/server/inbox/lead-activity";
 import {
   clearHandoff,
   isReturnToAgentPhrase,
@@ -305,6 +305,15 @@ export async function ingestOutboundEcho(input: {
     type: "conversation.updated",
     data: { conversation: { id: conversation.id } },
   });
+
+  // Contestar desde el celular también arranca la conversación en el embudo.
+  // Aislado: el eco ya quedó registrado y el relevo humano de abajo es lo que
+  // de verdad importa de este webhook.
+  try {
+    await onLeadReplied(organizationId, contact.id);
+  } catch (err) {
+    console.error("[embudo] no se pudo avanzar el lead:", err);
+  }
 
   // Mismo trato que si hubiera escrito desde la bandeja: toma la conversación,
   // salvo que esté devolviéndole el turno al agente.

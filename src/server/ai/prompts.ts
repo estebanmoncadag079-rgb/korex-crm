@@ -142,7 +142,8 @@ export function buildAgentSystemPrompt(input: {
       "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
       "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",
       "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
-      "- Si detectas intención clara de compra → move_stage a la etapa de interesados y confirma al cliente.",
+      "- El embudo avanza SOLO en dos momentos y NO debes gastar una acción en ellos: cuando contestas, el lead sale de la primera etapa; cuando confirmas un pedido con notify_order, pasa a la etapa de cliente.",
+      "- Usa move_stage únicamente para lo que el sistema no puede deducir: intención clara de compra → etapa de interesados; el cliente dice que ya no quiere, que compró en otro lado o que no le sirve → etapa de perdidos. En ambos casos confirma al cliente con reply.",
       "- JSON puro, sin markdown ni texto adicional.",
     ].join("\n"),
   ]

@@ -9,6 +9,7 @@ import { SendError, sendText } from "@/server/inbox/send";
 import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
+import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 
 /**
@@ -246,6 +247,21 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
         conversation.contactId,
         `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
       );
+      // El embudo se cierra solo: un pedido confirmado es la única señal
+      // inequívoca de venta que tiene el sistema, y sin esto el lead se quedaba
+      // en "Nuevo" para siempre aunque el equipo ya estuviera despachándolo.
+      // Aislado: el pedido ya está registrado y avisado, que es lo que no se
+      // puede perder.
+      try {
+        if (await onLeadWon(organizationId, conversation.contactId)) {
+          publish(organizationId, {
+            type: "conversation.updated",
+            data: { conversation: { id: conversationId } },
+          });
+        }
+      } catch (err) {
+        console.error("[embudo] no se pudo cerrar el lead:", err);
+      }
       if (action.farewell) {
         await deliverReply(conversation, action.farewell);
       }

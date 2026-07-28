@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 
@@ -62,4 +62,124 @@ export async function onLeadActivity(
       lastActivityAt: at,
     })
     .onConflictDoNothing({ target: [schema.lead.contactId] });
+}
+
+/**
+ * El embudo se mueve solo (US2): nadie debería arrastrar tarjetas para que el
+ * tablero diga la verdad. Las dos funciones de abajo cubren los saltos que el
+ * servidor puede afirmar con certeza; los intermedios los decide el agente con
+ * `move_stage`, que sí valida contra las etapas reales de la organización.
+ *
+ * La decisión de A DÓNDE mover va en funciones puras: el cliente puede
+ * renombrar, reordenar y agregar etapas desde el tablero, así que nada aquí
+ * depende de los nombres sembrados — solo de `kind` y del orden.
+ */
+
+export type EtapaEmbudo = {
+  id: string;
+  position: number;
+  kind: "open" | "won" | "lost";
+};
+
+/**
+ * Las dos primeras etapas abiertas. De la primera sale el lead en cuanto el
+ * negocio contesta. Null si el embudo no tiene al menos dos: con una sola
+ * columna abierta no hay ningún avance que hacer.
+ */
+export function arranqueDelEmbudo<T extends EtapaEmbudo>(
+  stages: T[]
+): { desde: T; hacia: T } | null {
+  const abiertas = stages
+    .filter((s) => s.kind === "open")
+    .sort((a, b) => a.position - b.position);
+  const [desde, hacia] = abiertas;
+  return desde && hacia ? { desde, hacia } : null;
+}
+
+/** Etapa de cierre del embudo. Null si el cliente se quedó sin ancla `won`. */
+export function cierreDelEmbudo<T extends EtapaEmbudo>(stages: T[]): T | null {
+  return (
+    stages
+      .filter((s) => s.kind === "won")
+      .sort((a, b) => a.position - b.position)[0] ?? null
+  );
+}
+
+/** Todas las etapas de la organización, para decidir el destino en memoria. */
+async function etapasDe(organizationId: string): Promise<EtapaEmbudo[]> {
+  const db = getDb();
+  return db
+    .select({
+      id: schema.pipelineStage.id,
+      position: schema.pipelineStage.position,
+      kind: schema.pipelineStage.kind,
+    })
+    .from(schema.pipelineStage)
+    .where(eq(schema.pipelineStage.organizationId, organizationId))
+    .orderBy(asc(schema.pipelineStage.position));
+}
+
+/**
+ * El negocio contestó (agente, persona desde el CRM o eco del celular): el lead
+ * deja de ser "nuevo" y pasa a la siguiente etapa abierta.
+ *
+ * Solo avanza DESDE la primera etapa — el filtro va en el WHERE, así que quien
+ * ya está más adelante no retrocede y un lead cerrado no se reabre por un
+ * mensaje suelto. Sin lectura previa del lead: una sola sentencia, sin carreras.
+ */
+export async function onLeadReplied(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  const db = getDb();
+
+  const arranque = arranqueDelEmbudo(await etapasDe(organizationId));
+  if (!arranque) return false;
+  const { desde: primera, hacia: segunda } = arranque;
+
+  const movidos = await db
+    .update(schema.lead)
+    .set({ stageId: segunda.id, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.lead.organizationId, organizationId),
+        eq(schema.lead.contactId, contactId),
+        eq(schema.lead.stageId, primera.id)
+      )
+    )
+    .returning({ id: schema.lead.id });
+  return movidos.length > 0;
+}
+
+/**
+ * Pedido confirmado: el lead pasa a la etapa de cierre (`won`).
+ *
+ * Es el único salto que pisa cualquier etapa anterior — un pedido cerrado manda
+ * sobre lo que dijera el embudo — pero no toca un lead que ya estaba ganado.
+ */
+export async function onLeadWon(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  const db = getDb();
+
+  const cierre = cierreDelEmbudo(await etapasDe(organizationId));
+  if (!cierre) return false; // embudo sin etapa de cierre
+
+  const movidos = await db
+    .update(schema.lead)
+    .set({
+      stageId: cierre.id,
+      updatedAt: new Date(),
+      lastActivityAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.lead.organizationId, organizationId),
+        eq(schema.lead.contactId, contactId),
+        ne(schema.lead.stageId, cierre.id)
+      )
+    )
+    .returning({ id: schema.lead.id });
+  return movidos.length > 0;
 }

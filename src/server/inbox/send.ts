@@ -11,6 +11,7 @@ import {
 } from "@/server/whatsapp/credentials";
 import { isWindowOpen } from "@/server/inbox/window";
 import { serializeMessage } from "@/server/inbox/ingest";
+import { onLeadReplied } from "@/server/inbox/lead-activity";
 
 /** Error tipado del envío; `code` mapea a HTTP en la capa de API. */
 export class SendError extends Error {
@@ -153,6 +154,20 @@ export async function sendText(input: {
       message: serializeMessage(message),
     },
   });
+
+  // El negocio contestó: el lead deja de estar "nuevo" en el embudo. Va tras el
+  // envío y aislado a propósito — el mensaje ya salió por WhatsApp y un fallo
+  // moviendo una tarjeta jamás puede convertirse en un error de envío.
+  try {
+    if (await onLeadReplied(input.organizationId, row.contact.id)) {
+      publish(input.organizationId, {
+        type: "conversation.updated",
+        data: { conversation: { id: input.conversationId } },
+      });
+    }
+  } catch (err) {
+    console.error("[embudo] no se pudo avanzar el lead:", err);
+  }
 
   return { messageId: message.id };
 }

@@ -298,6 +298,17 @@ export const agentProfile = pgTable(
     escalationRules: text("escalation_rules"),
     greeting: text("greeting"),
     /**
+     * Horario de atención, para que el agente sepa si el negocio está abierto
+     * AHORA. Se calcula en el servidor y se le da resuelto: pedirle que compare
+     * la hora contra un horario en prosa no es fiable — llegó a decirle a un
+     * cliente que estaba abierto a medianoche. Nulo = sin horario configurado,
+     * y entonces no se le dice nada.
+     */
+    hoursOpen: text("hours_open"), // "12:30"
+    hoursClose: text("hours_close"), // "20:30"
+    /** Días que abre, 1 = lunes … 7 = domingo. Ej: "1,2,3,4,5,6,7". */
+    hoursDays: text("hours_days"),
+    /**
      * Números (E.164 sin '+', separados por coma) a los que se avisa por
      * WhatsApp cuando el agente cierra un pedido. La Cloud API no escribe a
      * grupos: son mensajes 1:1 a cada persona del equipo.

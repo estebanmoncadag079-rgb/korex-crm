@@ -43,6 +43,13 @@
       "when": 1785209759930,
       "tag": "0005_material_inertia",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785215337132,
+      "tag": "0006_fat_tiger_shark",
+      "breakpoints": true
     }
   ]
 }

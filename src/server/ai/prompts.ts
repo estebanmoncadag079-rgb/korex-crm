@@ -45,6 +45,72 @@ export function nowForBusiness(now: Date = new Date(), timeZone = BUSINESS_TIMEZ
 /** Zona del negocio. Hoy todos los clientes son colombianos. */
 const BUSINESS_TIMEZONE = "America/Bogota";
 
+/**
+ * ¿El negocio está atendiendo en este momento?
+ *
+ * Se resuelve aquí y se le entrega dicho, no deducido: pedirle al agente que
+ * compare la hora contra un horario escrito en prosa falla justo donde más
+ * duele — leía las 12:02 de la madrugada como si cayeran dentro de un horario
+ * que abre a las 12:30 pm y le decía al cliente que estaba abierto.
+ *
+ * Devuelve `null` cuando el negocio no tiene horario configurado: en ese caso
+ * es mejor no decir nada que arriesgar una afirmación falsa.
+ */
+export function businessStatus(
+  hours: { open: string | null; close: string | null; days: string | null },
+  now: Date = new Date(),
+  timeZone = BUSINESS_TIMEZONE
+): "abierto" | "cerrado" | null {
+  const open = toMinutes(hours.open);
+  const close = toMinutes(hours.close);
+  if (open === null || close === null) return null;
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const ahora = Number(get("hour")) * 60 + Number(get("minute"));
+  const dia = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    .indexOf(get("weekday").toLowerCase().slice(0, 3)) + 1;
+
+  const dias = (hours.days ?? "1,2,3,4,5,6,7")
+    .split(",")
+    .map((d) => Number(d.trim()))
+    .filter((d) => d >= 1 && d <= 7);
+  if (dias.length > 0 && !dias.includes(dia)) return "cerrado";
+
+  // Un cierre "menor" que la apertura cruza la medianoche (ej. 18:00–02:00).
+  const dentro =
+    close > open ? ahora >= open && ahora < close : ahora >= open || ahora < close;
+  return dentro ? "abierto" : "cerrado";
+}
+
+function toMinutes(hhmm: string | null | undefined): number | null {
+  const m = hhmm?.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** La hora y, si hay horario configurado, si el negocio atiende ahora mismo. */
+function estadoDelNegocio(profile: AgentProfile, now?: Date): string {
+  const hora = `Ahora mismo es ${nowForBusiness(now)} en Colombia (formato 24 h).`;
+  const estado = businessStatus(
+    { open: profile.hoursOpen, close: profile.hoursClose, days: profile.hoursDays },
+    now
+  );
+  if (!estado) return hora;
+  return estado === "abierto"
+    ? `${hora} EL NEGOCIO ESTÁ ABIERTO ahora mismo: atiende con normalidad y NO menciones reagendar.`
+    : `${hora} EL NEGOCIO ESTÁ CERRADO ahora mismo: aplica la regla de pedidos fuera del horario.`;
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
@@ -55,7 +121,7 @@ export function buildAgentSystemPrompt(input: {
   const stageNames = input.stages.map((s) => s.name).join(" | ");
   return [
     `Eres "${profile.name}", el asistente de WhatsApp de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
-    `Ahora mismo es ${nowForBusiness(input.now)} en Colombia (hora en formato 24 h). Compáralo con el horario de atención para saber si el negocio está abierto AHORA. Convierte el horario a 24 h antes de compararlo: 12:30 pm son las 12:30 y 8:30 pm son las 20:30, así que 00:02 está FUERA de ese horario.`,
+    estadoDelNegocio(profile, input.now),
     profile.tone ? `Tono: ${profile.tone}` : null,
     profile.instructions ? `Instrucciones del negocio:\n${profile.instructions}` : null,
     profile.escalationRules

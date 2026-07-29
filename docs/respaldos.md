@@ -70,10 +70,21 @@ el mismo disco que la base, se van con ella.
 Este es el que protege del desastre de verdad: si el VPS entero desaparece, las
 copias que vivían en su disco se van con él.
 
-El destino elegido es **Cloudflare R2**: 10 GB gratis permanentes, sin pausas por
-inactividad, habla el protocolo S3 (Coolify escribe ahí directo) y no cobra por
-descargar. Las copias de este CRM pesan pocos megas, así que en la práctica no
-cuesta nada.
+**Ruta actual: el computador va a buscar las copias.** Sin tarjeta de crédito no
+hay almacenamiento en la nube que valga (ver más abajo), así que se hace al
+revés: un guion en Windows se conecta al servidor cada día y se trae los
+respaldos a una carpeta del Escritorio. Ver **"Traer las copias a tu PC"**.
+
+La dirección importa. El servidor no puede *enviarle* archivos a un computador
+doméstico: no tiene dirección fija en internet y se apaga por las noches. Por
+eso es el PC quien pregunta, y no al contrario.
+
+### Si algún día tienes tarjeta: Cloudflare R2
+
+Es la opción más robusta, y queda documentada para cuando se pueda: 10 GB gratis
+permanentes, sin pausas por inactividad, habla el protocolo S3 (Coolify escribe
+ahí directo) y no cobra por descargar. Exige registrar una tarjeta aunque no se
+cobre nada, y por eso hoy no es viable.
 
 > **Por qué no Supabase**, aunque ya tengamos cuenta: el plan gratuito
 > [pausa los proyectos tras una semana de inactividad](https://supabase.com/docs/guides/platform/free-project-pausing),
@@ -88,7 +99,12 @@ Sobre la constitución: prohíbe depender de servicios externos
 dependencia de runtime — si R2 se cae, Vocero sigue atendiendo clientes con
 normalidad — así que no rompe la regla.
 
-### Parte A — Cloudflare R2 (unos 5 minutos)
+#### Pasos de R2 (para el día que haya tarjeta)
+
+<details>
+<summary>Desplegar</summary>
+
+##### Parte A — Cloudflare R2 (unos 5 minutos)
 
 1. Entra a [dash.cloudflare.com](https://dash.cloudflare.com) → **R2**.
 2. **Create bucket**. Nombre: `korex-respaldos`.
@@ -106,7 +122,7 @@ normalidad — así que no rompe la regla.
    > El *Secret Access Key* **se muestra una sola vez**. Guárdalo en el gestor
    > de contraseñas antes de cerrar esa pantalla.
 
-### Parte B — Conectar Coolify con R2 (3 minutos)
+##### Parte B — Conectar Coolify con R2 (3 minutos)
 
 1. En Coolify: **Settings → S3 Storage** (según la versión, *Server →
    Destinations*) → **Add**.
@@ -117,7 +133,7 @@ normalidad — así que no rompe la regla.
    - **Region**: `auto`
 3. Guarda y usa el botón de probar conexión.
 
-### Parte C — Activar el respaldo automático
+##### Parte C — Activar el respaldo automático
 
 1. Coolify → tu proyecto → recurso **PostgreSQL** → pestaña **Backups**.
 2. Frecuencia **diaria de madrugada** (`0 3 * * *`), retención **14** días.
@@ -125,7 +141,7 @@ normalidad — así que no rompe la regla.
 4. Lanza un respaldo **manual ahora** y comprueba que el archivo aparece en el
    bucket de R2.
 
-### Parte D — Cerrar el círculo (esto es lo que casi nadie hace)
+##### Parte D — Cerrar el círculo
 
 Que el archivo esté en R2 demuestra que se subió, no que sirva. Baja esa copia
 del bucket y pásala por el simulacro:
@@ -134,8 +150,92 @@ del bucket y pásala por el simulacro:
 ./scripts/respaldo/simulacro.sh ~/la-copia-que-bajaste.dump
 ```
 
-Hasta que no veas `✓ SIMULACRO SUPERADO` con un archivo venido de R2, la cadena
-completa no está probada — solo sus piezas por separado.
+</details>
+
+---
+
+## Traer las copias a tu PC
+
+Esta es la ruta sin tarjeta, y bien montada protege igual de bien.
+
+### Paso 1 — Que el servidor no pida contraseña
+
+Para que la descarga corra sola hace falta una **llave SSH**: un par de archivos
+que sustituyen a la contraseña. Uno se queda en tu PC (privado, no se comparte
+nunca) y el otro se instala en el servidor.
+
+En PowerShell, en tu computador:
+
+```powershell
+ssh-keygen -t ed25519 -C "respaldos-korex"
+```
+
+Cuando pregunte por *passphrase*, **déjalo vacío** (Enter dos veces). Con
+contraseña, la tarea automática se quedaría esperando a que alguien la escriba
+de madrugada.
+
+Luego instala la llave pública en el servidor:
+
+```powershell
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh USUARIO@IP-DEL-SERVIDOR "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+Comprueba que funcionó: `ssh USUARIO@IP-DEL-SERVIDOR` debe entrar **sin pedir
+contraseña**. Si aún la pide, la descarga automática no va a funcionar.
+
+### Paso 2 — Traer las copias
+
+```powershell
+.\scripts\respaldo\descargar-a-mi-pc.ps1 -Servidor USUARIO@IP-DEL-SERVIDOR
+```
+
+Deja los archivos en `Escritorio\Respaldos Vocero`, junto a un `registro.txt`
+con lo que fue pasando cada día.
+
+Solo baja lo que falte, y **verifica cada archivo por su huella SHA-256** contra
+el original del servidor. Esto no es cosmético: una descarga cortada a la mitad
+pesa distinto pero se abre igual, y una copia así solo se descubre rota el día
+que hace falta. Si la huella no cuadra, el archivo se descarta.
+
+### Paso 3 — Que se haga sola
+
+Con el **Programador de tareas** de Windows (búscalo en el menú de inicio):
+
+1. **Crear tarea básica**, nombre `Respaldos Vocero`.
+2. Frecuencia: **diaria**, a una hora en que el PC suela estar encendido — a
+   media mañana, no de madrugada.
+3. Acción: **Iniciar un programa**.
+   - Programa: `powershell.exe`
+   - Argumentos (en una sola línea, con TUS datos):
+     ```
+     -ExecutionPolicy Bypass -File "C:\bots\KOREX.IA\vocero\scripts\respaldo\descargar-a-mi-pc.ps1" -Servidor USUARIO@IP-DEL-SERVIDOR
+     ```
+4. Al terminar, marca **Abrir propiedades** y en la pestaña **Condiciones**
+   desmarca *"Iniciar la tarea solo si el equipo está conectado a la corriente"*.
+   En **Configuración**, marca **"Ejecutar la tarea lo antes posible si se pasó
+   por alto un inicio programado"** — así, si el PC estaba apagado a esa hora,
+   la copia se hace al encenderlo.
+
+### Paso 4 — Que la copia salga también de tu casa
+
+Falta una cosa, y es importante: si se te daña o te roban el PC, pierdes las
+copias igual que si se hubiera muerto el servidor. Un incendio se lleva las dos.
+
+La forma gratuita y sin tarjeta de arreglarlo: **guarda la carpeta dentro de
+OneDrive o Google Drive**, que en Windows ya sincronizan solos. En vez del
+Escritorio, apunta el guion ahí:
+
+```powershell
+.\scripts\respaldo\descargar-a-mi-pc.ps1 -Servidor USUARIO@IP -Destino "$env:USERPROFILE\OneDrive\Respaldos Vocero"
+```
+
+(OneDrive regala 5 GB y Google Drive 15 GB — de sobra.) Con eso la copia acaba
+en tres sitios: el servidor, tu PC y la nube personal. Para que los tres fallen
+a la vez tiene que pasar algo muy raro.
+
+> **Ojo con la privacidad:** ese archivo contiene conversaciones reales de los
+> clientes de tus clientes. Que la carpeta sincronizada sea tuya y privada —
+> nada de compartirla por enlace ni dejarla en un equipo compartido.
 
 ---
 
@@ -208,9 +308,10 @@ respaldo automático hasta resolverlo.
 
 ## Qué revisar cada mes
 
-1. Correr `./scripts/respaldo/simulacro.sh` y ver el ✓.
-2. Comprobar en Coolify que la última copia automática es reciente, y que en el
-   bucket de R2 hay archivos de esta semana.
+1. Correr `./scripts/respaldo/simulacro.sh` en el servidor y ver el ✓.
+2. Abrir la carpeta `Respaldos Vocero` del PC y comprobar que hay archivos de
+   esta semana. Si el más nuevo tiene un mes, la tarea programada dejó de correr
+   y llevas un mes sin red sin saberlo.
 3. Confirmar que `ENCRYPTION_KEY` sigue guardada en el gestor de contraseñas.
 
 Tres minutos al mes. Es el seguro más barato del negocio.
@@ -221,9 +322,10 @@ Tres minutos al mes. Es el seguro más barato del negocio.
 
 | Ante esto… | Te salva… |
 |---|---|
-| Alguien borró datos sin querer | El respaldo automático de Coolify |
-| El servidor entero desaparece | La copia en Cloudflare R2 (Nivel 2) |
-| El respaldo estaba corrupto | El simulacro mensual, que lo detecta antes |
+| Alguien borró datos sin querer | El respaldo automático de Coolify, en el servidor |
+| El servidor entero desaparece | La copia en tu PC (`descargar-a-mi-pc.ps1`) |
+| Se daña o te roban el PC | La carpeta sincronizada con OneDrive / Google Drive |
+| El respaldo estaba corrupto | La huella SHA-256 al descargar, y el simulacro mensual |
 | Perdiste el acceso a Coolify | Los secretos en el gestor de contraseñas |
 | Restauraste la copia equivocada | La copia de emergencia que hace `restaurar.sh` |
 

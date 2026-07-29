@@ -231,6 +231,13 @@ Para comprobar que una copia sirve de verdad (sin tocar producción):
 ./scripts/respaldo/simulacro.sh
 ```
 
+Y para bajarte las copias del servidor a un computador Windows, verificándolas
+por huella SHA-256:
+
+```powershell
+.\scripts\respaldo\descargar-a-mi-pc.ps1 -Servidor usuario@tu-servidor
+```
+
 Guía completa, incluida la restauración del día malo: **[docs/respaldos.md](docs/respaldos.md)**.
 
 ## Cumplimiento con las políticas de Meta

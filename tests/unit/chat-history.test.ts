@@ -51,3 +51,34 @@ describe("historial que ve el agente", () => {
     expect(JSON.parse(turno.content).text).toBe(texto);
   });
 });
+
+/**
+ * Lo que escribe una PERSONA del equipo desde la bandeja también sale como
+ * `out`. Dárselo con el envoltorio de acción le hacía creer que lo había dicho
+ * él: un compañero avisó "hoy abrimos a la 1pm" y el agente, coherente con unas
+ * palabras que no eran suyas, le dijo al siguiente cliente que ya habían
+ * cerrado — con el negocio abierto y a seis minutos de la apertura real.
+ */
+describe("mensajes que escribe una persona del equipo", () => {
+  it("no se los atribuye al agente", () => {
+    const turno = toChatHistory([
+      { direction: "out", text: "El día de hoy abrimos a la 1pm", aiGenerated: false },
+    ])[0]!;
+    expect(turno.role).toBe("user");
+    expect(turno.content).toContain("AVISO DEL EQUIPO");
+    expect(turno.content).toContain("El día de hoy abrimos a la 1pm");
+  });
+
+  it("sigue tratando como suyas las respuestas que sí generó", () => {
+    const turno = toChatHistory([
+      { direction: "out", text: "¿Qué se te antoja?", aiGenerated: true },
+    ])[0]!;
+    expect(turno.role).toBe("assistant");
+    expect(JSON.parse(turno.content).text).toBe("¿Qué se te antoja?");
+  });
+
+  it("sin el dato, asume que es suyo — no inventa un aviso del equipo", () => {
+    const turno = toChatHistory([{ direction: "out", text: "hola" }])[0]!;
+    expect(turno.role).toBe("assistant");
+  });
+});

@@ -106,20 +106,32 @@ async function executeTurn(conversationId: string): Promise<void> {
  * prosa le hacía abandonar el formato a mitad de la conversación: contestaba
  * bien pero sin envoltorio, se agotaban los reintentos y el pedido terminaba
  * derivado a una persona.
+ *
+ * Lo que escribe una PERSONA del equipo desde la bandeja también sale como
+ * `out`, y dárselo con el envoltorio de acción le hacía creer que lo había
+ * dicho él. Un compañero avisó "hoy abrimos a la 1pm" y el agente, coherente
+ * con unas palabras que no eran suyas, empezó a decirle a un cliente que ya
+ * habían cerrado con el negocio abierto. Se marca como intervención del equipo:
+ * es información fresca del local, y manda sobre lo que diga la configuración.
  */
 export function toChatHistory(
-  history: { direction: string; text: string | null }[]
+  history: { direction: string; text: string | null; aiGenerated?: boolean }[]
 ): ChatMessage[] {
   return history
     .filter((m) => m.text)
-    .map((m) =>
-      m.direction === "in"
-        ? { role: "user" as const, content: m.text! }
-        : {
-            role: "assistant" as const,
-            content: JSON.stringify({ action: "reply", text: m.text! }),
-          }
-    );
+    .map((m) => {
+      if (m.direction === "in") return { role: "user" as const, content: m.text! };
+      if (m.aiGenerated === false) {
+        return {
+          role: "user" as const,
+          content: `[AVISO DEL EQUIPO — lo escribió una persona del negocio al cliente, no tú. Es la verdad más reciente sobre el local y manda sobre el horario configurado; tenlo en cuenta y no lo contradigas]: ${m.text!}`,
+        };
+      }
+      return {
+        role: "assistant" as const,
+        content: JSON.stringify({ action: "reply", text: m.text! }),
+      };
+    });
 }
 
 /**

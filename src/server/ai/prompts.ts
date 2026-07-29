@@ -138,17 +138,69 @@ function toMinutes(hhmm: string | null | undefined): number | null {
   return h * 60 + min;
 }
 
+/**
+ * Cerrado de madrugada y cerrado por la mañana no son lo mismo.
+ *
+ * El negocio solo tiene escrito UN mensaje para "ahora no atendemos", y habla
+ * de mañana. Con horario 12:30–20:30, a quien escribía a las once de la mañana
+ * le contestaba "te lo reagendo para mañana" cuando faltaban noventa minutos
+ * para abrir ese mismo día: una venta regalada cada mañana. Devuelve los
+ * minutos que faltan para abrir HOY, o null si hoy ya no abre.
+ */
+export function abreMasTardeHoy(
+  hours: { open: string | null; close: string | null; days: string | null },
+  now: Date = new Date(),
+  timeZone = BUSINESS_TIMEZONE
+): number | null {
+  if (businessStatus(hours, now, timeZone) !== "cerrado") return null;
+  const open = toMinutes(hours.open);
+  const close = toMinutes(hours.close);
+  if (open === null || close === null) return null;
+  // Una jornada que cruza medianoche no tiene "más tarde hoy": ya está dentro
+  // o el siguiente tramo pertenece a otro día.
+  if (close <= open) return null;
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+
+  // Un domingo que el negocio no abre también cae "antes de las 12:30": sin
+  // esta comprobación le prometía al cliente una apertura que no iba a pasar.
+  const dia = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    .indexOf(get("weekday").toLowerCase().slice(0, 3)) + 1;
+  const dias = (hours.days ?? "1,2,3,4,5,6,7")
+    .split(",")
+    .map((d) => Number(d.trim()))
+    .filter((d) => d >= 1 && d <= 7);
+  if (dias.length > 0 && !dias.includes(dia)) return null;
+
+  const ahora = Number(get("hour")) * 60 + Number(get("minute"));
+  return ahora < open ? open - ahora : null;
+}
+
 /** La hora y, si hay horario configurado, si el negocio atiende ahora mismo. */
 function estadoDelNegocio(profile: AgentProfile, now?: Date): string {
   const hora = `Ahora mismo es ${nowForBusiness(now)} en Colombia (formato 24 h).`;
-  const estado = businessStatus(
-    { open: profile.hoursOpen, close: profile.hoursClose, days: profile.hoursDays },
-    now
-  );
+  const hours = {
+    open: profile.hoursOpen,
+    close: profile.hoursClose,
+    days: profile.hoursDays,
+  };
+  const estado = businessStatus(hours, now);
   if (!estado) return hora;
-  return estado === "abierto"
-    ? `${hora} EL NEGOCIO ESTÁ ABIERTO ahora mismo: atiende con normalidad y NO menciones reagendar.`
-    : `${hora} EL NEGOCIO ESTÁ CERRADO ahora mismo: aplica la regla de pedidos fuera del horario.`;
+  if (estado === "abierto") {
+    return `${hora} EL NEGOCIO ESTÁ ABIERTO ahora mismo: atiende con normalidad y NO menciones reagendar.`;
+  }
+  const faltan = abreMasTardeHoy(hours, now);
+  if (faltan !== null) {
+    return `${hora} EL NEGOCIO TODAVÍA NO HA ABIERTO HOY: abre a las ${profile.hoursOpen} (faltan ${faltan} minutos). NO digas que "ya cerramos" ni reagendes para mañana — el pedido sale HOY. Dile cuándo abren, tómale el pedido y avísale que se lo preparan apenas abran.`;
+  }
+  return `${hora} EL NEGOCIO ESTÁ CERRADO ahora mismo y HOY YA NO ABRE: aplica la regla de pedidos fuera del horario.`;
 }
 
 /**
@@ -201,14 +253,20 @@ function fichaDelContacto(contact?: { name: string | null; phone: string }): str
  * instrucciones pueda contradecirlo.
  */
 function recordatorioDelEstado(profile: AgentProfile, now?: Date): string | null {
-  const estado = businessStatus(
-    { open: profile.hoursOpen, close: profile.hoursClose, days: profile.hoursDays },
-    now
-  );
+  const hours = {
+    open: profile.hoursOpen,
+    close: profile.hoursClose,
+    days: profile.hoursDays,
+  };
+  const estado = businessStatus(hours, now);
   if (!estado) return null;
-  return estado === "abierto"
-    ? "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Si en las instrucciones de arriba hay un ejemplo de mensaje de cierre, ese ejemplo NO aplica en este momento."
-    : "RECORDATORIO FINAL — EL NEGOCIO ESTÁ CERRADO AHORA MISMO. Aplica la regla de pedidos fuera del horario que te dieron arriba.";
+  if (estado === "abierto") {
+    return "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Si en las instrucciones de arriba hay un ejemplo de mensaje de cierre, ese ejemplo NO aplica en este momento. La única excepción es un AVISO DEL EQUIPO en la conversación: si una persona del negocio acaba de decir algo distinto (que hoy abren más tarde, que hay demora, que se acabó un producto), eso manda — pero entonces di exactamente eso, sin usar el mensaje de cierre.";
+  }
+  const faltan = abreMasTardeHoy(hours, now);
+  return faltan !== null
+    ? `RECORDATORIO FINAL — EL NEGOCIO AÚN NO ABRE HOY: abre a las ${profile.hoursOpen}, faltan ${faltan} minutos. Tienes PROHIBIDO decir "ya cerramos" o reagendar para mañana: eso espanta a un cliente que puede comer HOY. Dile a qué hora abren, tómale el pedido y confírmale que se lo preparan apenas abran.`
+    : "RECORDATORIO FINAL — EL NEGOCIO ESTÁ CERRADO AHORA MISMO Y HOY YA NO ABRE. Aplica la regla de pedidos fuera del horario que te dieron arriba.";
 }
 
 export function buildAgentSystemPrompt(input: {

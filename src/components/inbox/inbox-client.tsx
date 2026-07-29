@@ -11,6 +11,7 @@ import { ConversationList } from "./conversation-list";
 import { MessageThread } from "./message-thread";
 import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
+import { ModoAtencion } from "./modo-atencion";
 
 export function InboxClient() {
   const [conversations, setConversations] = useState<ConversationDto[] | null>(
@@ -22,10 +23,33 @@ export function InboxClient() {
   // Se incrementa con cada evento SSE que puede cambiar la etapa/lead o el
   // estado del agente: el panel de detalles lo observa y refetch en vivo.
   const [detailRev, setDetailRev] = useState(0);
+  // El indicador de la cabecera necesita saber si el agente está encendido
+  // para el negocio: sin esto diría "IA" en una conversación que nadie atiende.
+  const [agentReady, setAgentReady] = useState(false);
 
   useEffect(() => {
     setPanelOpen(localStorage.getItem("vocero.panelOpen") !== "false");
   }, []);
+
+  // Se refresca con el SSE: si alguien apaga el agente desde otra pestaña, el
+  // indicador de la cabecera no puede quedarse mintiendo.
+  useEffect(() => {
+    let vivo = true;
+    void fetch("/api/agent/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((data) => {
+        if (vivo) {
+          setAgentReady(
+            Boolean(data?.aiConfigured) && Boolean(data?.profile?.enabled)
+          );
+        }
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [detailRev]);
+
   const togglePanel = useCallback((open: boolean) => {
     setPanelOpen(open);
     localStorage.setItem("vocero.panelOpen", String(open));
@@ -194,15 +218,22 @@ export function InboxClient() {
                   </p>
                 </div>
               </div>
-              {!panelOpen && (
-                <button
-                  onClick={() => togglePanel(true)}
-                  aria-label="Mostrar detalles"
-                  className="rounded-sm border p-1.5 text-text-3 hover:bg-accent hover:text-foreground"
-                >
-                  <PanelRight className="h-4 w-4" strokeWidth={1.7} />
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                <ModoAtencion
+                  conversation={selected}
+                  agentReady={agentReady}
+                  onPatch={patchConversation}
+                />
+                {!panelOpen && (
+                  <button
+                    onClick={() => togglePanel(true)}
+                    aria-label="Mostrar detalles"
+                    className="rounded-sm border p-1.5 text-text-3 hover:bg-accent hover:text-foreground"
+                  >
+                    <PanelRight className="h-4 w-4" strokeWidth={1.7} />
+                  </button>
+                )}
+              </div>
             </header>
             <MessageThread messages={messages} />
             <Composer

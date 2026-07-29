@@ -12,6 +12,9 @@ import { Textarea } from "@/components/ui/textarea";
 const HANDOFF_LABELS: Record<string, string> = {
   cliente: "El cliente pidió un humano",
   modelo: "El agente decidió escalar",
+  // El más frecuente de todos y el que faltaba: alguien del negocio contestó
+  // desde su celular y el agente se calla en esa conversación.
+  operador: "Alguien del equipo escribió desde el celular",
   error: "Error del proveedor de IA",
   ventana: "Ventana de 24h cerrada",
 };

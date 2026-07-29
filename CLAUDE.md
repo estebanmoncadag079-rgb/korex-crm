@@ -15,6 +15,35 @@ membresía — la organización activa de la sesión se revalida en cada petici�
 del NÚMERO destino (`src/server/inbox/ycloud-routing.ts`); un número sin dueño
 se descarta.
 
+## REGLA DE ORO (no negociable, por encima de todo lo demás)
+
+**Nunca revises por encima. Encuentra el problema de fondo y resuélvelo.**
+
+Prohibido quedarse en el primer síntoma que explica lo visto, parchear sin
+entender por qué falló, culpar al banco de pruebas, dar por buena una hipótesis
+sin comprobarla contra el sistema real, o decir "ya está" sin haberlo visto
+funcionar.
+
+El dueño de este proyecto no programa: no puede auditar el trabajo. Un arreglo a
+medias no se queda en el repo — sale a los negocios que dependen de esto y se
+descubre cuando ya costó una venta. Ha pasado: un score dado por bueno sin
+verificar que el arreglo estuviera desplegado; un pedido incompleto atribuido al
+Laboratorio cuando era el agente; un arreglo dado por fallido que sí funcionaba,
+tapando dos causas distintas —una llevaba desde el principio costando ventas
+cada mañana sin que nadie la viera.
+
+1. **Reproduce y mide antes de opinar.** Consulta el sistema real (la base, el
+   contenedor que corre, los logs, la conversación entera), no el repositorio ni
+   la suposición. Sobre lo que pasa en producción, el repo NO es fuente de
+   verdad.
+2. **Llega al mecanismo.** "El modelo se confundió" no es un diagnóstico. La
+   respuesta correcta nombra una línea de código o una fila de una tabla.
+3. **Pregunta qué MÁS rompe esa causa.** Lo reportado suele ser un caso de algo
+   mayor y silencioso.
+4. **Escribe la prueba que lo habría cazado**, con el porqué en el comentario.
+5. **Verifica en vivo antes de darlo por hecho**; si algo quedó sin comprobar,
+   dilo con esas palabras.
+
 ## Stack
 
 **Next.js 15 (App Router) + React 19** en monolito · TypeScript estricto

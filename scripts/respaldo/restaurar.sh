@@ -56,16 +56,26 @@ else
 fi
 
 echo "→ Restaurando…"
-# --clean --if-exists: borra cada objeto antes de recrearlo, así no quedan
-# restos de la base anterior mezclados con la copia.
-if [ "$MODO_PG" = "directo" ]; then
-  pg_restore --clean --if-exists --no-owner --no-acl \
-    -d "$DATABASE_URL" <"$archivo" 2>&1 | grep -i "error" | head -10 || true
-else
-  docker exec -i "$POSTGRES_CONTAINER" \
-    pg_restore --clean --if-exists --no-owner --no-acl \
-    -U "$PG_USER" -d "$PG_DB" <"$archivo" 2>&1 | grep -i "error" | head -10 || true
-fi
+# Cada formato entra por su puerta. El SQL plano que genera el cron ya trae
+# sus DROP dentro (pg_dump --clean), así que no hace falta pedirlo aparte.
+case "$archivo" in
+  *.gz | *.sql)
+    restaurar_en_base "$PG_DB" "$archivo" 2>&1 |
+      grep -iE "^(psql:|ERROR)" | head -10 || true
+    ;;
+  *)
+    # --clean --if-exists: borra cada objeto antes de recrearlo, así no quedan
+    # restos de la base anterior mezclados con la copia.
+    if [ "$MODO_PG" = "directo" ]; then
+      pg_restore --clean --if-exists --no-owner --no-acl \
+        -d "$DATABASE_URL" <"$archivo" 2>&1 | grep -i "error" | head -10 || true
+    else
+      docker exec -i "$POSTGRES_CONTAINER" \
+        pg_restore --clean --if-exists --no-owner --no-acl \
+        -U "$PG_USER" -d "$PG_DB" <"$archivo" 2>&1 | grep -i "error" | head -10 || true
+    fi
+    ;;
+esac
 
 echo
 echo "✓ Restauración terminada."

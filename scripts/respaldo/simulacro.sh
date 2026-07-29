@@ -5,26 +5,28 @@
 # Tener copias no es tener respaldos. Lo que salva un negocio es haber
 # restaurado una copia ANTES del día malo, y es exactamente el paso que nadie
 # hace hasta que ya no hay tiempo. Esto lo hace solo: levanta una base de usar
-# y tirar, mete dentro el último respaldo, cuenta lo que llegó y la borra.
+# y tirar, mete dentro el respaldo, cuenta lo que llegó y la borra.
 #
 # NO toca la base de producción en ningún momento.
 #
-#   ./scripts/respaldo/simulacro.sh                  # el respaldo más reciente
-#   ./scripts/respaldo/simulacro.sh ruta/al.dump     # uno concreto
+# Sirve con las dos clases de copia que existen por ahí: el formato 'custom'
+# de pg_dump (.dump) y el SQL plano comprimido (.sql.gz) que genera el cron de
+# muchas instalaciones. Verificar tiene que funcionar con la copia que YA
+# tienes, no con la que deberías tener.
+#
+#   ./scripts/respaldo/simulacro.sh                  # la copia más reciente
+#   ./scripts/respaldo/simulacro.sh ruta/al/archivo  # una concreta
 #
 set -euo pipefail
-
-DESTINO="${DESTINO:-$HOME/respaldos-vocero}"
 
 # shellcheck source=scripts/respaldo/comun.sh
 source "$(dirname "${BASH_SOURCE[0]}")/comun.sh"
 
 archivo="${1:-}"
 if [ -z "$archivo" ]; then
-  archivo="$(find "$DESTINO" -maxdepth 1 -name 'vocero_*.dump' -type f |
-    sort | tail -n 1)"
-  [ -n "$archivo" ] ||
-    error "No hay ningún respaldo en $DESTINO. Corre primero ./scripts/respaldo/respaldar.sh"
+  archivo="$(respaldo_mas_reciente)"
+  [ -n "$archivo" ] || error \
+    "No encontré ningún respaldo en: $CARPETAS_RESPALDO"
 fi
 [ -f "$archivo" ] || error "No existe el archivo: $archivo"
 
@@ -39,41 +41,23 @@ limpiar() {
 }
 trap limpiar EXIT
 
-echo "→ Probando el respaldo: $(basename "$archivo")"
+tamano="$(wc -c <"$archivo" | tr -d ' ')"
+echo "→ Probando el respaldo: $(basename "$archivo") ($(legible "$tamano"))"
 echo "→ Creando una base de prueba aparte ($base_prueba)…"
 psql_admin -q -c "CREATE DATABASE $base_prueba;" >/dev/null ||
   error "No se pudo crear la base de prueba."
 
 echo "→ Restaurando dentro…"
-salida_restore="$(mktemp)"
-if [ "$MODO_PG" = "directo" ]; then
-  pg_restore --no-owner --no-acl -d "${DATABASE_URL%/*}/$base_prueba" \
-    <"$archivo" >"$salida_restore" 2>&1 || true
-else
-  docker exec -i "$POSTGRES_CONTAINER" \
-    pg_restore --no-owner --no-acl -U "$PG_USER" -d "$base_prueba" \
-    <"$archivo" >"$salida_restore" 2>&1 || true
-fi
+salida="$(mktemp)"
+restaurar_en_base "$base_prueba" "$archivo" >"$salida" 2>&1 || true
 
-# pg_restore avisa de cosas inofensivas (permisos, extensiones ya presentes).
-# Lo que de verdad importa se comprueba abajo, contando datos.
-if grep -qi "error" "$salida_restore"; then
+# Al restaurar salen avisos inofensivos (permisos, DROP de cosas que aún no
+# existen). Lo que de verdad importa se comprueba abajo, contando datos.
+if grep -qiE "^(pg_restore: )?error" "$salida"; then
   echo "  Avisos durante la restauración (los primeros):"
-  grep -i "error" "$salida_restore" | head -5 | sed 's/^/    /'
+  grep -iE "^(pg_restore: )?error" "$salida" | head -5 | sed 's/^/    /'
 fi
-rm -f "$salida_restore"
-
-contar() {
-  local tabla="$1"
-  if [ "$MODO_PG" = "directo" ]; then
-    psql -tA "${DATABASE_URL%/*}/$base_prueba" \
-      -c "SELECT count(*) FROM \"$tabla\";" 2>/dev/null || echo "?"
-  else
-    docker exec -i "$POSTGRES_CONTAINER" \
-      psql -tA -U "$PG_USER" -d "$base_prueba" \
-      -c "SELECT count(*) FROM \"$tabla\";" 2>/dev/null || echo "?"
-  fi
-}
+rm -f "$salida"
 
 echo
 echo "Lo que se recuperó:"
@@ -81,7 +65,7 @@ fallo=0
 
 # Estas dos no pueden estar vacías: sin ellas no hay a quién devolverle nada.
 for tabla in user organization; do
-  n="$(contar "$tabla" | tr -d ' \r')"
+  n="$(contar_en_base "$base_prueba" "$tabla" | tr -d ' \r')"
   if [ "$n" = "?" ] || [ -z "$n" ] || [ "$n" = "0" ]; then
     echo "  ✗ $tabla: $n  ← esto NO debería estar vacío"
     fallo=1
@@ -93,7 +77,7 @@ done
 # El resto es informativo: un cliente recién dado de alta tiene cero de casi
 # todo, y eso no es un fallo del respaldo.
 for tabla in contact conversation message kb_entry agent_profile meta_credentials; do
-  echo "  · $tabla: $(contar "$tabla" | tr -d ' \r')"
+  echo "  · $tabla: $(contar_en_base "$base_prueba" "$tabla" | tr -d ' \r')"
 done
 
 echo

@@ -97,3 +97,78 @@ psql_admin() {
     docker exec -i "$POSTGRES_CONTAINER" psql -U "$PG_USER" -d postgres "$@"
   fi
 }
+
+# --- Respaldos de cualquier procedencia ------------------------------------
+#
+# Conviven dos formatos, y los dos son legítimos:
+#
+#   vocero_*.dump    formato 'custom' de pg_dump  → se restaura con pg_restore
+#   vocero-*.sql.gz  SQL plano comprimido         → se restaura con psql
+#
+# El segundo es el que genera el backup.sh que muchas instalaciones ya tienen
+# montado en cron. No se fuerza a nadie a migrar: verificar y restaurar tiene
+# que funcionar con la copia que uno YA tiene, no con la que debería tener.
+
+# Carpetas donde se buscan respaldos, en orden.
+CARPETAS_RESPALDO="${CARPETAS_RESPALDO:-/opt/korex-crm/backups $HOME/respaldos-vocero}"
+
+# El respaldo más reciente de todas las carpetas conocidas.
+respaldo_mas_reciente() {
+  local encontrados=""
+  for dir in $CARPETAS_RESPALDO; do
+    [ -d "$dir" ] || continue
+    encontrados="$encontrados $(find "$dir" -maxdepth 1 -type f \
+      \( -name 'vocero_*.dump' -o -name 'vocero-*.sql.gz' -o -name 'vocero_*.sql.gz' \) \
+      2>/dev/null || true)"
+  done
+  # shellcheck disable=SC2086
+  ls -1t $encontrados 2>/dev/null | head -n 1
+}
+
+# Mete un respaldo dentro de una base concreta, según su formato.
+restaurar_en_base() {
+  local base="$1" archivo="$2"
+  case "$archivo" in
+    *.gz)
+      # gunzip corre aquí y el SQL entra al servidor por la tubería: así no
+      # hace falta copiar el archivo dentro del contenedor.
+      gunzip -c "$archivo" | psql_en_base "$base"
+      ;;
+    *.sql)
+      psql_en_base "$base" <"$archivo"
+      ;;
+    *)
+      pg_restore_en_base "$base" <"$archivo"
+      ;;
+  esac
+}
+
+psql_en_base() {
+  local base="$1"
+  if [ "$MODO_PG" = "directo" ]; then
+    psql -q "${DATABASE_URL%/*}/$base"
+  else
+    docker exec -i "$POSTGRES_CONTAINER" psql -q -U "$PG_USER" -d "$base"
+  fi
+}
+
+pg_restore_en_base() {
+  local base="$1"
+  if [ "$MODO_PG" = "directo" ]; then
+    pg_restore --no-owner --no-acl -d "${DATABASE_URL%/*}/$base"
+  else
+    docker exec -i "$POSTGRES_CONTAINER" \
+      pg_restore --no-owner --no-acl -U "$PG_USER" -d "$base"
+  fi
+}
+
+# Cuenta filas de una tabla en una base cualquiera. "?" si no se pudo.
+contar_en_base() {
+  local base="$1" tabla="$2"
+  if [ "$MODO_PG" = "directo" ]; then
+    psql -tA "${DATABASE_URL%/*}/$base" -c "SELECT count(*) FROM \"$tabla\";" 2>/dev/null || echo "?"
+  else
+    docker exec -i "$POSTGRES_CONTAINER" \
+      psql -tA -U "$PG_USER" -d "$base" -c "SELECT count(*) FROM \"$tabla\";" 2>/dev/null || echo "?"
+  fi
+}

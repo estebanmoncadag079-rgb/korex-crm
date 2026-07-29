@@ -241,11 +241,34 @@ a la vez tiene que pasar algo muy raro.
 
 ## Los guiones de este repositorio
 
-Coolify saca copias, pero **no comprueba que sirvan**, y no te da una forma
-guiada de restaurar el día que haga falta. Eso lo cubren estos tres guiones.
-Se ejecutan **en el servidor**, entrando por SSH:
+Un panel (Coolify, EasyPanel) o un cron propio saca copias, pero **no comprueba
+que sirvan**, y no te da una forma guiada de restaurar el día que haga falta.
+Eso es lo que cubren estos guiones. Se ejecutan **en el servidor**, por SSH.
+
+> **Antes de nada, mira si ya tienes un respaldo montado:**
+> ```bash
+> crontab -l
+> ```
+> Es más común de lo que parece encontrarse un `backup.sh` que alguien dejó
+> corriendo. Si lo hay y funciona, **no lo reemplaces**: dos sistemas copiando
+> el mismo dato compiten por el disco y ninguno de los dos queda claro. Quédate
+> con el que ya está probado en producción y usa de aquí lo que le falte, que
+> casi siempre es el simulacro y la salida del servidor.
+
+Los guiones trabajan con las **dos clases de copia** que existen por ahí:
+
+| Archivo | Cómo se generó | Se restaura con |
+|---|---|---|
+| `vocero_*.dump` | `pg_dump -Fc` (`respaldar.sh`) | `pg_restore` |
+| `vocero-*.sql.gz` | `pg_dump \| gzip` (el cron típico) | `psql` |
+
+Verificar y restaurar tiene que funcionar con la copia que **ya** tienes, no
+con la que deberías tener.
 
 ### Sacar una copia ahora mismo
+
+> Solo si **no** tienes ya un respaldo automático funcionando. Si lo tienes,
+> sáltate esto y ve directo al simulacro.
 
 ```bash
 ./scripts/respaldo/respaldar.sh
@@ -263,6 +286,14 @@ borra nada: prefiere gastar disco a dejarte sin red.
 
 Levanta una base de datos de usar y tirar, mete dentro el último respaldo,
 cuenta lo que llegó y la borra. **No toca producción en ningún momento.**
+
+Sin argumentos busca la copia más reciente en `/opt/korex-crm/backups` y en
+`~/respaldos-vocero`, y reconoce el formato por la extensión. Si tus copias
+viven en otro sitio:
+
+```bash
+CARPETAS_RESPALDO=/ruta/a/tus/copias ./scripts/respaldo/simulacro.sh
+```
 
 Si termina en `✓ SIMULACRO SUPERADO`, tienes un respaldo de verdad. Si no, lo
 que tienes es un archivo.

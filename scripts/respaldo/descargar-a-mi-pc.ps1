@@ -26,8 +26,9 @@ param(
     # Dónde dejarlos. Por defecto, una carpeta en el Escritorio.
     [string]$Destino = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Respaldos Vocero'),
 
-    # Carpeta de respaldos DENTRO del servidor (la que usa respaldar.sh).
-    [string]$CarpetaRemota = 'respaldos-vocero',
+    # Carpeta de respaldos DENTRO del servidor. Por defecto la del cron que ya
+    # traen muchas instalaciones; respaldar.sh usa ~/respaldos-vocero.
+    [string]$CarpetaRemota = '/opt/korex-crm/backups',
 
     # Copias que se conservan aquí. 0 = no borrar nunca.
     [int]$ConservarDias = 60
@@ -61,12 +62,21 @@ function Anotar($Texto) {
         Add-Content -Path $registro -Encoding utf8
 }
 
+# Los respaldos que ya hay aquí, en cualquiera de los dos formatos. Un -Filter
+# solo admite un patrón, y con .dump a secas se perderían los .sql.gz — que en
+# la mayoría de instalaciones son justamente los que hay.
+function RespaldosLocales {
+    Get-ChildItem -Path $Destino -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^vocero[-_].+\.(dump|sql\.gz)$' }
+}
+
 # --- Qué hay en el servidor ------------------------------------------------
 
 Escribir "-> Conectando con $Servidor ..." 'Cyan'
 
-# Huella y nombre de cada respaldo, en una sola conexión.
-$comando = "cd ~/$CarpetaRemota 2>/dev/null && sha256sum vocero_*.dump 2>/dev/null || true"
+# Huella y nombre de cada respaldo, en una sola conexión. Cubre los dos
+# formatos que existen por ahí: .dump (custom) y .sql.gz (SQL comprimido).
+$comando = "cd '$CarpetaRemota' 2>/dev/null && sha256sum vocero_*.dump vocero-*.sql.gz vocero_*.sql.gz 2>/dev/null || true"
 $listado = & ssh -o BatchMode=yes -o ConnectTimeout=20 $Servidor $comando 2>&1
 
 if ($LASTEXITCODE -ne 0) {
@@ -82,14 +92,14 @@ if ($LASTEXITCODE -ne 0) {
 $remotos = @()
 foreach ($linea in $listado) {
     # Formato de sha256sum: "<huella>  <archivo>"
-    if ("$linea" -match '^([0-9a-f]{64})\s+(vocero_.+\.dump)$') {
+    if ("$linea" -match '^([0-9a-f]{64})\s+(vocero[-_].+?\.(?:dump|sql\.gz))$') {
         $remotos += [pscustomobject]@{ Huella = $Matches[1]; Nombre = $Matches[2] }
     }
 }
 
 if ($remotos.Count -eq 0) {
-    Escribir "No hay ningun respaldo en ~/$CarpetaRemota del servidor." 'Yellow'
-    Escribir "Corre alli primero:  ./scripts/respaldo/respaldar.sh" 'Yellow'
+    Escribir "No hay ningun respaldo en $CarpetaRemota del servidor." 'Yellow'
+    Escribir "Comprueba la ruta con:  ssh $Servidor 'ls $CarpetaRemota'" 'Yellow'
     Anotar "Sin respaldos que traer"
     exit 1
 }
@@ -117,7 +127,7 @@ foreach ($item in $remotos) {
     }
 
     Escribir "-> Trayendo $($item.Nombre) ..." 'Cyan'
-    & scp -q -o BatchMode=yes "${Servidor}:~/$CarpetaRemota/$($item.Nombre)" $local 2>&1 | Out-Null
+    & scp -q -o BatchMode=yes "${Servidor}:$CarpetaRemota/$($item.Nombre)" $local 2>&1 | Out-Null
 
     if (-not (Test-Path $local)) {
         Escribir "   FALLO al descargar $($item.Nombre)" 'Red'
@@ -148,8 +158,7 @@ if ($ConservarDias -gt 0) {
     $limite = (Get-Date).AddDays(-$ConservarDias)
     # Nunca se toca el más reciente, aunque sea antiguo: si el servidor lleva
     # meses sin respaldar, esa copia vieja es lo unico que hay.
-    $locales = Get-ChildItem -Path $Destino -Filter 'vocero_*.dump' |
-        Sort-Object LastWriteTime -Descending
+    $locales = RespaldosLocales | Sort-Object LastWriteTime -Descending
     $viejos = $locales | Select-Object -Skip 1 | Where-Object { $_.LastWriteTime -lt $limite }
     foreach ($v in $viejos) {
         Remove-Item $v.FullName -Force
@@ -162,9 +171,8 @@ if ($ConservarDias -gt 0) {
 
 # --- Resumen ---------------------------------------------------------------
 
-$total = (Get-ChildItem -Path $Destino -Filter 'vocero_*.dump' | Measure-Object).Count
-$peso = (Get-ChildItem -Path $Destino -Filter 'vocero_*.dump' |
-    Measure-Object -Property Length -Sum).Sum
+$total = (RespaldosLocales | Measure-Object).Count
+$peso = (RespaldosLocales | Measure-Object -Property Length -Sum).Sum
 $pesoMb = if ($peso) { [math]::Round($peso / 1MB, 1) } else { 0 }
 
 Escribir ""

@@ -43,6 +43,7 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | La ingesta/envío de mensajes | `src/server/inbox/` (ingest idempotente, send con guard de sandbox, ventana 24h) |
 | UI | `src/components/` + `src/app/(app)/` |
 | El alta de clientes y el panel de agencia | `src/server/auth/provisioning.ts` · `src/server/admin/` · `src/app/api/admin/` · `src/app/(app)/admin/` |
+| Los respaldos de la base | `scripts/respaldo/` + guía operativa en [docs/respaldos.md](docs/respaldos.md) |
 
 Los mocks del entorno de pruebas viven en `src/app/api/dev/` (wa-mock +
 ai-mock) tras un gate único (`src/lib/dev-guard.ts`): 404 incondicional en

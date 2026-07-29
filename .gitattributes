@@ -1,0 +1,10 @@
+# Los guiones de shell SIEMPRE con saltos de línea de Unix.
+#
+# Sin esto, un clon en Windows los guarda con CRLF, y al llegar al servidor
+# bash falla con "$'\r': command not found" — un error que no dice nada y que
+# aparece justo el día que hay que restaurar un respaldo.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Caddyfile text eol=lf

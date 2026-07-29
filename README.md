@@ -208,6 +208,7 @@ En las variables de la instancia:
 OPENROUTER_API_TOKEN=sk-or-...        # tu key
 OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
 OPENROUTER_JUDGE_MODEL=               # opcional: modelo distinto para el juez del Laboratorio
+OPENROUTER_FALLBACK_MODEL=            # opcional pero recomendado: rescate cuando el principal no devuelve JSON usable
 OPENROUTER_BASE_URL=https://openrouter.ai/api   # o tu proveedor OpenAI-compatible
 ```
 
@@ -215,6 +216,22 @@ Sin token, todo lo demás funciona; Agente y Laboratorio muestran cómo
 activarlos. Después configura el comportamiento y el conocimiento en la
 pestaña **Agente** y corre el **Laboratorio** antes de encender el agente con
 clientes reales.
+
+## Respaldos
+
+Toda la operación de cada cliente vive en una sola base de datos. **Antes de
+poner un número real en producción**, monta las copias: activa el respaldo
+automático del Postgres en Coolify y guarda `ENCRYPTION_KEY` en un gestor de
+contraseñas — sin esa variable, un respaldo de la base no basta para revivir el
+servicio y cada cliente tendría que reconectar su WhatsApp.
+
+Para comprobar que una copia sirve de verdad (sin tocar producción):
+
+```bash
+./scripts/respaldo/simulacro.sh
+```
+
+Guía completa, incluida la restauración del día malo: **[docs/respaldos.md](docs/respaldos.md)**.
 
 ## Cumplimiento con las políticas de Meta
 

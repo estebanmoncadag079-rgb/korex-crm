@@ -75,16 +75,18 @@ function Anotar($Texto) {
 # la mayoría de instalaciones son justamente los que hay.
 function RespaldosLocales {
     Get-ChildItem -Path $Destino -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^vocero[-_].+\.(dump|sql\.gz)$' }
+        Where-Object { $_.Name -match '^(vocero[-_]|volumenes-).+\.(dump|sql\.gz|tar\.gz)$' }
 }
 
 # --- Qué hay en el servidor ------------------------------------------------
 
 Escribir "-> Conectando con $Servidor ..." 'Cyan'
 
-# Huella y nombre de cada respaldo, en una sola conexión. Cubre los dos
-# formatos que existen por ahí: .dump (custom) y .sql.gz (SQL comprimido).
-$comando = "cd '$CarpetaRemota' 2>/dev/null && sha256sum vocero_*.dump vocero-*.sql.gz vocero_*.sql.gz 2>/dev/null || true"
+# Huella y nombre de cada respaldo, en una sola conexión. Cubre lo que puede
+# haber en la carpeta: volcados de Postgres en sus dos formatos (.dump y
+# .sql.gz) y los paquetes de volúmenes Docker (.tar.gz), donde viven las bases
+# SQLite de los bots y las sesiones de WhatsApp.
+$comando = "cd '$CarpetaRemota' 2>/dev/null && sha256sum vocero_*.dump vocero-*.sql.gz vocero_*.sql.gz volumenes-*.tar.gz 2>/dev/null || true"
 $listado = & ssh -o BatchMode=yes -o ConnectTimeout=20 $Servidor $comando 2>&1
 
 if ($LASTEXITCODE -ne 0) {
@@ -100,7 +102,7 @@ if ($LASTEXITCODE -ne 0) {
 $remotos = @()
 foreach ($linea in $listado) {
     # Formato de sha256sum: "<huella>  <archivo>"
-    if ("$linea" -match '^([0-9a-f]{64})\s+(vocero[-_].+?\.(?:dump|sql\.gz))$') {
+    if ("$linea" -match '^([0-9a-f]{64})\s+((?:vocero[-_]|volumenes-).+?\.(?:dump|sql\.gz|tar\.gz))$') {
         $remotos += [pscustomobject]@{ Huella = $Matches[1]; Nombre = $Matches[2] }
     }
 }

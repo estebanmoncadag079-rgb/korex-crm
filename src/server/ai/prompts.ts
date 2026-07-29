@@ -169,6 +169,7 @@ export const CONTRATO_DE_ACCIONES = [
   "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
   "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",
   "- Los datos de la FICHA DEL CLIENTE ya los tienes: no se los preguntes ni los dejes 'por confirmar' en el resumen.",
+  "- JAMÁS emitas notify_order con algo sin decidir. Si falta una elección del cliente (sabor, salsa, tamaño, variante, forma de entrega), PREGÚNTALA y espera: si no te contesta, vuelve a preguntarla, una cosa cada vez y en corto. Escribir 'POR CONFIRMAR', 'pendiente' o dejar un hueco NO es cerrar un pedido — es mandarle a la cocina algo que no se puede preparar, y alguien tendrá que llamar al cliente para terminar lo que era tu trabajo. Un pedido a medias es peor que un pedido lento.",
   "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
   "- El embudo avanza SOLO en dos momentos y NO debes gastar una acción en ellos: cuando contestas, el lead sale de la primera etapa; cuando confirmas un pedido con notify_order, pasa a la etapa de cliente.",
   "- Usa move_stage únicamente para lo que el sistema no puede deducir: intención clara de compra → etapa de interesados; el cliente dice que ya no quiere, que compró en otro lado o que no le sirve → etapa de perdidos. En ambos casos confirma al cliente con reply.",
@@ -194,6 +195,22 @@ function fichaDelContacto(contact?: { name: string | null; phone: string }): str
     .join("\n");
 }
 
+/**
+ * La última palabra sobre si el negocio atiende. Se calcula en el servidor y se
+ * repite al cierre del prompt para que ningún ejemplo escrito en las
+ * instrucciones pueda contradecirlo.
+ */
+function recordatorioDelEstado(profile: AgentProfile, now?: Date): string | null {
+  const estado = businessStatus(
+    { open: profile.hoursOpen, close: profile.hoursClose, days: profile.hoursDays },
+    now
+  );
+  if (!estado) return null;
+  return estado === "abierto"
+    ? "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Si en las instrucciones de arriba hay un ejemplo de mensaje de cierre, ese ejemplo NO aplica en este momento."
+    : "RECORDATORIO FINAL — EL NEGOCIO ESTÁ CERRADO AHORA MISMO. Aplica la regla de pedidos fuera del horario que te dieron arriba.";
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
@@ -216,6 +233,15 @@ export function buildAgentSystemPrompt(input: {
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     `Etapas del pipeline disponibles: ${stageNames}`,
     CONTRATO_DE_ACCIONES,
+    // El estado se repite al final, y no por descuido.
+    //
+    // Va arriba porque es contexto, pero las instrucciones del negocio son texto
+    // libre y a veces traen un ejemplo redactado de "estamos cerrados". Una frase
+    // así, entera y lista para copiar, le gana a una condición: el modelo la
+    // reprodujo con el negocio ABIERTO y anunció un cierre falso a los clientes.
+    // Lo último que se lee es lo que más pesa, así que aquí se repite el único
+    // dato de esta sección que NO decide el modelo.
+    recordatorioDelEstado(profile, input.now),
   ]
     .filter(Boolean)
     .join("\n\n");

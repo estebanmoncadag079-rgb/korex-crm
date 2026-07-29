@@ -67,24 +67,75 @@ el mismo disco que la base, se van con ella.
 
 ## Nivel 2 — Sacar una copia fuera del servidor
 
-Este es el que protege del desastre de verdad, y el que exige una decisión tuya
-porque tiene costo. Tres caminos, de menos a más automático:
+Este es el que protege del desastre de verdad: si el VPS entero desaparece, las
+copias que vivían en su disco se van con él.
 
-**A. Descargarla a tu computador, a mano.** Cero costo, cero cuentas nuevas.
-Sirve si lo haces de verdad, cada semana, sin fallar. Es fácil de prometer y
-fácil de olvidar.
+El destino elegido es **Cloudflare R2**: 10 GB gratis permanentes, sin pausas por
+inactividad, habla el protocolo S3 (Coolify escribe ahí directo) y no cobra por
+descargar. Las copias de este CRM pesan pocos megas, así que en la práctica no
+cuesta nada.
 
-**B. Un almacenamiento S3 barato** (Backblaze B2, Cloudflare R2, Wasabi).
-Coolify sube las copias solo. Cuesta unos pocos dólares al mes y es la opción
-que elegiría cualquier equipo.
+> **Por qué no Supabase**, aunque ya tengamos cuenta: el plan gratuito
+> [pausa los proyectos tras una semana de inactividad](https://supabase.com/docs/guides/platform/free-project-pausing),
+> y un depósito de respaldos es justamente lo que menos actividad tiene. El día
+> del desastre te encontrarías el proyecto dormido. Usar el proyecto de la web
+> (que sí tiene tráfico) evitaría la pausa, pero ataría los respaldos del CRM a
+> la landing: el día que se migre o se limpie ese proyecto, se llevaría las
+> copias por delante sin avisar.
 
-**C. Un segundo servidor tuyo.** Más control, más cosas que mantener.
+Sobre la constitución: prohíbe depender de servicios externos
+([CLAUDE.md](../CLAUDE.md) → Soberanía). Un destino de respaldos **no es** una
+dependencia de runtime — si R2 se cae, Vocero sigue atendiendo clientes con
+normalidad — así que no rompe la regla.
 
-Ojo con una cosa: la constitución del proyecto prohíbe depender de servicios
-externos ([CLAUDE.md](../CLAUDE.md) → Soberanía). Un destino de respaldos **no
-es** una dependencia de runtime — si Backblaze se cae, Vocero sigue atendiendo
-clientes con normalidad — así que la opción B no rompe la regla. Pero es tu
-decisión, y por eso está escrita aquí en vez de dada por hecha.
+### Parte A — Cloudflare R2 (unos 5 minutos)
+
+1. Entra a [dash.cloudflare.com](https://dash.cloudflare.com) → **R2**.
+2. **Create bucket**. Nombre: `korex-respaldos`.
+3. **Ubicación: elige Norteamérica (ENAM), no Europa.** Dos razones: estás en
+   Colombia, y Coolify tiene un
+   [fallo conocido](https://github.com/coollabsio/coolify/issues/9305) que
+   recorta el `.eu.` del endpoint europeo al guardarlo — los respaldos fallarían
+   sin decir por qué.
+4. En R2 → **Manage API Tokens** → **Create Account API Token**.
+5. Permiso: **Object Read & Write**, y acótalo **solo a `korex-respaldos`**. Si
+   esa credencial se filtra, que no alcance a nada más.
+6. Copia las tres cosas: **Access Key ID**, **Secret Access Key** y el
+   **endpoint** (`https://<TU-ACCOUNT-ID>.r2.cloudflarestorage.com`).
+
+   > El *Secret Access Key* **se muestra una sola vez**. Guárdalo en el gestor
+   > de contraseñas antes de cerrar esa pantalla.
+
+### Parte B — Conectar Coolify con R2 (3 minutos)
+
+1. En Coolify: **Settings → S3 Storage** (según la versión, *Server →
+   Destinations*) → **Add**.
+2. Rellena:
+   - **Endpoint**: el `https://<ACCOUNT-ID>.r2.cloudflarestorage.com`
+   - **Access Key / Secret Key**: los de la Parte A
+   - **Bucket**: `korex-respaldos`
+   - **Region**: `auto`
+3. Guarda y usa el botón de probar conexión.
+
+### Parte C — Activar el respaldo automático
+
+1. Coolify → tu proyecto → recurso **PostgreSQL** → pestaña **Backups**.
+2. Frecuencia **diaria de madrugada** (`0 3 * * *`), retención **14** días.
+3. Marca **Save to S3** y elige el destino de la Parte B.
+4. Lanza un respaldo **manual ahora** y comprueba que el archivo aparece en el
+   bucket de R2.
+
+### Parte D — Cerrar el círculo (esto es lo que casi nadie hace)
+
+Que el archivo esté en R2 demuestra que se subió, no que sirva. Baja esa copia
+del bucket y pásala por el simulacro:
+
+```bash
+./scripts/respaldo/simulacro.sh ~/la-copia-que-bajaste.dump
+```
+
+Hasta que no veas `✓ SIMULACRO SUPERADO` con un archivo venido de R2, la cadena
+completa no está probada — solo sus piezas por separado.
 
 ---
 
@@ -158,7 +209,22 @@ respaldo automático hasta resolverlo.
 ## Qué revisar cada mes
 
 1. Correr `./scripts/respaldo/simulacro.sh` y ver el ✓.
-2. Comprobar en Coolify que la última copia automática es reciente.
+2. Comprobar en Coolify que la última copia automática es reciente, y que en el
+   bucket de R2 hay archivos de esta semana.
 3. Confirmar que `ENCRYPTION_KEY` sigue guardada en el gestor de contraseñas.
 
 Tres minutos al mes. Es el seguro más barato del negocio.
+
+---
+
+## Resumen: qué te protege de qué
+
+| Ante esto… | Te salva… |
+|---|---|
+| Alguien borró datos sin querer | El respaldo automático de Coolify |
+| El servidor entero desaparece | La copia en Cloudflare R2 (Nivel 2) |
+| El respaldo estaba corrupto | El simulacro mensual, que lo detecta antes |
+| Perdiste el acceso a Coolify | Los secretos en el gestor de contraseñas |
+| Restauraste la copia equivocada | La copia de emergencia que hace `restaurar.sh` |
+
+Si alguna fila de esa tabla no está cubierta hoy, esa es la siguiente tarea.

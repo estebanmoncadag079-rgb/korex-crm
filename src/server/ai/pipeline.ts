@@ -10,7 +10,12 @@ import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import { onLeadWon } from "@/server/inbox/lead-activity";
-import { buildAgentSystemPrompt } from "@/server/ai/prompts";
+import { buildAgentSystemPrompt, businessStatus } from "@/server/ai/prompts";
+import {
+  anunciaCierre,
+  CORRECCION_DE_CIERRE_FALSO,
+  MENSAJE_RETIRADO,
+} from "@/server/ai/anuncio-de-cierre";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -113,9 +118,16 @@ async function executeTurn(conversationId: string): Promise<void> {
  * con unas palabras que no eran suyas, empezó a decirle a un cliente que ya
  * habían cerrado con el negocio abierto. Se marca como ajeno para que no se lo
  * atribuya — pero sin darle autoridad: el horario lo decide el servidor.
+ *
+ * `estado` cura el historial. Un mensaje suyo que anunciaba un cierre no
+ * caduca solo: se queda en la conversación y el agente lo repite por coherencia
+ * con lo que ya dijo, aunque el sistema le esté diciendo que el negocio está
+ * abierto. Con el historial real de producción, el modelo lo reprodujo 5 veces
+ * de cada 6. Se le retira el texto — no el turno — para que no tenga qué copiar.
  */
 export function toChatHistory(
-  history: { direction: string; text: string | null; aiGenerated?: boolean }[]
+  history: { direction: string; text: string | null; aiGenerated?: boolean }[],
+  estado?: "abierto" | "cerrado" | null
 ): ChatMessage[] {
   return history
     .filter((m) => m.text)
@@ -127,11 +139,33 @@ export function toChatHistory(
           content: `[Lo escribió una persona del negocio al cliente, NO tú. Tenlo en cuenta para no repetirlo ni contradecirlo, pero no cambies por esto lo que sabes del horario]: ${m.text!}`,
         };
       }
+      const texto =
+        estado === "abierto" && anunciaCierre(m.text) ? MENSAJE_RETIRADO : m.text!;
       return {
         role: "assistant" as const,
-        content: JSON.stringify({ action: "reply", text: m.text! }),
+        content: JSON.stringify({ action: "reply", text: texto }),
       };
     });
+}
+
+/** Los textos de una acción que llegan a ojos del cliente. */
+export function textosAlCliente(action: AgentActionType): string[] {
+  switch (action.action) {
+    case "reply":
+      return [action.text];
+    case "update_lead":
+    case "move_stage":
+      return action.reply ? [action.reply] : [];
+    case "handoff":
+      return action.farewell ? [action.farewell] : [];
+    case "notify_order":
+      // El summary va al equipo, no al cliente, pero un pedido marcado como
+      // "reagendado para mañana" con el negocio abierto llega a la cocina como
+      // un pedido que nadie prepara hoy: cuenta igual.
+      return [action.summary, ...(action.farewell ? [action.farewell] : [])];
+    default:
+      return [];
+  }
 }
 
 /**
@@ -216,6 +250,13 @@ export async function runAgentTurn(
     .where(eq(schema.contact.id, conversation.contactId))
     .limit(1);
 
+  // El estado se calcula UNA vez y sirve para dos cosas: curar el historial que
+  // ve el agente y comprobar después lo que quiere responder.
+  const estado = businessStatus(
+    { open: profile.hoursOpen, close: profile.hoursClose, days: profile.hoursDays },
+    opts?.now
+  );
+
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -227,7 +268,7 @@ export async function runAgentTurn(
         now: opts?.now,
       }),
     },
-    ...toChatHistory(history),
+    ...toChatHistory(history, estado),
   ];
 
   const result = await chatJson(AgentAction, messages);
@@ -240,6 +281,35 @@ export async function runAgentTurn(
   }
 
   let action: AgentActionType = result.data;
+
+  /**
+   * Última barrera antes de hablarle al cliente: con el negocio ABIERTO, ningún
+   * mensaje puede anunciar que cerraron ni reagendar para mañana.
+   *
+   * El estado es un hecho que el servidor conoce; que se respete no puede
+   * depender de que un modelo obedezca tres advertencias del prompt — ya se
+   * comprobó que no basta. Se le da UNA oportunidad de rehacerlo con la
+   * corrección delante; si insiste, atiende una persona. Un cliente esperando
+   * treinta segundos más es recuperable; uno al que le dijeron que el negocio
+   * cerró, no.
+   */
+  if (estado === "abierto" && textosAlCliente(action).some(anunciaCierre)) {
+    console.warn("[agente] cierre falso con el negocio abierto; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "system", content: CORRECCION_DE_CIERRE_FALSO },
+    ]);
+    if (reintento.ok && !textosAlCliente(reintento.data).some(anunciaCierre)) {
+      action = reintento.data;
+    } else {
+      console.error(
+        "[agente] el cierre falso persiste tras la corrección; lo toma una persona"
+      );
+      await applyHandoff(conversationId, organizationId, "error");
+      return { action: "handoff", reason: "error" };
+    }
+  }
 
   if (action.action === "move_stage") {
     const stage = resolveStage(action.stage, stages);

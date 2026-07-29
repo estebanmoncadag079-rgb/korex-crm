@@ -117,9 +117,16 @@ export function toChatHistory(
 /**
  * Ejecuta UN turno del agente ahora (el Laboratorio lo llama directo, con
  * debounce 0 y sin pasar por el coalesce).
+ *
+ * Devuelve la acción que acabó ejecutando, o null si no hubo turno. Nadie en
+ * producción lo usa: existe para el Laboratorio, cuyo juez solo veía el texto
+ * de la conversación y no podía distinguir un "ya te contactan" con handoff
+ * real de una promesa vacía — y castigaba al agente por hacerlo bien.
  */
-export async function runAgentTurn(conversationId: string): Promise<void> {
-  if (!isAiConfigured()) return;
+export async function runAgentTurn(
+  conversationId: string
+): Promise<AgentActionType | null> {
+  if (!isAiConfigured()) return null;
 
   const db = getDb();
   const convRows = await db
@@ -128,11 +135,11 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .where(eq(schema.conversation.id, conversationId))
     .limit(1);
   const conversation = convRows[0];
-  if (!conversation) return;
+  if (!conversation) return null;
   const organizationId = conversation.organizationId;
 
   // Condiciones de silencio: handoff activo o IA apagada en la conversación.
-  if (conversation.handoffAt || !conversation.aiEnabled) return;
+  if (conversation.handoffAt || !conversation.aiEnabled) return null;
 
   const profileRows = await db
     .select()
@@ -140,10 +147,10 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
   const profile = profileRows[0];
-  if (!profile) return;
+  if (!profile) return null;
   // El toggle global aplica a conversaciones reales; el Laboratorio evalúa el
   // comportamiento configurado aunque el agente aún no esté encendido.
-  if (!conversation.isTest && !profile.enabled) return;
+  if (!conversation.isTest && !profile.enabled) return null;
 
   const history = await db
     .select()
@@ -153,18 +160,18 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
     .limit(20);
   history.reverse();
   const lastInbound = [...history].reverse().find((m) => m.direction === "in");
-  if (!lastInbound) return;
+  if (!lastInbound) return null;
 
   // Ventana cerrada: el agente JAMÁS envía texto libre → handoff 'ventana'.
   if (!conversation.isTest && !isWindowOpen(conversation.lastInboundAt)) {
     await applyHandoff(conversationId, organizationId, "ventana");
-    return;
+    return { action: "handoff", reason: "ventana" };
   }
 
   // Patrón de respaldo ANTES del LLM (FR-022).
   if (lastInbound.text && matchesHandoffIntent(lastInbound.text)) {
     await applyHandoff(conversationId, organizationId, "cliente");
-    return;
+    return { action: "handoff", reason: "cliente" };
   }
 
   const kb = await db
@@ -188,11 +195,11 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
 
   const result = await chatJson(AgentAction, messages);
   if (!result.ok) {
-    if (result.error === "not_configured") return;
+    if (result.error === "not_configured") return null;
     // Fallo persistente del proveedor o salida imposible → escalar (FR-022).
     console.error(`[agente] fallo del proveedor (raw): ${result.detail}`);
     await applyHandoff(conversationId, organizationId, "error");
-    return;
+    return { action: "handoff", reason: "error" };
   }
 
   let action: AgentActionType = result.data;
@@ -210,27 +217,27 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
       if (action.reply) {
         await deliverReply(conversation, action.reply);
       }
-      return;
+      return action;
     }
   }
 
   switch (action.action) {
     case "none":
-      return;
+      return action;
     case "reply":
       await deliverReply(conversation, action.text);
-      return;
+      return action;
     case "update_lead": {
       await appendLeadNote(organizationId, conversation.contactId, action.note);
       if (action.reply) await deliverReply(conversation, action.reply);
-      return;
+      return action;
     }
     case "handoff": {
       if (action.farewell) {
         await deliverReply(conversation, action.farewell);
       }
       await applyHandoff(conversationId, organizationId, "modelo");
-      return;
+      return action;
     }
     case "notify_order": {
       // Orden deliberado: primero el registro (fuente de verdad), después el
@@ -267,9 +274,10 @@ export async function runAgentTurn(conversationId: string): Promise<void> {
       }
       // Pedido cerrado = lo toma una persona (coordinar entrega y pago).
       await applyHandoff(conversationId, organizationId, "modelo");
-      return;
+      return action;
     }
   }
+  return null;
 }
 
 type Conversation = typeof schema.conversation.$inferSelect;

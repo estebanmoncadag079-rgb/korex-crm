@@ -53,3 +53,16 @@ export type ContactDto = {
   notes: string | null;
   archivedAt: string | null;
 };
+
+/**
+ * Una línea del transcript del Laboratorio.
+ *
+ * `sistema` no es un mensaje que viera el cliente: es una acción que el agente
+ * ejecutó de verdad (escaló, registró el pedido). Sin ella el juez calificaba
+ * solo por el texto y no podía distinguir un "ya te contactan" con handoff real
+ * de una promesa vacía — marcaba en rojo conversaciones bien resueltas.
+ */
+export type TranscriptLine = {
+  role: "cliente" | "agente" | "sistema";
+  text: string;
+};

@@ -14,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEvents } from "@/components/use-events";
+import type { TranscriptLine } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,7 +45,7 @@ type Case = {
   status: string;
   veredicto: "verde" | "amarillo" | "rojo" | null;
   hallazgos: Hallazgo[];
-  transcript: { role: "cliente" | "agente"; text: string }[];
+  transcript: TranscriptLine[];
 };
 
 const TIPO_LABELS: Record<Hallazgo["tipo"], string> = {
@@ -394,18 +395,27 @@ function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => vo
               Transcript
             </p>
             <div className="space-y-1.5 text-sm">
-              {c.transcript.map((t, i) => (
-                <p key={i}>
-                  <span
-                    className={
-                      t.role === "cliente" ? "text-[#5b7291]" : "text-primary"
-                    }
-                  >
-                    {t.role === "cliente" ? "Cliente" : "Agente"}:
-                  </span>{" "}
-                  {t.text}
-                </p>
-              ))}
+              {c.transcript.map((t, i) =>
+                // Las líneas de sistema no son mensajes al cliente: son lo que
+                // el agente hizo de verdad. Se marcan aparte para que nadie las
+                // lea como algo que el cliente vio.
+                t.role === "sistema" ? (
+                  <p key={i} className="italic text-muted-foreground">
+                    ⚙ {t.text}
+                  </p>
+                ) : (
+                  <p key={i}>
+                    <span
+                      className={
+                        t.role === "cliente" ? "text-[#5b7291]" : "text-primary"
+                      }
+                    >
+                      {t.role === "cliente" ? "Cliente" : "Agente"}:
+                    </span>{" "}
+                    {t.text}
+                  </p>
+                )
+              )}
             </div>
           </div>
         </CardContent>

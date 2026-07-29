@@ -1,11 +1,13 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
 import { runAgentTurn } from "@/server/ai/pipeline";
+import type { AgentActionType } from "@/server/ai/actions";
 import { renderKb } from "@/server/ai/prompts";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import { PERSONAS, type Persona } from "@/server/lab/personas";
+import type { TranscriptLine } from "@/lib/types";
 
 /**
  * Runner del Laboratorio (FR-030/FR-034): corrida en segundo plano DENTRO del
@@ -165,12 +167,35 @@ async function runAllCases(
   publishProgress(organizationId, runId, "done", done, total, score);
 }
 
+/**
+ * Traduce una acción del agente a una línea que el juez pueda leer.
+ *
+ * Sin esto el juez solo veía texto: un "ya te contactan" con handoff REAL le
+ * parecía idéntico a una promesa vacía, y marcaba en rojo conversaciones que
+ * el agente había resuelto bien. Devuelve null para lo que no aporta nada
+ * (una respuesta normal ya se ve en el propio transcript).
+ */
+function describirAccion(accion: AgentActionType): string | null {
+  switch (accion.action) {
+    case "handoff":
+      return "el agente ESCALÓ la conversación a una persona del equipo (acción ejecutada de verdad: la conversación quedó en atención humana)";
+    case "notify_order":
+      return "el agente REGISTRÓ el pedido y avisó al equipo por WhatsApp (acción ejecutada de verdad)";
+    case "move_stage":
+      return `el agente movió el lead a la etapa "${accion.stage}"`;
+    case "update_lead":
+      return "el agente guardó una nota en la ficha del cliente";
+    default:
+      return null;
+  }
+}
+
 /** Conversa el guion completo contra el agente real; corta al primer handoff. */
 async function runConversation(
   organizationId: string,
   persona: Persona
 ): Promise<{
-  transcript: { role: "cliente" | "agente"; text: string }[];
+  transcript: TranscriptLine[];
   conversationId: string;
 }> {
   const db = getDb();
@@ -186,6 +211,9 @@ async function runConversation(
     isTest: true,
     aiEnabled: true,
   });
+
+  // Acciones ejecutadas, con el punto del transcript donde ocurrieron.
+  const acciones: { trasMensajes: number; texto: string }[] = [];
 
   for (const line of persona.script) {
     const now = new Date();
@@ -205,7 +233,15 @@ async function runConversation(
       .where(eq(schema.conversation.id, convId));
 
     // Turno REAL del agente, secuencial y sin debounce (FR-030).
-    await runAgentTurn(convId);
+    const accion = await runAgentTurn(convId);
+    const nota = accion ? describirAccion(accion) : null;
+    if (nota) {
+      const conteo = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.message)
+        .where(eq(schema.message.conversationId, convId));
+      acciones.push({ trasMensajes: conteo[0]?.n ?? 0, texto: nota });
+    }
 
     const convRows = await db
       .select({ handoffAt: schema.conversation.handoffAt })
@@ -221,15 +257,24 @@ async function runConversation(
     .where(eq(schema.message.conversationId, convId))
     .orderBy(asc(schema.message.createdAt));
 
-  return {
-    conversationId: convId,
-    transcript: messages
-      .filter((m) => m.text)
-      .map((m) => ({
-        role: m.direction === "in" ? ("cliente" as const) : ("agente" as const),
-        text: m.text!,
-      })),
-  };
+  // Se intercalan las acciones en su sitio, no al final: al juez le importa
+  // que el escalado ocurriera DESPUÉS del mensaje que lo motivó.
+  const transcript: TranscriptLine[] = [];
+  messages.forEach((m, i) => {
+    if (m.text) {
+      transcript.push({
+        role: m.direction === "in" ? "cliente" : "agente",
+        text: m.text,
+      });
+    }
+    for (const a of acciones) {
+      if (a.trasMensajes === i + 1) {
+        transcript.push({ role: "sistema", text: a.texto });
+      }
+    }
+  });
+
+  return { conversationId: convId, transcript };
 }
 
 async function upsertTestContact(

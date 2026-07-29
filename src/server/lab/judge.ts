@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { chatJson } from "@/lib/ai";
 import { buildJudgePrompt } from "@/server/ai/prompts";
+import type { TranscriptLine } from "@/lib/types";
 
 /** Veredicto estructurado del juez (FR-032, contrato ai.md). */
 export const Verdict = z.object({
@@ -29,7 +30,7 @@ export type JudgeOutcome =
  */
 export async function judgeCase(input: {
   personaKey: string;
-  transcript: { role: "cliente" | "agente"; text: string }[];
+  transcript: TranscriptLine[];
   kbText: string;
   behaviorText: string;
 }): Promise<JudgeOutcome> {

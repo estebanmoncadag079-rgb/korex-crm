@@ -1,4 +1,5 @@
 import type { schema } from "@/lib/db";
+import type { TranscriptLine } from "@/lib/types";
 
 type AgentProfile = typeof schema.agentProfile.$inferSelect;
 type KbEntry = typeof schema.kbEntry.$inferSelect;
@@ -154,7 +155,7 @@ export function buildAgentSystemPrompt(input: {
 /** Prompt del juez del Laboratorio: UNA llamada por conversación (FR-032). */
 export function buildJudgePrompt(input: {
   persona: string;
-  transcript: { role: "cliente" | "agente"; text: string }[];
+  transcript: TranscriptLine[];
   kbText: string;
   behaviorText: string;
 }): { system: string; user: string } {

@@ -40,6 +40,14 @@ function Escribir($Texto, $Color = 'White') {
     Write-Host $Texto -ForegroundColor $Color
 }
 
+# Un respaldo sano de este CRM pesa decenas de KB. Redondeado a MB salía
+# "0 MB", que se lee como archivo vacío justo donde hay que dar confianza.
+function Legible([long]$Bytes) {
+    if ($Bytes -ge 1GB) { return "{0:N1} GB" -f ($Bytes / 1GB) }
+    if ($Bytes -ge 1MB) { return "{0:N1} MB" -f ($Bytes / 1MB) }
+    return "{0:N0} KB" -f ([math]::Max(1, $Bytes / 1KB))
+}
+
 # --- Comprobaciones previas ------------------------------------------------
 
 foreach ($herramienta in @('ssh', 'scp')) {
@@ -146,9 +154,9 @@ foreach ($item in $remotos) {
         continue
     }
 
-    $mb = [math]::Round((Get-Item $local).Length / 1MB, 1)
-    Escribir "   OK  $($item.Nombre)  ($mb MB, huella verificada)" 'Green'
-    Anotar "Descargado y verificado: $($item.Nombre) ($mb MB)"
+    $peso = Legible (Get-Item $local).Length
+    Escribir "   OK  $($item.Nombre)  ($peso, huella verificada)" 'Green'
+    Anotar "Descargado y verificado: $($item.Nombre) ($peso)"
     $traidos++
 }
 
@@ -172,8 +180,8 @@ if ($ConservarDias -gt 0) {
 # --- Resumen ---------------------------------------------------------------
 
 $total = (RespaldosLocales | Measure-Object).Count
-$peso = (RespaldosLocales | Measure-Object -Property Length -Sum).Sum
-$pesoMb = if ($peso) { [math]::Round($peso / 1MB, 1) } else { 0 }
+$sumaBytes = (RespaldosLocales | Measure-Object -Property Length -Sum).Sum
+$pesoTotal = if ($sumaBytes) { Legible $sumaBytes } else { '0 KB' }
 
 Escribir ""
 if ($fallidos -gt 0) {
@@ -181,7 +189,7 @@ if ($fallidos -gt 0) {
 } else {
     Escribir "LISTO: $traidos nueva(s), $yaEstaban ya estaban." 'Green'
 }
-Escribir "Tienes $total copia(s) aqui ($pesoMb MB): $Destino"
+Escribir "Tienes $total copia(s) aqui ($pesoTotal): $Destino"
 Anotar "Resumen: $traidos nuevas, $yaEstaban existentes, $fallidos fallidas, $total en total"
 
 if ($fallidos -gt 0) { exit 1 }

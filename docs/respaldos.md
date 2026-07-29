@@ -199,39 +199,61 @@ que hace falta. Si la huella no cuadra, el archivo se descarta.
 
 ### Paso 3 — Que se haga sola
 
-Con el **Programador de tareas** de Windows (búscalo en el menú de inicio):
+Se programa con un comando, sin pelearse con el asistente gráfico. Ajusta la
+ruta y el servidor y pégalo en PowerShell:
 
-1. **Crear tarea básica**, nombre `Respaldos Vocero`.
-2. Frecuencia: **diaria**, a una hora en que el PC suela estar encendido — a
-   media mañana, no de madrugada.
-3. Acción: **Iniciar un programa**.
-   - Programa: `powershell.exe`
-   - Argumentos (en una sola línea, con TUS datos):
-     ```
-     -ExecutionPolicy Bypass -File "C:\bots\KOREX.IA\vocero\scripts\respaldo\descargar-a-mi-pc.ps1" -Servidor USUARIO@IP-DEL-SERVIDOR
-     ```
-4. Al terminar, marca **Abrir propiedades** y en la pestaña **Condiciones**
-   desmarca *"Iniciar la tarea solo si el equipo está conectado a la corriente"*.
-   En **Configuración**, marca **"Ejecutar la tarea lo antes posible si se pasó
-   por alto un inicio programado"** — así, si el PC estaba apagado a esa hora,
-   la copia se hace al encenderlo.
+```powershell
+$ruta = 'C:\ruta\a\vocero\scripts\respaldo\descargar-a-mi-pc.ps1'
+$accion = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ruta`" -Servidor USUARIO@IP"
+$disparo = New-ScheduledTaskTrigger -Daily -At (Get-Date '10:00')
+$ajustes = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+Register-ScheduledTask -TaskName 'Respaldos Vocero' -Action $accion -Trigger $disparo -Settings $ajustes -Force
+```
+
+Dos ajustes que no son adorno: `-StartWhenAvailable` hace que la copia se haga
+al encender el PC si estaba apagado a esa hora, y `-AllowStartIfOnBatteries`
+evita que se salte el día que trabajes sin enchufe. Sin ellos, un portátil se
+queda semanas sin copiar nada y nadie se entera.
+
+La hora, a media mañana. No de madrugada: el servidor sí está siempre
+encendido, tu computador no.
+
+**Compruébala de verdad**, no te fíes de que aparezca creada:
+
+```powershell
+Start-ScheduledTask -TaskName 'Respaldos Vocero'
+Start-Sleep 25
+(Get-ScheduledTaskInfo -TaskName 'Respaldos Vocero').LastTaskResult   # 0 = correcto
+```
+
+Lanzarla así la ejecuta como la ejecutará Windows —otro entorno, otras
+variables— y es donde aparecen los fallos que no salen cuando la lanzas tú.
 
 ### Paso 4 — Que la copia salga también de tu casa
 
 Falta una cosa, y es importante: si se te daña o te roban el PC, pierdes las
 copias igual que si se hubiera muerto el servidor. Un incendio se lleva las dos.
 
-La forma gratuita y sin tarjeta de arreglarlo: **guarda la carpeta dentro de
-OneDrive o Google Drive**, que en Windows ya sincronizan solos. En vez del
-Escritorio, apunta el guion ahí:
+La forma gratuita y sin tarjeta de arreglarlo: **que la carpeta esté dentro de
+OneDrive o Google Drive**, que en Windows ya sincronizan solos.
+
+Míralo antes de mover nada, porque en Windows 11 el Escritorio suele estar ya
+dentro de OneDrive:
+
+```powershell
+[Environment]::GetFolderPath('Desktop')
+```
+
+Si la respuesta incluye `OneDrive`, ya está resuelto y no hay que hacer nada.
+Si no, apunta el guion a la carpeta sincronizada:
 
 ```powershell
 .\scripts\respaldo\descargar-a-mi-pc.ps1 -Servidor USUARIO@IP -Destino "$env:USERPROFILE\OneDrive\Respaldos Vocero"
 ```
 
-(OneDrive regala 5 GB y Google Drive 15 GB — de sobra.) Con eso la copia acaba
-en tres sitios: el servidor, tu PC y la nube personal. Para que los tres fallen
-a la vez tiene que pasar algo muy raro.
+(OneDrive regala 5 GB y Google Drive 15 GB — de sobra para copias de decenas de
+KB.) Con eso la copia acaba en tres sitios: el servidor, tu PC y la nube
+personal. Para que los tres fallen a la vez tiene que pasar algo muy raro.
 
 > **Ojo con la privacidad:** ese archivo contiene conversaciones reales de los
 > clientes de tus clientes. Que la carpeta sincronizada sea tuya y privada —

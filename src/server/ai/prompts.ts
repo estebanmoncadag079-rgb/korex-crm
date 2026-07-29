@@ -167,10 +167,16 @@ export function buildJudgePrompt(input: {
     "- `sugerencia` es opcional: inclúyela cuando una nueva entrada P/R del knowledge base evitaría el problema.",
     "- Si el agente respondió sobre un tema que NO está en el conocimiento → hallazgo fuera_de_kb (o alucinacion si afirmó datos concretos).",
     "- Si el cliente pidió un humano y no hubo escalado → debio_escalar.",
+    "- Las líneas [SISTEMA] NO son mensajes al cliente: son acciones que el agente EJECUTÓ de verdad, verificadas contra la base de datos. Si aparece un escalado, el escalado OCURRIÓ y el equipo quedó notificado: NO lo marques como debio_escalar por mucho que el texto suene a promesa. Nunca las cites como evidencia ni juzgues su redacción.",
   ].join("\n");
 
+  const ROLES: Record<TranscriptLine["role"], string> = {
+    cliente: "CLIENTE",
+    agente: "AGENTE",
+    sistema: "SISTEMA",
+  };
   const transcript = input.transcript
-    .map((t) => `${t.role === "cliente" ? "CLIENTE" : "AGENTE"}: ${t.text}`)
+    .map((t) => `${ROLES[t.role]}: ${t.text}`)
     .join("\n");
 
   const user = [

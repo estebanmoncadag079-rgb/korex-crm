@@ -53,9 +53,15 @@ export async function chatJson<T>(
    * Red de seguridad: el modelo de diario es barato, y si un día se atasca con
    * el formato preferimos gastar una llamada en uno más capaz antes que dejar
    * al cliente sin respuesta y el pedido en manos de una persona.
+   *
+   * Cubre también al juez del Laboratorio. Antes lo dejaba fuera, y el precio
+   * se pagaba en confianza: cuando el juez no devolvía un veredicto legible el
+   * caso se quedaba SIN calificar y el reporte lo mostraba en blanco, sin que
+   * el dueño del negocio pudiera saber si su agente lo había hecho bien o mal.
+   * Solo cuesta cuando el barato ya agotó sus tres intentos.
    */
   const respaldo = getEnv().OPENROUTER_FALLBACK_MODEL?.trim();
-  if (respaldo && respaldo !== model && !opts?.judge && !opts?.model) {
+  if (respaldo && respaldo !== model && !opts?.model) {
     console.warn(
       `[ia] ${model} no devolvió una respuesta usable; reintentando con ${respaldo}`
     );

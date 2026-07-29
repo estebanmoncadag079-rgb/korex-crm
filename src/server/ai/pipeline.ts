@@ -111,8 +111,8 @@ async function executeTurn(conversationId: string): Promise<void> {
  * `out`, y dárselo con el envoltorio de acción le hacía creer que lo había
  * dicho él. Un compañero avisó "hoy abrimos a la 1pm" y el agente, coherente
  * con unas palabras que no eran suyas, empezó a decirle a un cliente que ya
- * habían cerrado con el negocio abierto. Se marca como intervención del equipo:
- * es información fresca del local, y manda sobre lo que diga la configuración.
+ * habían cerrado con el negocio abierto. Se marca como ajeno para que no se lo
+ * atribuya — pero sin darle autoridad: el horario lo decide el servidor.
  */
 export function toChatHistory(
   history: { direction: string; text: string | null; aiGenerated?: boolean }[]
@@ -124,7 +124,7 @@ export function toChatHistory(
       if (m.aiGenerated === false) {
         return {
           role: "user" as const,
-          content: `[AVISO DEL EQUIPO — lo escribió una persona del negocio al cliente, no tú. Es la verdad más reciente sobre el local y manda sobre el horario configurado; tenlo en cuenta y no lo contradigas]: ${m.text!}`,
+          content: `[Lo escribió una persona del negocio al cliente, NO tú. Tenlo en cuenta para no repetirlo ni contradecirlo, pero no cambies por esto lo que sabes del horario]: ${m.text!}`,
         };
       }
       return {

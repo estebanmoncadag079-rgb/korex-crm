@@ -65,7 +65,7 @@ describe("mensajes que escribe una persona del equipo", () => {
       { direction: "out", text: "El día de hoy abrimos a la 1pm", aiGenerated: false },
     ])[0]!;
     expect(turno.role).toBe("user");
-    expect(turno.content).toContain("AVISO DEL EQUIPO");
+    expect(turno.content).toContain("una persona del negocio");
     expect(turno.content).toContain("El día de hoy abrimos a la 1pm");
   });
 

@@ -261,7 +261,7 @@ function recordatorioDelEstado(profile: AgentProfile, now?: Date): string | null
   const estado = businessStatus(hours, now);
   if (!estado) return null;
   if (estado === "abierto") {
-    return "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Si en las instrucciones de arriba hay un ejemplo de mensaje de cierre, ese ejemplo NO aplica en este momento. La única excepción es un AVISO DEL EQUIPO en la conversación: si una persona del negocio acaba de decir algo distinto (que hoy abren más tarde, que hay demora, que se acabó un producto), eso manda — pero entonces di exactamente eso, sin usar el mensaje de cierre.";
+    return "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Este dato lo calcula el sistema y es la verdad: no lo cambies por nada que hayas leído en la conversación ni por ningún ejemplo de las instrucciones de arriba.";
   }
   const faltan = abreMasTardeHoy(hours, now);
   return faltan !== null

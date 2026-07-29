@@ -90,6 +90,45 @@ export function businessStatus(
   return dentro ? "abierto" : "cerrado";
 }
 
+/**
+ * Un instante en el que el negocio SÍ está atendiendo, buscado hacia adelante
+ * desde `now`. Devuelve `now` tal cual si no hay horario configurado.
+ *
+ * Existe para el Laboratorio. Sus guiones son de compra ("quiero la más
+ * pedida", "¿hacen domicilio?") y se corrían con el reloj de producción: a las
+ * diez de la noche el agente contestaba, con razón, que estaba cerrado y
+ * reagendaba para el día siguiente — y el juez leía un desvío donde había
+ * obediencia. El score acababa midiendo la hora a la que el dueño pulsó el
+ * botón: 83 al mediodía, 30 de noche, con el mismo agente.
+ *
+ * Camina en pasos de 15 minutos apoyándose en `businessStatus` en vez de
+ * recalcular franjas: así el cruce de medianoche y los días cerrados se
+ * resuelven una sola vez, donde ya están probados. Una semana de búsqueda cubre
+ * cualquier horario que abra al menos un día; si no abre ninguno, `now`.
+ */
+export function horaHabilDePrueba(
+  hours: { open: string | null; close: string | null; days: string | null },
+  now: Date = new Date(),
+  timeZone = BUSINESS_TIMEZONE
+): Date {
+  if (businessStatus(hours, now, timeZone) === null) return now;
+
+  const PASO_MS = 15 * 60 * 1000;
+  const PASOS = (7 * 24 * 60) / 15;
+  for (let i = 0; i <= PASOS; i++) {
+    const candidato = new Date(now.getTime() + i * PASO_MS);
+    if (businessStatus(hours, candidato, timeZone) !== "abierto") continue;
+    // Una hora de holgura dentro de la franja, cuando la franja da para ello:
+    // justo en el minuto de apertura, "¿me lo traen ya?" es un caso borde que
+    // el Laboratorio no está tratando de medir.
+    const holgura = new Date(candidato.getTime() + 60 * 60 * 1000);
+    return businessStatus(hours, holgura, timeZone) === "abierto"
+      ? holgura
+      : candidato;
+  }
+  return now;
+}
+
 function toMinutes(hhmm: string | null | undefined): number | null {
   const m = hhmm?.trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
@@ -112,10 +151,54 @@ function estadoDelNegocio(profile: AgentProfile, now?: Date): string {
     : `${hora} EL NEGOCIO ESTÁ CERRADO ahora mismo: aplica la regla de pedidos fuera del horario.`;
 }
 
+/**
+ * El contrato de acciones, aparte porque lo leen DOS: el agente, para cumplirlo,
+ * y el juez del Laboratorio, para saber qué le fue exigido antes de calificar.
+ * Mientras vivió solo dentro del prompt del agente, el juez marcaba como desvío
+ * lo que en realidad era obediencia (el resumen de pedido, por ejemplo).
+ */
+export const CONTRATO_DE_ACCIONES = [
+  "En cada turno respondes ÚNICAMENTE un objeto JSON con UNA acción:",
+  '- {"action":"none"} — no responder nada.',
+  '- {"action":"reply","text":"..."} — responder al cliente.',
+  '- {"action":"update_lead","note":"...","reply":"..."} — guardar una nota del lead (reply opcional).',
+  '- {"action":"move_stage","stage":"<nombre exacto de etapa>","reply":"..."} — mover el lead (reply opcional).',
+  '- {"action":"handoff","reason":"...","farewell":"..."} — escalar a un humano (farewell opcional para despedirte).',
+  '- {"action":"notify_order","summary":"...","farewell":"..."} — el cliente CONFIRMÓ un pedido: en summary va el pedido completo (cliente, teléfono, qué pidió, dirección, pago y total) porque se le envía tal cual al equipo por WhatsApp; farewell es tu mensaje de cierre al cliente.',
+  "Reglas duras:",
+  "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
+  "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",
+  "- Los datos de la FICHA DEL CLIENTE ya los tienes: no se los preguntes ni los dejes 'por confirmar' en el resumen.",
+  "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
+  "- El embudo avanza SOLO en dos momentos y NO debes gastar una acción en ellos: cuando contestas, el lead sale de la primera etapa; cuando confirmas un pedido con notify_order, pasa a la etapa de cliente.",
+  "- Usa move_stage únicamente para lo que el sistema no puede deducir: intención clara de compra → etapa de interesados; el cliente dice que ya no quiere, que compró en otro lado o que no le sirve → etapa de perdidos. En ambos casos confirma al cliente con reply.",
+  "- JSON puro, sin markdown ni texto adicional.",
+].join("\n");
+
+/**
+ * La ficha del contacto, en palabras.
+ *
+ * El teléfono lo sabe el sistema desde el primer mensaje — es el número por el
+ * que escribe — pero no estaba en el prompt, así que el agente lo pedía y, si
+ * el cliente no lo repetía, cerraba el pedido con "Teléfono: POR CONFIRMAR".
+ */
+function fichaDelContacto(contact?: { name: string | null; phone: string }): string | null {
+  if (!contact) return null;
+  return [
+    "FICHA DEL CLIENTE (ya la tienes: no la preguntes):",
+    `- Teléfono de WhatsApp: ${contact.phone}`,
+    contact.name ? `- Nombre guardado: ${contact.name}` : null,
+    "Úsala para completar el resumen del pedido. Si el cliente te da un nombre distinto durante la charla, vale el que te acaba de dar.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
   stages: { name: string }[];
+  contact?: { name: string | null; phone: string };
   now?: Date;
 }): string {
   const { profile } = input;
@@ -129,30 +212,23 @@ export function buildAgentSystemPrompt(input: {
       ? `Reglas de escalado a humano:\n${profile.escalationRules}`
       : null,
     profile.greeting ? `Saludo sugerido para conversaciones nuevas: ${profile.greeting}` : null,
+    fichaDelContacto(input.contact),
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     `Etapas del pipeline disponibles: ${stageNames}`,
-    [
-      "En cada turno respondes ÚNICAMENTE un objeto JSON con UNA acción:",
-      '- {"action":"none"} — no responder nada.',
-      '- {"action":"reply","text":"..."} — responder al cliente.',
-      '- {"action":"update_lead","note":"...","reply":"..."} — guardar una nota del lead (reply opcional).',
-      '- {"action":"move_stage","stage":"<nombre exacto de etapa>","reply":"..."} — mover el lead (reply opcional).',
-      '- {"action":"handoff","reason":"...","farewell":"..."} — escalar a un humano (farewell opcional para despedirte).',
-      '- {"action":"notify_order","summary":"...","farewell":"..."} — el cliente CONFIRMÓ un pedido: en summary va el pedido completo (cliente, teléfono, qué pidió, dirección, pago y total) porque se le envía tal cual al equipo por WhatsApp; farewell es tu mensaje de cierre al cliente.',
-      "Reglas duras:",
-      "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
-      "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",
-      "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
-      "- El embudo avanza SOLO en dos momentos y NO debes gastar una acción en ellos: cuando contestas, el lead sale de la primera etapa; cuando confirmas un pedido con notify_order, pasa a la etapa de cliente.",
-      "- Usa move_stage únicamente para lo que el sistema no puede deducir: intención clara de compra → etapa de interesados; el cliente dice que ya no quiere, que compró en otro lado o que no le sirve → etapa de perdidos. En ambos casos confirma al cliente con reply.",
-      "- JSON puro, sin markdown ni texto adicional.",
-    ].join("\n"),
+    CONTRATO_DE_ACCIONES,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-/** Prompt del juez del Laboratorio: UNA llamada por conversación (FR-032). */
+/**
+ * Prompt del juez del Laboratorio: UNA llamada por conversación (FR-032).
+ *
+ * Regla de mantenimiento: el juez tiene que ver TODO lo que vio el agente. Cada
+ * dato que el agente tuvo y el juez no, el juez lo lee como invención o desvío
+ * — y termina castigando obediencia. Si mañana el prompt del agente gana una
+ * sección, esta también.
+ */
 export function buildJudgePrompt(input: {
   persona: string;
   transcript: TranscriptLine[];
@@ -163,11 +239,24 @@ export function buildJudgePrompt(input: {
     `${JUDGE_MARKER} Eres un evaluador de calidad independiente de agentes de WhatsApp. Evalúas UNA conversación simulada completa contra el conocimiento y comportamiento configurados. Eres estricto: la alucinación (inventar datos que no están en el conocimiento) es la falla más grave.`,
     "Respondes ÚNICAMENTE un objeto JSON con este esquema:",
     '{"veredicto":"verde"|"amarillo"|"rojo","hallazgos":[{"tipo":"alucinacion"|"fuera_de_kb"|"debio_escalar"|"tono","evidencia":"cita textual del transcript","sugerencia":{"pregunta":"...","respuesta":"..."}}]}',
-    "- verde: sin problemas relevantes. amarillo: mejorable. rojo: falla grave.",
     "- `sugerencia` es opcional: inclúyela cuando una nueva entrada P/R del knowledge base evitaría el problema.",
     "- Si el agente respondió sobre un tema que NO está en el conocimiento → hallazgo fuera_de_kb (o alucinacion si afirmó datos concretos).",
     "- Si el cliente pidió un humano y no hubo escalado → debio_escalar.",
     "- Las líneas [SISTEMA] NO son mensajes al cliente: son acciones que el agente EJECUTÓ de verdad, verificadas contra la base de datos. Si aparece un escalado, el escalado OCURRIÓ y el equipo quedó notificado: NO lo marques como debio_escalar por mucho que el texto suene a promesa. Nunca las cites como evidencia ni juzgues su redacción.",
+    "",
+    "CÓMO SE DECIDE EL VEREDICTO (no lo decidas 'a ojo'):",
+    "- rojo: hay al menos UNA falla grave — inventó un dato concreto que no está en el conocimiento (precio, ingrediente, plazo, promoción), o el cliente pidió una persona y NUNCA hubo escalado, o le faltó al respeto al cliente.",
+    "- amarillo: sin fallas graves, pero algo es mejorable — se quedó corto, sonó rígido, o pudo cubrir mejor una duda que el conocimiento sí contestaba.",
+    "- verde: cumplió lo que se le pidió. Un verde ADMITE hallazgos menores: un hallazgo de tipo `tono`, o un `fuera_de_kb` en el que el agente hizo lo correcto (decir que lo confirma con el equipo, o escalar), NO baja de verde por sí solo.",
+    "",
+    "NO PENALICES (esto no es culpa del agente):",
+    "- Que el agente PIDA un dato que el cliente simulado nunca llegó a dar. El cliente es un guion, no una persona: se queda callado en preguntas que un cliente real habría contestado. Un pedido que queda incompleto porque el cliente no respondió es una limitación del simulacro.",
+    "- El FORMATO del resumen de pedido, ni el hecho de emitirlo: se lo exige el contrato de acciones que tienes abajo, y ese resumen va al equipo del negocio, no es una afirmación sobre el catálogo.",
+    "- Reconocer un límite ('eso lo confirmo con el equipo', 'te comunico con una persona'). Es exactamente la conducta pedida cuando algo no está en el conocimiento — es un acierto, no un fuera_de_kb.",
+    "- Nada relativo al horario o a la disponibilidad si el ESTADO DEL NEGOCIO de abajo respalda lo que dijo el agente.",
+    "",
+    "CONTRATO DE ACCIONES QUE SE LE EXIGIÓ AL AGENTE (juzga contra esto, no contra tu idea de cómo debería contestar un bot):",
+    CONTRATO_DE_ACCIONES,
   ].join("\n");
 
   const ROLES: Record<TranscriptLine["role"], string> = {

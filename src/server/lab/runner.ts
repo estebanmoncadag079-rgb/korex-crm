@@ -4,9 +4,19 @@ import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
 import { runAgentTurn } from "@/server/ai/pipeline";
 import type { AgentActionType } from "@/server/ai/actions";
-import { renderKb } from "@/server/ai/prompts";
+import {
+  businessStatus,
+  horaHabilDePrueba,
+  nowForBusiness,
+  renderKb,
+} from "@/server/ai/prompts";
 import { computeScore, judgeCase } from "@/server/lab/judge";
-import { PERSONAS, type Persona } from "@/server/lab/personas";
+import {
+  elegirRespuesta,
+  PERSONAS,
+  reglasDe,
+  type Persona,
+} from "@/server/lab/personas";
 import type { TranscriptLine } from "@/lib/types";
 
 /**
@@ -100,12 +110,28 @@ async function runAllCases(
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
   const profile = profileRows[0];
+
+  /**
+   * Reloj de la corrida: una hora de atención, la misma para las seis
+   * conversaciones y para el juez. Los guiones son de compra, y con el reloj
+   * de producción una corrida nocturna medía otra cosa — el agente reagendaba
+   * para el día siguiente, con razón, y el juez lo leía como desvío.
+   */
+  const horario = {
+    open: profile?.hoursOpen ?? null,
+    close: profile?.hoursClose ?? null,
+    days: profile?.hoursDays ?? null,
+  };
+  const labNow = horaHabilDePrueba(horario);
+
   const behaviorText = profile
     ? [
         `Nombre: ${profile.name}`,
         profile.tone ? `Tono: ${profile.tone}` : null,
         profile.instructions ? `Instrucciones: ${profile.instructions}` : null,
         profile.escalationRules ? `Escalado: ${profile.escalationRules}` : null,
+        profile.greeting ? `Saludo configurado: ${profile.greeting}` : null,
+        estadoParaElJuez(horario, labNow),
       ]
         .filter(Boolean)
         .join("\n")
@@ -126,7 +152,8 @@ async function runAllCases(
 
     const { transcript, conversationId } = await runConversation(
       organizationId,
-      persona
+      persona,
+      labNow
     );
 
     const outcome = await judgeCase({
@@ -168,6 +195,23 @@ async function runAllCases(
 }
 
 /**
+ * El estado del negocio, en las mismas palabras que lo recibió el agente.
+ *
+ * Sin esta línea el juez calificaba a ciegas todo lo que dependiera del reloj:
+ * leía "reagendamos para mañana" como un desvío cuando era obediencia a un
+ * "EL NEGOCIO ESTÁ CERRADO" que él no veía.
+ */
+function estadoParaElJuez(
+  horario: { open: string | null; close: string | null; days: string | null },
+  now: Date
+): string {
+  const estado = businessStatus(horario, now);
+  const hora = `ESTADO DEL NEGOCIO durante la simulación: ${nowForBusiness(now)} (formato 24 h)`;
+  if (!estado) return `${hora}. Sin horario configurado.`;
+  return `${hora}. El negocio estaba ${estado.toUpperCase()} y el agente lo sabía.`;
+}
+
+/**
  * Traduce una acción del agente a una línea que el juez pueda leer.
  *
  * Sin esto el juez solo veía texto: un "ya te contactan" con handoff REAL le
@@ -190,10 +234,19 @@ function describirAccion(accion: AgentActionType): string | null {
   }
 }
 
+/**
+ * Cuántas veces puede el cliente salirse del guion para contestar una pregunta
+ * del agente. El tope no es estético: el agente lee los últimos 20 mensajes, y
+ * el guion más largo (6 líneas) más sus respuestas tiene que caber entero ahí
+ * — si no, la conversación empieza a olvidar su propio principio.
+ */
+export const MAX_RESPUESTAS_REACTIVAS = 3;
+
 /** Conversa el guion completo contra el agente real; corta al primer handoff. */
 async function runConversation(
   organizationId: string,
-  persona: Persona
+  persona: Persona,
+  labNow: Date
 ): Promise<{
   transcript: TranscriptLine[];
   conversationId: string;
@@ -215,7 +268,29 @@ async function runConversation(
   // Acciones ejecutadas, con el punto del transcript donde ocurrieron.
   const acciones: { trasMensajes: number; texto: string }[] = [];
 
-  for (const line of persona.script) {
+  const reglas = reglasDe(persona);
+  const usadas = new Set<number>();
+  let siguienteLinea = 0;
+  let reactivas = 0;
+  let ultimaDelAgente: string | null = null;
+
+  while (siguienteLinea < persona.script.length) {
+    // El cliente contesta lo que le preguntaron; si no le preguntaron nada que
+    // sepa contestar, sigue con su guion.
+    const reactiva =
+      reactivas < MAX_RESPUESTAS_REACTIVAS && ultimaDelAgente
+        ? elegirRespuesta(reglas, usadas, ultimaDelAgente)
+        : null;
+    let line: string;
+    if (reactiva) {
+      line = reactiva.texto;
+      usadas.add(reactiva.indice);
+      reactivas += 1;
+    } else {
+      line = persona.script[siguienteLinea]!;
+      siguienteLinea += 1;
+    }
+
     const now = new Date();
     await db.insert(schema.message).values({
       id: newId("message"),
@@ -233,7 +308,8 @@ async function runConversation(
       .where(eq(schema.conversation.id, convId));
 
     // Turno REAL del agente, secuencial y sin debounce (FR-030).
-    const accion = await runAgentTurn(convId);
+    const accion = await runAgentTurn(convId, { now: labNow });
+    ultimaDelAgente = textoAlCliente(accion);
     const nota = accion ? describirAccion(accion) : null;
     if (nota) {
       const conteo = await db
@@ -275,6 +351,23 @@ async function runConversation(
   });
 
   return { conversationId: convId, transcript };
+}
+
+/** Lo que el cliente alcanzó a LEER del turno, sea cual sea la acción. */
+function textoAlCliente(accion: AgentActionType | null): string | null {
+  if (!accion) return null;
+  switch (accion.action) {
+    case "reply":
+      return accion.text;
+    case "update_lead":
+    case "move_stage":
+      return accion.reply ?? null;
+    case "handoff":
+    case "notify_order":
+      return accion.farewell ?? null;
+    default:
+      return null;
+  }
 }
 
 async function upsertTestContact(

@@ -21,6 +21,14 @@ import { buildAgentSystemPrompt } from "@/server/ai/prompts";
  * instancia (sin colas externas — Constitución II).
  */
 
+/**
+ * Mensajes de historial que ve el agente en cada turno. Exportado porque el
+ * Laboratorio depende de él: una conversación simulada que no quepa entera aquí
+ * empieza a olvidar su propio principio, y el juez califica a un agente
+ * amnésico creyendo que califica al de producción.
+ */
+export const HISTORY_LIMIT = 20;
+
 type CoalesceEntry = {
   timer: ReturnType<typeof setTimeout> | null;
   running: boolean;
@@ -122,9 +130,14 @@ export function toChatHistory(
  * producción lo usa: existe para el Laboratorio, cuyo juez solo veía el texto
  * de la conversación y no podía distinguir un "ya te contactan" con handoff
  * real de una promesa vacía — y castigaba al agente por hacerlo bien.
+ *
+ * `opts.now` es el reloj con el que se arma el prompt. Solo lo pasa el
+ * Laboratorio, para correr sus guiones de compra en horario de atención en vez
+ * de a la hora en que el dueño pulsó el botón (ver `horaHabilDePrueba`).
  */
 export async function runAgentTurn(
-  conversationId: string
+  conversationId: string,
+  opts?: { now?: Date }
 ): Promise<AgentActionType | null> {
   if (!isAiConfigured()) return null;
 
@@ -157,7 +170,7 @@ export async function runAgentTurn(
     .from(schema.message)
     .where(eq(schema.message.conversationId, conversationId))
     .orderBy(desc(schema.message.createdAt))
-    .limit(20);
+    .limit(HISTORY_LIMIT);
   history.reverse();
   const lastInbound = [...history].reverse().find((m) => m.direction === "in");
   if (!lastInbound) return null;
@@ -185,10 +198,22 @@ export async function runAgentTurn(
     .where(eq(schema.pipelineStage.organizationId, organizationId))
     .orderBy(asc(schema.pipelineStage.position));
 
+  const contactRows = await db
+    .select({ name: schema.contact.name, phone: schema.contact.phone })
+    .from(schema.contact)
+    .where(eq(schema.contact.id, conversation.contactId))
+    .limit(1);
+
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: buildAgentSystemPrompt({ profile, kb, stages }),
+      content: buildAgentSystemPrompt({
+        profile,
+        kb,
+        stages,
+        contact: contactRows[0],
+        now: opts?.now,
+      }),
     },
     ...toChatHistory(history),
   ];
@@ -248,6 +273,7 @@ export async function runAgentTurn(
         organizationId,
         summary: action.summary,
         customerPhone: phone,
+        isTest: conversation.isTest,
       });
       await appendLeadNote(
         organizationId,

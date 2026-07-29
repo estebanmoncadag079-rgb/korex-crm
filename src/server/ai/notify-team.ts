@@ -58,7 +58,21 @@ export async function notifyTeam(input: {
   organizationId: string;
   summary: string;
   customerPhone?: string | null;
+  /** Corrida del Laboratorio: se registra el pedido, pero nadie recibe nada. */
+  isTest?: boolean;
 }): Promise<NotifyResult> {
+  // Guardrail de sandbox (Constitución, FR-031). El de `inbox/send` cubre el
+  // mensaje al CLIENTE; este aviso va al EQUIPO por otra ruta y se escapaba:
+  // cada corrida donde el agente cerraba un pedido le mandaba al negocio un
+  // pedido inventado, con dirección incluida.
+  if (input.isTest) {
+    return {
+      sent: 0,
+      failed: 0,
+      detail: "corrida del Laboratorio: aviso simulado, no se envió nada",
+    };
+  }
+
   const db = getDb();
   const rows = await db
     .select({

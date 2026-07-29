@@ -76,7 +76,13 @@ Ver `.env.example` (cada una con guía inline). Las claves: `APP_BASE_URL`,
 OPENROUTER_API_TOKEN=sk-or-...
 OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
 OPENROUTER_JUDGE_MODEL=anthropic/claude-haiku-4.5   # opcional: juez más barato
+OPENROUTER_FALLBACK_MODEL=anthropic/claude-sonnet-4.5  # rescate si el barato no da JSON usable
 ```
+
+`OPENROUTER_FALLBACK_MODEL` es la red de seguridad de `chatJson`: sin ella el
+código pasa de largo y un hipo de formato acaba en handoff por error o en un
+caso del Laboratorio sin veredicto. Solo se gasta cuando el modelo de diario ya
+agotó sus tres intentos.
 
 Para el self-test local existe además el modo de pruebas interno (mocks) —
 ver `specs/001-vocero-core/quickstart.md`. Nunca actives mocks en producción.

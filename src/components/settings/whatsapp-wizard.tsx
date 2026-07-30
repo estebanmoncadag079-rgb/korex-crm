@@ -176,32 +176,38 @@ function ConnectForm({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 rounded-md border bg-background/40 p-4 text-sm">
+        {/*
+         * Solo el modo directo. El bloque de "Tech Provider" que vivía aquí
+         * describía un programa de Meta que esta agencia decidió NO comprar, y
+         * cada vez que se abría la pantalla había que recordar que no aplicaba.
+         * Se aclara además cuál es la vía real de esta instalación (YCloud, en
+         * el panel de clientes): confundir las dos cuesta un rato de dudas.
+         */}
+        <div className="grid gap-2 rounded-md border bg-background/40 p-4 text-sm">
           <p className="font-medium">¿De dónde sale el token?</p>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-md border p-3">
-              <p className="mb-1 font-medium text-primary">Modo directo</p>
-              <p className="text-muted-foreground">
-                El negocio tiene su propia app en{" "}
-                <span className="text-foreground">developers.facebook.com</span>:
-                usa un token de <span className="text-foreground">usuario del sistema</span>{" "}
-                (no expira) con permisos de WhatsApp. En este modo conviene
-                configurar también el App Secret para la firma del webhook.
-              </p>
-            </div>
-            <div className="rounded-md border p-3">
-              <p className="mb-1 font-medium text-primary">Modo agencia (Tech Provider)</p>
-              <p className="text-muted-foreground">
-                Tu agencia hace el Embedded Signup en SU plataforma y su
-                backend obtiene el token del cliente; te lo entrega para
-                pegarlo aquí. El webhook se conecta con el{" "}
-                <span className="text-foreground">override por WABA</span>{" "}
-                (checklist de 5 pasos en el README).
-              </p>
-            </div>
-          </div>
+          <p className="text-muted-foreground">
+            El negocio tiene su propia app en{" "}
+            <span className="text-foreground">developers.facebook.com</span>: usa
+            un token de <span className="text-foreground">usuario del sistema</span>{" "}
+            (no expira) con permisos de WhatsApp. Conviene configurar también el
+            App Secret para la firma del webhook.
+          </p>
+          <p className="text-muted-foreground">
+            Esta pantalla es solo para el{" "}
+            <span className="text-foreground">modo directo</span> (Meta Cloud
+            API). Los números que entran por YCloud se conectan en{" "}
+            <span className="text-foreground">Clientes → Número de WhatsApp</span>,
+            no aquí.
+          </p>
         </div>
 
+        {/*
+         * autoComplete apagado a mano: al haber un campo de contraseña, el
+         * gestor del navegador rellenaba "Phone Number ID" con el correo del
+         * operador y el token con su contraseña guardada. Guardar eso deja al
+         * cliente con credenciales corruptas y su número deja de responder.
+         * En el token va "new-password" porque Chrome ignora "off" ahí.
+         */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="waba-id">WABA ID</Label>
@@ -209,6 +215,7 @@ function ConnectForm({
               id="waba-id"
               placeholder="ID de la cuenta de WhatsApp Business"
               value={wabaId}
+              autoComplete="off"
               onChange={(e) => setWabaId(e.target.value)}
             />
           </div>
@@ -218,6 +225,7 @@ function ConnectForm({
               id="phone-number-id"
               placeholder="ID del número de teléfono"
               value={phoneNumberId}
+              autoComplete="off"
               onChange={(e) => setPhoneNumberId(e.target.value)}
             />
           </div>
@@ -229,6 +237,7 @@ function ConnectForm({
             type="password"
             placeholder={existing ? `Guardado (…${existing.tokenLast4}) — pega uno nuevo para cambiarlo` : "EAAG…"}
             value={token}
+            autoComplete="new-password"
             onChange={(e) => {
               setToken(e.target.value);
               setTestResult(null);
@@ -282,8 +291,7 @@ function WebhookCard({ webhook }: { webhook: WebhookInfo }) {
       <CardHeader>
         <CardTitle>Webhook de WhatsApp</CardTitle>
         <CardDescription>
-          Pega estos valores en el panel de Meta (modo directo) o úsalos en el
-          override de tu backend de agencia (a nivel WABA).{" "}
+          Pega estos valores en el panel de Meta, en la app del negocio.{" "}
           <strong className="text-foreground">
             Guarda la conexión ANTES de configurar el webhook:
           </strong>{" "}
@@ -351,9 +359,8 @@ function WebhookCard({ webhook }: { webhook: WebhookInfo }) {
         ) : (
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-4 w-4 shrink-0" /> Sin App Secret
-            configurado: el webhook queda protegido por la URL secreta (normal
-            en modo agencia). Para la capa extra de firma, agrega
-            META_APP_SECRET a la instancia.
+            configurado: el webhook queda protegido por la URL secreta. Para la
+            capa extra de firma, agrega META_APP_SECRET a la instancia.
           </p>
         )}
       </CardContent>

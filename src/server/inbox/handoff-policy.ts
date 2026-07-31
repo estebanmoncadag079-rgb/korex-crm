@@ -20,14 +20,45 @@ export const RESUME_COMMAND = "0";
 export const HANDOFF_RESUME_HOURS = 2;
 
 /**
+ * A quién se nombra al devolver el turno.
+ *
+ * `encargado` está aquí a propósito, por pedido del dueño: escribir "#bot" en
+ * el chat le queda rarísimo al cliente, y "te dejo con un encargado" suena a
+ * negocio normal. **El precio es un falso positivo posible**: si un operador
+ * usa esa frase queriendo pasar a una PERSONA de verdad, el agente retomará.
+ * Para eso está el botón de la bandeja, que es explícito.
+ */
+const QUIEN_ATIENDE = "agente|asistente|bot|ia|encargado|encargada";
+
+/**
  * Frases con las que el operador le devuelve el turno al agente. Exigen
- * nombrar al asistente para no dispararse con una frase cualquiera
+ * nombrar a quien atiende para no dispararse con una frase cualquiera
  * ("te dejo la dirección" NO devuelve el turno).
+ *
+ * La ventana de 40 caracteres entre el verbo y el nombre deja pasar el relleno
+ * natural ("te dejo *con un* encargado") sin llegar a unir dos frases
+ * distintas de un mismo mensaje.
  */
 const RETURN_PHRASES: RegExp[] = [
-  /\b(te|los|le|la)\s+dejo\b[\s\S]{0,40}\b(agente|asistente|bot)\b/i,
-  /\b(contin[úu]a|contin[úu]e|sigue|segu[ií]s)\b[\s\S]{0,40}\b(agente|asistente|bot)\b/i,
-  /\bte\s+(atiende|ayuda|contin[úu]a)\b[\s\S]{0,40}\b(agente|asistente|bot)\b/i,
+  // "te dejo con el agente", "los dejo con un encargado"
+  new RegExp(`\\b(te|los|le|la)\\s+dejo\\b[\\s\\S]{0,40}\\b(${QUIEN_ATIENDE})\\b`, "i"),
+  // "continúa el asistente", "sigue con el bot"
+  new RegExp(
+    `\\b(contin[úu]a|contin[úu]e|sigue|segu[ií]s)\\b[\\s\\S]{0,40}\\b(${QUIEN_ATIENDE})\\b`,
+    "i"
+  ),
+  // "te atiende el asistente", "te ayuda un encargado"
+  new RegExp(
+    `\\bte\\s+(atiende|ayuda|contin[úu]a)\\b[\\s\\S]{0,40}\\b(${QUIEN_ATIENDE})\\b`,
+    "i"
+  ),
+  // "te paso con el encargado", "te comunico con un asistente"
+  new RegExp(
+    `\\b(te|los|le|la)\\s+(paso|comunico|transfiero|derivo)\\b[\\s\\S]{0,40}\\b(${QUIEN_ATIENDE})\\b`,
+    "i"
+  ),
+  // "en un momento te atiende...", "ya viene el encargado"
+  new RegExp(`\\b(ya\\s+viene|ahora\\s+te\\s+atiende)\\b[\\s\\S]{0,40}\\b(${QUIEN_ATIENDE})\\b`, "i"),
 ];
 
 /** Atajos escritos a propósito: NO se le envían al cliente. */

@@ -5,6 +5,7 @@ import { Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AprendizajeSection } from "@/components/agent/aprendizaje-section";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,7 +30,7 @@ type KbEntry = {
   content: string | null;
 };
 
-export function AgentClient() {
+export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [aiConfigured, setAiConfigured] = useState(true);
   const [entries, setEntries] = useState<KbEntry[]>([]);
@@ -117,6 +118,11 @@ export function AgentClient() {
       <div className="grid gap-6 p-6 lg:grid-cols-2">
         <ProfileSection profile={profile} onSave={saveProfile} />
         <KbSection entries={entries} kbSize={kbSize} onChanged={() => void refetch()} />
+        {esAgencia && (
+          <div className="lg:col-span-2">
+            <AprendizajeSection onAprendido={() => void refetch()} />
+          </div>
+        )}
       </div>
     </div>
   );

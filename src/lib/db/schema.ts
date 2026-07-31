@@ -467,3 +467,38 @@ export const usageEvent = pgTable(
   },
   (t) => [index("usage_org_fecha_idx").on(t.organizationId, t.createdAt)]
 );
+
+/**
+ * Conocimiento que el sistema propone tras leer conversaciones reales.
+ *
+ * El agente no "aprende solo" —el modelo no cambia—, pero su conocimiento sí
+ * puede crecer: se lee en cada mensaje, así que una entrada nueva surte efecto
+ * al instante. Lo que aquí se guarda son PROPUESTAS, no verdades.
+ *
+ * Pasan por aprobación a propósito. Un operador responde con prisa, escribe un
+ * precio mal o contesta algo de un día suelto ("hoy no hay fresa"); si eso
+ * entrara solo al conocimiento, el agente se lo diría a TODOS los clientes de
+ * ese negocio durante meses. Un dato falso aquí se propaga a cientos de
+ * conversaciones antes de que nadie lo note.
+ */
+export const learningProposal = pgTable(
+  "learning_proposal",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    answer: text("answer").notNull(),
+    /** Por qué se propone: la frase del chat que lo motivó. */
+    evidence: text("evidence"),
+    status: text("status", { enum: ["pending", "approved", "rejected"] })
+      .notNull()
+      .default("pending"),
+    /** La entrada de conocimiento que se creó al aprobarla. */
+    kbEntryId: text("kb_entry_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    resolvedAt: timestamp("resolved_at"),
+  },
+  (t) => [index("learning_org_status_idx").on(t.organizationId, t.status)]
+);

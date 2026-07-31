@@ -17,6 +17,7 @@ const prefixes = {
   testRun: "run",
   testCase: "case",
   usage: "use",
+  learning: "lrn",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

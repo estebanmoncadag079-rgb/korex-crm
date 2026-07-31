@@ -1,5 +1,16 @@
 # Vocero CRM
 
+> ### ⚠️ Si buscas cómo funciona **korex.ia**, este archivo NO es tu sitio
+>
+> Este README describe **Vocero CRM**, el proyecto del que nace korex.ia, y
+> varias cosas que dice ya **no son ciertas en esta instalación**: aquí una
+> instancia atiende a **varios negocios** (no uno), el despliegue es con
+> **EasyPanel** (no Coolify) y WhatsApp va por **YCloud** (no por Meta directo).
+>
+> 👉 **La documentación real y actualizada está en [`docs/korexia/`](docs/korexia/00-INDICE.md)**:
+> arquitectura, infraestructura, WhatsApp, el agente, los clientes, los
+> respaldos, la bitácora de cambios y lo que queda pendiente.
+
 **El CRM de WhatsApp open source con un agente de IA que se pone a prueba solo.**
 
 Vocero es un CRM self-hosted y gratuito para negocios que venden por WhatsApp:

@@ -50,8 +50,16 @@ más y el agente puede contestarles el menú. Decidir si se filtran.
 sirven a medias para churrería y pastelería. Escribir guiones propios haría las
 pruebas mucho más útiles.
 
-**5. Panel de costo por cliente.** Cuántas conversaciones y cuántos pesos lleva
-cada uno al mes. Sin esto se cobra a ciegas.
+**5. ~~Panel de costo por cliente~~** — ✅ **hecho el 31-jul-2026**. En `/admin`
+se ve el consumo del mes por cliente: respuestas de IA con su costo exacto,
+mensajes enviados y total, en dólares y en pesos. Ver
+[09-COSTOS.md](09-COSTOS.md).
+
+Lo que sí falta de esa parte: **anotar el precio real de cada mensaje de
+WhatsApp**. Hoy se cuentan los mensajes pero se registran a costo 0, que es lo
+correcto ahora (dentro de la ventana de 24 h Meta no cobra). Desde octubre hará
+falta traer el importe de YCloud, que llega de forma asíncrona — es el mismo
+trabajo que el punto 1.
 
 **6. Pantallas que faltan**: el horario y la marca de un cliente solo se pueden
 configurar por base de datos.

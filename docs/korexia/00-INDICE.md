@@ -21,6 +21,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [06-RESPALDOS.md](06-RESPALDOS.md) | Qué se respalda, qué no, y cómo levantar el servicio desde cero |
 | [07-BITACORA.md](07-BITACORA.md) | Historial de cambios con fecha: qué se hizo y por qué |
 | [08-PENDIENTES.md](08-PENDIENTES.md) | **Qué quedó y qué no**, decisiones tomadas y opciones descartadas |
+| [09-COSTOS.md](09-COSTOS.md) | El contador de gastos: cuánto cuesta cada cliente en IA y en WhatsApp |
 
 ## Convenciones de esta documentación
 

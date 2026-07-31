@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Favicon de korex.ia. No es el SVG de marca "tal cual": el logo original
+    tiene un contorno de 6/130 que a 16 px (una pestaña real) queda en ~0,74 px,
+    se vuelve subpíxel y los dos hexágonos se empastan en una mancha. Además el
+    trazo casi negro (#0a0a0a) desaparecería en pestañas oscuras.
+
+    Solución: una "teja" (tile) casi negra con la tuerca calada en claro.
+    - La teja le da al icono una silueta propia que llena los 16 px.
+    - Al llevar su propio fondo, el logo se lee igual en pestañas claras (teja
+      oscura que resalta) que oscuras (marca clara que resalta dentro de la teja).
+      Por eso un solo archivo basta y es más robusto que un swap por
+      prefers-color-scheme (que bookmarks, historial y PWA ignoran).
+  -->
+  <rect width="512" height="512" rx="112" fill="#0a0a0a" />
+  <!--
+    Misma tuerca hexagonal de la marca (mismos vértices), pero reescalada al
+    centro de la teja y con el trazo MUY engrosado: a tamaños diminutos un
+    contorno fino no sobrevive. El hexágono interior se achica un pelín respecto
+    al original para abrir el hueco y que el "aro + núcleo" no se junten a 16 px.
+  -->
+  <g transform="translate(256,256) scale(2.6) translate(-65,-65)"
+     fill="#fafafa" stroke="#fafafa" stroke-linejoin="round">
+    <polygon points="65,8 118,38 118,92 65,122 12,92 12,38"
+             fill="none" stroke-width="18" />
+    <polygon points="65,37 92,53 92,77 65,93 38,77 38,53" stroke="none" />
+  </g>
+</svg>

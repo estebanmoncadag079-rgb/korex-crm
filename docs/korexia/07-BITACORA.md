@@ -5,7 +5,82 @@ Las horas van en **UTC** salvo que diga "Colombia" (UTC−5).
 
 ---
 
-## 31-jul-2026
+## 31-jul-2026 (tarde) — seguridad, embudo y aprendizaje
+
+### Auditoría de seguridad: un cliente podía atacar a otro
+
+`GET /api/settings/webhook` pedía sesión **de cualquier usuario** y devolvía en
+claro un token **único para toda la instalación**. Cadena verificada en
+producción: el empleado de un negocio lo lee; `META_APP_SECRET` no está puesta,
+así que la firma de Meta aceptaba cualquier cosa; con eso inyecta un evento
+falso con el número de OTRO negocio (que es público) y **el WhatsApp de la
+víctima acaba escribiéndole a quien el atacante quiera**.
+
+Corregido: el endpoint pasa a exigir superadmin, y **las dos verificaciones de
+firma dejan de fallar abiertas en producción**. Antes de tocarlo se comprobó que
+el webhook de Meta no recibe tráfico y que los dos clientes van por YCloud.
+
+Comprobado después: cliente leyendo el token → **403** (antes 200); webhooks sin
+firma → **401**. Detalle completo en [10-SEGURIDAD.md](10-SEGURIDAD.md).
+
+### El embudo mentía en dos sitios
+
+**Los leads no salían de "Nuevo" si el negocio escribía primero.** En ese orden
+los mensajes salen antes de que exista la tarjeta, así que no había nada que
+mover; cuando el cliente por fin contestaba, el lead nacía en "Nuevo" y ahí se
+quedaba. Pasó con el contacto 573005619176: dos mensajes a las 16:40:13 y el
+lead creado 30 segundos después.
+
+Ahora el lead **nace donde corresponde**: si el contacto ya tiene mensajes
+salientes, entra directo en la segunda etapa. Se recolocaron los 4 leads mal
+ubicados (con respaldo previo en `lead_backup_20260731`).
+
+**Las ventas atendidas a mano no llegan a "Cliente"** — Melany compró y su
+tarjeta seguía en "En conversación", porque el salto solo ocurre cuando el
+agente cierra con `notify_order`. Se movió a mano; la solución de fondo queda
+pendiente (punto 10 de [08-PENDIENTES.md](08-PENDIENTES.md)).
+
+### "#bot" devolvía el turno pero el agente seguía mudo
+
+El silencio tiene **dos llaves**: el relevo (`handoffAt`) y el interruptor por
+conversación (`aiEnabled`). El atajo solo levantaba la primera, así que si
+alguien había usado el botón "Humano" —que baja la segunda— el sistema decía que
+la IA estaba al mando y el agente seguía callado. Un cliente de Lis se quedó sin
+respuesta tras pedir "un cremoso de temporada y un cremoso polvoroso".
+
+Ahora se levantan las dos juntas. **Y se añadieron frases naturales**, porque
+"#bot" escrito desde el celular lo ve el cliente y queda rarísimo: *"te dejo con
+el agente para terminar tu pedido"*, *"te paso con el encargado"*. 17 pruebas
+fijan el equilibrio, incluidas las siete que NO pueden activarlo.
+
+Verificado en vivo: tras retomar, el agente respondió *"Ya anoto tu Cremoso de
+Temporada y tu Polvoroso"* — con el contexto de lo que había hablado la persona.
+
+### Contador de costos por cliente
+
+En `/admin`: respuestas de IA con su **costo exacto** (lo informa OpenRouter, no
+se estima), mensajes enviados y total. Se suman también los intentos fallidos,
+que son los que encarecen un turno sin que se note. Los mensajes de WhatsApp se
+cuentan aunque hoy valgan 0, para poder proyectar la factura de octubre.
+
+### Aprendizaje del agente
+
+Botón que lee las conversaciones de la semana y propone lo que al agente le
+falta saber, sobre todo lo que tuvo que responder una persona. Con aprobación, y
+solo para la agencia. Primera ejecución real: 174 mensajes, 3 propuestas, **$0,0065**
+— y una destapó que el prompt de La Churra ofrece recoger en un punto que el
+negocio ya no usa. Ver [11-APRENDIZAJE.md](11-APRENDIZAJE.md).
+
+### Limpieza y marca
+
+Se borró la landing vieja (`web/`, con respaldo del repo), los assets pasaron a
+`marca/` y se creó `clientes/` para el material de cada negocio. Y **el favicon**:
+la pestaña mostraba el globo genérico; ahora lleva la tuerca de korex.ia sobre
+una teja oscura, porque el trazo original a 16 px queda en 0,74 px y se empasta.
+
+---
+
+## 31-jul-2026 (madrugada)
 
 ### El agente de Lis se inventaba cuál era el producto más pedido
 

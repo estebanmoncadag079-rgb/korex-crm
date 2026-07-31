@@ -23,6 +23,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [08-PENDIENTES.md](08-PENDIENTES.md) | **Qué quedó y qué no**, decisiones tomadas y opciones descartadas |
 | [09-COSTOS.md](09-COSTOS.md) | El contador de gastos: cuánto cuesta cada cliente en IA y en WhatsApp |
 | [10-SEGURIDAD.md](10-SEGURIDAD.md) | Auditoría: qué se corrigió, qué falta y qué está bien hecho |
+| [11-APRENDIZAJE.md](11-APRENDIZAJE.md) | Cómo crece el conocimiento del agente leyendo conversaciones reales |
 
 ## Convenciones de esta documentación
 
@@ -68,7 +69,9 @@ lo que es propio de cada uno son solo sus datos: su prompt, su conocimiento,
 su horario, su marca, su número y sus teléfonos de aviso.
 
 **Estado a 31-jul-2026**: dos clientes en producción (La Churra y Lis
-Pastelería) más la organización de la agencia. WhatsApp por la API oficial de
+Pastelería, ambos con agente encendido) más la organización de la agencia.
+**Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** si retomas el proyecto: ahí
+está lo urgente ordenado por riesgo real. WhatsApp por la API oficial de
 Meta a través de YCloud. Todo corre en un VPS con EasyPanel.
 
 ## Dónde está cada cosa

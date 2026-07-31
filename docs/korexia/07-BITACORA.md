@@ -58,18 +58,17 @@ Temporada y tu Polvoroso"* — con el contexto de lo que había hablado la perso
 
 ### Contador de costos por cliente
 
-En `/admin`: respuestas de IA con su **costo exacto** (lo informa OpenRouter, no
-se estima), mensajes enviados y total. Se suman también los intentos fallidos,
-que son los que encarecen un turno sin que se note. Los mensajes de WhatsApp se
-cuentan aunque hoy valgan 0, para poder proyectar la factura de octubre.
+Se cobraban mensualidades fijas sin saber qué costaba cada cliente. Ahora se
+anota cada gasto con el importe exacto que informa el proveedor, incluidos los
+intentos fallidos. Ver [09-COSTOS.md](09-COSTOS.md).
 
 ### Aprendizaje del agente
 
-Botón que lee las conversaciones de la semana y propone lo que al agente le
-falta saber, sobre todo lo que tuvo que responder una persona. Con aprobación, y
-solo para la agencia. Primera ejecución real: 174 mensajes, 3 propuestas, **$0,0065**
-— y una destapó que el prompt de La Churra ofrece recoger en un punto que el
-negocio ya no usa. Ver [11-APRENDIZAJE.md](11-APRENDIZAJE.md).
+Lo que respondía una persona a mano se perdía: el agente volvía a no saberlo al
+día siguiente. Ahora se puede leer la semana y proponer lo que le falta, con
+aprobación. Primera ejecución: 3 propuestas por **$0,0065**, y una destapó que
+el prompt de La Churra ofrece un punto de recogida que el negocio ya no usa.
+Ver [11-APRENDIZAJE.md](11-APRENDIZAJE.md).
 
 ### Limpieza y marca
 
@@ -169,43 +168,6 @@ Churra), confirmando que el reparto por número funciona.
 
 ---
 
-## 30-jul-2026
-
-### 19 falsas alarmas de "CRM caído" en un día
-
-El monitor buscaba el contenedor `korex-crm-app-1`, que era el de `docker
-compose` y había quedado apagado al migrar a EasyPanel el día anterior. Como no
-lo encontraba, avisaba cada hora **mientras el CRM llevaba 20 horas
-funcionando**.
-
-Se apuntó al servicio real (`korex-crm_crm`), comparando **por prefijo**, ya
-que el contenedor lleva un sufijo que cambia en cada despliegue.
-
-**Lección**: al migrar o renombrar un servicio, revisar qué lo vigila. El
-monitor no avisa de que se quedó ciego — avisa al revés.
-
-### Se montó todo el contenido de Lis Pastelería
-
-Organización, marca rosa, embudo, cuenta de la dueña, **12 entradas de
-conocimiento** y un prompt de 12.061 caracteres, todo sacado de la
-configuración de su bot anterior.
-
-El horario (10:00–20:00, **lunes a sábado**) se validó con el código real:
-seis casos, incluidos los bordes y el domingo cerrado.
-
-### La pantalla de WhatsApp hablaba de algo que no tenemos (`47bd438`)
-
-Ofrecía dos caminos y uno era "Modo agencia (Tech Provider)": un programa de
-Meta que la agencia evaluó y **decidió no comprar**. Se quitó, y se aclaró que
-los números de YCloud se conectan en otra pantalla.
-
-Con el mismo cambio, los tres campos **dejaron de autocompletarse**: el gestor
-del navegador metía el correo del operador como "Phone Number ID" y su
-contraseña como token. Un guardado distraído dejaba a un cliente con
-credenciales corruptas.
-
----
-
-> 📜 **Lo anterior al 30 de julio** está en
-> [12-BITACORA-ANTERIOR.md](12-BITACORA-ANTERIOR.md): la web caída, los cierres
-> falsos del agente, el cutover de La Churra y el arranque del multi-cliente.
+> 📜 **Lo anterior al 31 de julio** está en
+> [12-BITACORA-ANTERIOR.md](12-BITACORA-ANTERIOR.md): la web caída, los
+> cierres falsos del agente, el cutover de La Churra y el multi-cliente.

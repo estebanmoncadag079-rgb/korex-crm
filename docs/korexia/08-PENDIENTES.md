@@ -52,8 +52,7 @@ pruebas mucho más útiles.
 
 **5. ~~Panel de costo por cliente~~** — ✅ **hecho el 31-jul-2026**. En `/admin`
 se ve el consumo del mes por cliente: respuestas de IA con su costo exacto,
-mensajes enviados y total, en dólares y en pesos. Ver
-[09-COSTOS.md](09-COSTOS.md).
+mensajes enviados y total, en dólares. Ver [09-COSTOS.md](09-COSTOS.md).
 
 Lo que sí falta de esa parte: **anotar el precio real de cada mensaje de
 WhatsApp**. Hoy se cuentan los mensajes pero se registran a costo 0, que es lo

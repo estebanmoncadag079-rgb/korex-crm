@@ -7,8 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
  * Cuánto cuesta cada cliente este mes.
  *
  * La agencia cobra mensualidades fijas, así que el margen depende de un dato
- * que antes no existía en ninguna pantalla. Se muestra en dólares (que es como
- * se paga a los proveedores) y en pesos (que es como se cobra y se piensa).
+ * que antes no existía en ninguna pantalla. Todo va en dólares, que es la
+ * moneda en la que se paga a los proveedores y en la que llegan los importes:
+ * convertir a pesos con una tasa fija daba una cifra que envejecía sola y que
+ * no cuadraba con ninguna factura.
  */
 
 type Fila = {
@@ -35,22 +37,10 @@ type Datos = {
   };
 };
 
-/**
- * Tasa de referencia para leer los importes en pesos. Es orientativa a
- * propósito: no se consulta ninguna API de divisas porque el número existe
- * para dimensionar ("¿son mil pesos o cincuenta mil?"), no para facturar.
- */
-const COP_POR_USD = 4000;
-
 function usd(n: number): string {
   if (n === 0) return "$0";
   if (n < 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toFixed(2)}`;
-}
-
-function cop(n: number): string {
-  const pesos = Math.round(n * COP_POR_USD);
-  return `${pesos.toLocaleString("es-CO")} COP`;
 }
 
 export function UsagePanel() {
@@ -119,9 +109,6 @@ export function UsagePanel() {
                   </td>
                   <td className="py-2 text-right font-medium tabular-nums">
                     {usd(f.totalUsd)}
-                    <span className="ml-2 text-xs font-normal text-muted-foreground">
-                      {cop(f.totalUsd)}
-                    </span>
                   </td>
                 </tr>
               ))}
@@ -143,9 +130,6 @@ export function UsagePanel() {
                 </td>
                 <td className="pt-2 text-right font-semibold tabular-nums">
                   {usd(datos.total.totalUsd)}
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    {cop(datos.total.totalUsd)}
-                  </span>
                 </td>
               </tr>
             </tfoot>
@@ -162,17 +146,12 @@ export function UsagePanel() {
             Meta empieza a cobrarlos todos: los {datos.total.mensajes.toLocaleString("es-CO")}{" "}
             mensajes de este mes rondarían los{" "}
             <strong className="text-foreground">
-              {usd(datos.total.mensajes * 0.0008)} ({cop(datos.total.mensajes * 0.0008)})
+              {usd(datos.total.mensajes * 0.0008)}
             </strong>{" "}
             a la tarifa estimada de 0,0008 USD por mensaje. Se cuentan desde ya
             para que esa factura no sea una sorpresa.
           </p>
         )}
-
-        <p className="mt-3 text-xs text-muted-foreground">
-          Los pesos son orientativos, a {COP_POR_USD.toLocaleString("es-CO")} COP
-          por dólar.
-        </p>
       </CardContent>
     </Card>
   );

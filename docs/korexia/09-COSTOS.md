@@ -13,11 +13,13 @@ los mensajes salientes.
 ## Dónde se ve
 
 En **`/admin`**, encima de la lista de clientes: el consumo del **mes en curso**
-por cliente, con respuestas de IA, su costo, mensajes enviados y el total, en
-**dólares y en pesos**.
+por cliente, con respuestas de IA, su costo, mensajes enviados y el total.
 
-Los pesos son orientativos (a 4.000 COP por dólar, fijo en el código). Sirven
-para dimensionar, no para facturar: no se consulta ninguna API de divisas.
+**Todo va en dólares**, que es la moneda en la que se paga a los proveedores y
+en la que llegan los importes. Se probó mostrar también pesos con una tasa fija
+y se quitó: era una cifra que envejecía sola y no cuadraba con ninguna factura
+real. Si algún día hace falta en pesos, que sea con una tasa consultada, no
+inventada.
 
 ## Qué se anota y cuándo
 

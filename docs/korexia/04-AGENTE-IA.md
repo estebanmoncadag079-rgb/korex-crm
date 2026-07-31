@@ -134,11 +134,24 @@ persona no le escribió al negocio ese día, **el aviso falla**.
 
 ## Los modelos
 
-En producción: **`google/gemini-2.5-flash`**, con `anthropic/claude-sonnet-4.5`
-como respaldo automático si el primero no devuelve algo usable.
+En producción hay **un solo modelo: `google/gemini-2.5-flash`**. Es el mismo
+para todos los clientes y también el que hace de juez en el Laboratorio (la
+variable `OPENROUTER_JUDGE_MODEL` existe pero no está configurada, así que cae
+en el principal).
 
-El cambio a Gemini bajó el costo por pedido de **299 a 25 pesos colombianos
-(−92 %)** y además es más rápido.
+El cambio a Gemini bajó el costo por pedido un **92 %** y además es más rápido.
+
+### El modelo de respaldo se retiró (31-jul-2026)
+
+Antes, si Gemini agotaba sus tres intentos, se gastaba una llamada en
+`anthropic/claude-sonnet-4.5` antes de rendirse. **Decisión del dueño: se
+quita.** El razonamiento es sensato — si el modelo principal no logra resolver
+una conversación, lo que necesita ese cliente no es otro modelo, es **una
+persona**.
+
+Así que ahora, cuando el agente no puede resolver: **avisa al cliente y deriva
+a un asesor**. Se retiró la variable `OPENROUTER_FALLBACK_MODEL` del servicio;
+el código la sigue soportando, así que reactivarlo es volver a definirla.
 
 > ⚠️ **Nunca cambiar de modelo sin probar una conversación completa hasta el
 > aviso al equipo.** Una prueba de un solo mensaje da 4/4 a casi cualquier
@@ -147,9 +160,29 @@ El cambio a Gemini bajó el costo por pedido de **299 a 25 pesos colombianos
 > por error, cuando el problema real era otro (el historial se le devolvía como
 > texto plano y copiaba ese formato).
 
-**Ambos modelos van por OpenRouter**, así que **si se acaba el saldo caen los
-dos**. Pasó el 29-jul: el CRM funcionando y el agente mudo todo el día, sin que
-nada avisara. Ante un "el bot no responde", **mirar el saldo antes que nada**.
+**Todo va por OpenRouter**, así que **si se acaba el saldo el agente enmudece**.
+Pasó el 29-jul: el CRM funcionando y el agente mudo todo el día, sin que nada
+avisara. Ante un "el bot no responde", **mirar el saldo antes que nada**.
+
+## Cuando el agente no puede: se avisa y se deriva
+
+Si el modelo agota sus tres intentos —o si insiste en anunciar un cierre falso
+con el negocio abierto— la conversación pasa a una persona. Y **antes de
+marcarla, se le dice al cliente**:
+
+> *"Dame un momentico 🙏 Te comunico con una persona del equipo para ayudarte mejor."*
+
+El aviso es neutro para que sirva a cualquier negocio de la instancia, y no
+menciona ningún fallo técnico: al cliente no le aporta saber que un modelo
+devolvió algo ilegible, solo que ya viene alguien.
+
+**El orden importa**: el aviso sale ANTES de marcar el handoff, porque al
+marcarlo la conversación queda en silencio y ya no saldría nada. Y si el aviso
+no se puede enviar, la derivación ocurre igual — lo importante es que quede en
+la bandeja para que alguien la atienda.
+
+Antes de esto, el sistema marcaba la conversación y ahí terminaba: el cliente
+se quedaba mirando el chat sin saber si lo habían leído.
 
 ## El Laboratorio
 

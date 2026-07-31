@@ -74,7 +74,22 @@ export function resumeReason(input: {
   return null;
 }
 
-/** Devuelve el turno al agente y avisa a la interfaz. */
+/**
+ * Devuelve el turno al agente y avisa a la interfaz.
+ *
+ * Enciende TAMBIÉN `aiEnabled`, y esa es la parte que faltaba. El silencio del
+ * agente tiene dos llaves independientes —el relevo (`handoffAt`) y el
+ * interruptor por conversación (`aiEnabled`)— y esto solo levantaba la primera.
+ * Si alguien había pasado la conversación a una persona con el botón de la
+ * bandeja, mandar `#bot` limpiaba el relevo, la pantalla decía que la IA estaba
+ * al mando... y el agente seguía mudo, porque la segunda llave seguía abajo.
+ *
+ * Pasó en producción el 31-jul-2026: tras el `#bot`, el cliente escribió
+ * "quiero un cremoso de temporada y un cremoso polvoroso" y nadie le contestó.
+ *
+ * Quien devuelve el turno quiere una cosa —que la IA vuelva a atender—, así que
+ * se levantan las dos llaves juntas.
+ */
 export async function clearHandoff(
   conversationId: string,
   organizationId: string
@@ -82,13 +97,27 @@ export async function clearHandoff(
   const db = getDb();
   const updated = await db
     .update(schema.conversation)
-    .set({ handoffAt: null, handoffReason: null, updatedAt: new Date() })
+    .set({
+      handoffAt: null,
+      handoffReason: null,
+      aiEnabled: true,
+      updatedAt: new Date(),
+    })
     .where(eq(schema.conversation.id, conversationId))
     .returning();
   if (!updated[0]) return;
   publish(organizationId, {
     type: "conversation.updated",
-    data: { conversation: { id: conversationId, handoffReason: null } },
+    // Se envían los dos campos: la interfaz decide con `handoffAt` y con
+    // `aiEnabled`, y mandar solo el motivo dejaba el botón desfasado.
+    data: {
+      conversation: {
+        id: conversationId,
+        handoffReason: null,
+        handoffAt: null,
+        aiEnabled: true,
+      },
+    },
   });
 }
 

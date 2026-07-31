@@ -429,25 +429,39 @@ function ClientNumber({
   const [apiKey, setApiKey] = useState("");
   const [webhookSecret, setWebhookSecret] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingCreds, setSavingCreds] = useState(false);
   const [state, setState] = useState<
     { ok: true; webhookUrl: string | null } | { ok: false; message: string } | null
   >(null);
+  /**
+   * Las credenciales se guardan y se confirman APARTE del número.
+   *
+   * Antes había un solo botón, arriba junto al número, y los dos campos de
+   * secreto colgando debajo dentro del desplegable. Al guardar se vacían (son
+   * contraseñas: no se pueden repintar), pero nada decía qué había entrado —
+   * así que parecía que se hubieran borrado, y se reescribían a ciegas una y
+   * otra vez. Cada campo tiene ahora su propio guardado y su propio acuse.
+   */
+  const [credState, setCredState] = useState<
+    { ok: true; guardado: string[] } | { ok: false; message: string } | null
+  >(null);
+  /** Refleja lo recién guardado sin esperar a que la página se recargue. */
+  const [conCuentaPropia, setConCuentaPropia] = useState(ownAccount);
 
-  async function save() {
-    setSaving(true);
-    setState(null);
-    const res = await fetch(`/api/admin/clients/${clientId}`, {
+  /** El endpoint exige el número, así que va en las dos llamadas. */
+  async function enviar(extra: Record<string, string>) {
+    return fetch(`/api/admin/clients/${clientId}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        phone: value,
-        // Vacío = no se toca lo guardado (corregir el número no borra sus claves).
-        ...(apiKey.trim() ? { ycloudApiKey: apiKey.trim() } : {}),
-        ...(webhookSecret.trim()
-          ? { ycloudWebhookSecret: webhookSecret.trim() }
-          : {}),
-      }),
+      body: JSON.stringify({ phone: value, ...extra }),
     }).catch(() => null);
+  }
+
+  async function guardarNumero() {
+    setSaving(true);
+    setState(null);
+    // Sin claves en el cuerpo: corregir el número nunca toca lo ya guardado.
+    const res = await enviar({});
     setSaving(false);
     if (!res?.ok) {
       const data = (await res?.json().catch(() => null)) as {
@@ -462,9 +476,41 @@ function ClientNumber({
     const data = (await res.json().catch(() => null)) as {
       webhookUrl?: string | null;
     } | null;
+    setState({ ok: true, webhookUrl: data?.webhookUrl ?? null });
+  }
+
+  async function guardarCredenciales() {
+    const clave = apiKey.trim();
+    const secreto = webhookSecret.trim();
+    if (!clave && !secreto) return;
+    setSavingCreds(true);
+    setCredState(null);
+    const res = await enviar({
+      ...(clave ? { ycloudApiKey: clave } : {}),
+      ...(secreto ? { ycloudWebhookSecret: secreto } : {}),
+    });
+    setSavingCreds(false);
+    if (!res?.ok) {
+      const data = (await res?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setCredState({
+        ok: false,
+        message: data?.error?.message ?? "No se pudieron guardar las claves",
+      });
+      return;
+    }
+    const data = (await res.json().catch(() => null)) as {
+      webhookUrl?: string | null;
+    } | null;
+    const guardado: string[] = [];
+    if (clave) guardado.push("API key");
+    if (secreto) guardado.push("secreto del webhook");
     setApiKey("");
     setWebhookSecret("");
-    setState({ ok: true, webhookUrl: data?.webhookUrl ?? null });
+    if (clave) setConCuentaPropia(true);
+    setCredState({ ok: true, guardado });
+    if (data?.webhookUrl) setState({ ok: true, webhookUrl: data.webhookUrl });
   }
 
   return (
@@ -486,9 +532,9 @@ function ClientNumber({
         <Button
           variant="outline"
           disabled={saving || value.trim().length < 8}
-          onClick={() => void save()}
+          onClick={() => void guardarNumero()}
         >
-          {saving ? "Guardando…" : "Guardar"}
+          {saving ? "Guardando…" : "Guardar número"}
         </Button>
       </div>
       {state?.ok === true && (
@@ -501,7 +547,7 @@ function ClientNumber({
       <details className="pt-2">
         <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
           Cuenta propia de YCloud{" "}
-          {ownAccount ? "· configurada ✓" : "· opcional"}
+          {conCuentaPropia ? "· configurada ✓" : "· opcional"}
         </summary>
         <div className="space-y-2 pt-2">
           <p className="text-xs text-muted-foreground">
@@ -523,6 +569,30 @@ function ClientNumber({
             type="password"
             aria-label="Secreto del webhook de YCloud del cliente"
           />
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              disabled={
+                savingCreds || (!apiKey.trim() && !webhookSecret.trim())
+              }
+              onClick={() => void guardarCredenciales()}
+            >
+              {savingCreds ? "Guardando…" : "Guardar claves"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Se pueden guardar de una en una; el campo que dejes vacío
+              conserva lo que ya había.
+            </span>
+          </div>
+          {credState?.ok === true && (
+            <p className="text-xs text-[#3f6b52]">
+              Guardado ✓ {credState.guardado.join(" y ")}. Por seguridad los
+              campos se vacían: lo guardado sigue ahí aunque no se vea.
+            </p>
+          )}
+          {credState?.ok === false && (
+            <p className="text-xs text-destructive">{credState.message}</p>
+          )}
           {state?.ok === true && state.webhookUrl && (
             <div className="rounded border bg-background p-2">
               <p className="text-xs text-muted-foreground">

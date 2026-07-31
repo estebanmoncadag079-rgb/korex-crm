@@ -121,7 +121,7 @@ dueño, porque se leen mejor en WhatsApp.
 | Número | `573158339990` · WABA `190143772066943` |
 | Cuenta YCloud | **propia del cliente** |
 | Horario | 10:00–20:00, **lunes a sábado** (domingo cerrado) |
-| Agente | **apagado**, esperando la primera prueba |
+| Agente | **encendido** desde el 31-jul-2026 |
 | Conocimiento | 12 entradas |
 | Avisos de pedido | 1 teléfono (la dueña) |
 | Marca | rosa `#e91e8c` |
@@ -140,11 +140,26 @@ transferencia** y el flujo de regalo con tarjeta.
 **Lo que gana**: se acabaron los cortes de conexión cada 50 minutos que sufría
 su bot no oficial, y el riesgo de que le bloqueen el número.
 
-### Lo que falta para terminar su puesta en marcha
+### Prueba del agente (31-jul-2026)
 
-1. Recargar los créditos de OpenRouter (están en cero)
-2. Probar un pedido completo
-3. Encender el agente
+Antes de encenderlo se corrió una conversación de pedido completa contra el
+modelo real, con su prompt y su conocimiento: **5 turnos, 5 respuestas válidas,
+sin reintentos**.
+
+Acertó en todo lo que importa: avisó de que estaba **fuera de horario** y
+ofreció coordinar para las 10:00 (sin anunciar un cierre falso), recitó el menú
+con los precios exactos, supo que **el Cremoso de 16 oz lleva 3 toppings**,
+hizo las preguntas en mayúsculas y negrita, calculó bien el total y cerró con
+`notify_order`. El resumen para el equipo salió completo: producto, toppings,
+nombre, celular, dirección, total y forma de pago.
+
+La herramienta de prueba quedó en el servidor como `/root/probar-lis.py`; sirve
+de plantilla para validar el agente de cualquier cliente **sin gastar WhatsApp
+ni arriesgar una conversación real**.
+
+Detalle menor observado: cuando el negocio está cerrado, el resumen repite la
+etiqueta "Entrega" en dos líneas (la dirección y el aviso de coordinación). No
+es un error —el contenido es correcto— pero se puede pulir en el prompt.
 
 Su bot anterior **ya no existe**: Meta le cerró la sesión al conectar el número
 a la API, y el servicio se borró del servidor el 31-jul.

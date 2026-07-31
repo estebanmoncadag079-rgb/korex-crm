@@ -3,23 +3,20 @@
 Estado a **31-jul-2026**. Aquí está lo que falta, lo que se decidió no hacer y
 por qué, para no volver a discutirlo desde cero.
 
-## 🔴 Bloqueante ahora mismo
+## ✅ Sin bloqueantes (31-jul-2026)
 
-**Los créditos de OpenRouter están en cero.** El agente no puede responder,
-aunque todo lo demás funcione. Es lo único que impide terminar la puesta en
-marcha de Lis Pastelería.
+Los créditos se recargaron (**~11 USD disponibles**) y **el agente de Lis
+Pastelería quedó encendido y probado**. Los dos clientes están atendiendo.
 
-Con 10 USD sobra de largo: a 25 pesos colombianos por pedido, son miles de
-conversaciones.
+Queda pendiente la única verificación que no se puede simular: **una
+conversación real por WhatsApp** de punta a punta con el número de Lis, para
+confirmar que la respuesta sale y llega. Todo lo anterior sí está comprobado
+(webhook entregando, agente respondiendo bien, aviso de pedido completo).
 
-## Lo que falta para terminar con Lis Pastelería
-
-1. Recargar los créditos
-2. Probar un pedido completo, hasta el aviso a la dueña
-3. Encender su agente (`enabled = true`)
-
-Todo lo demás está hecho y verificado: número conectado, webhook entregando,
-contenido, prompt, horario y cuenta de acceso.
+> ⚠️ **Aviso de seguridad pendiente**: el 31-jul se compartió una clave de
+> OpenRouter por chat. **No está en uso** (producción usa otra de la misma
+> cuenta), así que basta con **borrarla en openrouter.ai → Keys**. Mientras
+> exista, cualquiera que la haya visto puede gastar el saldo de la cuenta.
 
 ## Lo que hace el dueño
 

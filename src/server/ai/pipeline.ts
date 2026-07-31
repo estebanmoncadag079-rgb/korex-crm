@@ -280,7 +280,7 @@ export async function runAgentTurn(
     if (result.error === "not_configured") return null;
     // Fallo persistente del proveedor o salida imposible → escalar (FR-022).
     console.error(`[agente] fallo del proveedor (raw): ${result.detail}`);
-    await applyHandoff(conversationId, organizationId, "error");
+    await derivarAUnaPersona(conversation);
     return { action: "handoff", reason: "error" };
   }
 
@@ -315,7 +315,7 @@ export async function runAgentTurn(
       console.error(
         "[agente] el cierre falso persiste tras la corrección; lo toma una persona"
       );
-      await applyHandoff(conversationId, organizationId, "error");
+      await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -398,6 +398,38 @@ export async function runAgentTurn(
 }
 
 type Conversation = typeof schema.conversation.$inferSelect;
+
+/**
+ * Lo que se le dice al cliente cuando el agente no logra resolver.
+ *
+ * Neutro a propósito: sirve para cualquier negocio de la instancia, sin nombrar
+ * productos ni usar el apodo de marca de ninguno. No menciona ningún fallo
+ * técnico — al cliente no le aporta saber que un modelo devolvió algo ilegible,
+ * solo que ya viene una persona.
+ */
+const AVISO_DE_DERIVACION =
+  "Dame un momentico 🙏 Te comunico con una persona del equipo para ayudarte mejor.";
+
+/**
+ * Cierra el turno pasando la conversación a una persona, avisando al cliente.
+ *
+ * Antes solo se marcaba la conversación en la bandeja y el cliente se quedaba
+ * esperando en silencio, sin saber si lo habían leído. Marcar sin avisar es
+ * cómodo para el sistema y pésimo para quien está del otro lado.
+ *
+ * El aviso se manda ANTES de marcar el handoff: al marcarlo, la conversación
+ * queda en silencio y ya no saldría nada.
+ */
+async function derivarAUnaPersona(conversation: Conversation): Promise<void> {
+  try {
+    await deliverReply(conversation, AVISO_DE_DERIVACION);
+  } catch (err) {
+    // Que no se pueda avisar no debe impedir la derivación: lo importante es
+    // que quede en la bandeja para que alguien la atienda.
+    console.warn("[agente] no se pudo avisar al cliente de la derivación:", err);
+  }
+  await applyHandoff(conversation.id, conversation.organizationId, "error");
+}
 
 /** Entrega la respuesta: envío real o persistencia sandbox (is_test). */
 async function deliverReply(

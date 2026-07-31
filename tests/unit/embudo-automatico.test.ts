@@ -91,3 +91,49 @@ describe("cierre: dónde cae un pedido confirmado", () => {
     expect(cierreDelEmbudo(sinCierre)).toBeNull();
   });
 });
+
+/**
+ * Dónde NACE un lead, que es el caso que rompía el tablero.
+ *
+ * Lo normal es que escriba primero el cliente y el lead nazca en "Nuevo". Pero
+ * el negocio también inicia conversaciones (retomar a alguien, responder algo
+ * visto en otro sitio), y entonces los mensajes salen ANTES de que exista el
+ * lead: no hay tarjeta que mover. Cuando el cliente por fin contestaba, el lead
+ * nacía en "Nuevo" y se quedaba ahí aunque la conversación tuviera veinte
+ * mensajes.
+ *
+ * Pasó en producción con el contacto 573005619176 el 30-jul-2026: dos mensajes
+ * del negocio a las 16:40:13 y el lead creado a las 16:40:43.
+ */
+describe("dónde nace un lead según quién habló primero", () => {
+  const arranque = arranqueDelEmbudo(SEMBRADO)!;
+
+  /** Réplica de la decisión de `onLeadActivity`, sin tocar la base. */
+  const etapaAlNacer = (yaLeEscribimos: boolean) =>
+    yaLeEscribimos ? arranque.hacia.id : arranque.desde.id;
+
+  it("si escribe primero el cliente, nace en la primera etapa", () => {
+    expect(etapaAlNacer(false)).toBe("s1");
+  });
+
+  it("si el negocio ya le había escrito, nace en la segunda", () => {
+    expect(etapaAlNacer(true)).toBe("s2");
+  });
+
+  it("nunca nace en una etapa de cierre, ni ganada ni perdida", () => {
+    const cierres = SEMBRADO.filter((s) => s.kind !== "open").map((s) => s.id);
+    expect(cierres).not.toContain(etapaAlNacer(true));
+    expect(cierres).not.toContain(etapaAlNacer(false));
+  });
+
+  it("respeta el orden del cliente aunque renombre o reordene las etapas", () => {
+    const reordenado: EtapaEmbudo[] = [
+      { id: "z", position: 9, kind: "open" },
+      { id: "a", position: 1, kind: "open" },
+      { id: "m", position: 5, kind: "open" },
+    ];
+    const otro = arranqueDelEmbudo(reordenado)!;
+    expect(otro.desde.id).toBe("a");
+    expect(otro.hacia.id).toBe("m");
+  });
+});

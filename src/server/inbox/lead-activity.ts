@@ -4,8 +4,23 @@ import { newId } from "@/lib/db/ids";
 
 /**
  * Actividad de lead al recibir un mensaje (US2): si el contacto no tiene lead,
- * se crea en la primera etapa del pipeline; si lo tiene, se actualiza su
- * última actividad.
+ * se crea en el pipeline; si lo tiene, se actualiza su última actividad.
+ *
+ * En qué etapa nace depende de si la conversación ya estaba empezada:
+ *
+ * - Lo normal es que escriba primero el cliente → nace en la PRIMERA etapa
+ *   ("Nuevo"), y sale de ahí en cuanto el negocio conteste.
+ * - Pero el negocio también inicia conversaciones (retomar a un cliente,
+ *   responder algo visto en otro sitio). Ahí los mensajes salen ANTES de que
+ *   exista el lead: no hay ninguna tarjeta que mover, y cuando el cliente por
+ *   fin contesta, el lead nacía en "Nuevo" y se quedaba ahí para siempre,
+ *   aunque hubiera una conversación de veinte mensajes. Pasó de verdad
+ *   (573005619176, 30-jul-2026: dos mensajes del negocio a las 16:40:13 y el
+ *   lead creado a las 16:40:43).
+ *
+ * Por eso, si el contacto YA tiene mensajes salientes, el lead nace
+ * directamente en la segunda etapa: la conversación ya está en marcha y el
+ * tablero debe decir la verdad desde el primer momento.
  */
 export async function onLeadActivity(
   organizationId: string,
@@ -28,7 +43,44 @@ export async function onLeadActivity(
     return;
   }
 
-  const firstStage = await db
+  const arranque = arranqueDelEmbudo(await etapasDe(organizationId));
+  if (!arranque) {
+    // Sin dos etapas abiertas no hay avance posible: basta la primera que haya.
+    const unica = await primeraEtapaAbierta(organizationId);
+    if (!unica) return; // pipeline sin etapas abiertas: no hay dónde crear
+    await insertarLead(organizationId, contactId, unica, at);
+    return;
+  }
+
+  const destino = (await yaLeEscribimos(contactId))
+    ? arranque.hacia
+    : arranque.desde;
+  await insertarLead(organizationId, contactId, destino.id, at);
+}
+
+/** ¿El negocio ya le había escrito a este contacto? */
+async function yaLeEscribimos(contactId: string): Promise<boolean> {
+  const filas = await getDb()
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .innerJoin(
+      schema.conversation,
+      eq(schema.conversation.id, schema.message.conversationId)
+    )
+    .where(
+      and(
+        eq(schema.conversation.contactId, contactId),
+        eq(schema.message.direction, "out")
+      )
+    )
+    .limit(1);
+  return filas.length > 0;
+}
+
+async function primeraEtapaAbierta(
+  organizationId: string
+): Promise<string | null> {
+  const filas = await getDb()
     .select({ id: schema.pipelineStage.id })
     .from(schema.pipelineStage)
     .where(
@@ -39,15 +91,23 @@ export async function onLeadActivity(
     )
     .orderBy(asc(schema.pipelineStage.position))
     .limit(1);
-  if (!firstStage[0]) return; // pipeline sin etapas abiertas: no hay dónde crear
+  return filas[0]?.id ?? null;
+}
 
+async function insertarLead(
+  organizationId: string,
+  contactId: string,
+  stageId: string,
+  at: Date
+): Promise<void> {
+  const db = getDb();
   const maxPos = await db
     .select({ max: sql<number>`coalesce(max(${schema.lead.position}), -1)` })
     .from(schema.lead)
     .where(
       and(
         eq(schema.lead.organizationId, organizationId),
-        eq(schema.lead.stageId, firstStage[0].id)
+        eq(schema.lead.stageId, stageId)
       )
     );
 
@@ -57,7 +117,7 @@ export async function onLeadActivity(
       id: newId("lead"),
       organizationId,
       contactId,
-      stageId: firstStage[0].id,
+      stageId,
       position: (maxPos[0]?.max ?? -1) + 1,
       lastActivityAt: at,
     })

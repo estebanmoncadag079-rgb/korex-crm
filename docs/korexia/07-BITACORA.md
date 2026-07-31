@@ -7,6 +7,35 @@ Las horas van en **UTC** salvo que diga "Colombia" (UTC−5).
 
 ## 31-jul-2026
 
+### El agente de Lis se inventaba cuál era el producto más pedido
+
+Primera corrida del Laboratorio con su agente encendido: **83 puntos**, cuatro
+personas en verde y dos en amarillo.
+
+El hallazgo que importaba: ante *"quiero la más pedida"* respondió **"La más
+pedida es el Cremoso de 12 oz"**. Ese dato **no existe en su conocimiento** —
+se lo inventó, que es justo lo que el prompt prohíbe.
+
+Se añadió una regla al prompt (en caliente, sin desplegar) que **no se limita a
+prohibirlo**: si solo se le dice "no lo sabes", pierde la venta ante quien pide
+que le recomienden. La regla le dice qué hacer en su lugar: recomendar de
+verdad, explicando por qué le puede gustar, sin atribuirlo a las ventas.
+
+Verificado con la misma pregunta: ahora responde *"Te recomiendo el Cremoso de
+12 oz: lleva 2 toppings a elección y es un tamaño que rinde bastante"*.
+Respaldo del prompt anterior en `agent_profile_backup_20260731`.
+
+> 📌 **Mejor solución pendiente**: preguntarle a la dueña cuál es realmente el
+> más vendido y meterlo en el conocimiento. Así el agente podría responderlo
+> **con la verdad** en vez de esquivarlo.
+
+**Sobre el juez del Laboratorio, con criterio**: de los seis hallazgos, solo
+ese era un error real. Los demás eran de "tono" y discutibles — y en el caso
+`errores_modismos`, **el juez marcó como fallos del agente frases que había
+dicho el cliente simulado** ("La q ustedes vean parce", "listo mano ahi le
+aviso"). Conviene leer sus veredictos con escepticismo y buscar la evidencia
+antes de cambiar nada.
+
 ### Se jubiló el bot viejo de Lis Pastelería
 
 Al conectar su número a la API oficial (coexistencia), **Meta cerró la sesión

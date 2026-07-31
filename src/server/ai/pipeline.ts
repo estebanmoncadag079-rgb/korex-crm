@@ -16,6 +16,7 @@ import {
   CORRECCION_DE_CIERRE_FALSO,
   MENSAJE_RETIRADO,
 } from "@/server/ai/anuncio-de-cierre";
+import { registrarUsoIa } from "@/server/usage";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -272,6 +273,9 @@ export async function runAgentTurn(
   ];
 
   const result = await chatJson(AgentAction, messages);
+  // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
+  // son justo los que encarecen a un cliente sin que se note en ninguna parte.
+  await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
   if (!result.ok) {
     if (result.error === "not_configured") return null;
     // Fallo persistente del proveedor o salida imposible → escalar (FR-022).
@@ -300,6 +304,11 @@ export async function runAgentTurn(
       { role: "assistant", content: result.raw },
       { role: "system", content: CORRECCION_DE_CIERRE_FALSO },
     ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/cierre-falso`
+    );
     if (reintento.ok && !textosAlCliente(reintento.data).some(anunciaCierre)) {
       action = reintento.data;
     } else {

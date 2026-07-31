@@ -4,6 +4,7 @@ import { newId } from "@/lib/db/ids";
 import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
 import { isYcloudEnabled, ycloudSendText } from "@/lib/ycloud/client";
 import { publish } from "@/server/events/bus";
+import { registrarUsoWhatsapp } from "@/server/usage";
 import {
   getCredentialsByOrg,
   markReconnectRequired,
@@ -141,6 +142,18 @@ export async function sendText(input: {
     })
     .returning();
   const message = inserted[0]!;
+
+  /**
+   * Se anota el mensaje aunque hoy cueste 0: dentro de la ventana de 24 h Meta
+   * no cobra las respuestas. Contarlos desde ahora es lo que permitirá saber
+   * qué factura traerá octubre —cuando empiece a cobrarlos todos— con el
+   * tráfico real de cada cliente en vez de con una suposición.
+   */
+  await registrarUsoWhatsapp({
+    organizationId: input.organizationId,
+    tipo: "text",
+    ref: waMessageId,
+  });
 
   await db
     .update(schema.conversation)

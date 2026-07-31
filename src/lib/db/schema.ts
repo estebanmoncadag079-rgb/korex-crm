@@ -3,6 +3,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -423,4 +424,46 @@ export const agentTestCase = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("test_case_run_idx").on(t.runId)]
+);
+
+/* ============================================================
+ * Consumo y costos
+ * ============================================================ */
+
+/**
+ * Cada gasto que genera un cliente, anotado en el momento en que ocurre.
+ *
+ * Sin esto la agencia cobra a ciegas: sabe lo que gasta en total, pero no
+ * cuánto le cuesta CADA negocio, que es lo que decide si una mensualidad da
+ * margen o lo come. Importa aún más desde el 1-oct-2026, cuando Meta empieza a
+ * cobrar todos los mensajes salientes.
+ *
+ * `costUsd` es numérico exacto, no coma flotante: son fracciones de centavo que
+ * se suman miles de veces, y en flotante el total acaba desviándose.
+ *
+ * Los mensajes de WhatsApp se anotan aunque hoy cuesten 0 (las respuestas
+ * dentro de la ventana de 24 h son gratis): contarlos ahora es lo que permite
+ * proyectar la factura de octubre con datos reales en vez de con suposiciones.
+ */
+export const usageEvent = pgTable(
+  "usage_event",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    /** `ia` = una llamada al modelo · `whatsapp` = un mensaje saliente. */
+    kind: text("kind", { enum: ["ia", "whatsapp"] }).notNull(),
+    /** El modelo usado, o el tipo de mensaje (`text`, `template`). */
+    detail: text("detail"),
+    tokensIn: integer("tokens_in"),
+    tokensOut: integer("tokens_out"),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 10 })
+      .notNull()
+      .default("0"),
+    /** De dónde salió: el wamid del mensaje o de qué proceso viene. */
+    ref: text("ref"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("usage_org_fecha_idx").on(t.organizationId, t.createdAt)]
 );

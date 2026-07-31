@@ -13,9 +13,30 @@ export type ChatMessage = {
   content: string;
 };
 
+/**
+ * Lo que costó una llamada, tal como lo informa el proveedor.
+ *
+ * El costo NO se estima a partir de los tokens: OpenRouter devuelve el importe
+ * exacto en dólares, y estimarlo se desviaría en cuanto cambien las tarifas o
+ * el modelo. `costUsd` acumula TODOS los intentos, incluidos los que fallaron
+ * y el rescate con el modelo de respaldo — porque esos también se pagan, y un
+ * contador que los ignore miente justo cuando más cuesta el turno.
+ */
+export type AiUsage = {
+  model: string;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: number;
+};
+
 export type ChatJsonResult<T> =
-  | { ok: true; data: T; raw: string }
-  | { ok: false; error: "not_configured" | "provider_error" | "invalid_output"; detail: string };
+  | { ok: true; data: T; raw: string; usage?: AiUsage }
+  | {
+      ok: false;
+      error: "not_configured" | "provider_error" | "invalid_output";
+      detail: string;
+      usage?: AiUsage;
+    };
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 500;
@@ -66,9 +87,23 @@ export async function chatJson<T>(
       `[ia] ${model} no devolvió una respuesta usable; reintentando con ${respaldo}`
     );
     const rescate = await intentarCon(respaldo, schema, messages, opts?.timeoutMs);
-    if (rescate.ok) return rescate;
+    // El turno costó lo del modelo barato (que falló) MÁS lo del respaldo.
+    // Devolver solo lo segundo escondería el caso más caro del sistema.
+    return { ...rescate, usage: sumarUso(intento.usage, rescate.usage) };
   }
   return intento;
+}
+
+/** Une lo gastado en dos tandas; el modelo que se nombra es el último usado. */
+function sumarUso(a?: AiUsage, b?: AiUsage): AiUsage | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    model: b.model,
+    tokensIn: a.tokensIn + b.tokensIn,
+    tokensOut: a.tokensOut + b.tokensOut,
+    costUsd: a.costUsd + b.costUsd,
+  };
 }
 
 /** Los MAX_ATTEMPTS intentos contra UN modelo. */
@@ -79,6 +114,9 @@ async function intentarCon<T>(
   timeoutMs?: number
 ): Promise<ChatJsonResult<T>> {
   let lastDetail = "";
+  // Se suma lo gastado en cada intento: un turno que necesitó tres llamadas
+  // costó las tres, aunque solo una devolviera algo usable.
+  const gastado: AiUsage = { model, tokensIn: 0, tokensOut: 0, costUsd: 0 };
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const attemptMessages: ChatMessage[] =
       attempt === 1
@@ -92,7 +130,14 @@ async function intentarCon<T>(
             },
           ];
     try {
-      const raw = await callProvider(model, attemptMessages, timeoutMs);
+      const { content: raw, usage } = await callProvider(
+        model,
+        attemptMessages,
+        timeoutMs
+      );
+      gastado.tokensIn += usage.tokensIn;
+      gastado.tokensOut += usage.tokensOut;
+      gastado.costUsd += usage.costUsd;
       const extracted = extractJson(raw);
       if (extracted === null) {
         lastDetail = `sin JSON extraíble (raw=${truncate(raw)})`;
@@ -105,7 +150,7 @@ async function intentarCon<T>(
           .join("; ")} (raw=${truncate(raw)})`;
         continue;
       }
-      return { ok: true, data: parsed.data, raw };
+      return { ok: true, data: parsed.data, raw, usage: gastado };
     } catch (err) {
       lastDetail = err instanceof Error ? err.message : String(err);
       if (attempt < MAX_ATTEMPTS) {
@@ -120,6 +165,7 @@ async function intentarCon<T>(
       ? "invalid_output"
       : "provider_error",
     detail: lastDetail,
+    usage: gastado,
   };
 }
 
@@ -127,7 +173,7 @@ async function callProvider(
   model: string,
   messages: ChatMessage[],
   timeoutMs = 60_000
-): Promise<string> {
+): Promise<{ content: string; usage: AiUsage }> {
   const env = getEnv();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -139,7 +185,9 @@ async function callProvider(
         Authorization: `Bearer ${env.OPENROUTER_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, messages }),
+      // `usage.include` hace que el proveedor devuelva el costo exacto de esta
+      // llamada; sin esta línea habría que estimarlo por tokens y tarifa.
+      body: JSON.stringify({ model, messages, usage: { include: true } }),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -148,12 +196,25 @@ async function callProvider(
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        cost?: number;
+      };
     };
     const content = json.choices?.[0]?.message?.content;
     if (typeof content !== "string" || content.length === 0) {
       throw new Error("respuesta del proveedor sin contenido");
     }
-    return content;
+    return {
+      content,
+      usage: {
+        model,
+        tokensIn: json.usage?.prompt_tokens ?? 0,
+        tokensOut: json.usage?.completion_tokens ?? 0,
+        costUsd: json.usage?.cost ?? 0,
+      },
+    };
   } finally {
     clearTimeout(timer);
   }

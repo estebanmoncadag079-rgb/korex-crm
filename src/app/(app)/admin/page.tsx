@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { AdminClients } from "@/components/admin/admin-clients";
+import { UsagePanel } from "@/components/admin/usage-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ export default async function AdminPage() {
           agente solo los ve él.
         </p>
       </header>
-      <div className="min-w-0 flex-1 overflow-y-auto p-6">
+      <div className="min-w-0 flex-1 space-y-6 overflow-y-auto p-6">
+        <UsagePanel />
         <AdminClients activeOrganizationId={session.organizationId} />
       </div>
     </div>

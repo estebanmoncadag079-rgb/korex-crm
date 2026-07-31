@@ -14,15 +14,21 @@ function safeEqual(a: string, b: string): boolean {
 
 /**
  * Verifica la firma HMAC-SHA256 del header `YCloud-Signature` (formato `t=..,s=..`).
- * Firma sobre `${t}.${rawBody}`. Si no hay secreto configurado → devuelve true
- * (capa desactivada, para poder probar antes de fijar el secreto en YCloud).
+ * Firma sobre `${t}.${rawBody}`.
+ *
+ * Sin secreto la capa queda desactivada: cómodo para probar antes de fijarlo en
+ * YCloud, pero **en producción eso es aceptar cualquier evento sin firmar**.
+ * Bastaría un POST a la URL del webhook para meter mensajes falsos en la
+ * bandeja de un negocio y hacer que su WhatsApp conteste a quien sea. Por eso
+ * en producción se falla CERRADO: sin secreto no se acepta nada. Un webhook que
+ * deja de entregar se nota enseguida; uno que acepta de cualquiera, no.
  */
 export function verifyYcloudSignature(
   rawBody: string,
   signatureHeader: string | null,
   secret: string | undefined
 ): boolean {
-  if (!secret) return true; // capa opcional desactivada
+  if (!secret) return process.env.NODE_ENV !== "production";
   if (!signatureHeader) return false;
 
   const parts = Object.fromEntries(

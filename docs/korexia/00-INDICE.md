@@ -31,6 +31,33 @@ producción, qué se cambió y qué quedó pendiente.
   Colombia es UTC−5. Es la confusión que más veces ha hecho perder tiempo aquí.
 - Los comandos que aparecen son los que se ejecutaron de verdad, no ejemplos.
 
+## Cómo se organiza el trabajo (una sola carpeta, no una por cliente)
+
+Todo se trabaja desde **`C:\bots\KOREX.IA`**. Separar el proyecto por cliente
+sería un error: **el código es uno solo**, y tener una copia por negocio
+obligaría a repetir cada arreglo tantas veces como clientes haya — hasta que
+uno se quedara sin él.
+
+```
+C:\bots\KOREX.IA\
+├── vocero\        EL CÓDIGO (repo korex-crm). Uno solo, para todos.
+│   └── docs\korexia\   esta documentación
+└── clientes\      material que entrega cada negocio (menús, logos, notas)
+    ├── la-churra\
+    └── lis-pasteleria\
+```
+
+| Qué se toca | Dónde vive | A quién afecta |
+|---|---|---|
+| Código, pantallas, reglas del agente | `vocero/` | **TODOS** los clientes a la vez |
+| Prompt, conocimiento, horario, número, marca | base de datos | **solo ese** cliente |
+| Menús, logos, fotos, notas | `clientes/<negocio>/` | material de referencia |
+
+**La regla que evita sustos**: tocar código mejora —o rompe— a todos el mismo
+día, por eso cada cambio pasa por typecheck, lint y las pruebas antes de
+desplegarse. Tocar los datos de un cliente no puede afectar a otro, y además
+tiene efecto inmediato: el prompt se lee en cada mensaje, sin desplegar nada.
+
 ## Lo mínimo que hay que saber
 
 **korex.ia es una sola instalación que atiende a varios negocios.** Un

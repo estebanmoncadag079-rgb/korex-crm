@@ -407,7 +407,16 @@ export async function runAgentTurn(
       opts?.now
     );
     messages.push({ role: "assistant", content: JSON.stringify(action) });
-    messages.push({ role: "system", content: infoDisponibilidad });
+    /**
+     * "user", no "system": verificado en vivo (1-ago-2026) que
+     * google/gemini-2.5-flash vía OpenRouter devuelve `content: null` cuando el
+     * ÚLTIMO mensaje del array es de rol "system" sin ningún turno de usuario
+     * después — pasa el `finish_reason: "stop"`, pero el contenido viene vacío.
+     * Mismo truco que ya usa `toChatHistory` para los mensajes de una persona
+     * del equipo: rol "user" con la etiqueta "[SISTEMA]" delante, para que el
+     * modelo lo lea como información, no como algo que dijo el cliente.
+     */
+    messages.push({ role: "user", content: infoDisponibilidad });
     const siguiente = await chatJson(AgentAction, messages);
     await registrarUsoIa(
       organizationId,

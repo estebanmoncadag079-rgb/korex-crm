@@ -2,7 +2,11 @@ import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
-import { getCredentialsByPhoneNumberId } from "@/server/whatsapp/credentials";
+import {
+  getCredentialsByPhoneNumberId,
+  getYcloudApiKey,
+} from "@/server/whatsapp/credentials";
+import { transcribirAudio } from "@/server/ai/transcribir";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
 import { onLeadActivity, onLeadReplied } from "@/server/inbox/lead-activity";
@@ -175,6 +179,28 @@ export async function ingestInboundMessage(
 
   const waTimestamp = toDate(input.timestamp);
 
+  /*
+   * Una nota de voz se transcribe ANTES de guardarla, para que el texto viaje
+   * dentro del propio mensaje. A partir de ahí todo lo demás funciona sin
+   * enterarse de que era audio: el agente lo lee como si se lo hubieran
+   * escrito, quien atienda a mano lo ve en la bandeja sin ponerse auriculares,
+   * y entra en el aprendizaje y en los respaldos.
+   *
+   * Solo si el audio no trae ya un texto: WhatsApp no manda pie de foto en las
+   * notas de voz, pero si algún día lo hiciera, mandaría lo que escribió la
+   * persona.
+   */
+  let texto = input.text;
+  if (input.type === "audio" && input.mediaUrl && !texto?.trim()) {
+    const { texto: transcrito } = await transcribirAudio({
+      organizationId,
+      mediaUrl: input.mediaUrl,
+      mimeType: input.mimeType,
+      apiKey: await getYcloudApiKey(organizationId),
+    });
+    if (transcrito) texto = transcrito;
+  }
+
   // Idempotencia dura: mismo wa_message_id → sin efectos adicionales.
   const inserted = await db
     .insert(schema.message)
@@ -185,7 +211,7 @@ export async function ingestInboundMessage(
       waMessageId: input.waMessageId,
       direction: "in",
       type: input.type,
-      text: input.text,
+      text: texto,
       status: "delivered",
       mediaUrl: input.mediaUrl ?? null,
       mediaId: input.mediaId ?? null,

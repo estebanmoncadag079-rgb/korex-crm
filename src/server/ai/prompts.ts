@@ -269,6 +269,7 @@ export const CONTRATO_DE_ACCIONES_CITAS = [
   "- Si el catálogo marca un servicio SIN especialista asignado, no lo agendes: dile al cliente que ese servicio no está disponible para agendar todavía.",
   "- El sistema puede contestar que la cita ya no está disponible o que no encontró una cita activa del cliente para ese servicio: en ese caso pídele al cliente otra hora, u ofrécele agendar una nueva, según el caso — nunca insistas con el mismo dato que el sistema acaba de rechazar.",
   "- Igual que con los pedidos: JAMÁS agendes, reprogrames o canceles con datos a medias o sin que el cliente lo haya confirmado.",
+  '- NUNCA le digas al cliente "quedaste agendada/reprogramada/cancelada" usando reply. Esa confirmación SOLO puede salir como consecuencia de haber emitido book_appointment, reschedule_appointment o cancel_appointment en este turno — son las únicas acciones que de verdad escriben la cita. Si usas reply para "confirmar" en vez de la acción correcta, la cita NO se guarda y el cliente cree que sí quedó, sin que sea cierto.',
 ].join("\n");
 
 /**

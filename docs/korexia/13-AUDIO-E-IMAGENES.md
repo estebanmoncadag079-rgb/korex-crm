@@ -77,6 +77,24 @@ Son los cuatro datos que delatan un comprobante que no vale:
 Un dato que no se lee se marca **`(no se lee)`** en vez de dejarse en blanco:
 que falte es en sí una señal, y sería peor que el modelo lo rellenara a ojo.
 
+**Comprobado el 31-jul-2026** contra el modelo de producción, con dos capturas
+de prueba y la instrucción tomada del código desplegado:
+
+```
+[COMPROBANTE] Nequi · $22.000,00 · 31 de julio de 2026 6:12 p.m. · a nombre de:
+KAREN LISETH RAMIREZ · cuenta 51400008565 · ref: M9384710255
+```
+
+Y con la referencia emborronada a propósito, más una captura que no traía ni
+hora ni cuenta:
+
+```
+[COMPROBANTE] Bancolombia · $45.000 · 28/07/2026 (no se lee) · a nombre de:
+LUIS ALBERTO GOMEZ · cuenta destino: (no se lee) · ref: (no se lee)
+```
+
+No se inventó ninguno de los tres datos que no estaban, que era justo el riesgo.
+
 **El sistema NO dictamina.** El agente tiene prohibido en el contrato de
 acciones decir "pago confirmado", "ya me llegó" o "listo, recibido el dinero".
 Ve una imagen, no la cuenta del negocio, y un comprobante puede estar retocado.
@@ -101,11 +119,14 @@ imagen, pero deja rastro de lo que decía.
 
 ## Qué cuesta
 
-Con `gemini-2.5-flash`, del orden de **centésimas de centavo de dólar** por
-audio o por imagen — el mismo orden que un turno de conversación normal. El
-volumen manda: las fotos y las notas de voz son una fracción pequeña de los
+Con `gemini-2.5-flash`, **entre 0,0006 y 0,0008 USD por imagen** — medido en las
+dos pruebas de arriba. Del orden de un turno de conversación normal, unos 2 o 3
+pesos colombianos.
+
+El volumen manda: las fotos y las notas de voz son una fracción pequeña de los
 mensajes, así que el impacto en la factura mensual es marginal frente a las
-respuestas de texto.
+respuestas de texto. Un negocio que reciba 100 comprobantes al mes paga por
+leerlos unos **0,08 USD**.
 
 Se ve por cliente y por referencia en el panel de costos, sin estimaciones:
 son los importes que informa el propio proveedor.

@@ -125,7 +125,7 @@ dueño, porque se leen mejor en WhatsApp.
 | Horario | 10:00–20:00, **lunes a sábado** (domingo cerrado) |
 | Agente | **encendido** desde el 31-jul-2026 |
 | Conocimiento | 12 entradas |
-| Avisos de pedido | 1 teléfono (la dueña) |
+| Avisos de pedido | **ninguno** (a propósito, ver abajo) |
 | Marca | rosa `#e91e8c` |
 
 Su contenido salió del bot anterior: 11 productos con precios, 11 toppings,
@@ -141,6 +141,17 @@ transferencia** y el flujo de regalo con tarjeta.
 
 **Lo que gana**: se acabaron los cortes de conexión cada 50 minutos que sufría
 su bot no oficial, y el riesgo de que le bloqueen el número.
+
+⚠️ **`notify_phones` vaciado a propósito (1-ago-2026)**: Lis no tiene equipo,
+atiende y despacha todo ella misma directamente desde el WhatsApp del negocio
+(el mismo número de arriba, `...9990`, por coexistencia). Pidió explícitamente
+**no replicar pedidos ni avisos a ningún otro número** — antes tenía puesto un
+celular personal (`573164240795`), que además resultó ser un número que le
+escribe al bot como si fuera clienta (sin confirmar si es ella probando o
+alguien más). Si en el futuro se pregunta por qué a Lis no le llega ningún
+aviso de WhatsApp: es esta decisión, no un fallo. Causa raíz completa de la
+investigación que llevó a esto (mensajes que no se respondían) en
+[07-BITACORA.md](07-BITACORA.md), entrada del 1-ago-2026.
 
 ### Prueba del agente (31-jul-2026)
 

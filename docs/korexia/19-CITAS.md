@@ -131,8 +131,18 @@ cliente en `/admin` y correr el Laboratorio ahí.
 
 ## Lo que falta
 
-- **Aplicar las migraciones en el servidor** antes de usar esto en producción
-  (`db:migrate`, corre solo al desplegar) — se generan y se prueban en local.
+- ⚠️ **Confirmar que el último despliegue incluye hasta el commit
+  `6a8c213`** (recordatorio manual). Al cierre de la sesión del 1-ago quedaban
+  sincronizados en la carpeta de EasyPanel pero sin confirmar desplegados:
+  el arreglo de "confirmó sin agendar" (`2943382`), el Laboratorio
+  (`7a5c1ed`) y el recordatorio (`6a8c213`). Verificar con el mismo método de
+  siempre: grep de un texto nuevo dentro del contenedor que corre
+  (`02-INFRAESTRUCTURA.md`), no basta con "converged".
+- ⚠️ **Volver a correr `pnpm probar:citas` completo** (agendar → reprogramar →
+  cancelar) contra `org_novxv78s08h12arzatr2` ("Peluqueria Demo (prueba)")
+  después de ese despliegue, para confirmar que el bug de "confirmó sin
+  agendar" (que agendaba en domingo, día cerrado) no reaparece. La última
+  corrida completa fue ANTES del arreglo.
 - **No se portó la reprogramación en cascada** de Valentina (correr toda la
   agenda de una especialista X minutos): es una herramienta de administración
   del negocio, no algo que un cliente pida por chat. Si hace falta, es

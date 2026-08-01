@@ -1,5 +1,7 @@
 # Bitácora: qué se cambió y por qué
 
+> **Dentro:** 31-jul-2026 (noche) — el agente escucha y ve · 31-jul-2026 (tarde) — seguridad, embudo y aprendizaje
+
 Historial de los cambios que llegaron a producción. Lo más reciente arriba.
 Las horas van en **UTC** salvo que diga "Colombia" (UTC−5).
 

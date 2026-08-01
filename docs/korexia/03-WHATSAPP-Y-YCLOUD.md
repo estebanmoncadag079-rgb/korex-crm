@@ -1,5 +1,7 @@
 # WhatsApp: cómo entran y salen los mensajes
 
+> **Dentro:** Por qué YCloud y no Meta directo · Cómo entra un mensaje · Cómo sale un mensaje · La ventana de 24 horas (esto define lo que se puede y no se puede hacer) · Coexistencia: el número en el celular y en la API a la vez · Qué se guarda y qué no · Límites del número
+
 ## Por qué YCloud y no Meta directo
 
 korex.ia no habla con Meta directamente: usa **YCloud** como intermediario

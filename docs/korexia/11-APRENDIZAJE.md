@@ -1,5 +1,7 @@
 # Aprendizaje del agente
 
+> **Dentro:** Qué es y qué NO es · Cómo funciona · Por qué pasa por aprobación · Solo la agencia · Cuánto cuesta · La primera ejecución real (31-jul-2026) · Lo que falta
+
 ## Qué es y qué NO es
 
 **El modelo no aprende.** Gemini no cambia con las conversaciones: reentrenar un

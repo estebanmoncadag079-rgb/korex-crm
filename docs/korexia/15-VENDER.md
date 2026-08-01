@@ -1,5 +1,7 @@
 # Qué preguntarle al cliente y qué no regalarle
 
+> **Dentro:** Qué preguntarle al cliente · El marketing va SIEMPRE aparte · Errores que hay que evitar · Lo que hay que revisar antes del 1-oct-2026
+
 Complemento de [14-COTIZAR.md](14-COTIZAR.md), que tiene los números. Esto es
 lo que se hace **delante del cliente**.
 

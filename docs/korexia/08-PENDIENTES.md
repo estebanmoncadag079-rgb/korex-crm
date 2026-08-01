@@ -1,5 +1,7 @@
 # Qué quedó y qué no
 
+> **Dentro:** URGENTE — solo lo puede hacer el dueño · Seguridad pendiente (de la auditoría del 31-jul) · Funcionalidad: huecos conocidos · Infraestructura · Negocio · Decisiones tomadas (no reabrir sin motivo nuevo)
+
 Estado al cierre del **31-jul-2026**. Ordenado por urgencia real, no por
 categoría: lo de arriba puede costar dinero o datos hoy; lo de abajo puede
 esperar semanas.

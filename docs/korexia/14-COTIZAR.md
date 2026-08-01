@@ -1,5 +1,7 @@
 # Cómo cotizarle a un cliente
 
+> **Dentro:** Lo primero: se COBRA por conversación, pero se PAGA por mensaje · Usa el cotizador, no esta tabla · Cuánto cuesta de verdad — y por qué NO es "por conversación" · El cuadro de paquetes · Por qué el precio NO sale del costo · Ejemplo completo: el cliente de las 30 personas al día · Y después
+
 Hecho el **1-ago-2026** con costos **medidos**, no estimados. TRM 3.206 COP/USD.
 
 ## Lo primero: se COBRA por conversación, pero se PAGA por mensaje

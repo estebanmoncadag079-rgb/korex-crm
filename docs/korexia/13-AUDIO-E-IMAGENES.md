@@ -1,5 +1,7 @@
 # Audio e imágenes: cuando el cliente no escribe
 
+> **Dentro:** La decisión que lo sostiene todo: convertir al ENTRAR · Nunca rompe la entrada de mensajes · Audio y foto se tratan distinto, a propósito · Tres casos, no uno · Comprobantes: leer sí, dictaminar no · Fotos con texto: el pedido escrito a mano · Fotos de productos: describir para identificar · Efecto lateral que conviene tener presente · Qué cuesta
+
 Puesto en producción el **31-jul-2026**. Verificado con mensajes reales.
 
 Mucha gente no escribe: manda una nota de voz, o una foto del comprobante.

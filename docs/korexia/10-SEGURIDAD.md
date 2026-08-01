@@ -1,5 +1,7 @@
 # Seguridad: auditoría del 31-jul-2026
 
+> **Dentro:** Resumen · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Pendiente, sin urgencia · Lo que está bien hecho
+
 Auditoría completa del código, el historial de git y las dependencias
 (gitleaks + osv-scanner), con cada hallazgo verificado a mano contra este
 sistema. No se hicieron pruebas activas contra producción.

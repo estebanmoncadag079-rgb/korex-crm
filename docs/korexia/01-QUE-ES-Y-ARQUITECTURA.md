@@ -1,5 +1,7 @@
 # Qué es korex.ia y cómo está construido
 
+> **Dentro:** Qué es · De dónde viene (y qué cambió) · El stack · Cómo se aísla cada cliente · Las pantallas · El recorrido de un mensaje · Dónde vive cada cosa en el código · Un detalle que sorprende: el prompt no está en el código
+
 ## Qué es
 
 **korex.ia es dos cosas a la vez:**

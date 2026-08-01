@@ -1,5 +1,7 @@
 # Contador de costos por cliente
 
+> **Dentro:** Para qué existe · Dónde se ve · Qué se anota y cuándo · Tres decisiones que conviene entender · Dos garantías del diseño · Lo que aún falta · Cómo consultarlo sin la pantalla
+
 ## Para qué existe
 
 La agencia cobra **mensualidades fijas**. Antes se sabía el gasto total —mirando

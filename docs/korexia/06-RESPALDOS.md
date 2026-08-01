@@ -1,5 +1,7 @@
 # Respaldos y recuperación
 
+> **Dentro:** Cómo funciona (dos piezas) · Qué SÍ se recupera · Qué NO se recupera · La prueba de restauración (31-jul-2026) · Levantar el servicio desde cero · Lo que aún se puede mejorar
+
 ## Cómo funciona (dos piezas)
 
 **1. El servidor hace la copia.** `/opt/korex-crm/backup.sh` vuelca la base de

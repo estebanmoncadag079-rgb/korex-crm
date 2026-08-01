@@ -1,5 +1,7 @@
 # Clientes: cómo se dan de alta y cuál es su estado
 
+> **Dentro:** Todo el código es compartido · Dar de alta un cliente · Trampas conocidas · La Churra — churrería, Jamundí · Lis Pastelería — cremosos y tortas, Cali · korex.ia — la agencia
+
 > 🔒 **En este archivo no hay contraseñas ni claves.** Viven en el gestor de
 > contraseñas del dueño y en `/opt/korex-crm/.env` del servidor. No se escriben
 > en el repositorio aunque sea privado.

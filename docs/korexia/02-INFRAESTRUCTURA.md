@@ -1,5 +1,7 @@
 # Infraestructura y despliegue
 
+> **Dentro:** El servidor · Qué corre ahí · Los dominios · Cómo desplegar un cambio · Seguridad de la red · Vigilancia
+
 ## El servidor
 
 Un único VPS con **EasyPanel**: `2.25.159.117`, **3,8 GB de RAM y un solo
@@ -68,7 +70,17 @@ después es añadir el dominio en EasyPanel y borrar el archivo.
 
 ## Cómo desplegar un cambio
 
-Probado de punta a punta el 29 y el 31 de julio de 2026.
+**El botón de Desplegar lo pulsa el dueño, en EasyPanel.** Así quedó acordado y
+así se hace: EasyPanel construye desde su propia carpeta y reinicia el servicio,
+sin que nadie tenga que acordarse de etiquetas ni de comandos.
+
+El reparto de trabajo:
+
+| Quién | Qué |
+|---|---|
+| Asistente | 1. Gate en local · 2. Commit y push · 3. **Dejar el código en la carpeta de EasyPanel** |
+| Dueño | 4. **EasyPanel → proyecto `korex-crm` → servicio `crm` → Desplegar** |
+| Asistente | 5. Verificar que el cambio está dentro del contenedor |
 
 ```bash
 # 1. En local: que pase todo
@@ -77,43 +89,41 @@ corepack pnpm typecheck && corepack pnpm lint && corepack pnpm vitest run
 # 2. Guardar el cambio
 git add -A && git commit -m "..." && git push origin main
 
-# 3. Empaquetar y subir
+# 3. Dejar el código donde EasyPanel lo va a buscar
 git archive --format=tar.gz -o /tmp/korex-crm.tar.gz HEAD
 scp -i ~/.ssh/churrabot_key /tmp/korex-crm.tar.gz root@2.25.159.117:/tmp/
-
-# 4. En el servidor: extraer y construir
-tar -xzf /tmp/korex-crm.tar.gz -C /etc/easypanel/projects/korex-crm/crm/code
-cd /etc/easypanel/projects/korex-crm/crm/code
-docker build -t easypanel/korex-crm/crm:latest .
-
-# 5. Reiniciar con la imagen nueva
-docker service update --force korex-crm_crm     # esperar "converged"
+ssh ... 'tar -xzf /tmp/korex-crm.tar.gz -C /etc/easypanel/projects/korex-crm/crm/code'
 ```
+
+> 🔴 **El paso 3 no es opcional ni cosmético.** Esa carpeta es la ÚNICA fuente
+> de la que construye EasyPanel: no clona el repositorio, **no tiene `.git`** y
+> no se entera de ningún push. Si se omite, el botón Desplegar reconstruye el
+> código viejo y **deshace lo que ya estuviera arriba**.
+>
+> Pasó el 1-ago-2026: se desplegó a mano por SSH sin sincronizar la carpeta, y
+> quedó una bomba de relojería — el siguiente Desplegar habría revertido tres
+> funcionalidades. Se detectó a tiempo y se sincronizó (con copia previa en
+> `/root/code-respaldo-antes-sync-*`).
 
 Detalles que importan:
 
-- El código **se sube**, no se clona: esa carpeta **no tiene `.git`**.
 - El `Dockerfile` es autocontenido: **no necesita secretos ni argumentos** para
   construir; las claves llegan al arrancar.
-- `docker service update --force` funciona porque la imagen se referencia por
-  etiqueta **sin digest**. Si algún día se fijara un digest, habría que pasar
-  `--image`.
 - **Coste real**: el reinicio deja a los clientes sin agente unos **30
-  segundos**. La construcción tarda 2–4 minutos (las capas de dependencias se
-  reutilizan).
+  segundos**. La construcción tarda 2–4 minutos.
 
-### ⚠️ La etiqueta de la imagen tiene que ser EXACTAMENTE esa
+### Si hay que desplegar a mano (EasyPanel caído, urgencia)
 
-`easypanel/korex-crm/crm:latest`. No `korex-crm:latest`, que es lo que sale
-natural de escribir.
+```bash
+cd /etc/easypanel/projects/korex-crm/crm/code
+docker build -t easypanel/korex-crm/crm:latest .   # ⚠️ ESA etiqueta, exacta
+docker service update --force korex-crm_crm
+```
 
-**Pasó el 1-ago-2026 y costó una tarde**: se construyó tres veces seguidas con
-la etiqueta corta. Cada build terminó bien, cada `service update` dijo
-`converged` y la web respondía 200 — pero se estaba construyendo una imagen que
-**no usa nadie**, y el servicio se reiniciaba una y otra vez con la de siempre.
-Tres funcionalidades se dieron por desplegadas sin estarlo.
-
-Con qué comprobarlo, si hay dudas:
+⚠️ **`easypanel/korex-crm/crm:latest`, no `korex-crm:latest`**, que es lo que
+sale natural de escribir. El 1-ago-2026 se construyó tres veces con la etiqueta
+corta: cada build terminó bien, cada reinicio dijo `converged` y la web
+respondía 200 — mientras se construía una imagen **que no usa nadie**.
 
 ```bash
 docker service inspect korex-crm_crm --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'

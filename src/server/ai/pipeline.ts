@@ -748,6 +748,26 @@ async function derivarAUnaPersona(conversation: Conversation): Promise<void> {
     console.warn("[agente] no se pudo avisar al cliente de la derivación:", err);
   }
   await applyHandoff(conversation.id, conversation.organizationId, "error");
+
+  /**
+   * Al cliente se le promete "te comunico con una persona" (arriba), pero sin
+   * avisar al EQUIPO esa promesa quedaba vacía: nadie se enteraba hasta que el
+   * cliente escribía enojado por no recibir respuesta (caso real, Lis
+   * Pastelería, 1-ago-2026). Mismo mecanismo que el aviso de pedidos.
+   */
+  try {
+    const phone = await contactPhoneOf(conversation.contactId);
+    await notifyTeam({
+      organizationId: conversation.organizationId,
+      summary:
+        "⚠️ El agente no pudo resolver esta conversación y quedó en manos " +
+        "del equipo. Revisa la bandeja cuanto antes: el cliente está esperando.",
+      customerPhone: phone,
+      isTest: conversation.isTest,
+    });
+  } catch (err) {
+    console.error("[agente] no se pudo avisar al equipo de la derivación:", err);
+  }
 }
 
 /** Entrega la respuesta: envío real o persistencia sandbox (is_test). */

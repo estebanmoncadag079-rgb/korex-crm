@@ -5,6 +5,7 @@ import {
 } from "@/server/inbox/ycloud-webhook";
 import { resolveInboundRoute, resolveRoute } from "@/server/inbox/ycloud-routing";
 import { ingestInboundMessage, ingestOutboundEcho } from "@/server/inbox/ingest";
+import { notifyTeam } from "@/server/ai/notify-team";
 
 /**
  * Procesamiento de un evento de YCloud, común a las dos puertas de entrada:
@@ -53,6 +54,11 @@ export async function handleYcloudEvent(
      * adivinar.
      */
     console.warn(`[ycloud webhook] evento completo descartado: ${JSON.stringify(event)}`);
+    // El mensaje del cliente se pierde sin dejar ni una fila: avisar al
+    // equipo YA, para que lo atienda a mano en WhatsApp, es lo único que
+    // evita que el cliente se quede esperando sin que nadie se entere
+    // (verificado en vivo el 1-ago-2026 en Lis Pastelería).
+    await alertarMensajePerdido(m?.wabaId, m?.to);
     return;
   }
 
@@ -131,6 +137,36 @@ async function handleEcho(
     mediaId: echo.mediaId,
     mimeType: echo.mimeType,
   });
+}
+
+/**
+ * Un evento sin "from" no trae contacto ni conversación: no hay dónde
+ * escribir una nota en el CRM. Lo único posible es resolver el CLIENTE por
+ * `wabaId`/`to` (que sí suelen venir) y avisarle por WhatsApp a su equipo,
+ * igual que se avisa un pedido — es la única red de seguridad posible aquí.
+ */
+async function alertarMensajePerdido(
+  wabaId?: string,
+  to?: string
+): Promise<void> {
+  if (!wabaId && !to) return;
+  try {
+    const route = await resolveRoute(to?.replace(/^\+/, "") ?? "", wabaId ?? "");
+    if (!route) return;
+    await notifyTeam({
+      organizationId: route.organizationId,
+      summary:
+        "⚠️ Llegó un mensaje de un cliente que el sistema NO pudo procesar " +
+        "(posible reacción o respuesta a un Estado de WhatsApp). No quedó " +
+        "registrado en el CRM — revisa WhatsApp directamente para no dejarlo " +
+        "sin respuesta.",
+    });
+  } catch (err) {
+    console.error(
+      "[ycloud webhook] no se pudo avisar al equipo del mensaje perdido:",
+      err
+    );
+  }
 }
 
 function belongsTo(

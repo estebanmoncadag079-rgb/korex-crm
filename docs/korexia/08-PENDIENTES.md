@@ -130,7 +130,11 @@ caído hasta levantarlo a mano.
 **22. Un solo núcleo.** Cualquier proceso descontrolado afecta a todo. Ya pasó
 con el bot viejo de Lis.
 
-**23. Los comprobantes de pago caducan a los 30 días** en YCloud y no hay copia.
+**23. Los comprobantes de pago caducan a los 30 días** en YCloud y no hay copia
+de la imagen. Mitigado a medias desde el 31-jul: **los datos leídos del
+comprobante** (banco, monto, fecha y hora, cuenta destino, referencia) quedan en
+texto en la base y entran en los respaldos, aunque la foto ya no se pueda abrir.
+Falta guardar la imagen si alguna vez hace falta como prueba.
 
 ---
 

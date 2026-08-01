@@ -5,6 +5,37 @@ Las horas van en **UTC** salvo que diga "Colombia" (UTC−5).
 
 ---
 
+## 31-jul-2026 (noche) — el agente escucha y ve
+
+### Notas de voz
+
+Mucha gente pide hablando, y esas notas eran **invisibles** para el agente: el
+historial que recibe filtra por texto. Con una clienta de Lis se vio el efecto:
+explicó por audio que quería una porción de torta de cumpleaños con domicilio y
+el agente le contestó *"qué alegría que nos escribas"*.
+
+Ahora se transcriben **al entrar**, una sola vez, y el texto se guarda dentro
+del propio mensaje. Verificado en producción con un audio real.
+
+### Imágenes y comprobantes de pago
+
+Mismo mecanismo para las fotos. El caso que llega todos los días es el
+comprobante: el cliente manda la captura y el agente veía un mensaje vacío.
+
+La regla que gobierna esto: **el sistema lee, pero no dictamina**. Extrae banco,
+monto, fecha y hora, a nombre de quién, cuenta destino y referencia —los cuatro
+datos que delatan un comprobante de otra cuenta, de otro pedido o repetido— y
+tiene **prohibido** decir que un pago está confirmado. Copia la línea del
+comprobante en el resumen que va al equipo, y una persona compara antes de
+despachar.
+
+A diferencia del audio, el pie de foto no cancela la descripción: se conserva
+delante. El comprobante casi siempre viene con un "listo" encima.
+
+Detalle completo en [13-AUDIO-E-IMAGENES.md](13-AUDIO-E-IMAGENES.md).
+
+---
+
 ## 31-jul-2026 (tarde) — seguridad, embudo y aprendizaje
 
 ### Auditoría de seguridad: un cliente podía atacar a otro

@@ -142,14 +142,35 @@ Falta guardar la imagen si alguna vez hace falta como prueba.
 
 ## 💼 Negocio
 
-**24. Cobro, contrato y qué incluye el servicio.** Sin empezar. Ahora hay un dato
-que antes no existía: el contador dice cuánto cuesta cada cliente al mes.
+**24. Cobro, contrato y qué incluye el servicio.** ✅ **Resuelto el 1-ago**: hay
+método, cuadro de paquetes y calculadora en [14-COTIZAR.md](14-COTIZAR.md),
+[15-VENDER.md](15-VENDER.md) y `/admin → Cotizador`. Queda **firmar el primer
+contrato** con esas cifras.
 
 **25. Antes del 1-oct-2026**: Meta empieza a cobrar **todos** los mensajes
 salientes. Hoy las respuestas dentro de la ventana de 24 h son gratis, por eso el
 saldo de YCloud lleva meses intacto. Hay que decidir **quién paga los mensajes de
 cada cliente** — y el camino ya probado es que cada uno tenga su cuenta de
 YCloud, como Lis.
+
+**27. Menú "Mover a…" en las tarjetas del embudo.** En el teléfono se mueve
+manteniendo pulsado y arrastrando, y hay un camino sin arrastre por los detalles
+del contacto. Un menú en la propia tarjeta sería más cómodo y reutilizaría el
+`PATCH /api/pipeline/leads/[id]` que ya existe, pero es **función nueva, no
+presentación**. Pendiente de decidir.
+
+**28. Abrir la aplicación en un teléfono de verdad.** Todo lo de móvil se
+verificó con el gate y contra la hoja de estilos generada, pero **nadie lo ha
+visto en un navegador**. Es lo primero que hay que hacer tras desplegar.
+
+**29. Contador de conversaciones por cliente en el panel.** Hoy el panel de
+consumo cuenta mensajes y llamadas de IA, no conversaciones — que es la unidad
+con la que se venden los topes de los planes. Sin eso, controlar un tope a fin
+de mes es a ojo.
+
+---
+
+## 💼 Negocio (continuación)
 
 **26. Verificación de negocio en Meta** para pasar de 2 números por portafolio.
 No urge con dos clientes.

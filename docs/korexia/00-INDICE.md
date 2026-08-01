@@ -30,6 +30,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [15-VENDER.md](15-VENDER.md) | Qué preguntarle al cliente antes de dar un precio, cómo se cobra el marketing y los errores que salen caros |
 | [16-AGENTE-RELEVO-Y-MODELOS.md](16-AGENTE-RELEVO-Y-MODELOS.md) | Segunda parte del agente: relevo con personas, aviso de pedido, qué modelo corre y el Laboratorio |
 | [17-BITACORA-JULIO.md](17-BITACORA-JULIO.md) | Historial más antiguo, hasta el 29 de julio |
+| [18-MOVIL.md](18-MOVIL.md) | Cómo se comporta la aplicación en un celular, los puntos de corte y las reglas para no romperlo |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -79,7 +80,7 @@ contenedor, una base de datos, y dentro cada cliente vive aislado en su propia
 lo que es propio de cada uno son solo sus datos: su prompt, su conocimiento,
 su horario, su marca, su número y sus teléfonos de aviso.
 
-**Estado a 31-jul-2026**: dos clientes en producción (La Churra y Lis
+**Estado a 1-ago-2026**: dos clientes en producción (La Churra y Lis
 Pastelería, ambos con agente encendido) más la organización de la agencia.
 **Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** si retomas el proyecto: ahí
 está lo urgente ordenado por riesgo real. WhatsApp por la API oficial de

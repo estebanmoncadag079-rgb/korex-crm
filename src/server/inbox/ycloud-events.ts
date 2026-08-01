@@ -22,10 +22,29 @@ export async function handleYcloudEvent(
     await handleEcho(event, opts);
     return;
   }
-  if (event.type !== "whatsapp.inbound_message.received") return;
+  /*
+   * Todo descarte deja rastro, y esto no es celo de registro: el 31-jul-2026
+   * una clienta de Lis escribió "Hola", el webhook respondió 200 y el mensaje
+   * no apareció en ninguna parte. Sin una línea de log fue imposible saber si
+   * lo tiró el tipo de evento, el parseo o el enrutado. Un mensaje de cliente
+   * que se pierde en silencio es lo más caro que puede pasar aquí: nadie lo
+   * atiende y nadie se entera de que existió.
+   */
+  if (event.type !== "whatsapp.inbound_message.received") {
+    console.info(`[ycloud webhook] evento ignorado (type=${event.type})`);
+    return;
+  }
 
   const msg = parseYcloudInbound(event);
-  if (!msg) return;
+  if (!msg) {
+    const m = event.whatsappInboundMessage;
+    console.warn(
+      "[ycloud webhook] MENSAJE DESCARTADO: el evento no trae los datos " +
+        `mínimos (id=${m?.id ?? "falta"}, wabaId=${m?.wabaId ?? "falta"}, ` +
+        `from=${m?.from ?? "falta"}, type=${m?.type ?? "?"})`
+    );
+    return;
+  }
 
   const route = await resolveInboundRoute(msg);
   if (!route) {
@@ -35,7 +54,14 @@ export async function handleYcloudEvent(
     );
     return;
   }
-  if (!belongsTo(route.organizationId, opts)) return;
+  if (!belongsTo(route.organizationId, opts)) {
+    console.warn(
+      "[ycloud webhook] MENSAJE DESCARTADO por aislamiento: el número " +
+        `${msg.to} es de ${route.organizationId} y el webhook es de ` +
+        `${opts?.expectOrganizationId}`
+    );
+    return;
+  }
 
   await ingestInboundMessage(
     {
@@ -63,7 +89,12 @@ async function handleEcho(
   opts?: { expectOrganizationId?: string }
 ): Promise<void> {
   const echo = parseYcloudEcho(event);
-  if (!echo) return;
+  if (!echo) {
+    console.warn(
+      "[ycloud webhook] ECO DESCARTADO: el evento no trae los datos mínimos"
+    );
+    return;
+  }
 
   const route = await resolveRoute(echo.businessPhone, echo.wabaId);
   if (!route) {
@@ -72,7 +103,12 @@ async function handleEcho(
     );
     return;
   }
-  if (!belongsTo(route.organizationId, opts)) return;
+  if (!belongsTo(route.organizationId, opts)) {
+    console.warn(
+      `[ycloud webhook] ECO DESCARTADO por aislamiento (${echo.businessPhone})`
+    );
+    return;
+  }
 
   await ingestOutboundEcho({
     organizationId: route.organizationId,

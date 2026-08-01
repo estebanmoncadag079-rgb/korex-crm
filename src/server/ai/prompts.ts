@@ -368,6 +368,8 @@ export function buildJudgePrompt(input: {
   transcript: TranscriptLine[];
   kbText: string;
   behaviorText: string;
+  /** Presente = este cliente tiene el vertical de citas encendido. */
+  appointments?: { catalog: CatalogEntry[] };
 }): { system: string; user: string } {
   const system = [
     `${JUDGE_MARKER} Eres un evaluador de calidad independiente de agentes de WhatsApp. Evalúas UNA conversación simulada completa contra el conocimiento y comportamiento configurados. Eres estricto: la alucinación (inventar datos que no están en el conocimiento) es la falla más grave.`,
@@ -391,7 +393,13 @@ export function buildJudgePrompt(input: {
     "",
     "CONTRATO DE ACCIONES QUE SE LE EXIGIÓ AL AGENTE (juzga contra esto, no contra tu idea de cómo debería contestar un bot):",
     CONTRATO_DE_ACCIONES,
-  ].join("\n");
+    input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
+    input.appointments
+      ? `CATÁLOGO DE SERVICIOS de este cliente (citas):\n${renderCatalogo(input.appointments.catalog)}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const ROLES: Record<TranscriptLine["role"], string> = {
     cliente: "CLIENTE",

@@ -9,7 +9,9 @@ import {
   horaHabilDePrueba,
   nowForBusiness,
   renderKb,
+  type CatalogEntry,
 } from "@/server/ai/prompts";
+import { catalogoParaPrompt } from "@/server/appointments/queries";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import {
   elegirRespuesta,
@@ -124,6 +126,13 @@ async function runAllCases(
   };
   const labNow = horaHabilDePrueba(horario);
 
+  // El juez necesita el mismo catálogo que vio el agente, o lee un
+  // book_appointment/consult_availability como algo inventado.
+  const catalog: CatalogEntry[] = profile?.appointmentsEnabled
+    ? await catalogoParaPrompt(organizationId)
+    : [];
+  const appointments = profile?.appointmentsEnabled ? { catalog } : undefined;
+
   const behaviorText = profile
     ? [
         `Nombre: ${profile.name}`,
@@ -161,6 +170,7 @@ async function runAllCases(
       transcript,
       kbText,
       behaviorText,
+      appointments,
     });
 
     await db
@@ -229,6 +239,12 @@ function describirAccion(accion: AgentActionType): string | null {
       return `el agente movió el lead a la etapa "${accion.stage}"`;
     case "update_lead":
       return "el agente guardó una nota en la ficha del cliente";
+    case "book_appointment":
+      return "el agente AGENDÓ la cita de verdad (acción ejecutada, guardada en la base de datos)";
+    case "reschedule_appointment":
+      return "el agente REPROGRAMÓ la cita de verdad (acción ejecutada, guardada en la base de datos)";
+    case "cancel_appointment":
+      return "el agente CANCELÓ la cita de verdad (acción ejecutada, guardada en la base de datos)";
     default:
       return null;
   }
@@ -364,6 +380,9 @@ function textoAlCliente(accion: AgentActionType | null): string | null {
       return accion.reply ?? null;
     case "handoff":
     case "notify_order":
+    case "book_appointment":
+    case "reschedule_appointment":
+    case "cancel_appointment":
       return accion.farewell ?? null;
     default:
       return null;

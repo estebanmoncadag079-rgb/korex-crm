@@ -1,5 +1,5 @@
 import { desc } from "drizzle-orm";
-import { apiError, withAuth } from "@/lib/api";
+import { apiError, withPlatformAdmin } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { isAiConfigured } from "@/lib/env";
@@ -9,7 +9,7 @@ import { labQuota, quotaExhausted } from "@/server/lab/quota";
 export const dynamic = "force-dynamic";
 
 /** Historial de corridas con delta de score vs la anterior (FR-033). */
-export const GET = withAuth(async (session) => {
+export const GET = withPlatformAdmin(async (session) => {
   const db = getDb();
   const runs = await db
     .select()
@@ -45,7 +45,7 @@ export const GET = withAuth(async (session) => {
   });
 });
 
-export const POST = withAuth(async (session) => {
+export const POST = withPlatformAdmin(async (session) => {
   if (!isAiConfigured()) {
     return apiError(
       409,

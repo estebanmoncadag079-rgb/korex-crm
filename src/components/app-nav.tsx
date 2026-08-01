@@ -41,6 +41,7 @@ const NAV_CITAS = [{ href: "/appointments", label: "Citas", icon: CalendarClock 
 const NAV_SERVICIOS = [{ href: "/services", label: "Servicios", icon: Scissors }] as const;
 
 const NAV_AGENTE = [{ href: "/agent", label: "Agente", icon: Sparkles }] as const;
+/** Solo la agencia: cada corrida cuesta ~33 llamadas al modelo, que paga la agencia. */
 const NAV_LAB = [{ href: "/lab", label: "Laboratorio", icon: FlaskConical }] as const;
 
 export function AppNav({
@@ -61,7 +62,7 @@ export function AppNav({
     ...(appointmentsEnabled ? NAV_CITAS : []),
     ...NAV_AGENTE,
     ...(appointmentsEnabled ? NAV_SERVICIOS : []),
-    ...NAV_LAB,
+    ...(isPlatformAdmin ? NAV_LAB : []),
   ];
   const pathname = usePathname();
   const router = useRouter();

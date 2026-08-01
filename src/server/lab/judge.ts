@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { chatJson } from "@/lib/ai";
-import { buildJudgePrompt } from "@/server/ai/prompts";
+import { buildJudgePrompt, type CatalogEntry } from "@/server/ai/prompts";
 import type { TranscriptLine } from "@/lib/types";
 
 /** Veredicto estructurado del juez (FR-032, contrato ai.md). */
@@ -33,12 +33,14 @@ export async function judgeCase(input: {
   transcript: TranscriptLine[];
   kbText: string;
   behaviorText: string;
+  appointments?: { catalog: CatalogEntry[] };
 }): Promise<JudgeOutcome> {
   const { system, user } = buildJudgePrompt({
     persona: input.personaKey,
     transcript: input.transcript,
     kbText: input.kbText,
     behaviorText: input.behaviorText,
+    appointments: input.appointments,
   });
   const result = await chatJson(
     Verdict,

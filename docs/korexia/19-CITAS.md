@@ -104,20 +104,38 @@ correr el guion por `runAgentTurn` real — el sandbox jamás toca Graph/YCloud
 Laboratorio. Requiere que la organización ya tenga el flag encendido y al
 menos un servicio con especialista asignado.
 
+## Recordatorio de cita — manual, no automático
+
+Decisión del dueño (1-ago-2026): **nada de recordatorios automáticos**. El
+personal administrativo lo dispara cuando ellos decidan, con el botón
+**"Recordar"** en `/appointments` (cualquier cita activa: pendiente,
+confirmada o reagendada). Envía un texto libre por WhatsApp con el servicio,
+la fecha, la hora y la especialista, y guarda `appointment.remindedAt` para
+que se vea en el panel cuándo se envió el último.
+
+**Límite real, no un bug**: como es texto libre (no hay plantilla de
+Meta involucrada), solo sale si el cliente le ha escrito al negocio en las
+últimas 24 h — si no, el botón devuelve un error explicando exactamente eso,
+en vez de fallar en silencio. No hay ningún proceso que revise citas próximas
+solo: si nadie aprieta el botón, no se manda nada.
+
+## El Laboratorio ya reconoce citas (1-ago-2026)
+
+Extendido `/lab`: el juez recibe el mismo catálogo y contrato de acciones de
+citas que el agente, y reconoce `book_appointment`/`reschedule_appointment`/
+`cancel_appointment` como acciones reales ejecutadas. **Restringido a
+superadmin** (page + los 3 endpoints de `/api/lab`) — cada corrida cuesta
+~33 llamadas al modelo que paga la agencia, así que un cliente ya no puede
+dispararlo. Para probar el agente de un cliente puntual: "Entrar como" ese
+cliente en `/admin` y correr el Laboratorio ahí.
+
 ## Lo que falta
 
-- **Aplicar la migración `0009_premium_mauler.sql` en el servidor** antes de
-  usar esto en producción (`db:migrate`) — solo se generó y se probó en local.
-- **El Laboratorio (el juez) no es consciente de citas todavía**: sus guiones
-  y su prompt de evaluación solo conocen el contrato de pedidos. Probar este
-  vertical hoy es con `probar:citas`, no con `/lab`.
+- **Aplicar las migraciones en el servidor** antes de usar esto en producción
+  (`db:migrate`, corre solo al desplegar) — se generan y se prueban en local.
 - **No se portó la reprogramación en cascada** de Valentina (correr toda la
   agenda de una especialista X minutos): es una herramienta de administración
   del negocio, no algo que un cliente pida por chat. Si hace falta, es
   trabajo aparte.
-- **Sin recordatorio automático** (ej. 24 h antes de la cita). Meta cobra las
-  plantillas fuera de la ventana de 24 h — ver
-  [09-COSTOS.md](09-COSTOS.md) — así que hay que decidir si vale la pena antes
-  de construirlo.
 - **El panel `/services` no tiene edición inline de precio/duración**: para
   corregir un dato hoy hay que archivar el servicio y crear uno nuevo.

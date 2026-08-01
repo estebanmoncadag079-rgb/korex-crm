@@ -618,6 +618,7 @@ export type AppointmentRow = {
   startsAt: Date;
   endsAt: Date;
   status: AppointmentStatus;
+  remindedAt: Date | null;
 };
 
 export async function listAppointments(
@@ -642,6 +643,7 @@ export async function listAppointments(
       startsAt: schema.appointment.startsAt,
       endsAt: schema.appointment.endsAt,
       status: schema.appointment.status,
+      remindedAt: schema.appointment.remindedAt,
     })
     .from(schema.appointment)
     .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
@@ -653,6 +655,62 @@ export async function listAppointments(
     .where(cond)
     .orderBy(desc(schema.appointment.startsAt))
     .limit(200);
+}
+
+/** Datos para componer y mandar el recordatorio de una cita puntual. */
+export type CitaParaRecordar = {
+  contactId: string;
+  serviceName: string;
+  staffName: string;
+  startsAt: Date;
+  status: AppointmentStatus;
+};
+
+export async function getCitaParaRecordar(
+  organizationId: string,
+  appointmentId: string
+): Promise<CitaParaRecordar | null> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      contactId: schema.appointment.contactId,
+      serviceName: schema.service.name,
+      staffName: schema.staffMember.name,
+      startsAt: schema.appointment.startsAt,
+      status: schema.appointment.status,
+    })
+    .from(schema.appointment)
+    .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
+    .innerJoin(
+      schema.staffMember,
+      eq(schema.staffMember.id, schema.appointment.staffId)
+    )
+    .where(
+      scoped(
+        schema.appointment.organizationId,
+        organizationId,
+        eq(schema.appointment.id, appointmentId)
+      )
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function marcarCitaRecordada(
+  organizationId: string,
+  appointmentId: string
+): Promise<void> {
+  const db = getDb();
+  await db
+    .update(schema.appointment)
+    .set({ remindedAt: new Date() })
+    .where(
+      scoped(
+        schema.appointment.organizationId,
+        organizationId,
+        eq(schema.appointment.id, appointmentId)
+      )
+    );
 }
 
 export async function updateAppointmentStatus(

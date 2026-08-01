@@ -438,6 +438,12 @@ export const appointment = pgTable(
     })
       .notNull()
       .default("pendiente"),
+    /**
+     * Recordatorio manual: lo dispara el personal administrativo con un botón
+     * en /appointments, cuando ellos decidan — no hay ningún proceso
+     * automático que revise citas próximas. Null = nunca se envió.
+     */
+    remindedAt: timestamp("reminded_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

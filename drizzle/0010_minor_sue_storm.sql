@@ -1,0 +1,1 @@
+ALTER TABLE "appointment" ADD COLUMN "reminded_at" timestamp;

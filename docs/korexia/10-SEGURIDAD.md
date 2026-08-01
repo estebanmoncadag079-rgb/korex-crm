@@ -83,11 +83,11 @@ corregidos en ese parche. El más relevante para App Router necesita cuerpos con
 codificación rara y respuestas cacheadas, y las rutas de API aquí son
 `force-dynamic`. Riesgo real bajo, arreglo trivial.
 
-**2. Lista blanca de dominios en `/api/media/[id]`.** Descarga el adjunto desde
-la URL que venga en el webhook, con la API key de YCloud en la cabecera. El
-acceso está bien filtrado por organización, pero si alguien lograra inyectar un
-evento con una URL suya, al abrir ese adjunto **el servidor le enviaría la API
-key**. Encadenado con lo ya corregido; conviene cerrarlo igual.
+**2. ~~Lista blanca de dominios en `/api/media/[id]`~~** — ✅ **corregido el
+31-jul-2026**. Solo https y los hosts de YCloud/Meta, comparando el host
+completo: `api.ycloud.com.atacante.net` termina con un dominio legítimo y
+burlaría un filtro ingenuo. Cubierto por pruebas, incluidas las direcciones
+internas y los esquemas `file://` y `javascript:`.
 
 **3. `drizzle-orm` 0.45.2+.** El CVE conocido solo se dispara si entra input
 del usuario en la construcción de **identificadores** SQL. Se revisó todo el

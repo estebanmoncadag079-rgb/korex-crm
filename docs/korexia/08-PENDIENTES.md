@@ -53,10 +53,10 @@ corregidos en ese parche. El más relevante necesita cuerpos con codificación
 rara y respuestas cacheadas, y las rutas de API aquí son `force-dynamic`: riesgo
 bajo, arreglo trivial.
 
-**6. Lista blanca de dominios en `/api/media/[id]`.** Descarga el adjunto desde
-la URL que venga en el webhook, **con la API key de YCloud en la cabecera**. El
-acceso está bien filtrado por cliente, pero si alguien lograra inyectar un evento
-con una URL suya, al abrir ese adjunto el servidor le enviaría la clave.
+**6. ~~Lista blanca de dominios en `/api/media/[id]`~~** — ✅ **hecho el
+31-jul-2026**. Solo se descarga por https desde los hosts de YCloud y Meta,
+comparando el host completo (no "termina en"). Pasó de higiene a requisito al
+plantear el procesamiento de audio e imágenes.
 
 **7. `drizzle-orm` a 0.45.2+.** El CVE conocido **no es explotable aquí** (se
 revisó todo el SQL crudo: siempre interpola columnas o constantes). Actualizar

@@ -6,7 +6,7 @@ import {
   getCredentialsByPhoneNumberId,
   getYcloudApiKey,
 } from "@/server/whatsapp/credentials";
-import { transcribirAudio } from "@/server/ai/transcribir";
+import { describirImagen, transcribirAudio } from "@/server/ai/transcribir";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
 import { onLeadActivity, onLeadReplied } from "@/server/inbox/lead-activity";
@@ -180,26 +180,13 @@ export async function ingestInboundMessage(
   const waTimestamp = toDate(input.timestamp);
 
   /*
-   * Una nota de voz se transcribe ANTES de guardarla, para que el texto viaje
-   * dentro del propio mensaje. A partir de ahí todo lo demás funciona sin
-   * enterarse de que era audio: el agente lo lee como si se lo hubieran
-   * escrito, quien atienda a mano lo ve en la bandeja sin ponerse auriculares,
-   * y entra en el aprendizaje y en los respaldos.
-   *
-   * Solo si el audio no trae ya un texto: WhatsApp no manda pie de foto en las
-   * notas de voz, pero si algún día lo hiciera, mandaría lo que escribió la
-   * persona.
+   * Audio e imagen se convierten a texto ANTES de guardarlos, para que el texto
+   * viaje dentro del propio mensaje. A partir de ahí todo lo demás funciona sin
+   * enterarse de que no era texto: el agente lo lee como si se lo hubieran
+   * escrito, quien atienda a mano lo ve en la bandeja sin abrir el adjunto, y
+   * entra en el aprendizaje y en los respaldos.
    */
-  let texto = input.text;
-  if (input.type === "audio" && input.mediaUrl && !texto?.trim()) {
-    const { texto: transcrito } = await transcribirAudio({
-      organizationId,
-      mediaUrl: input.mediaUrl,
-      mimeType: input.mimeType,
-      apiKey: await getYcloudApiKey(organizationId),
-    });
-    if (transcrito) texto = transcrito;
-  }
+  const texto = await mediaATexto(input, organizationId);
 
   // Idempotencia dura: mismo wa_message_id → sin efectos adicionales.
   const inserted = await db
@@ -268,6 +255,57 @@ export async function ingestInboundMessage(
   await maybeRunAgentTurn(conversation.id, {
     immediate: previousMessageAt === null,
   });
+}
+
+/**
+ * Convierte a texto lo que no vino escrito. Devuelve el texto original si no
+ * hay nada que convertir o si el proveedor falla — nunca lanza.
+ *
+ * Las dos ramas se tratan distinto a propósito:
+ *
+ * - **Audio**: solo si el mensaje no trae ya texto. Una nota de voz no lleva
+ *   pie, pero si algún día lo llevara sería lo que escribió la persona, y eso
+ *   manda sobre cualquier transcripción.
+ *
+ * - **Imagen**: siempre, y el pie se CONSERVA delante. El caso normal es el
+ *   comprobante de pago con un "listo" encima: quedarse con el pie sería
+ *   quedarse justo sin lo que hay que mirar.
+ */
+async function mediaATexto(
+  input: {
+    organizationId: string;
+    type: string;
+    text: string | null;
+    mediaUrl?: string | null;
+    mimeType?: string | null;
+  },
+  organizationId: string
+): Promise<string | null> {
+  if (!input.mediaUrl) return input.text;
+  const pie = input.text?.trim() || null;
+
+  if (input.type === "audio" && !pie) {
+    const { texto } = await transcribirAudio({
+      organizationId,
+      mediaUrl: input.mediaUrl,
+      mimeType: input.mimeType,
+      apiKey: await getYcloudApiKey(organizationId),
+    });
+    return texto ?? input.text;
+  }
+
+  if (input.type === "image") {
+    const { texto } = await describirImagen({
+      organizationId,
+      mediaUrl: input.mediaUrl,
+      mimeType: input.mimeType,
+      apiKey: await getYcloudApiKey(organizationId),
+    });
+    if (!texto) return input.text;
+    return pie ? `${pie}\n${texto}` : texto;
+  }
+
+  return input.text;
 }
 
 /**

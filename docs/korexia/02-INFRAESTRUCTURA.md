@@ -102,10 +102,28 @@ Detalles que importan:
   segundos**. La construcción tarda 2–4 minutos (las capas de dependencias se
   reutilizan).
 
+### ⚠️ La etiqueta de la imagen tiene que ser EXACTAMENTE esa
+
+`easypanel/korex-crm/crm:latest`. No `korex-crm:latest`, que es lo que sale
+natural de escribir.
+
+**Pasó el 1-ago-2026 y costó una tarde**: se construyó tres veces seguidas con
+la etiqueta corta. Cada build terminó bien, cada `service update` dijo
+`converged` y la web respondía 200 — pero se estaba construyendo una imagen que
+**no usa nadie**, y el servicio se reiniciaba una y otra vez con la de siempre.
+Tres funcionalidades se dieron por desplegadas sin estarlo.
+
+Con qué comprobarlo, si hay dudas:
+
+```bash
+docker service inspect korex-crm_crm --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'
+```
+
 ### Comprobar que se desplegó lo que se editó
 
-No basta con que la web cargue. Hay que buscar el texto nuevo **dentro del
-contenedor**:
+**`converged` y un 200 en la web no prueban nada**: los dos salen igual de bien
+reiniciando con la imagen vieja. Lo único que prueba algo es buscar el texto
+nuevo **dentro del contenedor que está corriendo**:
 
 ```bash
 docker exec <contenedor-app> sh -c "grep -rl 'un trozo del texto nuevo' /app/.next | head -3"

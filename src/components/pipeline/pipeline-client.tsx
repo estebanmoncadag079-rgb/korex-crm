@@ -5,7 +5,8 @@ import Link from "next/link";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
@@ -36,8 +37,21 @@ export function PipelineClient() {
   const [activeLead, setActiveLead] = useState<BoardLead | null>(null);
   const [managing, setManaging] = useState(false);
 
+  /*
+   * Ratón y dedo necesitan reglas distintas para empezar a arrastrar.
+   *
+   * Con un único PointerSensor por distancia, en un teléfono cualquier deslizar
+   * para pasar la lista se interpretaba como arrastre: la tarjeta cambiaba de
+   * etapa sin querer, y eso se guarda en la base. Con el dedo hay que mantener
+   * pulsado un cuarto de segundo (con 8px de margen de tembleque) para levantar
+   * la tarjeta; los deslizamientos rápidos siguen siendo scroll. El ratón
+   * conserva exactamente el umbral de 6px de siempre.
+   */
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 250, tolerance: 8 },
+    })
   );
 
   const refetch = useCallback(async () => {
@@ -80,14 +94,21 @@ export function PipelineClient() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b px-6 py-4">
+      <header className="flex items-center justify-between gap-3 border-b px-4 py-3.5 md:px-6 md:py-4">
         <h2 className="font-semibold">Pipeline</h2>
-        <Button variant="outline" size="sm" onClick={() => setManaging(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => setManaging(true)}
+        >
           <Settings2 className="h-4 w-4" /> Gestionar etapas
         </Button>
       </header>
 
-      <div className="flex-1 overflow-x-auto p-4">
+      {/* El tablero se desplaza de lado dentro de su caja: la página nunca se
+          mueve. En móvil la columna siguiente asoma y se ve que hay más. */}
+      <div className="flex-1 overflow-x-auto overflow-y-hidden p-3 md:p-4">
         <DndContext
           sensors={sensors}
           onDragStart={onDragStart}
@@ -127,7 +148,7 @@ function StageColumn({ stage, leads }: { stage: StageDto; leads: BoardLead[] }) 
     <div
       ref={setNodeRef}
       className={cn(
-        "flex h-full w-64 shrink-0 flex-col rounded-lg border bg-card/50",
+        "flex h-full w-[17rem] shrink-0 flex-col rounded-lg border bg-card/50 md:w-64",
         isOver && "ring-2 ring-primary/60"
       )}
     >
@@ -172,7 +193,9 @@ function LeadCard({ lead, overlay = false }: { lead: BoardLead; overlay?: boolea
   return (
     <div
       className={cn(
-        "cursor-grab rounded-md border bg-card p-3 shadow-sm",
+        // `touch-manipulation` quita el retardo del doble toque sin desactivar
+        // el scroll: el dedo sigue pudiendo recorrer la columna.
+        "cursor-grab touch-manipulation rounded-md border bg-card p-3 shadow-sm",
         overlay && "rotate-2 shadow-xl"
       )}
     >
@@ -186,12 +209,20 @@ function LeadCard({ lead, overlay = false }: { lead: BoardLead; overlay?: boolea
               : "Sin actividad"}
           </p>
         </div>
+        {/*
+          El enlace corta los eventos de los DOS sensores: el de ratón escucha
+          `mousedown` y el táctil `touchstart`, así que frenar solo
+          `pointerdown` dejaría de protegerlo y abrir la conversación acabaría
+          arrastrando la tarjeta.
+        */}
         {lead.conversationId && (
           <Link
             href={`/inbox?contact=${lead.contact.id}`}
             onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             aria-label="Abrir conversación"
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground md:h-7 md:w-7"
           >
             <MessageSquareText className="h-4 w-4" />
           </Link>

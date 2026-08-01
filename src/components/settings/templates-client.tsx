@@ -61,14 +61,20 @@ export function TemplatesClient() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
         <p className="text-sm text-muted-foreground">
           Las plantillas permiten reabrir conversaciones con la ventana de 24 h
           cerrada. Meta las aprueba en horas o días; el estado se actualiza por
           webhook y con el botón Sincronizar (imprescindible en modo agencia,
           donde los eventos de plantillas no llegan al webhook de la instancia).
         </p>
-        <Button variant="outline" size="sm" disabled={syncing} onClick={() => void sync()}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={syncing}
+          onClick={() => void sync()}
+        >
           <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
           Sincronizar
         </Button>
@@ -80,12 +86,15 @@ export function TemplatesClient() {
       <div className="space-y-2">
         {templates.map((t) => (
           <div key={t.id} className="rounded-lg border bg-card p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-mono text-sm font-medium">
+            <div className="flex items-start justify-between gap-3">
+              <p className="min-w-0 break-all font-mono text-sm font-medium">
                 {t.name}{" "}
                 <span className="text-muted-foreground">({t.language})</span>
               </p>
-              <Badge variant={STATUS_BADGE[t.status].variant}>
+              <Badge
+                className="shrink-0 whitespace-nowrap"
+                variant={STATUS_BADGE[t.status].variant}
+              >
                 {STATUS_BADGE[t.status].label}
               </Badge>
             </div>
@@ -164,7 +173,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
               id="tpl-lang"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+              className="flex h-10 w-full rounded-md border border-input bg-card px-3 text-base md:h-9 md:text-sm"
             >
               <option value="es_MX">es_MX</option>
               <option value="es">es</option>
@@ -180,7 +189,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
               onChange={(e) =>
                 setCategory(e.target.value as "UTILITY" | "MARKETING")
               }
-              className="flex h-9 w-full rounded-md border border-input bg-card px-3 text-sm"
+              className="flex h-10 w-full rounded-md border border-input bg-card px-3 text-base md:h-9 md:text-sm"
             >
               <option value="UTILITY">UTILITY (seguimiento)</option>
               <option value="MARKETING">MARKETING</option>
@@ -199,6 +208,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button
+          className="w-full sm:w-auto"
           disabled={saving || !name.trim() || !body.trim()}
           onClick={() => void create()}
         >

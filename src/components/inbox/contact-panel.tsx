@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, ChevronRight, Sparkles, UserRound } from "lucide-react";
+import { Check, ChevronRight, Sparkles, UserRound, X } from "lucide-react";
 import type { ConversationDto, StageDto } from "@/lib/types";
 import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
@@ -125,12 +125,16 @@ export function ContactPanel({
         <h3 className="text-[13px] font-[650] uppercase tracking-wide text-text-2">
           Detalles
         </h3>
+        {/* En pantalla estrecha esto es una hoja que se cierra (X); en
+            escritorio ancho, una columna que se pliega a la derecha (chevron).
+            El corte es el mismo `lg` que decide la forma del panel. */}
         <button
           onClick={onClose}
           aria-label="Ocultar panel"
-          className="rounded p-1 text-text-3 hover:bg-accent hover:text-foreground"
+          className="-mr-1.5 flex h-10 w-10 items-center justify-center rounded text-text-3 hover:bg-accent hover:text-foreground lg:mr-0 lg:h-7 lg:w-7"
         >
-          <ChevronRight className="h-4 w-4" strokeWidth={1.7} />
+          <X className="h-5 w-5 lg:hidden" strokeWidth={1.7} />
+          <ChevronRight className="hidden h-4 w-4 lg:block" strokeWidth={1.7} />
         </button>
       </header>
 
@@ -270,10 +274,12 @@ export function ContactPanel({
                     >
                       {done && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
                     </button>
+                    {/* El punto es de 15px: el objetivo real para el dedo es
+                        la etiqueta, así que se le da alto sin mover el diseño. */}
                     <button
                       onClick={() => void moveToStage(s.id)}
                       className={cn(
-                        "text-left text-[13px]",
+                        "-my-1 py-1 text-left text-[13px]",
                         current ? "font-[650] text-brand-text" : "text-text-2 hover:text-foreground"
                       )}
                     >

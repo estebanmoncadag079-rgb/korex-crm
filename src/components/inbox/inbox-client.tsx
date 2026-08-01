@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { PanelRight } from "lucide-react";
+import { ChevronLeft, PanelRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import type { ConversationDto, MessageDto } from "@/lib/types";
@@ -20,6 +20,13 @@ export function InboxClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [panelOpen, setPanelOpen] = useState(true);
+  /*
+   * En móvil los detalles no son una columna sino una hoja que se pide y se
+   * cierra. Es un estado aparte del de escritorio a propósito: `panelOpen` es
+   * una preferencia guardada del puesto de trabajo y cerrar la hoja del
+   * teléfono no debe apagarle a nadie la columna del escritorio.
+   */
+  const [detallesAbiertos, setDetallesAbiertos] = useState(false);
   // Se incrementa con cada evento SSE que puede cambiar la etapa/lead o el
   // estado del agente: el panel de detalles lo observa y refetch en vivo.
   const [detailRev, setDetailRev] = useState(0);
@@ -83,6 +90,9 @@ export function InboxClient() {
     (id: string) => {
       setSelectedId(id);
       setMessages([]);
+      // Cada conversación se abre en su hilo, nunca en la hoja de detalles
+      // que quedó abierta de la anterior.
+      setDetallesAbiertos(false);
       void refetchMessages(id);
       void fetch(`/api/conversations/${id}`, {
         method: "PATCH",
@@ -182,7 +192,19 @@ export function InboxClient() {
 
   return (
     <div className="flex h-full">
-      <section className="w-[360px] shrink-0 overflow-hidden border-r">
+      {/*
+        En un teléfono la lista y el hilo no caben a la vez, así que se turnan:
+        con una conversación abierta la lista se retira y la flecha de la
+        cabecera la trae de vuelta. De `md` en adelante conviven como siempre;
+        entre `md` y `lg` la lista cede 60px para que al hilo le quede un ancho
+        con el que se pueda leer.
+      */}
+      <section
+        className={cn(
+          "w-full shrink-0 overflow-hidden md:block md:w-[300px] md:border-r lg:w-[360px]",
+          selectedId && "hidden"
+        )}
+      >
         <ConversationList
           conversations={conversations}
           selectedId={selectedId}
@@ -191,25 +213,44 @@ export function InboxClient() {
         />
       </section>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section
+        className={cn(
+          "min-w-0 flex-1 flex-col md:flex",
+          selectedId ? "flex" : "hidden"
+        )}
+      >
         {selected ? (
           <>
-            <header className="flex items-center justify-between border-b bg-background px-4 py-2.5">
-              <div className="flex items-center gap-3">
-                <ContactAvatar
-                  name={selected.contact.name}
-                  seed={selected.contact.id}
-                  size="md"
-                />
-                <div>
-                  <p className="text-[15px] font-[650] leading-tight">
+            <header className="flex items-center justify-between gap-2 border-b bg-background px-2 py-2 md:px-4 md:py-2.5">
+              <div className="flex min-w-0 items-center gap-2 md:gap-3">
+                <button
+                  onClick={() => {
+                    setSelectedId(null);
+                    setDetallesAbiertos(false);
+                  }}
+                  aria-label="Volver a la lista"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-text-2 transition-colors hover:bg-accent hover:text-foreground md:hidden"
+                >
+                  <ChevronLeft className="h-5 w-5" strokeWidth={1.7} />
+                </button>
+                {/* El avatar es identidad de apoyo: en móvil el ancho vale más
+                    para el nombre y el estado de la ventana. */}
+                <span className="hidden md:block">
+                  <ContactAvatar
+                    name={selected.contact.name}
+                    seed={selected.contact.id}
+                    size="md"
+                  />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-[650] leading-tight">
                     {selected.contact.name}
                   </p>
                   <p
                     className={
                       selected.windowOpen
-                        ? "text-xs font-medium text-success"
-                        : "text-xs text-text-3"
+                        ? "truncate text-xs font-medium text-success"
+                        : "truncate text-xs text-text-3"
                     }
                   >
                     {selected.windowOpen
@@ -218,21 +259,30 @@ export function InboxClient() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1 md:gap-2">
                 <ModoAtencion
                   conversation={selected}
                   agentReady={agentReady}
                   onPatch={patchConversation}
                 />
+                {/* Escritorio ancho: reabre la columna que el operador plegó. */}
                 {!panelOpen && (
                   <button
                     onClick={() => togglePanel(true)}
                     aria-label="Mostrar detalles"
-                    className="rounded-sm border p-1.5 text-text-3 hover:bg-accent hover:text-foreground"
+                    className="hidden rounded-sm border p-1.5 text-text-3 hover:bg-accent hover:text-foreground lg:block"
                   >
                     <PanelRight className="h-4 w-4" strokeWidth={1.7} />
                   </button>
                 )}
+                {/* Pantallas estrechas: los detalles están a un toque. */}
+                <button
+                  onClick={() => setDetallesAbiertos(true)}
+                  aria-label="Ver detalles del contacto"
+                  className="flex h-10 w-10 items-center justify-center rounded-sm text-text-3 transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+                >
+                  <PanelRight className="h-[18px] w-[18px]" strokeWidth={1.7} />
+                </button>
               </div>
             </header>
             <MessageThread messages={messages} />
@@ -253,19 +303,44 @@ export function InboxClient() {
         )}
       </section>
 
+      {/*
+        Un solo panel con dos formas: hoja a pantalla completa cuando la
+        pantalla es estrecha (solo si se pide) y tercera columna plegable
+        cuando hay sitio. Se evita montarlo dos veces para no duplicar sus
+        peticiones al abrirlo.
+
+        El corte aquí es `lg` y no `md` a propósito: tres columnas fijas
+        (menú + lista + detalles) dejaban al hilo unos 90px en una tableta o
+        en una ventana a media pantalla. Por debajo de 1024px los detalles se
+        piden y se cierran; por encima siguen siendo la columna de siempre.
+      */}
       <section
         className={cn(
-          "shrink-0 overflow-hidden border-l transition-[width] duration-[220ms]",
-          panelOpen && selected ? "w-[320px]" : "w-0 border-l-0"
+          "overflow-hidden border-l bg-background",
+          // Aquí vivía una duración a medida de 220 ms que nunca llegó a
+          // aplicarse: con el plugin `tailwindcss-animate`, un valor arbitrario
+          // de duración es ambiguo (transición o animación) y Tailwind lo
+          // descarta avisando al compilar. El plegado siempre ha usado los
+          // 150 ms por defecto de `transition-*`, y así se queda.
+          "lg:block lg:shrink-0 lg:transition-[width]",
+          panelOpen && selected ? "lg:w-[320px]" : "lg:w-0 lg:border-l-0",
+          detallesAbiertos && selected
+            ? "fixed inset-0 z-40 lg:static lg:z-auto"
+            : "hidden"
         )}
       >
         {selected && (
-          <div className="h-full w-[320px]">
+          <div className="h-full w-full lg:w-[320px]">
             <ContactPanel
               conversation={selected}
               refreshKey={detailRev}
               onPatchConversation={patchConversation}
-              onClose={() => togglePanel(false)}
+              onClose={() => {
+                // El mismo botón cierra la hoja del móvil o pliega la columna
+                // del escritorio, según cuál esté a la vista.
+                if (detallesAbiertos) setDetallesAbiertos(false);
+                else togglePanel(false);
+              }}
             />
           </div>
         )}

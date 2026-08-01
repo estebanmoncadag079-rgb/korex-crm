@@ -89,25 +89,30 @@ export function StageManager({
   const sorted = [...stages].sort((a, b) => a.position - b.position);
 
   return (
+    /* Hoja inferior en móvil, ventana centrada en escritorio (mismo patrón que
+       el diálogo de Contactos): el contenido se desplaza dentro de la hoja. */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-lg border bg-card p-5 shadow-xl"
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-t-lg border bg-card p-5 shadow-xl sm:rounded-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 font-semibold">Etapas del pipeline</h3>
         <ul className="space-y-2">
           {sorted.map((s, i) => (
-            <li key={s.id} className="flex items-center gap-2">
+            <li key={s.id} className="flex items-center gap-1 sm:gap-2">
               <Input
                 defaultValue={s.name}
                 onBlur={(e) => void rename(s, e.target.value)}
-                className="flex-1"
+                className="min-w-0 flex-1"
               />
               {s.kind !== "open" ? (
-                <Badge variant={s.kind === "won" ? "success" : "secondary"}>
+                <Badge
+                  className="shrink-0"
+                  variant={s.kind === "won" ? "success" : "secondary"}
+                >
                   {s.kind === "won" ? "ganado" : "perdido"}
                 </Badge>
               ) : (
@@ -147,11 +152,11 @@ export function StageManager({
             <p className="text-sm text-[#8a6d3b]">
               &quot;{deleting.name}&quot; tiene tarjetas. Elige a dónde moverlas:
             </p>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <select
                 value={moveTo}
                 onChange={(e) => setMoveTo(e.target.value)}
-                className="h-9 flex-1 rounded-md border border-input bg-card px-3 text-sm"
+                className="h-10 flex-1 rounded-md border border-input bg-card px-3 text-base md:h-9 md:text-sm"
               >
                 <option value="">Etapa destino…</option>
                 {sorted
@@ -185,7 +190,11 @@ export function StageManager({
               if (e.key === "Enter") void add();
             }}
           />
-          <Button onClick={() => void add()} disabled={!newName.trim()}>
+          <Button
+            className="shrink-0"
+            onClick={() => void add()}
+            disabled={!newName.trim()}
+          >
             Agregar
           </Button>
         </div>

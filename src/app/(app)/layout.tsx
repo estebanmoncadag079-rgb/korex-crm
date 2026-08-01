@@ -17,14 +17,23 @@ export default async function AppLayout({
   });
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    /*
+     * `dvh` en vez de `vh` donde el navegador lo soporte: en Safari de iOS
+     * 100vh mide la pantalla COMO SI no hubiera barra de direcciones, y en un
+     * armazón que no hace scroll (overflow-hidden) eso deja los últimos ~50px
+     * debajo de la barra del navegador — justo donde vive el cuadro para
+     * escribir la respuesta. `dvh` mide lo que de verdad se ve.
+     */
+    <div className="flex h-screen overflow-hidden bg-background supports-[height:100dvh]:h-[100dvh]">
       <AppNav
         branding={branding}
         userName={authSession?.user.name ?? "Usuario"}
         role={session.role}
         isPlatformAdmin={session.platformRole === "superadmin"}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* `pt-12` compensa la barra superior fija de móvil que dibuja AppNav
+          (h-12); en escritorio no existe y el contenido vuelve arriba del todo. */}
+      <div className="flex min-w-0 flex-1 flex-col pt-12 md:pt-0">
         {session.impersonating && (
           <ImpersonationBanner clientName={branding.name} />
         )}

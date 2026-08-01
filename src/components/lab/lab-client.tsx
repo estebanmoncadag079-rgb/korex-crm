@@ -128,7 +128,7 @@ export function LabClient() {
     return (
       <div className="flex h-full flex-col">
         <Header running={false} launching={false} onLaunch={() => {}} disabled />
-        <div className="m-6 rounded-lg border border-brand-soft bg-brand-tint p-8 text-center">
+        <div className="m-4 rounded-lg border border-brand-soft bg-brand-tint p-6 text-center md:m-6 md:p-8">
           <Sparkles className="mx-auto mb-2 h-8 w-8 text-primary" />
           <p className="font-medium">
             Configura tu proveedor de IA para usar el Laboratorio
@@ -154,10 +154,12 @@ export function LabClient() {
         disabled={quota?.left === 0}
         quota={quota}
       />
-      {error && <p className="px-6 pt-3 text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="px-4 pt-3 text-sm text-destructive md:px-6">{error}</p>
+      )}
 
       {running && progress && (
-        <div className="mx-6 mt-4 rounded-lg border bg-card p-4">
+        <div className="mx-4 mt-4 rounded-lg border bg-card p-4 md:mx-6">
           <div className="mb-2 flex items-center justify-between text-sm">
             <span className="font-medium">Evaluando personas…</span>
             <span className="text-muted-foreground">
@@ -173,7 +175,7 @@ export function LabClient() {
         </div>
       )}
 
-      <div className="grid gap-6 p-6 lg:grid-cols-[280px_1fr]">
+      <div className="grid gap-4 p-4 md:gap-6 md:p-6 lg:grid-cols-[280px_1fr]">
         <HistoryList
           runs={runs}
           selectedRunId={selectedRunId}
@@ -207,8 +209,8 @@ function Header({
   quota?: { used: number; limit: number | null; left: number | null } | null;
 }) {
   return (
-    <header className="flex items-center justify-between border-b px-6 py-4">
-      <div>
+    <header className="flex flex-col gap-3 border-b px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between md:px-6 md:py-4">
+      <div className="min-w-0">
         <h2 className="flex items-center gap-2 font-semibold">
           <FlaskConical className="h-4 w-4 text-primary" /> Laboratorio
         </h2>
@@ -226,7 +228,11 @@ function Header({
           )}
         </p>
       </div>
-      <Button onClick={onLaunch} disabled={disabled || running || launching}>
+      <Button
+        className="w-full shrink-0 sm:w-auto"
+        onClick={onLaunch}
+        disabled={disabled || running || launching}
+      >
         <Play className="h-4 w-4" />
         {running ? "Corrida en curso…" : "Correr evaluación"}
       </Button>
@@ -244,6 +250,11 @@ function HistoryList({
   onSelect: (id: string) => void;
 }) {
   return (
+    /*
+     * Debajo de `lg` el historial es una tira que se desliza en horizontal: en
+     * columna habría que pasar por delante de todas las corridas antes de
+     * llegar al reporte, que es lo que se viene a leer.
+     */
     <div className="space-y-2">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Historial
@@ -251,42 +262,44 @@ function HistoryList({
       {runs.length === 0 && (
         <p className="text-xs text-muted-foreground">Sin corridas todavía.</p>
       )}
-      {runs.map((run) => (
-        <button
-          key={run.id}
-          onClick={() => onSelect(run.id)}
-          className={`w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 ${
-            selectedRunId === run.id ? "border-primary/50 bg-accent/60" : "bg-card"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <ScoreBadge run={run} />
-            {run.delta !== null && run.delta !== 0 && (
-              <span
-                className={`flex items-center gap-0.5 text-xs font-medium ${
-                  run.delta > 0 ? "text-success" : "text-destructive"
-                }`}
-              >
-                {run.delta > 0 ? (
-                  <TrendingUp className="h-3.5 w-3.5" />
-                ) : (
-                  <TrendingDown className="h-3.5 w-3.5" />
-                )}
-                {run.delta > 0 ? "+" : ""}
-                {run.delta}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {new Date(run.startedAt).toLocaleString("es-MX", {
-              day: "numeric",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        </button>
-      ))}
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 lg:pb-0">
+        {runs.map((run) => (
+          <button
+            key={run.id}
+            onClick={() => onSelect(run.id)}
+            className={`w-40 shrink-0 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50 lg:w-full ${
+              selectedRunId === run.id ? "border-primary/50 bg-accent/60" : "bg-card"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-1">
+              <ScoreBadge run={run} />
+              {run.delta !== null && run.delta !== 0 && (
+                <span
+                  className={`flex items-center gap-0.5 text-xs font-medium ${
+                    run.delta > 0 ? "text-success" : "text-destructive"
+                  }`}
+                >
+                  {run.delta > 0 ? (
+                    <TrendingUp className="h-3.5 w-3.5" />
+                  ) : (
+                    <TrendingDown className="h-3.5 w-3.5" />
+                  )}
+                  {run.delta > 0 ? "+" : ""}
+                  {run.delta}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {new Date(run.startedAt).toLocaleString("es-MX", {
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </p>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -369,17 +382,19 @@ function CaseCard({ testCase, onApplied }: { testCase: Case; onApplied: () => vo
     <Card>
       <CardHeader className="pb-3">
         <button
-          className="flex w-full items-center justify-between"
+          className="flex w-full items-center justify-between gap-2 text-left"
           onClick={() => setOpen(!open)}
         >
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            {icon}
-            {c.personaLabel}
+          <span className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+            <span className="shrink-0">{icon}</span>
+            <span className="truncate">{c.personaLabel}</span>
             {c.status === "judge_failed" && (
-              <Badge variant="secondary">sin veredicto</Badge>
+              <Badge className="shrink-0" variant="secondary">
+                sin veredicto
+              </Badge>
             )}
           </span>
-          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
             {c.hallazgos.length > 0 && `${c.hallazgos.length} hallazgo(s)`}
             {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </span>
@@ -458,7 +473,7 @@ function HallazgoCard({
 
   return (
     <div className="rounded-md border border-[#ece2cf] bg-[#faf7f0] p-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Badge variant="warning">{TIPO_LABELS[hallazgo.tipo]}</Badge>
         {hallazgo.sugerencia && !applied && !editing && (
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
@@ -492,7 +507,7 @@ function HallazgoCard({
               onChange={(e) => setRespuesta(e.target.value)}
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               onClick={() => void apply()}

@@ -112,6 +112,7 @@ export function AccountClient({ email }: { email: string }) {
             </p>
           )}
           <Button
+            className="w-full sm:w-auto"
             disabled={
               saving ||
               !current ||

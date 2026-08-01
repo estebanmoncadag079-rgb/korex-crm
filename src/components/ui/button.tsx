@@ -16,11 +16,16 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90",
       },
+      /*
+       * En móvil los controles crecen ~4px y a partir de `md` vuelven a la
+       * densidad de escritorio: 36px se pulsa bien con el ratón pero se falla
+       * con el pulgar, y el botón de icono era el más difícil de acertar.
+       */
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        default: "h-10 px-4 py-2 md:h-9",
+        sm: "h-9 rounded-md px-3 text-xs md:h-8",
+        lg: "h-11 rounded-md px-8 md:h-10",
+        icon: "h-10 w-10 shrink-0 md:h-9 md:w-9",
       },
     },
     defaultVariants: {

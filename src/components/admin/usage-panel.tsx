@@ -79,15 +79,29 @@ export function UsagePanel() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        {/*
+         * Seis columnas no caben en un teléfono. La tabla se desplaza dentro
+         * de su caja (nunca la página entera) y `min-w` le impide encogerse
+         * hasta partir cada cifra en dos líneas.
+         */}
+        <p className="mb-2 text-xs text-muted-foreground md:hidden">
+          Desliza la tabla para ver todas las columnas.
+        </p>
+        <div className="-mx-1 overflow-x-auto px-1">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Cliente</th>
-                <th className="pb-2 pr-4 text-right font-medium">Respuestas IA</th>
-                <th className="pb-2 pr-4 text-right font-medium">Costo IA</th>
+                <th className="whitespace-nowrap pb-2 pr-4 text-right font-medium">
+                  Respuestas IA
+                </th>
+                <th className="whitespace-nowrap pb-2 pr-4 text-right font-medium">
+                  Costo IA
+                </th>
                 <th className="pb-2 pr-4 text-right font-medium">Mensajes</th>
-                <th className="pb-2 pr-4 text-right font-medium">Costo WhatsApp</th>
+                <th className="whitespace-nowrap pb-2 pr-4 text-right font-medium">
+                  Costo WhatsApp
+                </th>
                 <th className="pb-2 text-right font-medium">Total</th>
               </tr>
             </thead>

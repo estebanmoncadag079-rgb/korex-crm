@@ -71,10 +71,10 @@ export function WhatsappWizard() {
       )}
 
       {connection && connection.status === "connected" && (
-        <div className="flex items-center gap-3 rounded-lg border border-[#d8e8dd] bg-[#eff7f1] p-4">
-          <CheckCircle2 className="h-5 w-5 text-success" />
-          <div className="flex-1 text-sm">
-            <p className="font-medium text-[#3f6b52]">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#d8e8dd] bg-[#eff7f1] p-4">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-success" />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="break-words font-medium text-[#3f6b52]">
               Número conectado: {connection.displayPhoneNumber ?? connection.phoneNumberId}
             </p>
             <p className="text-[#3f6b52]/80">
@@ -256,7 +256,7 @@ function ConnectForm({
         )}
         {saveError && <p className="text-sm text-destructive">{saveError}</p>}
 
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             variant="outline"
             disabled={!canTest || testing}

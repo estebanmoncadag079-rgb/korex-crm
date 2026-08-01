@@ -105,7 +105,9 @@ export function AdminClients({
             {credentials.label} — comparte estos datos ahora (no se vuelven a
             mostrar):
           </p>
-          <p className="mt-1.5 text-[#3f6b52]/90">
+          {/* `break-all`: correo y contraseña temporal no caben de una pieza
+              en un teléfono y se salían de la tarjeta. */}
+          <p className="mt-1.5 break-all text-[#3f6b52]/90">
             Entra en <code>/login</code> con <code>{credentials.email}</code> ·
             contraseña <code>{credentials.password}</code>
           </p>
@@ -263,6 +265,7 @@ function NewClientForm({
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="573155136091"
+            inputMode="tel"
           />
           <p className="text-xs text-muted-foreground">
             Sus mensajes entrantes se enrutan por este número. Se puede
@@ -271,7 +274,7 @@ function NewClientForm({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="owner-password">Contraseña temporal</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               id="owner-password"
               value={password}
@@ -280,6 +283,7 @@ function NewClientForm({
             />
             <Button
               variant="outline"
+              className="shrink-0"
               onClick={() => setPassword(generatePassword())}
             >
               Generar
@@ -287,7 +291,7 @@ function NewClientForm({
           </div>
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             disabled={
               saving ||
@@ -360,12 +364,18 @@ function ClientCard({
                 " · reconexión pendiente"}
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void toggle()}>
+          {/* En móvil la fila entera envuelve: los dos botones caen juntos
+              debajo del nombre en vez de estrangularlo. */}
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button
+              variant="outline"
+              className="flex-1 sm:flex-none"
+              onClick={() => void toggle()}
+            >
               <KeyRound className="h-4 w-4" />
               Cuentas
             </Button>
-            <Button onClick={onEnter}>
+            <Button className="flex-1 sm:flex-none" onClick={onEnter}>
               <LogIn className="h-4 w-4" />
               Entrar
             </Button>
@@ -522,15 +532,17 @@ function ClientNumber({
         Los mensajes que lleguen a este número entran en la bandeja de este
         cliente y de ningún otro.
       </p>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="573155136091"
+          inputMode="tel"
           aria-label="Número de WhatsApp del cliente"
         />
         <Button
           variant="outline"
+          className="shrink-0"
           disabled={saving || value.trim().length < 8}
           onClick={() => void guardarNumero()}
         >
@@ -569,9 +581,10 @@ function ClientNumber({
             type="password"
             aria-label="Secreto del webhook de YCloud del cliente"
           />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
             <Button
               variant="outline"
+              className="shrink-0"
               disabled={
                 savingCreds || (!apiKey.trim() && !webhookSecret.trim())
               }
@@ -651,7 +664,7 @@ function DeleteClient({
         Borra sus conversaciones, contactos, embudo, agente y cuentas. No se
         puede deshacer. Escribe <strong>{client.name}</strong> para confirmar.
       </p>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           value={confirmName}
           onChange={(e) => setConfirmName(e.target.value)}
@@ -661,7 +674,7 @@ function DeleteClient({
         />
         <Button
           variant="outline"
-          className="border-destructive/40 text-destructive hover:bg-destructive/10"
+          className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
           disabled={deleting || isActive || confirmName !== client.name}
           onClick={() => void remove()}
         >
@@ -746,7 +759,10 @@ function ClientAccounts({
             {a.name}{" "}
             <span className="text-muted-foreground">· {a.email}</span>
           </span>
-          <Badge variant={a.role === "owner" ? "default" : "secondary"}>
+          <Badge
+            className="shrink-0"
+            variant={a.role === "owner" ? "default" : "secondary"}
+          >
             {a.isPlatformAdmin
               ? "Agencia"
               : a.role === "owner"
@@ -779,6 +795,7 @@ function ClientAccounts({
           />
           <Button
             variant="outline"
+            className="shrink-0"
             onClick={() => setPassword(generatePassword())}
           >
             Generar

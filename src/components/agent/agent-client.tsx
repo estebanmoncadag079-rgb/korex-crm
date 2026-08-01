@@ -76,9 +76,11 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <header className="flex items-center justify-between border-b px-6 py-4">
-        <h2 className="font-semibold">Agente de IA</h2>
-        <div className="flex items-center gap-3">
+      {/* El interruptor es lo más usado de esta pantalla: se queda pegado a la
+          derecha del título aunque la cabecera se estreche. */}
+      <header className="flex items-center justify-between gap-3 border-b px-4 py-3.5 md:px-6 md:py-4">
+        <h2 className="truncate font-semibold">Agente de IA</h2>
+        <div className="flex shrink-0 items-center gap-2 md:gap-3">
           {saved && <span className="text-xs text-primary">Guardado ✓</span>}
           <span className="text-sm text-muted-foreground">
             {profile.enabled ? "Encendido" : "Apagado"}
@@ -86,10 +88,12 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
           <button
             role="switch"
             aria-checked={profile.enabled}
-            aria-label="Agente encendido"
+            aria-label={
+              profile.enabled ? "Apagar el agente" : "Encender el agente"
+            }
             disabled={!aiConfigured}
             onClick={() => void saveProfile({ enabled: !profile.enabled })}
-            className={`relative h-6 w-11 rounded-full transition-colors disabled:opacity-40 ${
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
               profile.enabled ? "bg-primary" : "bg-secondary"
             }`}
           >
@@ -103,7 +107,7 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
       </header>
 
       {!aiConfigured && (
-        <div className="mx-6 mt-6 rounded-lg border border-brand-soft bg-brand-tint p-6 text-center">
+        <div className="mx-4 mt-4 rounded-lg border border-brand-soft bg-brand-tint p-5 text-center md:mx-6 md:mt-6 md:p-6">
           <Sparkles className="mx-auto mb-2 h-8 w-8 text-primary" />
           <p className="font-medium">Configura tu proveedor de IA para activar el agente</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
@@ -115,7 +119,7 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
         </div>
       )}
 
-      <div className="grid gap-6 p-6 lg:grid-cols-2">
+      <div className="grid gap-4 p-4 md:gap-6 md:p-6 lg:grid-cols-2">
         <ProfileSection profile={profile} onSave={saveProfile} />
         <KbSection entries={entries} kbSize={kbSize} onChanged={() => void refetch()} />
         {esAgencia && (
@@ -232,7 +236,11 @@ function ProfileSection({
             normales.
           </p>
         </div>
-        <Button onClick={() => void onSave(form)}>Guardar comportamiento</Button>
+        {/* Acción principal a lo ancho en móvil: es el objetivo más grande
+            posible al final de un formulario largo. */}
+        <Button className="w-full sm:w-auto" onClick={() => void onSave(form)}>
+          Guardar comportamiento
+        </Button>
       </CardContent>
     </Card>
   );
@@ -282,8 +290,8 @@ function KbSection({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <CardTitle>Knowledge base</CardTitle>
             <CardDescription>
               La única fuente de verdad del agente: lo que no está aquí, no lo
@@ -291,7 +299,10 @@ function KbSection({
             </CardDescription>
           </div>
           {kbSize && (
-            <Badge variant={kbSize.warning ? "warning" : "secondary"}>
+            <Badge
+              className="shrink-0 whitespace-nowrap"
+              variant={kbSize.warning ? "warning" : "secondary"}
+            >
               {kbSize.chars.toLocaleString("es-MX")} caracteres
             </Badge>
           )}
@@ -319,6 +330,7 @@ function KbSection({
           />
           <Button
             size="sm"
+            className="w-full sm:w-auto"
             onClick={() => void addQa()}
             disabled={!question.trim() || !answer.trim()}
           >
@@ -334,7 +346,12 @@ function KbSection({
             value={block}
             onChange={(e) => setBlock(e.target.value)}
           />
-          <Button size="sm" onClick={() => void addBlock()} disabled={!block.trim()}>
+          <Button
+            size="sm"
+            className="w-full sm:w-auto"
+            onClick={() => void addBlock()}
+            disabled={!block.trim()}
+          >
             <Plus className="h-4 w-4" /> Agregar bloque
           </Button>
         </div>
@@ -415,8 +432,8 @@ function KbRow({
 
   if (!editing) {
     return (
-      <li className="flex items-start gap-2 rounded-md border p-3">
-        <div className="min-w-0 flex-1 text-sm">
+      <li className="flex items-start gap-1 rounded-md border p-3">
+        <div className="min-w-0 flex-1 break-words text-sm">
           {isQa ? (
             <>
               <p className="font-medium">{entry.question}</p>

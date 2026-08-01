@@ -129,20 +129,20 @@ export function BrandingClient() {
           <div className="rounded-md border p-4" style={{ background: previewSet.tint }}>
             <div className="flex items-center gap-2.5">
               <span
-                className="flex h-[30px] w-[30px] items-center justify-center rounded-sm text-[15px] font-bold text-white"
+                className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-sm text-[15px] font-bold text-white"
                 style={{ background: previewSet.accent }}
               >
                 {(name.trim() || "Vocero").charAt(0).toUpperCase()}
               </span>
-              <span>
-                <span className="block text-[15px] font-[650] leading-tight">
+              <span className="min-w-0">
+                <span className="block truncate text-[15px] font-[650] leading-tight">
                   {name.trim() || "Vocero"}
                 </span>
                 <span className="block text-[11px] text-text-3">CRM · WhatsApp</span>
               </span>
               <span className="flex-1" />
               <span
-                className="rounded-md px-3 py-1.5 text-xs font-medium text-white"
+                className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium text-white"
                 style={{ background: previewSet.accent }}
               >
                 Botón de ejemplo
@@ -152,7 +152,11 @@ export function BrandingClient() {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           {saved && <p className="text-sm" style={{ color: previewSet.text }}>Marca guardada ✓</p>}
-          <Button disabled={saving || !name.trim()} onClick={() => void save()}>
+          <Button
+            className="w-full sm:w-auto"
+            disabled={saving || !name.trim()}
+            onClick={() => void save()}
+          >
             {saving ? "Guardando…" : "Guardar marca"}
           </Button>
         </CardContent>

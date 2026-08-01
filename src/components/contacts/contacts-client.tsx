@@ -43,31 +43,33 @@ export function ContactsClient() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 border-b px-6 py-4">
+      {/* En móvil el buscador pasa debajo del título y ocupa todo el ancho:
+          en la misma fila quedaba cortado por el borde. */}
+      <header className="flex flex-col gap-3 border-b px-4 py-3.5 md:flex-row md:items-center md:justify-between md:gap-4 md:px-6 md:py-4">
         <h2 className="font-semibold">Contactos</h2>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={showArchived}
               onChange={(e) => setShowArchived(e.target.checked)}
-              className="accent-primary"
+              className="h-4 w-4 accent-primary"
             />
             Ver archivados
           </label>
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground md:top-2.5" />
             <Input
               placeholder="Buscar por nombre o teléfono…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-72 pl-8"
+              className="w-full pl-8 sm:w-72"
             />
           </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
         {contacts.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <p className="text-sm font-medium">Sin contactos</p>
@@ -81,7 +83,7 @@ export function ContactsClient() {
             {contacts.map((c) => (
               <li
                 key={c.id}
-                className="flex items-center gap-4 rounded-lg border bg-card px-4 py-3"
+                className="flex items-center gap-3 rounded-lg border bg-card px-3 py-3 md:gap-4 md:px-4"
               >
                 <ContactAvatar name={c.name} seed={c.id} />
                 <div className="min-w-0 flex-1">
@@ -90,15 +92,17 @@ export function ContactsClient() {
                       {c.name}
                     </span>
                     {c.archivedAt && (
-                      <Badge variant="secondary">Archivado</Badge>
+                      <Badge className="shrink-0" variant="secondary">
+                        Archivado
+                      </Badge>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="truncate text-xs text-muted-foreground">
                     {formatPhone(c.phone)}
                     {c.notes ? ` · ${c.notes.slice(0, 60)}` : ""}
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
+                <div className="flex shrink-0 items-center gap-0.5 md:gap-1.5">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -157,12 +161,18 @@ function EditDialog({
   const [notes, setNotes] = useState(contact.notes ?? "");
 
   return (
+    /*
+     * En móvil el diálogo es una hoja pegada abajo (donde alcanza el pulgar) y
+     * en escritorio, la ventana centrada de siempre. `max-h` + scroll interno
+     * evitan lo peor de un modal en un teléfono: que el botón de guardar quede
+     * fuera de la pantalla cuando se abre el teclado.
+     */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-lg border bg-card p-5 shadow-xl"
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-lg border bg-card p-5 shadow-xl sm:rounded-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 font-semibold">Editar contacto</h3>
@@ -189,7 +199,7 @@ function EditDialog({
             />
           </div>
         </div>
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>

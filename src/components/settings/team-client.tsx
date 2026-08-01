@@ -110,7 +110,11 @@ export function TeamClient() {
                 onChange={(e) => setTempPassword(e.target.value)}
                 placeholder="mínimo 8 caracteres"
               />
-              <Button variant="outline" onClick={generatePassword}>
+              <Button
+                variant="outline"
+                className="shrink-0"
+                onClick={generatePassword}
+              >
                 Generar
               </Button>
             </div>
@@ -119,7 +123,9 @@ export function TeamClient() {
           {created && (
             <div className="rounded-md border border-[#d8e8dd] bg-[#eff7f1] p-3 text-sm">
               <p className="font-medium text-[#3f6b52]">Cuenta creada ✓</p>
-              <p className="mt-1 text-[#3f6b52]/90">
+              {/* `break-all`: correo y contraseña no caben de una pieza en un
+                  teléfono y se salían del recuadro. */}
+              <p className="mt-1 break-all text-[#3f6b52]/90">
                 Comparte estos datos ahora (no se volverán a mostrar):
                 <br />
                 <code>{created.email}</code> · contraseña{" "}
@@ -128,6 +134,7 @@ export function TeamClient() {
             </div>
           )}
           <Button
+            className="w-full sm:w-auto"
             disabled={
               saving || !name.trim() || !email.trim() || tempPassword.length < 8
             }
@@ -151,9 +158,12 @@ export function TeamClient() {
             <ContactAvatar name={m.name} seed={m.id} size="sm" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{m.name}</p>
-              <p className="text-xs text-muted-foreground">{m.email}</p>
+              <p className="truncate text-xs text-muted-foreground">{m.email}</p>
             </div>
-            <Badge variant={m.role === "owner" ? "default" : "secondary"}>
+            <Badge
+              className="shrink-0"
+              variant={m.role === "owner" ? "default" : "secondary"}
+            >
               {m.role === "owner" ? "Propietario" : "Miembro"}
             </Badge>
           </div>

@@ -60,7 +60,7 @@ export function Composer({
 
   if (!conversation.windowOpen) {
     return (
-      <div className="border-t bg-background px-[18px] py-3.5">
+      <div className="border-t bg-background px-3 py-3.5 md:px-[18px]">
         <div className="mb-3 flex items-start gap-2 rounded-md border border-[#ece2cf] bg-[#faf7f0] p-3 text-sm text-[#8a6d3b]">
           <Clock3 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
           <div>
@@ -78,13 +78,13 @@ export function Composer({
   }
 
   return (
-    <div className="border-t bg-background px-[18px] pb-3.5 pt-3">
+    <div className="border-t bg-background px-3 pb-3.5 pt-3 md:px-[18px]">
       {templates.length > 0 && (
         <div className="mb-2.5 flex flex-wrap gap-1.5">
           {templates.slice(0, 4).map((t) => (
             <button
               key={t.id}
-              className="rounded-full border bg-secondary px-3 py-1 text-xs font-medium text-text-2 transition-colors hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text"
+              className="rounded-full border bg-secondary px-3 py-1.5 text-xs font-medium text-text-2 transition-colors hover:border-brand-soft hover:bg-brand-tint hover:text-brand-text md:py-1"
               onClick={() => {
                 const firstName = conversation.contact.name.split(" ")[0] ?? "";
                 setText(t.body.replace(/\{\{\s*1\s*\}\}/g, firstName));
@@ -114,14 +114,14 @@ export function Composer({
               void submit();
             }
           }}
-          className="max-h-[120px] w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-text-3"
+          className="max-h-[120px] w-full resize-none bg-transparent text-base leading-relaxed outline-none placeholder:text-text-3 md:text-sm"
         />
         <button
           onClick={() => void submit()}
           disabled={sending || text.trim().length === 0}
           aria-label="Enviar"
           className={cn(
-            "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-brand text-white transition-opacity hover:bg-brand-hover",
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-[9px] bg-brand text-white transition-opacity hover:bg-brand-hover md:h-[34px] md:w-[34px]",
             (sending || !text.trim()) && "opacity-40"
           )}
         >

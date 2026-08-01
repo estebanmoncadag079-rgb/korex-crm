@@ -58,11 +58,13 @@ function Campo(props: {
     <div className="space-y-1">
       <Label className="text-xs">{props.etiqueta}</Label>
       <div className="flex items-center gap-2">
+        {/* Alto de escritorio solo a partir de `md`: en móvil el campo
+            conserva los 40px cómodos del Input. */}
         <Input
           inputMode="decimal"
           value={props.texto}
           onChange={(e) => props.onChange(e.target.value)}
-          className="h-9"
+          className="h-10 md:h-9"
         />
         {props.sufijo && (
           <span className="shrink-0 text-xs text-muted-foreground">
@@ -229,7 +231,7 @@ export function Cotizador() {
             <button
               type="button"
               onClick={() => setAvanzado((v) => !v)}
-              className="text-xs text-muted-foreground underline underline-offset-2"
+              className="py-1 text-xs text-muted-foreground underline underline-offset-2"
             >
               {avanzado ? "Ocultar" : "Ver"} tarifas de los proveedores
             </button>

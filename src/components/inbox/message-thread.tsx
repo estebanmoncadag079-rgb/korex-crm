@@ -50,9 +50,11 @@ export function MessageThread({ messages }: { messages: MessageDto[] }) {
   }, [messages.length]);
 
   return (
+    // El 6% de margen que enmarca el hilo en escritorio deja los globos
+    // ahogados en un teléfono: ahí el ancho útil es todo.
     <div
       ref={scrollRef}
-      className="flex flex-1 flex-col gap-[3px] overflow-y-auto bg-chat px-[6%] py-5"
+      className="flex flex-1 flex-col gap-[3px] overflow-y-auto bg-chat px-3 py-4 md:px-[6%] md:py-5"
     >
       {messages.map((m, i) => {
         const prev = messages[i - 1];
@@ -82,7 +84,7 @@ export function MessageThread({ messages }: { messages: MessageDto[] }) {
             >
               <div
                 className={cn(
-                  "max-w-[64%] rounded-lg px-3 pb-1.5 pt-2 text-sm leading-[1.45] shadow-sm",
+                  "max-w-[85%] rounded-lg px-3 pb-1.5 pt-2 text-sm leading-[1.45] shadow-sm md:max-w-[64%]",
                   out
                     ? "border border-brand-soft bg-bubble-out text-bubble-out-text"
                     : "bg-background",

@@ -90,11 +90,12 @@ export function ConversationList({
         </div>
         <div className="flex items-center gap-2 rounded-md border bg-secondary px-3 py-[7px] transition-colors focus-within:border-brand focus-within:bg-background focus-within:ring-[3px] focus-within:ring-brand-soft">
           <Search className="h-4 w-4 shrink-0 text-text-3" strokeWidth={1.7} />
+          {/* 16px en móvil: por debajo iOS hace zoom al enfocar. */}
           <input
             placeholder="Buscar conversación…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-transparent text-[13px] outline-none placeholder:text-text-3"
+            className="w-full bg-transparent text-base outline-none placeholder:text-text-3 md:text-[13px]"
           />
         </div>
       </header>
@@ -110,7 +111,7 @@ export function ConversationList({
             key={f.id}
             onClick={() => setFilter(f.id)}
             className={cn(
-              "flex items-center gap-1.5 rounded-full border px-3 py-[5px] text-[12.5px] font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12.5px] font-medium transition-colors md:py-[5px]",
               filter === f.id
                 ? "border-brand bg-brand text-white"
                 : "bg-background text-text-2 hover:bg-accent"

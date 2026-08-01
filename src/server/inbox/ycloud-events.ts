@@ -43,6 +43,16 @@ export async function handleYcloudEvent(
         `mínimos (id=${m?.id ?? "falta"}, wabaId=${m?.wabaId ?? "falta"}, ` +
         `from=${m?.from ?? "falta"}, type=${m?.type ?? "?"})`
     );
+    /**
+     * El paquete completo, aparte del resumen de arriba: verificado en vivo
+     * (1-ago-2026) que responder/reaccionar al Estado del negocio a veces
+     * llega SIN "from" — se descarta sin dejar ni una fila en la base, y
+     * hasta ahora no había forma de saber si el dato real venía en otro
+     * campo. La próxima vez que se repita, este log trae el JSON tal cual
+     * llegó de YCloud para poder escribir el parseo correcto en vez de
+     * adivinar.
+     */
+    console.warn(`[ycloud webhook] evento completo descartado: ${JSON.stringify(event)}`);
     return;
   }
 

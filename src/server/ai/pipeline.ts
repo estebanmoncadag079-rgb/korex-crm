@@ -456,7 +456,11 @@ export async function runAgentTurn(
     const reintento = await chatJson(AgentAction, [
       ...messages,
       { role: "assistant", content: result.raw },
-      { role: "system", content: CORRECCION_DE_CIERRE_FALSO },
+      // "user", no "system": verificado en vivo (1-ago-2026) que
+      // google/gemini-2.5-flash vía OpenRouter devuelve `content: null` cuando
+      // el ÚLTIMO mensaje del array es de rol "system" sin ningún turno de
+      // usuario después. Mismo arreglo que en el loop de consult_availability.
+      { role: "user", content: CORRECCION_DE_CIERRE_FALSO },
     ]);
     await registrarUsoIa(
       organizationId,

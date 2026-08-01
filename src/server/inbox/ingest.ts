@@ -187,6 +187,7 @@ export async function ingestInboundMessage(
    * entra en el aprendizaje y en los respaldos.
    */
   const texto = await mediaATexto(input, organizationId);
+  const textoFinal = textoDeMensaje(texto, input.mediaUrl, input.type);
 
   // Idempotencia dura: mismo wa_message_id → sin efectos adicionales.
   const inserted = await db
@@ -198,7 +199,7 @@ export async function ingestInboundMessage(
       waMessageId: input.waMessageId,
       direction: "in",
       type: input.type,
-      text: texto,
+      text: textoFinal,
       status: "delivered",
       mediaUrl: input.mediaUrl ?? null,
       mediaId: input.mediaId ?? null,
@@ -255,6 +256,26 @@ export async function ingestInboundMessage(
   await maybeRunAgentTurn(conversation.id, {
     immediate: previousMessageAt === null,
   });
+}
+
+/**
+ * Marcador de texto para lo que llega sin texto NI adjunto — típico de un
+ * `type: "unsupported"` (reaccionar o responder a un Estado a veces llega
+ * así, verificado en vivo el 1-ago-2026). El mensaje SIEMPRE se guarda, pero
+ * `toChatHistory` descarta cualquier fila sin texto al armar lo que ve el
+ * agente: sin este marcador, quedaba invisible para la IA aunque el cliente
+ * sí hubiera escrito algo. Con adjunto pero sin texto (imagen/audio cuya
+ * conversión falló) se deja el `null` tal cual — comportamiento existente,
+ * no se toca aquí.
+ */
+export function textoDeMensaje(
+  texto: string | null,
+  mediaUrl: string | null | undefined,
+  type: string
+): string | null {
+  if (texto) return texto;
+  if (mediaUrl) return null;
+  return `[mensaje no compatible: tipo "${type}", revisa WhatsApp directamente]`;
 }
 
 /**

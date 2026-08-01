@@ -1,0 +1,311 @@
+/**
+ * Motor de disponibilidad de citas — lógica pura, sin tocar la base de datos.
+ *
+ * Puerto del motor probado en BOT VALENTINA CON IA (src/lib/appointment/logic.ts
+ * de ese proyecto), adaptado a multi-especialista y a la zona horaria fija de
+ * Colombia que ya usa el resto de korex.ia (ver server/ai/prompts.ts).
+ *
+ * Principio central, igual que con el horario de atención: la disponibilidad
+ * la calcula el SERVIDOR y se le entrega resuelta al modelo — nunca se le pide
+ * que haga la aritmética de fechas él mismo (ver docs/korexia/04-AGENTE-IA.md).
+ */
+
+const BUSINESS_TIMEZONE = "America/Bogota";
+
+export type ServiceRow = {
+  id: string;
+  name: string;
+  category: string | null;
+  priceCents: number;
+  durationMin: number;
+};
+
+export type BusinessHours = {
+  open: string | null;
+  close: string | null;
+  days: string | null;
+};
+
+/** Una cita existente, ya reducida a minutos-desde-medianoche en hora de Colombia. */
+export type CitaDelDia = { staffId: string; startMin: number; endMin: number };
+
+// ─── catálogo: búsqueda difusa de servicio ─────────────────────────────────
+
+function normalizar(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+// Conectores que no distinguen un servicio de otro (se ignoran al comparar).
+const STOP_WORDS = new Set([
+  "de", "del", "la", "el", "los", "las", "con", "y", "o", "en", "para", "al", "por",
+  "un", "una", "unos", "unas", "tus", "mi", "mis",
+  "servicio", "servicios", "cita", "citas",
+]);
+
+function tokens(s: string): string[] {
+  return normalizar(s)
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
+}
+
+/** Dos palabras "coinciden" si son iguales o comparten una raíz larga (tolera plural/género). */
+function coincide(a: string, b: string): boolean {
+  if (a === b) return true;
+  const min = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < min && a[i] === b[i]) i++;
+  return i >= 5 || (i === min && min >= 4);
+}
+
+/**
+ * Busca un servicio del catálogo por nombre, tolerando tildes, mayúsculas y
+ * nombres parafraseados por el cliente o por la IA. Si dos servicios encajan
+ * igual de bien, devuelve null (ambiguo) para que el agente pregunte en vez
+ * de adivinar mal.
+ */
+export function buscarServicio(
+  services: ServiceRow[],
+  nombre: string
+): ServiceRow | null {
+  const q = normalizar(nombre);
+  if (!q) return null;
+
+  const exacto = services.find((s) => normalizar(s.name) === q);
+  if (exacto) return exacto;
+
+  const sub = services.find(
+    (s) => normalizar(s.name).includes(q) || q.includes(normalizar(s.name))
+  );
+  if (sub) return sub;
+
+  const qt = tokens(nombre);
+  if (!qt.length) return null;
+  let mejor: { srv: ServiceRow; overlap: number; ratio: number } | null = null;
+  let ambiguo = false;
+  for (const s of services) {
+    const st = tokens(s.name);
+    if (!st.length) continue;
+    const overlap = st.filter((t) => qt.some((u) => coincide(t, u))).length;
+    if (!overlap) continue;
+    const ratio = overlap / st.length;
+    if (!mejor || overlap > mejor.overlap || (overlap === mejor.overlap && ratio > mejor.ratio)) {
+      mejor = { srv: s, overlap, ratio };
+      ambiguo = false;
+    } else if (overlap === mejor.overlap && ratio === mejor.ratio) {
+      ambiguo = true;
+    }
+  }
+  if (!mejor || ambiguo) return null;
+  return mejor.srv;
+}
+
+// ─── fechas y horas ──────────────────────────────────────────────────────
+
+export function horaAMin(hhmm: string): number {
+  const [h, m] = hhmm.split(":");
+  return Number(h ?? 0) * 60 + Number(m ?? 0);
+}
+
+export function minAHora(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+export function horaAAmPm(hhmm: string): string {
+  const [hStr, mStr] = hhmm.split(":");
+  const h = Number(hStr ?? 0);
+  const mm = String(Number(mStr ?? 0)).padStart(2, "0");
+  if (h === 0) return `12:${mm} AM`;
+  if (h < 12) return `${h}:${mm} AM`;
+  if (h === 12) return `12:${mm} PM`;
+  return `${h - 12}:${mm} PM`;
+}
+
+/** "D/M/AAAA" (con guiones o slashes, sin ceros) → "DD/MM/AAAA" o null. */
+export function normalizarFecha(texto: string): string | null {
+  const m = (texto || "").trim().match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+  if (!m || !m[1] || !m[2] || !m[3]) return null;
+  return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
+}
+
+function diasHabiles(hours: BusinessHours): number[] {
+  return (hours.days ?? "1,2,3,4,5,6,7")
+    .split(",")
+    .map((d) => Number(d.trim()))
+    .filter((d) => d >= 1 && d <= 7);
+}
+
+/** Año/mes/día/día-de-semana (1=lunes…7=domingo) de una fecha, en hora de Colombia. */
+export function partesEnNegocio(
+  now: Date = new Date(),
+  timeZone: string = BUSINESS_TIMEZONE
+): { y: number; m: number; d: number; dow: number; minutos: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const dow =
+    ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].indexOf(
+      get("weekday").toLowerCase().slice(0, 3)
+    ) + 1;
+  return {
+    y: Number(get("year")),
+    m: Number(get("month")),
+    d: Number(get("day")),
+    dow,
+    minutos: Number(get("hour")) * 60 + Number(get("minute")),
+  };
+}
+
+/** "DD/MM/AAAA" → { y, m, d } o null si el formato no calza. */
+export function partesDeFecha(
+  fecha: string
+): { y: number; m: number; d: number } | null {
+  const match = fecha.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+  const [, d, m, y] = match;
+  return { y: Number(y), m: Number(m), d: Number(d) };
+}
+
+/** Día de la semana (1=lunes…7=domingo) de una fecha DD/MM/AAAA, sin depender del huso del servidor. */
+export function diaDeSemana(fecha: string): number | null {
+  const p = partesDeFecha(fecha);
+  if (!p) return null;
+  // Mediodía UTC: lejos de cualquier borde de huso, solo se usa para el día de la semana.
+  const d = new Date(Date.UTC(p.y, p.m - 1, p.d, 12));
+  const dow = d.getUTCDay();
+  return dow === 0 ? 7 : dow;
+}
+
+/**
+ * ¿Es una fecha agendable? Formato válido, no en el pasado (hora de Colombia)
+ * y un día que el negocio atiende. `false` en cualquier caso inválido.
+ */
+export function esFechaValida(
+  fecha: string,
+  hours: BusinessHours,
+  now: Date = new Date()
+): boolean {
+  const p = partesDeFecha(fecha);
+  if (!p) return false;
+  const dow = diaDeSemana(fecha);
+  if (dow === null || !diasHabiles(hours).includes(dow)) return false;
+
+  const hoy = partesEnNegocio(now);
+  if (p.y < hoy.y) return false;
+  if (p.y === hoy.y && p.m < hoy.m) return false;
+  if (p.y === hoy.y && p.m === hoy.m && p.d < hoy.d) return false;
+  return true;
+}
+
+export function esHoy(fecha: string, now: Date = new Date()): boolean {
+  const p = partesDeFecha(fecha);
+  if (!p) return false;
+  const hoy = partesEnNegocio(now);
+  return p.y === hoy.y && p.m === hoy.m && p.d === hoy.d;
+}
+
+/** Bogotá es UTC-5 fijo (sin horario de verano): instante real de una hora local del negocio. */
+export function bogotaAUtc(fecha: string, hora: string): Date | null {
+  const p = partesDeFecha(fecha);
+  if (!p) return null;
+  const [hStr, mStr] = hora.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return new Date(Date.UTC(p.y, p.m - 1, p.d, h + 5, m));
+}
+
+/** El instante inverso: de un timestamp UTC a fecha/hora del negocio en Bogotá. */
+export function utcAFechaHoraBogota(
+  date: Date,
+  timeZone: string = BUSINESS_TIMEZONE
+): { fecha: string; hora: string } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return {
+    fecha: `${get("day")}/${get("month")}/${get("year")}`,
+    hora: `${get("hour")}:${get("minute")}`,
+  };
+}
+
+/** Rango UTC [inicio, fin) que cubre TODO un día de negocio en Bogotá. */
+export function rangoDelDiaUtc(fecha: string): [Date, Date] | null {
+  const p = partesDeFecha(fecha);
+  if (!p) return null;
+  const inicio = new Date(Date.UTC(p.y, p.m - 1, p.d, 5, 0));
+  const fin = new Date(Date.UTC(p.y, p.m - 1, p.d + 1, 5, 0));
+  return [inicio, fin];
+}
+
+// ─── disponibilidad ──────────────────────────────────────────────────────
+
+/**
+ * Slots libres por especialista para un día y una duración de servicio dados.
+ *
+ * Un slot es válido si: cae dentro del horario del negocio, el servicio
+ * termina antes del cierre, no se solapa con ninguna cita existente de esa
+ * especialista, y (si es hoy) no quedó en el pasado. Candidatos: la grilla
+ * fija de 30 minutos MÁS el instante justo en que termina cada cita existente
+ * — así la agenda queda libre al minuto exacto en que se desocupa alguien, sin
+ * esperar al siguiente redondeo de media hora.
+ */
+export function calcularDisponibilidad(input: {
+  staffIds: string[];
+  citas: CitaDelDia[];
+  duracionMin: number;
+  hours: BusinessHours;
+  esHoy: boolean;
+  minutosAhoraSiEsHoy?: number;
+}): Record<string, string[]> {
+  if (!input.hours.open || !input.hours.close) return {};
+  const open = horaAMin(input.hours.open);
+  const close = horaAMin(input.hours.close);
+  const corte = input.esHoy
+    ? Math.ceil((input.minutosAhoraSiEsHoy ?? 0) / 30) * 30
+    : 0;
+
+  const mapa: Record<string, string[]> = {};
+  for (const staffId of input.staffIds) {
+    const citasStaff = input.citas.filter((c) => c.staffId === staffId);
+    const candidatos = new Set<number>();
+    for (let t = open; t + input.duracionMin <= close; t += 30) candidatos.add(t);
+    for (const c of citasStaff) {
+      if (c.endMin >= open && c.endMin + input.duracionMin <= close) {
+        candidatos.add(c.endMin);
+      }
+    }
+    for (const slotMin of [...candidatos].sort((a, b) => a - b)) {
+      if (slotMin < open || slotMin + input.duracionMin > close) continue;
+      if (input.esHoy && slotMin < corte) continue;
+      const libre = !citasStaff.some(
+        (c) => slotMin < c.endMin && slotMin + input.duracionMin > c.startMin
+      );
+      if (libre) {
+        const hora = minAHora(slotMin);
+        (mapa[hora] ??= []).push(staffId);
+      }
+    }
+  }
+  return mapa;
+}

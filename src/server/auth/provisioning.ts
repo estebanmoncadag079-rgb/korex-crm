@@ -24,7 +24,13 @@ type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 /** Inserta la organización con su embudo y su perfil de agente vacío. */
 export async function provisionOrganization(
   tx: Tx,
-  input: { organizationId: string; name: string; slug: string }
+  input: {
+    organizationId: string;
+    name: string;
+    slug: string;
+    /** true = vertical de citas (peluquería, estética…) en vez de pedidos. */
+    needsAppointments?: boolean;
+  }
 ): Promise<void> {
   await tx.insert(schema.organization).values({
     id: input.organizationId,
@@ -43,6 +49,7 @@ export async function provisionOrganization(
   await tx.insert(schema.agentProfile).values({
     id: newId("agentProfile"),
     organizationId: input.organizationId,
+    appointmentsEnabled: input.needsAppointments ?? false,
   });
 }
 
@@ -142,6 +149,7 @@ export async function createClientWithOwner(input: {
   ownerName: string;
   ownerEmail: string;
   password: string;
+  needsAppointments?: boolean;
 }): Promise<{ organizationId: string; userId: string; slug: string }> {
   const db = getDb();
   const slug = await uniqueSlug(input.slug || input.organizationName);
@@ -152,6 +160,7 @@ export async function createClientWithOwner(input: {
       organizationId,
       name: input.organizationName,
       slug,
+      needsAppointments: input.needsAppointments,
     });
   });
 

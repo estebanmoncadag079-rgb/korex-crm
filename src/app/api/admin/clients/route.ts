@@ -26,6 +26,8 @@ const createSchema = z.object({
   password: z.string().min(8).max(128),
   /** Número del negocio (opcional): se puede conectar después. */
   phone: z.string().trim().max(20).optional(),
+  /** true = vertical de citas (peluquería, estética…) en vez de pedidos. */
+  needsAppointments: z.boolean().optional().default(false),
 });
 
 /**

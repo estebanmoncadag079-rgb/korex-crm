@@ -15,6 +15,8 @@ export type ClientSummary = {
   connectionStatus: "connected" | "reconnect_required" | null;
   /** true = el cliente trajo su propia cuenta de YCloud (no gasta cupo de la agencia). */
   ownAccount: boolean;
+  /** true = vertical de citas (peluquería, estética…) en vez de pedidos. */
+  appointmentsEnabled: boolean;
 };
 
 /**
@@ -34,6 +36,7 @@ export async function listClients(): Promise<ClientSummary[]> {
       slug: schema.organization.slug,
       createdAt: schema.organization.createdAt,
       agentEnabled: schema.agentProfile.enabled,
+      appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
       phone: schema.metaCredentials.displayPhoneNumber,
       connectionStatus: schema.metaCredentials.status,
       // Señal de cuenta propia: el secreto de webhook solo se rellena cuando el
@@ -87,6 +90,7 @@ export async function listClients(): Promise<ClientSummary[]> {
     phone: o.phone,
     connectionStatus: o.connectionStatus,
     ownAccount: Boolean(o.ownAccountSecret),
+    appointmentsEnabled: o.appointmentsEnabled ?? false,
   }));
 }
 

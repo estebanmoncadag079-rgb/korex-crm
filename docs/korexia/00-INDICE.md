@@ -31,6 +31,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [16-AGENTE-RELEVO-Y-MODELOS.md](16-AGENTE-RELEVO-Y-MODELOS.md) | Segunda parte del agente: relevo con personas, aviso de pedido, qué modelo corre y el Laboratorio |
 | [17-BITACORA-JULIO.md](17-BITACORA-JULIO.md) | Historial más antiguo, hasta el 29 de julio |
 | [18-MOVIL.md](18-MOVIL.md) | Cómo se comporta la aplicación en un celular, los puntos de corte y las reglas para no romperlo |
+| [19-CITAS.md](19-CITAS.md) | El vertical de citas (peluquería, estética): opt-in por cliente, motor de disponibilidad, cómo prueba el agente sin gastar WhatsApp |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

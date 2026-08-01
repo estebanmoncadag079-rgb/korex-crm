@@ -322,6 +322,13 @@ export const agentProfile = pgTable(
      */
     notifyTemplate: text("notify_template"),
     notifyTemplateLang: text("notify_template_lang"),
+    /**
+     * Vertical de citas (peluquería, estética, spa…), decidido al dar de alta
+     * al cliente en /admin. Apagado = el cliente sigue el flujo de pedidos de
+     * siempre (La Churra, Lis). No son excluyentes por diseño: un negocio
+     * podría, en teoría, necesitar ambos — pero hoy ningún cliente lo pide.
+     */
+    appointmentsEnabled: boolean("appointments_enabled").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -343,6 +350,106 @@ export const kbEntry = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [index("kb_org_idx").on(t.organizationId)]
+);
+
+/* ============================================================
+ * Citas (vertical de agendamiento: peluquería, estética, spa…)
+ * Solo existe para organizaciones con agent_profile.appointments_enabled.
+ * ============================================================ */
+
+export const service = pgTable(
+  "service",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Libre, no un enum: cada negocio arma sus propias categorías. */
+    category: text("category"),
+    priceCents: integer("price_cents").notNull().default(0),
+    durationMin: integer("duration_min").notNull(),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("service_org_idx").on(t.organizationId)]
+);
+
+export const staffMember = pgTable(
+  "staff_member",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("staff_org_idx").on(t.organizationId)]
+);
+
+/** Qué persona puede atender cada servicio (muchos a muchos). */
+export const staffService = pgTable(
+  "staff_service",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    staffId: text("staff_id")
+      .notNull()
+      .references(() => staffMember.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("staff_service_uq").on(t.staffId, t.serviceId)]
+);
+
+export const appointment = pgTable(
+  "appointment",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contact.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id),
+    staffId: text("staff_id")
+      .notNull()
+      .references(() => staffMember.id),
+    startsAt: timestamp("starts_at").notNull(),
+    endsAt: timestamp("ends_at").notNull(),
+    status: text("status", {
+      enum: [
+        "pendiente",
+        "confirmada",
+        "reagendada",
+        "cancelada",
+        "completada",
+        "no_show",
+      ],
+    })
+      .notNull()
+      .default("pendiente"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    // Chequeo de solapamiento: todas las citas de UNA especialista, ese día.
+    index("appointment_org_staff_starts_idx").on(
+      t.organizationId,
+      t.staffId,
+      t.startsAt
+    ),
+    index("appointment_org_contact_idx").on(t.organizationId, t.contactId),
+  ]
 );
 
 export const template = pgTable(

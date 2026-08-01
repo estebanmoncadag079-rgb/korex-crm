@@ -15,8 +15,12 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 const patchSchema = z.object({
-  /** Número del negocio en E.164 (con o sin '+'); es la clave de enrutamiento. */
-  phone: z.string().trim().min(8).max(20),
+  /**
+   * Número del negocio en E.164 (con o sin '+'); es la clave de enrutamiento.
+   * Ausente = esta llamada no toca número ni credenciales de YCloud (p. ej.
+   * solo cambia `appointmentsEnabled`).
+   */
+  phone: z.string().trim().min(8).max(20).optional(),
   wabaId: z.string().trim().max(64).optional(),
   /**
    * Credenciales de la cuenta de YCloud DEL CLIENTE. Opcionales: sin ellas el
@@ -26,11 +30,16 @@ const patchSchema = z.object({
    */
   ycloudApiKey: z.string().trim().max(200).optional(),
   ycloudWebhookSecret: z.string().trim().max(200).optional(),
+  /** true/false = enciende o apaga el vertical de citas para este cliente. */
+  appointmentsEnabled: z.boolean().optional(),
 });
 
 /**
- * Ata el número de WhatsApp del cliente a su organización: sin esto sus
- * mensajes entrantes no tienen dueño y el envío no sabe con qué número salir.
+ * Ata el número de WhatsApp del cliente a su organización (sin esto sus
+ * mensajes entrantes no tienen dueño y el envío no sabe con qué número
+ * salir), y/o enciende o apaga el vertical de citas. Cada campo es
+ * independiente: se puede mandar solo `appointmentsEnabled` sin tocar nada
+ * del número.
  */
 export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) => {
   const { id } = await ctx.params;
@@ -39,6 +48,21 @@ export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) 
   }
   const body = await parseBody(req, patchSchema);
   if (!body.ok) return body.response;
+
+  if (body.data.appointmentsEnabled !== undefined) {
+    const db = getDb();
+    await db
+      .update(schema.agentProfile)
+      .set({ appointmentsEnabled: body.data.appointmentsEnabled })
+      .where(eq(schema.agentProfile.organizationId, id));
+  }
+
+  if (body.data.phone === undefined) {
+    return Response.json({
+      ok: true,
+      appointmentsEnabled: body.data.appointmentsEnabled,
+    });
+  }
 
   const phone = normalizePhoneNumber(body.data.phone);
   if (phone.length < 8) {
@@ -71,6 +95,7 @@ export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) 
     ok: true,
     phone,
     ownAccount,
+    appointmentsEnabled: body.data.appointmentsEnabled,
     webhookUrl: ownAccount
       ? `${getEnv().APP_BASE_URL.replace(/\/$/, "")}/api/webhooks/ycloud/${id}`
       : null,

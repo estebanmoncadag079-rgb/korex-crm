@@ -64,6 +64,13 @@
       "when": 1785519455751,
       "tag": "0008_mature_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785593229901,
+      "tag": "0009_premium_mauler",
+      "breakpoints": true
     }
   ]
 }

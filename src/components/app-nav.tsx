@@ -6,11 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { KorexMark } from "@/components/korex-mark";
 import {
   Building2,
+  CalendarClock,
   FlaskConical,
   Inbox,
   Kanban,
   LogOut,
   Menu,
+  Scissors,
   Settings,
   Sparkles,
   Users,
@@ -28,25 +30,39 @@ const NAV_ITEM =
 const NAV_ACTIVO = "bg-white/10 font-semibold text-white";
 const NAV_INACTIVO = "text-[#9a9aa2] hover:bg-white/[0.06] hover:text-white";
 
-const NAV = [
+const NAV_BASE = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
-  { href: "/agent", label: "Agente", icon: Sparkles },
-  { href: "/lab", label: "Laboratorio", icon: FlaskConical },
 ] as const;
+
+/** Solo para clientes con el vertical de citas (peluquería, estética…) encendido. */
+const NAV_CITAS = [{ href: "/appointments", label: "Citas", icon: CalendarClock }] as const;
+const NAV_SERVICIOS = [{ href: "/services", label: "Servicios", icon: Scissors }] as const;
+
+const NAV_AGENTE = [{ href: "/agent", label: "Agente", icon: Sparkles }] as const;
+const NAV_LAB = [{ href: "/lab", label: "Laboratorio", icon: FlaskConical }] as const;
 
 export function AppNav({
   branding,
   userName,
   role,
   isPlatformAdmin = false,
+  appointmentsEnabled = false,
 }: {
   branding: Branding;
   userName: string;
   role: string;
   isPlatformAdmin?: boolean;
+  appointmentsEnabled?: boolean;
 }) {
+  const NAV = [
+    ...NAV_BASE,
+    ...(appointmentsEnabled ? NAV_CITAS : []),
+    ...NAV_AGENTE,
+    ...(appointmentsEnabled ? NAV_SERVICIOS : []),
+    ...NAV_LAB,
+  ];
   const pathname = usePathname();
   const router = useRouter();
   const [unread, setUnread] = useState(0);

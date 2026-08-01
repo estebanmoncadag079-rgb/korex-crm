@@ -1,11 +1,30 @@
 import type { schema } from "@/lib/db";
 import type { TranscriptLine } from "@/lib/types";
+import type { ServiceRow } from "@/server/appointments/logic";
 
 type AgentProfile = typeof schema.agentProfile.$inferSelect;
 type KbEntry = typeof schema.kbEntry.$inferSelect;
+/** Catálogo de servicios con quién los atiende (vertical de citas). */
+export type CatalogEntry = ServiceRow & { staffNames: string[] };
 
 /** Marcador del prompt del juez: el ai-mock lo usa para despachar veredictos. */
 export const JUDGE_MARKER = "[JUEZ]";
+
+/** El catálogo de servicios, con quién los atiende. Para orgs con citas activas. */
+export function renderCatalogo(entries: CatalogEntry[]): string {
+  if (entries.length === 0) return "(sin servicios configurados todavía)";
+  return entries
+    .map((s) => {
+      const precio = (s.priceCents / 100).toLocaleString("es-CO", {
+        minimumFractionDigits: 0,
+      });
+      const quien = s.staffNames.length
+        ? `atiende: ${s.staffNames.join(", ")}`
+        : "SIN especialista asignado (no se puede agendar todavía)";
+      return `- ${s.name}${s.category ? ` (${s.category})` : ""}: $${precio}, ${s.durationMin} min — ${quien}`;
+    })
+    .join("\n");
+}
 
 export function renderKb(entries: KbEntry[]): string {
   if (entries.length === 0) return "(knowledge base vacío)";
@@ -233,6 +252,26 @@ export const CONTRATO_DE_ACCIONES = [
 ].join("\n");
 
 /**
+ * Adenda del contrato SOLO para organizaciones con vertical de citas
+ * (agent_profile.appointmentsEnabled). Aparte de CONTRATO_DE_ACCIONES para no
+ * inflar el prompt de los clientes de pedidos (La Churra, Lis) con acciones
+ * que no pueden usar.
+ */
+export const CONTRATO_DE_ACCIONES_CITAS = [
+  "Este negocio ADEMÁS gestiona CITAS. Suma estas acciones a las de arriba:",
+  '- {"action":"consult_availability","servicio":"...","fecha":"DD/MM/AAAA (opcional)","especialista":"opcional"} — consulta horarios REALES. Úsala SIEMPRE antes de proponer o confirmar cualquier horario: nunca inventes disponibilidad. Sin "fecha" ves las próximas fechas con cupo. Es una acción interna: el sistema te responde con los horarios reales en un mensaje de sistema inmediatamente después, en el mismo turno — no le llega nada al cliente todavía, así que tras recibir la respuesta debes emitir OTRA acción (normalmente reply, con los horarios reales para que el cliente elija).',
+  '- {"action":"book_appointment","servicio":"...","fecha":"DD/MM/AAAA","hora":"HH:MM 24h","especialista":"opcional","farewell":"opcional"} — agenda la cita. Solo con un horario que confirmaste con consult_availability EN ESTE TURNO O EL INMEDIATO ANTERIOR, y que el cliente aceptó explícitamente.',
+  '- {"action":"reschedule_appointment","servicio":"...","nuevaFecha":"DD/MM/AAAA","nuevaHora":"HH:MM","farewell":"opcional"} — cambia la fecha/hora de una cita activa del cliente para ese servicio (consulta antes la nueva fecha con consult_availability).',
+  '- {"action":"cancel_appointment","servicio":"...","farewell":"opcional"} — cancela una cita activa del cliente para ese servicio.',
+  "Reglas duras de citas:",
+  '- "servicio" debe ser el nombre EXACTO de una fila del CATÁLOGO DE SERVICIOS de abajo. Si el cliente da un nombre parecido, usa el más cercano del catálogo; si dudas entre dos, pregúntale cuál.',
+  "- Convierte tú misma expresiones como \"mañana\" o \"el viernes\" a DD/MM/AAAA, usando la fecha de hoy que se te dio arriba.",
+  "- Si el catálogo marca un servicio SIN especialista asignado, no lo agendes: dile al cliente que ese servicio no está disponible para agendar todavía.",
+  "- El sistema puede contestar que la cita ya no está disponible o que no encontró una cita activa del cliente para ese servicio: en ese caso pídele al cliente otra hora, u ofrécele agendar una nueva, según el caso — nunca insistas con el mismo dato que el sistema acaba de rechazar.",
+  "- Igual que con los pedidos: JAMÁS agendes, reprogrames o canceles con datos a medias o sin que el cliente lo haya confirmado.",
+].join("\n");
+
+/**
  * La ficha del contacto, en palabras.
  *
  * El teléfono lo sabe el sistema desde el primer mensaje — es el número por el
@@ -279,6 +318,8 @@ export function buildAgentSystemPrompt(input: {
   stages: { name: string }[];
   contact?: { name: string | null; phone: string };
   now?: Date;
+  /** Presente = esta organización tiene el vertical de citas encendido. */
+  appointments?: { catalog: CatalogEntry[] };
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -293,8 +334,12 @@ export function buildAgentSystemPrompt(input: {
     profile.greeting ? `Saludo sugerido para conversaciones nuevas: ${profile.greeting}` : null,
     fichaDelContacto(input.contact),
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
+    input.appointments
+      ? `CATÁLOGO DE SERVICIOS (citas):\n${renderCatalogo(input.appointments.catalog)}`
+      : null,
     `Etapas del pipeline disponibles: ${stageNames}`,
     CONTRATO_DE_ACCIONES,
+    input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.
     //
     // Va arriba porque es contexto, pero las instrucciones del negocio son texto

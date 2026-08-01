@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Building2,
+  CalendarClock,
   KeyRound,
   LogIn,
   MessageSquare,
@@ -36,6 +37,7 @@ type Client = {
   phone: string | null;
   ownAccount: boolean;
   connectionStatus: "connected" | "reconnect_required" | null;
+  appointmentsEnabled: boolean;
 };
 
 type Account = {
@@ -150,6 +152,7 @@ export function AdminClients({
               void refetch();
             }}
             onDeleted={() => void refetch()}
+            onChanged={() => void refetch()}
           />
         ))}
       </div>
@@ -171,6 +174,7 @@ function NewClientForm({
   const [ownerEmail, setOwnerEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
+  const [needsAppointments, setNeedsAppointments] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -194,6 +198,7 @@ function NewClientForm({
         ownerName,
         ownerEmail,
         password,
+        needsAppointments,
         ...(phone.trim() ? { phone: phone.trim() } : {}),
       }),
     }).catch(() => null);
@@ -215,6 +220,7 @@ function NewClientForm({
     setOwnerEmail("");
     setPassword("");
     setPhone("");
+    setNeedsAppointments(false);
     onOpenChange(false);
   }
 
@@ -290,6 +296,26 @@ function NewClientForm({
             </Button>
           </div>
         </div>
+        <div className="space-y-2 rounded-md border bg-muted/30 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Funcionalidades
+          </p>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={needsAppointments}
+              onChange={(e) => setNeedsAppointments(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+              aria-describedby="needs-appointments-hint"
+            />
+            ¿Este cliente necesita gestionar citas?
+          </label>
+          <p id="needs-appointments-hint" className="text-xs text-muted-foreground">
+            Actívalo para negocios con agendamiento (peluquería, estética,
+            spa…): servicios, especialistas y horarios por cita. Déjalo
+            apagado para el flujo normal de pedidos.
+          </p>
+        </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex flex-wrap gap-2">
           <Button
@@ -319,6 +345,7 @@ function ClientCard({
   onEnter,
   onAccountCreated,
   onDeleted,
+  onChanged,
 }: {
   client: Client;
   isActive: boolean;
@@ -329,6 +356,7 @@ function ClientCard({
     password: string;
   }) => void;
   onDeleted: () => void;
+  onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
@@ -357,6 +385,12 @@ function ClientCard({
             <p className="flex items-center gap-2 font-medium">
               {client.name}
               {isActive && <Badge variant="secondary">Estás aquí</Badge>}
+              {client.appointmentsEnabled && (
+                <Badge variant="outline" className="gap-1">
+                  <CalendarClock className="h-3 w-3" strokeWidth={1.7} />
+                  Citas
+                </Badge>
+              )}
             </p>
             <p className="text-xs text-muted-foreground">
               {client.phone ? `+${client.phone}` : "Sin número conectado"}
@@ -400,6 +434,11 @@ function ClientCard({
 
         {open && (
           <>
+            <AppointmentsToggle
+              clientId={client.id}
+              enabled={client.appointmentsEnabled}
+              onChanged={onChanged}
+            />
             <ClientNumber
               clientId={client.id}
               phone={client.phone}
@@ -423,6 +462,66 @@ function ClientCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * El vertical de citas se decide al crear el cliente, pero un clic
+ * equivocado ahí no debe quedar sin arreglo: este toggle lo corrige después
+ * sin tener que recrear el cliente.
+ */
+function AppointmentsToggle({
+  clientId,
+  enabled,
+  onChanged,
+}: {
+  clientId: string;
+  enabled: boolean;
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function set(next: boolean) {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/admin/clients/${clientId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ appointmentsEnabled: next }),
+    }).catch(() => null);
+    setSaving(false);
+    if (!res?.ok) {
+      setError("No se pudo actualizar");
+      return;
+    }
+    onChanged();
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-md border bg-muted/30 p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Funcionalidades
+      </p>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={saving}
+          onChange={(e) => void set(e.target.checked)}
+          className="h-4 w-4 accent-primary"
+          aria-describedby={`appointments-toggle-hint-${clientId}`}
+        />
+        Gestiona citas (peluquería, estética, spa…)
+      </label>
+      <p
+        id={`appointments-toggle-hint-${clientId}`}
+        className="text-xs text-muted-foreground"
+      >
+        Enciende o apaga el panel de citas para este cliente sin recrearlo.
+      </p>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
   );
 }
 

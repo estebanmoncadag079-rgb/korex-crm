@@ -10,7 +10,25 @@ import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import { onLeadWon } from "@/server/inbox/lead-activity";
-import { buildAgentSystemPrompt, businessStatus } from "@/server/ai/prompts";
+import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
+import {
+  buscarServicio,
+  esFechaValida,
+  horaAAmPm,
+  normalizarFecha,
+  utcAFechaHoraBogota,
+  type BusinessHours,
+} from "@/server/appointments/logic";
+import {
+  cancelarCita,
+  catalogoParaPrompt,
+  citasActivasDeContacto,
+  crearCita,
+  disponibilidadReal,
+  proximasFechasConCupo,
+  reprogramarCita,
+  resolverEspecialista,
+} from "@/server/appointments/queries";
 import {
   anunciaCierre,
   CORRECCION_DE_CIERRE_FALSO,
@@ -164,9 +182,80 @@ export function textosAlCliente(action: AgentActionType): string[] {
       // "reagendado para mañana" con el negocio abierto llega a la cocina como
       // un pedido que nadie prepara hoy: cuenta igual.
       return [action.summary, ...(action.farewell ? [action.farewell] : [])];
+    case "book_appointment":
+    case "reschedule_appointment":
+    case "cancel_appointment":
+      // La confirmación que ve el cliente la compone el servidor (deterministic,
+      // no puede alucinar un cierre); solo el farewell es texto libre del modelo.
+      return action.farewell ? [action.farewell] : [];
     default:
       return [];
   }
+}
+
+/**
+ * Resuelve una `consult_availability`: valida el servicio y la especialista
+ * pedidos contra el catálogo real, y calcula los horarios reales. Devuelve un
+ * mensaje de sistema en primera persona del servidor — nunca datos inventados,
+ * y nunca algo que vaya a los ojos del cliente directamente.
+ */
+async function resolverConsultaDisponibilidad(
+  organizationId: string,
+  services: CatalogEntry[],
+  hours: BusinessHours,
+  action: Extract<AgentActionType, { action: "consult_availability" }>,
+  now?: Date
+): Promise<string> {
+  const servicio = buscarServicio(services, action.servicio);
+  if (!servicio) {
+    const nombres = services.map((s) => s.name).join(", ") || "(sin servicios configurados)";
+    return `[SISTEMA] No encontré "${action.servicio}" en el catálogo. Servicios reales: ${nombres}. Pregúntale al cliente cuál de estos quiere.`;
+  }
+  const enCatalogo = services.find((s) => s.id === servicio.id);
+  if (!enCatalogo?.staffNames.length) {
+    return `[SISTEMA] "${servicio.name}" no tiene especialista asignado todavía: no se puede agendar. Dile al cliente que ese servicio no está disponible para agendar por ahora.`;
+  }
+
+  const resuelto = await resolverEspecialista(organizationId, servicio.id, action.especialista);
+  if (!resuelto.ok) {
+    return `[SISTEMA] "${action.especialista}" no atiende "${servicio.name}". Quienes SÍ lo atienden: ${resuelto.opciones.join(", ")}. Ofrécele solo esas opciones.`;
+  }
+
+  if (action.fecha) {
+    const fecha = normalizarFecha(action.fecha) ?? action.fecha;
+    if (!esFechaValida(fecha, hours, now)) {
+      return `[SISTEMA] "${fecha}" no es una fecha agendable (ya pasó o el negocio no atiende ese día). Pídele otra fecha.`;
+    }
+    const disp = await disponibilidadReal({
+      organizationId,
+      service: servicio,
+      fecha,
+      staffIdPreferido: resuelto.staffId,
+      hours,
+      now,
+    });
+    const horas = Object.keys(disp).sort();
+    if (!horas.length) {
+      return `[SISTEMA] No hay horarios libres para "${servicio.name}" el ${fecha}. Ofrece otra fecha.`;
+    }
+    const lista = horas.map((h) => horaAAmPm(h)).join(", ");
+    return `[SISTEMA] Horarios REALES disponibles para "${servicio.name}" el ${fecha}: ${lista}. Ofrécele SOLO estas opciones para que el cliente elija.`;
+  }
+
+  const proximas = await proximasFechasConCupo({
+    organizationId,
+    service: servicio,
+    staffIdPreferido: resuelto.staffId,
+    hours,
+    now,
+  });
+  if (!proximas.length) {
+    return `[SISTEMA] No encontré cupos próximos para "${servicio.name}". Dile al cliente que lo confirmas con el equipo.`;
+  }
+  const texto = proximas
+    .map((p) => `${p.fecha}: ${p.horarios.map(horaAAmPm).join(", ")}`)
+    .join(" | ");
+  return `[SISTEMA] Próximas fechas con cupo para "${servicio.name}": ${texto}. Ofrécele elegir día y hora de estas opciones reales.`;
 }
 
 /**
@@ -253,10 +342,19 @@ export async function runAgentTurn(
 
   // El estado se calcula UNA vez y sirve para dos cosas: curar el historial que
   // ve el agente y comprobar después lo que quiere responder.
-  const estado = businessStatus(
-    { open: profile.hoursOpen, close: profile.hoursClose, days: profile.hoursDays },
-    opts?.now
-  );
+  const hours: BusinessHours = {
+    open: profile.hoursOpen,
+    close: profile.hoursClose,
+    days: profile.hoursDays,
+  };
+  const estado = businessStatus(hours, opts?.now);
+
+  // El catálogo de servicios solo se carga (y solo se le ofrece al modelo) si
+  // esta organización tiene el vertical de citas encendido: así el prompt de
+  // La Churra y Lis no crece con acciones que jamás van a usar.
+  const services: CatalogEntry[] = profile.appointmentsEnabled
+    ? await catalogoParaPrompt(organizationId)
+    : [];
 
   const messages: ChatMessage[] = [
     {
@@ -267,6 +365,7 @@ export async function runAgentTurn(
         stages,
         contact: contactRows[0],
         now: opts?.now,
+        appointments: profile.appointmentsEnabled ? { catalog: services } : undefined,
       }),
     },
     ...toChatHistory(history, estado),
@@ -285,6 +384,52 @@ export async function runAgentTurn(
   }
 
   let action: AgentActionType = result.data;
+
+  /**
+   * `consult_availability` es una acción interna: el sistema calcula los
+   * horarios reales y se los devuelve al modelo EN EL MISMO turno (nunca le
+   * llega nada al cliente todavía), igual que el horario de atención — la
+   * disponibilidad la calcula el servidor, no el modelo. Acotado a 2 vueltas
+   * para que una conversación confusa termine en handoff y no en un bucle.
+   */
+  const MAX_CONSULTAS_DISPONIBILIDAD = 2;
+  let consultas = 0;
+  while (
+    action.action === "consult_availability" &&
+    consultas < MAX_CONSULTAS_DISPONIBILIDAD
+  ) {
+    consultas++;
+    const infoDisponibilidad = await resolverConsultaDisponibilidad(
+      organizationId,
+      services,
+      hours,
+      action,
+      opts?.now
+    );
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+    messages.push({ role: "system", content: infoDisponibilidad });
+    const siguiente = await chatJson(AgentAction, messages);
+    await registrarUsoIa(
+      organizationId,
+      siguiente.usage,
+      `conv:${conversationId}/disponibilidad`
+    );
+    if (!siguiente.ok) {
+      if (siguiente.error === "not_configured") return null;
+      console.error(
+        `[agente] fallo del proveedor tras consultar disponibilidad: ${siguiente.detail}`
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+    action = siguiente.data;
+  }
+  if (action.action === "consult_availability") {
+    // Se agotaron los intentos sin llegar a una acción final: mejor una
+    // persona que una promesa de horario sin datos reales detrás.
+    await derivarAUnaPersona(conversation);
+    return { action: "handoff", reason: "error" };
+  }
 
   /**
    * Última barrera antes de hablarle al cliente: con el negocio ABIERTO, ningún
@@ -391,6 +536,167 @@ export async function runAgentTurn(
       }
       // Pedido cerrado = lo toma una persona (coordinar entrega y pago).
       await applyHandoff(conversationId, organizationId, "modelo");
+      return action;
+    }
+    case "book_appointment": {
+      const servicio = buscarServicio(services, action.servicio);
+      if (!servicio) {
+        await deliverReply(
+          conversation,
+          "No identifiqué ese servicio, ¿me confirmas cuál del catálogo quieres agendar?"
+        );
+        return action;
+      }
+      const resuelto = await resolverEspecialista(
+        organizationId,
+        servicio.id,
+        action.especialista
+      );
+      if (!resuelto.ok) {
+        await deliverReply(
+          conversation,
+          `Para "${servicio.name}" atienden: ${resuelto.opciones.join(", ")}. ¿Con quién prefieres?`
+        );
+        return action;
+      }
+      const fecha = normalizarFecha(action.fecha) ?? action.fecha;
+      const resultado = await crearCita({
+        organizationId,
+        contactId: conversation.contactId,
+        service: servicio,
+        fecha,
+        hora: action.hora,
+        staffIdPreferido: resuelto.staffId,
+        hours,
+        now: opts?.now,
+      });
+      if (!resultado.ok) {
+        const msg =
+          resultado.reason === "fuera_de_horario"
+            ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
+            : "Ese horario ya no está disponible. ¿Qué otra hora prefieres?";
+        await deliverReply(conversation, msg);
+        return action;
+      }
+      const confirmacion = `✅ Quedaste agendada: *${servicio.name}* el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`;
+      await appendLeadNote(
+        organizationId,
+        conversation.contactId,
+        `Cita agendada: ${servicio.name} · ${fecha} ${action.hora} · ${resultado.staffName}`
+      );
+      const phoneBook = await contactPhoneOf(conversation.contactId);
+      await notifyTeam({
+        organizationId,
+        summary: `📅 Nueva cita: ${servicio.name} el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
+        customerPhone: phoneBook,
+        isTest: conversation.isTest,
+      });
+      await deliverReply(
+        conversation,
+        action.farewell ? `${confirmacion}\n${action.farewell}` : confirmacion
+      );
+      return action;
+    }
+    case "reschedule_appointment": {
+      const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
+      const candidatos = activas.map((a) => ({
+        id: a.id,
+        name: a.serviceName,
+        category: null,
+        priceCents: 0,
+        durationMin: 0,
+      }));
+      const encontrado = buscarServicio(candidatos, action.servicio);
+      const cita = encontrado ? activas.find((a) => a.id === encontrado.id) : undefined;
+      if (!cita) {
+        await deliverReply(
+          conversation,
+          activas.length
+            ? `No encontré una cita activa tuya para "${action.servicio}". ¿Cuál te gustaría reprogramar?`
+            : "No encontré ninguna cita activa tuya. ¿Quieres que te ayude a agendar una nueva?"
+        );
+        return action;
+      }
+      const servicioRow = services.find((s) => s.id === cita.serviceId);
+      if (!servicioRow) {
+        await deliverReply(conversation, "Ese servicio ya no está en el catálogo; te comunico con el equipo.");
+        return action;
+      }
+      const nuevaFecha = normalizarFecha(action.nuevaFecha) ?? action.nuevaFecha;
+      const resultado = await reprogramarCita({
+        organizationId,
+        appointmentId: cita.id,
+        service: servicioRow,
+        staffId: cita.staffId,
+        nuevaFecha,
+        nuevaHora: action.nuevaHora,
+        hours,
+        now: opts?.now,
+      });
+      if (!resultado.ok) {
+        const msg =
+          resultado.reason === "fuera_de_horario"
+            ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
+            : `Ese horario ya no está disponible con ${cita.staffName}. ¿Qué otra hora prefieres?`;
+        await deliverReply(conversation, msg);
+        return action;
+      }
+      const confirmacion = `✅ Tu cita de *${cita.serviceName}* quedó reprogramada para el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`;
+      await appendLeadNote(
+        organizationId,
+        conversation.contactId,
+        `Cita reprogramada: ${cita.serviceName} → ${nuevaFecha} ${action.nuevaHora}`
+      );
+      const phoneResched = await contactPhoneOf(conversation.contactId);
+      await notifyTeam({
+        organizationId,
+        summary: `🔁 Cita reprogramada: ${cita.serviceName} ahora el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`,
+        customerPhone: phoneResched,
+        isTest: conversation.isTest,
+      });
+      await deliverReply(
+        conversation,
+        action.farewell ? `${confirmacion}\n${action.farewell}` : confirmacion
+      );
+      return action;
+    }
+    case "cancel_appointment": {
+      const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
+      const candidatos = activas.map((a) => ({
+        id: a.id,
+        name: a.serviceName,
+        category: null,
+        priceCents: 0,
+        durationMin: 0,
+      }));
+      const encontrado = buscarServicio(candidatos, action.servicio);
+      const cita = encontrado ? activas.find((a) => a.id === encontrado.id) : undefined;
+      if (!cita) {
+        await deliverReply(
+          conversation,
+          `No encontré una cita activa tuya para "${action.servicio}".`
+        );
+        return action;
+      }
+      await cancelarCita(organizationId, cita.id);
+      const { fecha, hora } = utcAFechaHoraBogota(cita.startsAt);
+      const confirmacion = `Listo, cancelé tu cita de *${cita.serviceName}* del ${fecha} a las ${horaAAmPm(hora)}.`;
+      await appendLeadNote(
+        organizationId,
+        conversation.contactId,
+        `Cita cancelada: ${cita.serviceName} · ${fecha} ${hora}`
+      );
+      const phoneCancel = await contactPhoneOf(conversation.contactId);
+      await notifyTeam({
+        organizationId,
+        summary: `❌ Cita cancelada: ${cita.serviceName} del ${fecha} a las ${horaAAmPm(hora)} (${cita.staffName}).`,
+        customerPhone: phoneCancel,
+        isTest: conversation.isTest,
+      });
+      await deliverReply(
+        conversation,
+        action.farewell ? `${confirmacion}\n${action.farewell}` : confirmacion
+      );
       return action;
     }
   }

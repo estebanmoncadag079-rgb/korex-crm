@@ -18,6 +18,10 @@ const prefixes = {
   testCase: "case",
   usage: "use",
   learning: "lrn",
+  service: "svc",
+  staffMember: "stf",
+  staffService: "ss",
+  appointment: "apt",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

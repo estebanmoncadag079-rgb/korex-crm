@@ -32,6 +32,40 @@ export const AgentAction = z.discriminatedUnion("action", [
     summary: z.string().min(1),
     farewell: z.string().optional(),
   }),
+  /**
+   * Vertical de citas (solo orgs con agent_profile.appointmentsEnabled).
+   *
+   * `consult_availability` es una acción INTERNA: nunca llega al cliente. El
+   * servidor calcula los horarios reales y se los devuelve al modelo dentro
+   * del mismo turno (ver server/ai/pipeline.ts) — igual que el horario de
+   * atención, la disponibilidad la calcula el servidor, jamás el modelo.
+   */
+  z.object({
+    action: z.literal("consult_availability"),
+    servicio: z.string().min(1),
+    fecha: z.string().optional(),
+    especialista: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("book_appointment"),
+    servicio: z.string().min(1),
+    fecha: z.string().min(1),
+    hora: z.string().min(1),
+    especialista: z.string().optional(),
+    farewell: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("reschedule_appointment"),
+    servicio: z.string().min(1),
+    nuevaFecha: z.string().min(1),
+    nuevaHora: z.string().min(1),
+    farewell: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("cancel_appointment"),
+    servicio: z.string().min(1),
+    farewell: z.string().optional(),
+  }),
 ]);
 
 export type AgentActionType = z.infer<typeof AgentAction>;

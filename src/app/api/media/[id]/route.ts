@@ -3,6 +3,7 @@ import { apiError, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import { getYcloudApiKey } from "@/server/whatsapp/credentials";
+import { esOrigenPermitido } from "@/server/whatsapp/media-origen";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,18 @@ export const GET = withAuth(async (session, _req: Request, ctx: Ctx) => {
   const message = rows[0];
   if (!message?.mediaUrl) {
     return apiError(404, "not_found", "Ese mensaje no tiene archivo adjunto");
+  }
+
+  if (!esOrigenPermitido(message.mediaUrl)) {
+    // Se registra: si esto salta, alguien está colando URLs en los eventos.
+    console.warn(
+      `[media] descarga BLOQUEADA a un origen no permitido (mensaje ${id})`
+    );
+    return apiError(
+      400,
+      "invalid",
+      "El archivo apunta a un origen no permitido"
+    );
   }
 
   // El adjunto vive en la cuenta de YCloud por la que entró el mensaje: la del

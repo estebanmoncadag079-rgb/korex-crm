@@ -26,7 +26,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [11-APRENDIZAJE.md](11-APRENDIZAJE.md) | Cómo crece el conocimiento del agente leyendo conversaciones reales |
 | [12-BITACORA-ANTERIOR.md](12-BITACORA-ANTERIOR.md) | Historial de cambios hasta la madrugada del 31 de julio |
 | [13-AUDIO-E-IMAGENES.md](13-AUDIO-E-IMAGENES.md) | Notas de voz y fotos: cómo se convierten a texto y qué se hace con los comprobantes de pago |
-| [14-COTIZAR.md](14-COTIZAR.md) | **Cuánto cobrarle a un cliente**: costo real medido, paquetes por tamaño, qué preguntarle y por qué el precio no sale del costo |
+| [14-COTIZAR.md](14-COTIZAR.md) | **Cuánto cobrarle a un cliente**: costo real medido por mensaje, paquetes por tamaño y por qué el precio no sale del costo |
+| [15-VENDER.md](15-VENDER.md) | Qué preguntarle al cliente antes de dar un precio, cómo se cobra el marketing y los errores que salen caros |
 
 ## Convenciones de esta documentación
 

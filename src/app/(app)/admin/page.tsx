@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { AdminClients } from "@/components/admin/admin-clients";
 import { UsagePanel } from "@/components/admin/usage-panel";
+import { Cotizador } from "@/components/admin/cotizador";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function AdminPage() {
       </header>
       <div className="min-w-0 flex-1 space-y-6 overflow-y-auto p-6">
         <UsagePanel />
+        <Cotizador />
         <AdminClients activeOrganizationId={session.organizationId} />
       </div>
     </div>

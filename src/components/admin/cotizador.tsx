@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import {
   COSTO_PERSONA_MES_COP,
   COSTO_RESPUESTA_IA_USD,
@@ -33,18 +32,8 @@ import {
  * negocio que cierra en 8 y otro que necesita 20 cuestan el doble uno del otro
  * con el mismo número de clientes.
  *
- * Por eso los mensajes por conversación son un campo, no una constante. Y por
- * eso se pueden cargar los promedios REALES de los clientes que ya funcionan,
- * en vez de inventarse el número.
+ * Por eso los mensajes por conversación son un campo, no una constante.
  */
-
-type Promedio = {
-  organizationId: string;
-  nombre: string;
-  conversaciones: number;
-  botPorConversacion: number;
-  personaPorConversacion: number;
-};
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const cop = (n: number) =>
@@ -109,8 +98,6 @@ function Linea(props: { concepto: string; detalle?: string; usd: number; fuerte?
 }
 
 export function Cotizador() {
-  const [promedios, setPromedios] = useState<Promedio[]>([]);
-
   const conversacionesDia = useNumero(30);
   const msgBot = useNumero(8);
   const msgPersona = useNumero(0);
@@ -125,21 +112,6 @@ export function Cotizador() {
   const tarifaMsg = useNumero(TARIFA_MENSAJE_USD);
   const tarifaMkt = useNumero(TARIFA_MARKETING_USD);
   const [avanzado, setAvanzado] = useState(false);
-
-  useEffect(() => {
-    void (async () => {
-      const res = await fetch("/api/admin/promedios").catch(() => null);
-      if (res?.ok) {
-        const j = (await res.json()) as { clientes: Promedio[] };
-        setPromedios(j.clientes);
-      }
-    })();
-  }, []);
-
-  function usarPromedio(p: Promedio) {
-    msgBot.setTexto(p.botPorConversacion.toFixed(1));
-    msgPersona.setTexto(p.personaPorConversacion.toFixed(1));
-  }
 
   const entradas: EntradasCotizacion = useMemo(
     () => ({
@@ -223,36 +195,6 @@ export function Cotizador() {
                 )}
               </div>
             </div>
-
-            {promedios.length > 0 && (
-              <div className="rounded-md border bg-muted/30 p-3">
-                <p className="mb-2 text-xs font-medium">
-                  Usar los números reales de un cliente que ya funciona
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {promedios.map((p) => (
-                    <Button
-                      key={p.organizationId}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-auto py-1.5 text-xs"
-                      onClick={() => usarPromedio(p)}
-                    >
-                      {p.nombre}
-                      <span className="ml-1.5 text-muted-foreground">
-                        {p.botPorConversacion.toFixed(1)} bot ·{" "}
-                        {p.personaPorConversacion.toFixed(1)} persona
-                      </span>
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-                  Medido sobre sus conversaciones reales. Si el cliente nuevo se
-                  parece a alguno, parte de ahí en vez de inventar el número.
-                </p>
-              </div>
-            )}
 
             <div>
               <h4 className="mb-3 text-sm font-medium">Tu operación</h4>

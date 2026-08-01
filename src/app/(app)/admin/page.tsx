@@ -22,9 +22,11 @@ export default async function AdminPage() {
         </p>
       </header>
       <div className="min-w-0 flex-1 space-y-6 overflow-y-auto p-6">
+        {/* Los clientes van primero: es a lo que se entra al abrir el panel.
+            El consumo y el cotizador se consultan de vez en cuando. */}
+        <AdminClients activeOrganizationId={session.organizationId} />
         <UsagePanel />
         <Cotizador />
-        <AdminClients activeOrganizationId={session.organizationId} />
       </div>
     </div>
   );

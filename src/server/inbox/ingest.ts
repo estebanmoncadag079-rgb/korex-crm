@@ -30,22 +30,42 @@ const SUPPORTED_TYPES = new Set([
   "contacts",
 ]);
 
+/**
+ * Un contacto SIEMPRE se identifica por uno de los dos, nunca por ninguno.
+ * `waUserId` cubre a quien usa nombre de usuario de WhatsApp (sin teléfono
+ * expuesto al negocio — función de Meta lanzada en 2026, verificada en vivo
+ * el 2-ago-2026 cuando dos clientes reales llegaron así, en Lis y en La
+ * Churra, y sus mensajes se perdían sin dejar rastro).
+ */
+export type ContactIdentifier = { phone: string | null; waUserId: string | null };
+
 export async function getOrCreateContact(
   organizationId: string,
-  phone: string,
+  identifier: ContactIdentifier,
   name?: string | null
 ) {
+  const { phone, waUserId } = identifier;
+  if (!phone && !waUserId) {
+    throw new Error("getOrCreateContact: hace falta phone o waUserId");
+  }
   const db = getDb();
+  const displayFallback = phone ?? waUserId!;
   const inserted = await db
     .insert(schema.contact)
     .values({
       id: newId("contact"),
       organizationId,
       phone,
-      name: name?.trim() || phone,
+      waUserId,
+      name: name?.trim() || displayFallback,
     })
     .onConflictDoNothing({
-      target: [schema.contact.organizationId, schema.contact.phone],
+      // Sin teléfono, ese índice nunca choca (NULL no colisiona en Postgres):
+      // hay que apuntar al de wa_user_id para no duplicar el contacto en cada
+      // mensaje nuevo de la misma persona.
+      target: phone
+        ? [schema.contact.organizationId, schema.contact.phone]
+        : [schema.contact.organizationId, schema.contact.waUserId],
     })
     .returning();
   if (inserted[0]) return { contact: inserted[0], isNew: true };
@@ -56,7 +76,9 @@ export async function getOrCreateContact(
     .where(
       and(
         eq(schema.contact.organizationId, organizationId),
-        eq(schema.contact.phone, phone)
+        phone
+          ? eq(schema.contact.phone, phone)
+          : eq(schema.contact.waUserId, waUserId!)
       )
     )
     .limit(1);
@@ -147,7 +169,9 @@ export async function processMessagesValue(value: WebhookValue): Promise<void> {
 export async function ingestInboundMessage(
   input: {
     organizationId: string;
-    from: string;
+    /** Uno de los dos siempre está presente (ver `ContactIdentifier`). */
+    from: string | null;
+    waUserId?: string | null;
     profileName: string | null;
     waMessageId: string;
     type: string;
@@ -164,7 +188,7 @@ export async function ingestInboundMessage(
 
   const { contact } = await getOrCreateContact(
     organizationId,
-    input.from,
+    { phone: input.from, waUserId: input.waUserId ?? null },
     input.profileName
   );
   const conversation = await getOrCreateConversation(
@@ -338,7 +362,9 @@ async function mediaATexto(
  */
 export async function ingestOutboundEcho(input: {
   organizationId: string;
-  toPhone: string;
+  /** Uno de los dos siempre está presente (ver `ContactIdentifier`). */
+  toPhone: string | null;
+  toWaUserId?: string | null;
   waMessageId: string;
   type: string;
   text: string | null;
@@ -350,7 +376,10 @@ export async function ingestOutboundEcho(input: {
   const db = getDb();
   const { organizationId } = input;
 
-  const { contact } = await getOrCreateContact(organizationId, input.toPhone);
+  const { contact } = await getOrCreateContact(organizationId, {
+    phone: input.toPhone,
+    waUserId: input.toWaUserId ?? null,
+  });
   const conversation = await getOrCreateConversation(organizationId, contact.id);
   const waTimestamp = toDate(input.timestamp);
 

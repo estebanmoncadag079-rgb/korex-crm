@@ -100,7 +100,18 @@ export async function sendText(input: {
     );
   }
 
-  const to = normalizeRecipient(row.contact.phone);
+  /**
+   * Sin teléfono (cliente con nombre de usuario de WhatsApp), se responde
+   * con su `waUserId` tal cual — YCloud/Meta lo aceptan como destinatario
+   * igual que un teléfono (verificado en la documentación de Meta sobre
+   * Business-Scoped User IDs). Nunca inventar ni pedir un teléfono para esto.
+   */
+  if (!row.contact.phone && !row.contact.waUserId) {
+    throw new SendError("meta_error", "El contacto no tiene teléfono ni identificador de WhatsApp");
+  }
+  const to = row.contact.phone
+    ? normalizeRecipient(row.contact.phone)
+    : row.contact.waUserId!;
   const clientApiKey = ycloudApiKeyOf(credentials);
   let waMessageId: string;
   if (clientApiKey || isYcloudEnabled()) {

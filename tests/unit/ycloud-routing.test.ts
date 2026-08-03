@@ -41,6 +41,7 @@ function inbound(over: Partial<ParsedInbound> = {}): ParsedInbound {
     id: "wamid.1",
     wabaId: "waba_a",
     from: "573046838172",
+    waUserId: null,
     to: "573155136091",
     name: "Cliente",
     type: "text",

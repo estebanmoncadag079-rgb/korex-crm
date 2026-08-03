@@ -73,7 +73,7 @@ export function ConversationList({
     ? conversations.filter(
         (c) =>
           c.contact.name.toLowerCase().includes(q) ||
-          c.contact.phone.includes(q) ||
+          (c.contact.phone?.includes(q) ?? false) ||
           (c.preview ?? "").toLowerCase().includes(q)
       )
     : conversations;

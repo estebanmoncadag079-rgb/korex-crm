@@ -4,7 +4,9 @@
 
 Estado al cierre del **31-jul-2026**. Ordenado por urgencia real, no por
 categoría: lo de arriba puede costar dinero o datos hoy; lo de abajo puede
-esperar semanas.
+esperar semanas. **Continúa en
+[21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md)** — lo de citas y el arreglo de
+nombres de usuario de WhatsApp (BSUID), agosto 2026.
 
 ---
 

@@ -1,11 +1,52 @@
 # Bitácora: qué se cambió y por qué
 
-> **Dentro:** 1-ago-2026 (tarde/noche) — el vertical de citas y el bot que no respondía · 1-ago-2026 (mañana) — cotizador y el celular
+> **Dentro:** 2/3-ago-2026 — nombres de usuario de WhatsApp (BSUID): el bot no respondía · 1-ago-2026 (tarde/noche) — el vertical de citas y el bot que no respondía · 1-ago-2026 (mañana) — cotizador y el celular
 
 Historial de los cambios que llegaron a producción. Lo más reciente arriba.
 Las horas van en **UTC** salvo que diga "Colombia" (UTC−5). Entradas más
 antiguas en [20-BITACORA-31JUL-TARDE-NOCHE.md](20-BITACORA-31JUL-TARDE-NOCHE.md)
 y [12-BITACORA-ANTERIOR.md](12-BITACORA-ANTERIOR.md).
+
+---
+
+## 2/3-ago-2026 — nombres de usuario de WhatsApp (BSUID): otra causa de "el bot no responde"
+
+Michel Vargas (clienta de Lis) le respondió a un Estado del negocio y el
+agente no contestó — el mismo síntoma que Fernando el 31-jul, pero con una
+causa distinta y más de fondo. El log de descarte (agregado esa vez) mostró
+`fromUserId` en vez de `from`: **WhatsApp lanzó "nombres de usuario" en 2026**
+— quien lo activa oculta su teléfono al negocio, y en su lugar YCloud manda un
+identificador estable por negocio (Business-Scoped User ID, formato
+`"CO.xxxx…"`). Se confirmó que afecta **tanto a Lis como a La Churra** por
+igual (no es un problema de un cliente puntual) y, por documentación de Meta,
+que **se puede seguir respondiendo** mandando ese identificador como
+destinatario — no es una vía muerta.
+
+Arreglo completo (guardar el contacto y poder responderle), de punta a punta:
+
+- **Esquema**: `contact.phone` pasa a admitir `NULL` y se agrega
+  `contact.wa_user_id`, con su propio índice único por organización
+  (`contact_org_wa_user_id_uq`) — dos NULL no chocan entre sí en Postgres, así
+  que conviven contactos sin teléfono y contactos sin `wa_user_id` sin
+  problema. Migración aditiva, `0011_nervous_doctor_octopus.sql`.
+- **Webhook de YCloud**: `parseYcloudInbound`/`parseYcloudEcho` aceptan
+  `fromUserId`/`toUserId` como alternativa a `from`/`to` (nunca vienen los
+  dos juntos, verificado con el payload real).
+- **Contacto**: `getOrCreateContact` identifica y evita duplicar por
+  `wa_user_id` cuando no hay teléfono, en vez de inventar uno.
+- **Envío**: `sendText` y el envío de plantillas responden con el
+  `wa_user_id` tal cual cuando no hay teléfono, igual que aceptan un número.
+- **Agente y bandeja**: el prompt no inventa ni pide un teléfono para estos
+  contactos; la UI (bandeja, ficha del contacto) muestra "Sin teléfono
+  (usuario de WhatsApp)" en vez de un valor vacío o `null` a la vista.
+
+`typecheck`, `lint` y las 332 pruebas (42 archivos, incluidas
+`tests/unit/ycloud-username.test.ts` e `tests/unit/ingest-wa-username.test.ts`,
+nuevas para este caso) pasan limpio. **Queda sincronizar a la carpeta de
+EasyPanel y desplegar** — no se puede probar con el Laboratorio (nunca toca
+WhatsApp real) ni hay forma segura de simular un contacto BSUID real; la
+verificación definitiva es la próxima vez que escriba un cliente con nombre
+de usuario activado.
 
 ---
 

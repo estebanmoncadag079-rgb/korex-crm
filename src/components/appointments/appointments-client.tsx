@@ -11,7 +11,7 @@ type Appointment = {
   serviceName: string;
   staffName: string;
   contactName: string | null;
-  contactPhone: string;
+  contactPhone: string | null;
   startsAt: string;
   endsAt: string;
   status: "pendiente" | "confirmada" | "reagendada" | "cancelada" | "completada" | "no_show";

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ChevronLeft, PanelRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import type { ConversationDto, MessageDto } from "@/lib/types";
 import { useEvents } from "@/components/use-events";
@@ -255,7 +255,7 @@ export function InboxClient() {
                   >
                     {selected.windowOpen
                       ? "ventana abierta"
-                      : `+${selected.contact.phone}`}
+                      : formatPhone(selected.contact.phone)}
                   </p>
                 </div>
               </div>

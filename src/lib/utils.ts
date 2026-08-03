@@ -35,6 +35,7 @@ export function avatarColor(seed: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? AVATAR_COLORS[0];
 }
 
-export function formatPhone(phone: string): string {
-  return `+${phone}`;
+/** Null = contacto identificado por nombre de usuario de WhatsApp, sin teléfono visible. */
+export function formatPhone(phone: string | null): string {
+  return phone ? `+${phone}` : "Sin teléfono (usuario de WhatsApp)";
 }

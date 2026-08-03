@@ -614,7 +614,7 @@ export type AppointmentRow = {
   serviceName: string;
   staffName: string;
   contactName: string | null;
-  contactPhone: string;
+  contactPhone: string | null;
   startsAt: Date;
   endsAt: Date;
   status: AppointmentStatus;

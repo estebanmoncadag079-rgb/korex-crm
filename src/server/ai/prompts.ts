@@ -279,11 +279,15 @@ export const CONTRATO_DE_ACCIONES_CITAS = [
  * que escribe — pero no estaba en el prompt, así que el agente lo pedía y, si
  * el cliente no lo repetía, cerraba el pedido con "Teléfono: POR CONFIRMAR".
  */
-function fichaDelContacto(contact?: { name: string | null; phone: string }): string | null {
+function fichaDelContacto(
+  contact?: { name: string | null; phone: string | null }
+): string | null {
   if (!contact) return null;
   return [
     "FICHA DEL CLIENTE (ya la tienes: no la preguntes):",
-    `- Teléfono de WhatsApp: ${contact.phone}`,
+    contact.phone
+      ? `- Teléfono de WhatsApp: ${contact.phone}`
+      : "- Este cliente usa un nombre de usuario de WhatsApp: no tiene teléfono visible, y NO debes inventarle uno ni pedírselo para el resumen (escribe \"sin teléfono\" si hace falta el dato).",
     contact.name ? `- Nombre guardado: ${contact.name}` : null,
     "Úsala para completar el resumen del pedido. Si el cliente te da un nombre distinto durante la charla, vale el que te acaba de dar.",
   ]
@@ -317,7 +321,7 @@ export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
   stages: { name: string }[];
-  contact?: { name: string | null; phone: string };
+  contact?: { name: string | null; phone: string | null };
   now?: Date;
   /** Presente = esta organización tiene el vertical de citas encendido. */
   appointments?: { catalog: CatalogEntry[] };

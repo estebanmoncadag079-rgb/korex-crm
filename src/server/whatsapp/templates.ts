@@ -336,9 +336,16 @@ export async function sendTemplate(input: {
     throw new TemplateError("reconnect_required", "Reconecta el número");
   }
 
+  if (!row.contact.phone && !row.contact.waUserId) {
+    throw new TemplateError("not_found", "El contacto no tiene teléfono ni identificador de WhatsApp");
+  }
+  const to = row.contact.phone
+    ? normalizeRecipient(row.contact.phone)
+    : row.contact.waUserId!;
+
   const waMessageId = await callGraphSend(creds, {
     messaging_product: "whatsapp",
-    to: normalizeRecipient(row.contact.phone),
+    to,
     type: "template",
     template: {
       name: template.name,

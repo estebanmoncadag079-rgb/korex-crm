@@ -42,16 +42,15 @@ export async function handleYcloudEvent(
     console.warn(
       "[ycloud webhook] MENSAJE DESCARTADO: el evento no trae los datos " +
         `mínimos (id=${m?.id ?? "falta"}, wabaId=${m?.wabaId ?? "falta"}, ` +
-        `from=${m?.from ?? "falta"}, type=${m?.type ?? "?"})`
+        `from=${m?.from ?? "falta"}, fromUserId=${m?.fromUserId ?? "falta"}, ` +
+        `type=${m?.type ?? "?"})`
     );
     /**
-     * El paquete completo, aparte del resumen de arriba: verificado en vivo
-     * (1-ago-2026) que responder/reaccionar al Estado del negocio a veces
-     * llega SIN "from" — se descarta sin dejar ni una fila en la base, y
-     * hasta ahora no había forma de saber si el dato real venía en otro
-     * campo. La próxima vez que se repita, este log trae el JSON tal cual
-     * llegó de YCloud para poder escribir el parseo correcto en vez de
-     * adivinar.
+     * El paquete completo, aparte del resumen de arriba: gracias a esto se
+     * encontró la causa real el 2-ago-2026 — clientes con nombre de usuario
+     * de WhatsApp mandan `fromUserId` en vez de `from`, y eso YA se lee
+     * arriba. Si esto se sigue disparando, es un caso todavía más raro (ni
+     * uno ni el otro) y hace falta ver el payload de nuevo.
      */
     console.warn(`[ycloud webhook] evento completo descartado: ${JSON.stringify(event)}`);
     // El mensaje del cliente se pierde sin dejar ni una fila: avisar al
@@ -83,6 +82,7 @@ export async function handleYcloudEvent(
     {
       organizationId: route.organizationId,
       from: msg.from,
+      waUserId: msg.waUserId,
       profileName: msg.name,
       waMessageId: msg.id,
       type: msg.type,
@@ -129,6 +129,7 @@ async function handleEcho(
   await ingestOutboundEcho({
     organizationId: route.organizationId,
     toPhone: echo.customerPhone,
+    toWaUserId: echo.customerWaUserId,
     waMessageId: echo.waMessageId,
     type: echo.type,
     text: echo.text,

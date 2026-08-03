@@ -74,6 +74,12 @@ export type YcloudEvent = {
     wabaId?: string;
     from?: string; // número del negocio
     to?: string; // número del cliente
+    /**
+     * Business-Scoped User ID del cliente cuando usa nombre de usuario de
+     * WhatsApp (sin teléfono expuesto). Verificado en vivo: viene en vez de
+     * `to`, nunca junto a él.
+     */
+    toUserId?: string;
     sendTime?: string;
     createTime?: string;
     type?: string;
@@ -88,8 +94,16 @@ export type YcloudEvent = {
     id?: string;
     wabaId?: string;
     from?: string; // número del cliente (E.164, con +)
+    /**
+     * Business-Scoped User ID (formato "CO.xxxx…"): lo que manda YCloud EN
+     * VEZ de `from` cuando el cliente tiene nombre de usuario de WhatsApp
+     * activado (función lanzada por Meta en 2026, oculta el teléfono a los
+     * negocios). Confirmado con el payload completo en producción el
+     * 2-ago-2026 — nunca vienen los dos juntos.
+     */
+    fromUserId?: string;
     to?: string; // número del negocio
-    customerProfile?: { name?: string };
+    customerProfile?: { name?: string; username?: string };
     sendTime?: string; // ISO 8601
     type?: string; // "text", "image", ...
     text?: { body?: string };
@@ -104,7 +118,9 @@ export type YcloudEvent = {
 export type ParsedInbound = {
   id: string;
   wabaId: string;
-  from: string; // sin "+", consistente con wa_id de Meta
+  /** Uno de los dos SIEMPRE está presente (lo exige `parseYcloudInbound`). */
+  from: string | null; // sin "+", consistente con wa_id de Meta
+  waUserId: string | null;
   to: string;
   name: string | null;
   type: string;
@@ -123,7 +139,9 @@ export type ParsedEcho = {
   waMessageId: string;
   wabaId: string;
   businessPhone: string; // quien lo envió: el número del negocio
-  customerPhone: string; // a quién
+  /** Uno de los dos SIEMPRE está presente. */
+  customerPhone: string | null;
+  customerWaUserId: string | null;
   type: string;
   text: string | null;
   unixTs: string;
@@ -135,7 +153,7 @@ export type ParsedEcho = {
 export function parseYcloudEcho(event: YcloudEvent): ParsedEcho | null {
   const m = event.whatsappMessage;
   const waMessageId = m?.wamid ?? m?.id;
-  if (!m || !waMessageId || !m.to) return null;
+  if (!m || !waMessageId || (!m.to && !m.toUserId)) return null;
 
   const media = m.image ?? m.document ?? m.video ?? m.audio ?? null;
   const text =
@@ -147,7 +165,8 @@ export function parseYcloudEcho(event: YcloudEvent): ParsedEcho | null {
     waMessageId,
     wabaId: m.wabaId ?? "",
     businessPhone: stripPlus(m.from ?? ""),
-    customerPhone: stripPlus(m.to),
+    customerPhone: m.to ? stripPlus(m.to) : null,
+    customerWaUserId: m.to ? null : (m.toUserId ?? null),
     type: m.type ?? "text",
     text,
     unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
@@ -160,13 +179,14 @@ export function parseYcloudEcho(event: YcloudEvent): ParsedEcho | null {
 /** Extrae el mensaje entrante del evento; null si no es procesable. */
 export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
   const m = event.whatsappInboundMessage;
-  if (!m?.id || !m.wabaId || !m.from) return null;
+  if (!m?.id || !m.wabaId || (!m.from && !m.fromUserId)) return null;
   const ms = m.sendTime ? Date.parse(m.sendTime) : Date.now();
   const media = m.image ?? m.document ?? m.video ?? m.audio ?? m.sticker ?? null;
   return {
     id: m.id,
     wabaId: m.wabaId,
-    from: stripPlus(m.from),
+    from: m.from ? stripPlus(m.from) : null,
+    waUserId: m.from ? null : (m.fromUserId ?? null),
     to: stripPlus(m.to ?? ""),
     name: m.customerProfile?.name ?? null,
     type: m.type ?? "text",

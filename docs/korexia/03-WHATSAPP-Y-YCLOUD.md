@@ -1,6 +1,6 @@
 # WhatsApp: cómo entran y salen los mensajes
 
-> **Dentro:** Por qué YCloud y no Meta directo · Cómo entra un mensaje · Cómo sale un mensaje · La ventana de 24 horas (esto define lo que se puede y no se puede hacer) · Coexistencia: el número en el celular y en la API a la vez · Qué se guarda y qué no · Límites del número
+> **Dentro:** Por qué YCloud y no Meta directo · Cómo entra un mensaje · Nombres de usuario de WhatsApp (BSUID): clientes sin teléfono visible · Cómo sale un mensaje · La ventana de 24 horas (esto define lo que se puede y no se puede hacer) · Coexistencia: el número en el celular y en la API a la vez · Qué se guarda y qué no · Límites del número
 
 ## Por qué YCloud y no Meta directo
 
@@ -76,6 +76,22 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 | **404** | No hay secreto guardado → YCloud no puede entregar |
 | **401** | Secreto presente y validando firma → **correcto** |
 | **200** | Procesado (es lo que responde a un evento real y bien firmado) |
+
+## Nombres de usuario de WhatsApp (BSUID): clientes sin teléfono visible
+
+WhatsApp lanzó en 2026 los **nombres de usuario**: quien lo activa oculta su
+teléfono a los negocios. En ese caso el evento **nunca trae `from`/`to`**,
+sino un identificador estable por negocio (Business-Scoped User ID, formato
+`"CO.xxxx…"`) en `fromUserId`/`toUserId`. Confirmado en vivo el 2-ago-2026 con
+clientes reales de Lis y La Churra — antes del arreglo, esos mensajes se
+perdían sin dejar rastro (ver [07-BITACORA.md](07-BITACORA.md)).
+
+- El contacto se guarda **sin teléfono**, identificado por ese `wa_user_id`.
+- **Se le puede seguir respondiendo**: el mismo identificador sirve como
+  destinatario del envío, igual que un número — no hace falta (ni se puede)
+  averiguar su teléfono real.
+- En la bandeja aparece como "Sin teléfono (usuario de WhatsApp)" en vez de
+  un número.
 
 ## Cómo sale un mensaje
 

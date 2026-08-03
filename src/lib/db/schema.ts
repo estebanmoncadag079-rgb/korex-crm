@@ -115,7 +115,22 @@ export const contact = pgTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
-    phone: text("phone").notNull(),
+    /**
+     * Nulo cuando el contacto solo tiene nombre de usuario de WhatsApp (ver
+     * `waUserId`) — verificado en vivo el 2/3-ago-2026: WhatsApp lanzó
+     * "nombres de usuario" en 2026 para que la gente oculte su número a los
+     * negocios; en ese caso el webhook NUNCA manda `from`, solo un
+     * identificador. La app debe seguir funcionando con uno de los dos, no
+     * necesariamente ambos.
+     */
+    phone: text("phone"),
+    /**
+     * Business-Scoped User ID (formato "CO.xxxx…"): el identificador estable
+     * que da WhatsApp cuando el cliente usa nombre de usuario en vez de
+     * exponer su teléfono. Se puede seguir usando para RESPONDERLE (va en el
+     * `to` del envío, igual que un teléfono) — no es una vía muerta.
+     */
+    waUserId: text("wa_user_id"),
     name: text("name").notNull(),
     notes: text("notes"),
     archivedAt: timestamp("archived_at"),
@@ -123,7 +138,10 @@ export const contact = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
+    // NULL no choca consigo mismo en un índice único de Postgres: varios
+    // contactos sin teléfono (o sin wa_user_id) conviven sin problema.
     uniqueIndex("contact_org_phone_uq").on(t.organizationId, t.phone),
+    uniqueIndex("contact_org_wa_user_id_uq").on(t.organizationId, t.waUserId),
     index("contact_org_name_idx").on(t.organizationId, t.name),
   ]
 );

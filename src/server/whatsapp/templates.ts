@@ -363,7 +363,7 @@ export async function sendTemplate(input: {
   } else {
     waMessageId = await callGraphSend(creds, {
       messaging_product: "whatsapp",
-      to,
+      to: to.value,
       type: "template",
       template: {
         name: template.name,

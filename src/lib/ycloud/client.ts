@@ -1,4 +1,15 @@
 import { getEnv } from "@/lib/env";
+import type { RecipientTarget } from "@/lib/meta/client";
+
+/**
+ * `sendDirectly` de YCloud exige exactamente uno de "to" (E.164) o
+ * "recipient" (BSUID) — nunca el BSUID por "to", que YCloud interpreta como
+ * un número de teléfono inválido y rechaza. Ver el comentario de
+ * `RecipientTarget` en @/lib/meta/client.
+ */
+function recipientField(target: RecipientTarget): { to: string } | { recipient: string } {
+  return target.kind === "phone" ? { to: target.value } : { recipient: target.value };
+}
 
 /**
  * Cliente de salida hacia YCloud (WhatsApp Business API oficial).
@@ -22,7 +33,7 @@ export function isYcloudEnabled(): boolean {
  */
 export async function ycloudSendTemplate(input: {
   from: string;
-  to: string;
+  to: RecipientTarget;
   name: string;
   language: string;
   bodyParams: string[];
@@ -34,7 +45,7 @@ export async function ycloudSendTemplate(input: {
   return sendDirectly(
     {
       from: input.from,
-      to: input.to,
+      ...recipientField(input.to),
       type: "template",
       template: {
         name: input.name,
@@ -66,7 +77,7 @@ function resolveApiKey(apiKey?: string | null): string {
 /** Envía un texto libre por WhatsApp vía YCloud (sendDirectly). Devuelve el wamid. */
 export async function ycloudSendText(input: {
   from: string;
-  to: string;
+  to: RecipientTarget;
   text: string;
   apiKey?: string | null;
 }): Promise<string> {
@@ -76,7 +87,7 @@ export async function ycloudSendText(input: {
   return sendDirectly(
     {
       from: input.from,
-      to: input.to,
+      ...recipientField(input.to),
       type: "text",
       text: { body: input.text },
     },

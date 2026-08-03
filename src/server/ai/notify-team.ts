@@ -7,6 +7,7 @@ import {
   ycloudSendTemplate,
 } from "@/lib/ycloud/client";
 import { callGraphSend, ycloudApiKeyOf } from "@/server/inbox/send";
+import type { RecipientTarget } from "@/lib/meta/client";
 import {
   getCredentialsByOrg,
   normalizePhoneNumber,
@@ -116,11 +117,14 @@ export async function notifyTeam(input: {
         // la ventana de 24 h, y dentro de ella también vale. Si la plantilla
         // aún no está aprobada, se cae a texto libre: llegará a quien tenga la
         // ventana abierta en vez de no llegar a nadie.
+        // notify_phones son siempre teléfonos (CSV configurado a mano por el
+        // negocio), nunca un wa_user_id: nunca hace falta el campo `recipient`.
+        const target: RecipientTarget = { kind: "phone", value: to };
         if (template) {
           try {
             await ycloudSendTemplate({
               from,
-              to,
+              to: target,
               name: template,
               language: templateLang,
               bodyParams: [text.replace(/\n/g, " · ")],
@@ -132,10 +136,10 @@ export async function notifyTeam(input: {
                 templateErr instanceof Error ? templateErr.message : "error"
               }): se intenta texto libre`
             );
-            await ycloudSendText({ from, to, text, apiKey });
+            await ycloudSendText({ from, to: target, text, apiKey });
           }
         } else {
-          await ycloudSendText({ from, to, text, apiKey });
+          await ycloudSendText({ from, to: target, text, apiKey });
         }
       } else {
         await callGraphSend(credentials, {

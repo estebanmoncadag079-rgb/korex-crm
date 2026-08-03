@@ -99,7 +99,7 @@ describe("sendTemplate elige proveedor igual que sendText", () => {
 
     expect(ycloudSendTemplate).toHaveBeenCalledTimes(1);
     expect(ycloudSendTemplate.mock.calls[0]![0]).toMatchObject({
-      to: "573001112233",
+      to: { kind: "phone", value: "573001112233" },
       name: "seguimiento",
       language: "es",
       bodyParams: ["María"],

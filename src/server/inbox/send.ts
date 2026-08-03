@@ -113,9 +113,9 @@ export async function sendText(input: {
 
   /**
    * Sin teléfono (cliente con nombre de usuario de WhatsApp), se responde
-   * con su `waUserId` tal cual — YCloud/Meta lo aceptan como destinatario
-   * igual que un teléfono (verificado en la documentación de Meta sobre
-   * Business-Scoped User IDs). Nunca inventar ni pedir un teléfono para esto.
+   * con su `waUserId` — YCloud lo acepta como destinatario, pero en un campo
+   * DISTINTO al de un teléfono (`recipient`, no `to`: ver `RecipientTarget`
+   * en @/lib/meta/client). Nunca inventar ni pedir un teléfono para esto.
    */
   const to = resolveRecipient(row.contact);
   if (!to) {
@@ -141,7 +141,7 @@ export async function sendText(input: {
   } else {
     waMessageId = await callGraphSend(credentials, {
       messaging_product: "whatsapp",
-      to,
+      to: to.value,
       type: "text",
       text: { body: input.text },
     });

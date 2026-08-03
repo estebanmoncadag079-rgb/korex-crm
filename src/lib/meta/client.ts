@@ -100,10 +100,25 @@ export function normalizeRecipient(waId: string): string {
  * contacto no tiene teléfono (nombre de usuario de WhatsApp). `null` si no
  * hay ninguno de los dos — el llamador decide con qué error tipado
  * responder, porque `SendError` y `TemplateError` no comparten código.
+ *
+ * Tipado como discriminated union (no un string plano) porque YCloud exige
+ * mandar cada uno en un campo DISTINTO de `sendDirectly`: `to` solo acepta
+ * E.164, `recipient` es el campo del BSUID. Mandar un `wa_user_id` (formato
+ * "CO.xxxx…") por `to` lo rechaza con "Invalid E.164 phone number" — bug
+ * real confirmado en vivo el 3-ago-2026 en Lis Pastelería: el agente (y
+ * también un humano respondiendo a mano) no podía contestarle a ningún
+ * cliente con nombre de usuario de WhatsApp activado, aunque el mensaje
+ * entrante sí se había guardado bien.
  */
+export type RecipientTarget =
+  | { kind: "phone"; value: string }
+  | { kind: "waUserId"; value: string };
+
 export function resolveRecipient(contact: {
   phone: string | null;
   waUserId: string | null;
-}): string | null {
-  return contact.phone ? normalizeRecipient(contact.phone) : contact.waUserId;
+}): RecipientTarget | null {
+  if (contact.phone) return { kind: "phone", value: normalizeRecipient(contact.phone) };
+  if (contact.waUserId) return { kind: "waUserId", value: contact.waUserId };
+  return null;
 }

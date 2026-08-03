@@ -321,7 +321,10 @@ export async function runAgentTurn(
 
   // Patrón de respaldo ANTES del LLM (FR-022).
   if (lastInbound.text && matchesHandoffIntent(lastInbound.text)) {
-    await applyHandoff(conversationId, organizationId, "cliente");
+    await derivarAUnaPersona(conversation, {
+      reason: "cliente",
+      teamSummary: AVISO_EQUIPO_CLIENTE_PIDIO_ASESOR,
+    });
     return { action: "handoff", reason: "cliente" };
   }
 
@@ -688,17 +691,40 @@ type Conversation = typeof schema.conversation.$inferSelect;
 const AVISO_DE_DERIVACION =
   "Dame un momentico 🙏 Te comunico con una persona del equipo para ayudarte mejor.";
 
+const AVISO_EQUIPO_ERROR =
+  "⚠️ El agente no pudo resolver esta conversación y quedó en manos " +
+  "del equipo. Revisa la bandeja cuanto antes: el cliente está esperando.";
+
+const AVISO_EQUIPO_CLIENTE_PIDIO_ASESOR =
+  "🙋 Un cliente pidió hablar con una persona del equipo. Revisa la " +
+  "bandeja cuanto antes: quedó esperando la confirmación.";
+
 /**
- * Cierra el turno pasando la conversación a una persona, avisando al cliente.
+ * Cierra el turno pasando la conversación a una persona, avisando al cliente
+ * Y al equipo. `reason` distingue en la bandeja/BD por qué fue ("error":
+ * fallo del proveedor o alucinación evitada; "cliente": lo pidió él mismo).
  *
  * Antes solo se marcaba la conversación en la bandeja y el cliente se quedaba
  * esperando en silencio, sin saber si lo habían leído. Marcar sin avisar es
- * cómodo para el sistema y pésimo para quien está del otro lado.
+ * cómodo para el sistema y pésimo para quien está del otro lado — incluido el
+ * caso en que el cliente PIDIÓ explícitamente un asesor (patrón de respaldo
+ * FR-022, que hasta el 3-ago-2026 marcaba el handoff sin decir nada: verificado
+ * en vivo en Lis Pastelería, "me puedes pasar con un asesor?" se quedó sin
+ * ninguna respuesta).
  *
  * El aviso se manda ANTES de marcar el handoff: al marcarlo, la conversación
  * queda en silencio y ya no saldría nada.
  */
-async function derivarAUnaPersona(conversation: Conversation): Promise<void> {
+async function derivarAUnaPersona(
+  conversation: Conversation,
+  opts?: {
+    reason?: "cliente" | "modelo" | "error" | "ventana";
+    teamSummary?: string;
+  }
+): Promise<void> {
+  const reason = opts?.reason ?? "error";
+  const teamSummary = opts?.teamSummary ?? AVISO_EQUIPO_ERROR;
+
   try {
     await deliverReply(conversation, AVISO_DE_DERIVACION);
   } catch (err) {
@@ -706,7 +732,7 @@ async function derivarAUnaPersona(conversation: Conversation): Promise<void> {
     // que quede en la bandeja para que alguien la atienda.
     console.warn("[agente] no se pudo avisar al cliente de la derivación:", err);
   }
-  await applyHandoff(conversation.id, conversation.organizationId, "error");
+  await applyHandoff(conversation.id, conversation.organizationId, reason);
 
   /**
    * Al cliente se le promete "te comunico con una persona" (arriba), pero sin
@@ -718,9 +744,7 @@ async function derivarAUnaPersona(conversation: Conversation): Promise<void> {
     const phone = await contactPhoneOf(conversation.organizationId, conversation.contactId);
     await notifyTeam({
       organizationId: conversation.organizationId,
-      summary:
-        "⚠️ El agente no pudo resolver esta conversación y quedó en manos " +
-        "del equipo. Revisa la bandeja cuanto antes: el cliente está esperando.",
+      summary: teamSummary,
       customerPhone: phone,
       isTest: conversation.isTest,
     });

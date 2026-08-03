@@ -268,6 +268,17 @@ export async function ingestInboundMessage(
   // Modo observación: se ingiere y publica el mensaje, pero NO responde el agente.
   if (opts?.triggerAgent === false) return;
 
+  /**
+   * Sin texto real ni adjunto (reacciones/respuestas a un Estado, ediciones
+   * de WhatsApp, tipos no soportados): el mensaje queda guardado y visible en
+   * el hilo con su marcador (arriba), pero NO dispara al agente. Pasárselo
+   * como si el cliente lo hubiera escrito lo confunde — caso real: el modelo
+   * ejecutó `handoff` sin sentido al ver "[mensaje no compatible: tipo
+   * edit...]" en Lis Pastelería (3-ago-2026), y como Lis no tiene número de
+   * aviso, la clienta quedó esperando sin que nadie se enterara.
+   */
+  if (!texto && !input.mediaUrl) return;
+
   // Conversación en manos de una persona: el agente solo vuelve si el cliente
   // lo pide con "0" o si nadie contestó en horas. Si no, silencio: dos voces
   // respondiendo a la vez es peor que una respuesta lenta.

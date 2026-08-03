@@ -61,6 +61,19 @@ export async function handleYcloudEvent(
     return;
   }
 
+  if (!msg.text && !msg.mediaUrl) {
+    /**
+     * No dispara al agente (ver `ingestInboundMessage`), pero conviene ver el
+     * paquete completo la próxima vez que pase: hoy no se sabe si YCloud manda
+     * el texto real de una edición en otro campo que el parser no está
+     * leyendo (id=${msg.id}, type=${msg.type}).
+     */
+    console.warn(
+      `[ycloud webhook] mensaje sin texto ni adjunto (type=${msg.type}, id=${msg.id}): ` +
+        `no dispara al agente. Evento completo: ${JSON.stringify(event)}`
+    );
+  }
+
   const route = await resolveInboundRoute(msg);
   if (!route) {
     console.warn(

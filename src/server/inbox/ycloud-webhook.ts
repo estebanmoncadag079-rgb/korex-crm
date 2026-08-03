@@ -112,6 +112,16 @@ export type YcloudEvent = {
     video?: YcloudMedia;
     document?: YcloudMedia;
     sticker?: YcloudMedia;
+    /**
+     * Cuando el cliente edita un mensaje de texto reciente, `type` llega
+     * como "edit" y `text` viene vacío — el texto nuevo real viaja aquí.
+     * Confirmado con el payload completo en producción el 3-ago-2026 (Lis
+     * Pastelería): `edit.message.text.body` trae la corrección tal cual.
+     */
+    edit?: {
+      originalMessageId?: string;
+      message?: { type?: string; text?: { body?: string } };
+    };
   };
 };
 
@@ -182,6 +192,13 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
   if (!m?.id || !m.wabaId || (!m.from && !m.fromUserId)) return null;
   const ms = m.sendTime ? Date.parse(m.sendTime) : Date.now();
   const media = m.image ?? m.document ?? m.video ?? m.audio ?? m.sticker ?? null;
+  /**
+   * Edición de un mensaje de texto: el cliente corrigió lo que escribió.
+   * Se trata como un mensaje de texto normal (dispara al agente con el
+   * contenido real) en vez de como un tipo "edit" sin texto — antes de esto
+   * el agente veía un marcador de "no compatible" y podía confundirse.
+   */
+  const editedText = m.type === "edit" ? (m.edit?.message?.text?.body ?? null) : null;
   return {
     id: m.id,
     wabaId: m.wabaId,
@@ -189,9 +206,9 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
     waUserId: m.from ? null : (m.fromUserId ?? null),
     to: stripPlus(m.to ?? ""),
     name: m.customerProfile?.name ?? null,
-    type: m.type ?? "text",
+    type: editedText ? "text" : (m.type ?? "text"),
     // El pie de foto es el texto del mensaje (un comprobante suele traer nota).
-    text: m.text?.body ?? media?.caption ?? media?.filename ?? null,
+    text: m.text?.body ?? editedText ?? media?.caption ?? media?.filename ?? null,
     unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
     mediaUrl: media?.link ?? null,
     mediaId: media?.id ?? null,

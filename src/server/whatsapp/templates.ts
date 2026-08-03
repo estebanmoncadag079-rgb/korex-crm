@@ -1,15 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
-import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
+import { graphRequest, resolveRecipient } from "@/lib/meta/client";
 import { scoped } from "@/lib/db/tenant";
 import { publish } from "@/server/events/bus";
-import {
-  getCredentialsByOrg,
-  getCredentialsByWabaId,
-  markReconnectRequired,
-} from "@/server/whatsapp/credentials";
-import { callGraphSend, SendError } from "@/server/inbox/send";
+import { getCredentialsByOrg, getCredentialsByWabaId } from "@/server/whatsapp/credentials";
+import { translateMetaError } from "@/server/whatsapp/meta-errors";
+import { callGraphSend, SendError, ycloudApiKeyOf } from "@/server/inbox/send";
+import { isYcloudEnabled, ycloudSendTemplate } from "@/lib/ycloud/client";
 import { serializeMessage } from "@/server/inbox/ingest";
 import type { WebhookValue } from "@/server/inbox/webhook";
 
@@ -63,7 +61,11 @@ export function validateBodyVariables(body: string): string | null {
 }
 
 export function renderBody(body: string, variable?: string): string {
-  return body.replace(VARIABLE_REGEX, variable ?? "");
+  // Función, no string: si el valor trae "$1" o "$&" (p. ej. "$1,000 de
+  // descuento"), un string de reemplazo los interpretaría como referencias
+  // de grupo de captura y corrompería el texto guardado/mostrado en el CRM.
+  const value = variable ?? "";
+  return body.replace(VARIABLE_REGEX, () => value);
 }
 
 type TemplateRow = typeof schema.template.$inferSelect;
@@ -128,17 +130,11 @@ export async function createTemplate(
     );
     waTemplateId = res.id ?? null;
   } catch (err) {
-    if (err instanceof MetaApiError) {
-      if (err.isAuthError) {
-        await markReconnectRequired(organizationId);
-        throw new TemplateError("reconnect_required", "El token expiró: reconecta el número");
-      }
-      if (err.status === 0 || err.status >= 500) {
-        throw new TemplateError("meta_unavailable", "Meta no está disponible ahora");
-      }
-      throw new TemplateError("meta_error", err.message);
-    }
-    throw err;
+    throw await translateMetaError(
+      err,
+      organizationId,
+      (code, message) => new TemplateError(code, message)
+    );
   }
 
   const db = getDb();
@@ -204,14 +200,11 @@ export async function syncTemplates(organizationId: string): Promise<number> {
       token: creds.token,
     });
   } catch (err) {
-    if (err instanceof MetaApiError) {
-      if (err.isAuthError) {
-        await markReconnectRequired(organizationId);
-        throw new TemplateError("reconnect_required", "El token expiró: reconecta el número");
-      }
-      throw new TemplateError("meta_unavailable", "No se pudo consultar Meta");
-    }
-    throw err;
+    throw await translateMetaError(
+      err,
+      organizationId,
+      (code, message) => new TemplateError(code, message)
+    );
   }
 
   const db = getDb();
@@ -336,32 +329,55 @@ export async function sendTemplate(input: {
     throw new TemplateError("reconnect_required", "Reconecta el número");
   }
 
-  if (!row.contact.phone && !row.contact.waUserId) {
+  const to = resolveRecipient(row.contact);
+  if (!to) {
     throw new TemplateError("not_found", "El contacto no tiene teléfono ni identificador de WhatsApp");
   }
-  const to = row.contact.phone
-    ? normalizeRecipient(row.contact.phone)
-    : row.contact.waUserId!;
 
-  const waMessageId = await callGraphSend(creds, {
-    messaging_product: "whatsapp",
-    to,
-    type: "template",
-    template: {
-      name: template.name,
-      language: { code: template.language },
-      ...(needsVariable
-        ? {
-            components: [
-              {
-                type: "body",
-                parameters: [{ type: "text", text: input.variable!.trim() }],
-              },
-            ],
-          }
-        : {}),
-    },
-  });
+  /**
+   * Igual que `sendText`: por YCloud si el cliente trajo su propia cuenta o
+   * si la agencia tiene una configurada, por Graph directo si no. Antes esta
+   * función SIEMPRE usaba Graph, así que un cliente en YCloud (La Churra,
+   * Lis) no podía mandar una plantilla cuando la ventana de 24 h estaba
+   * cerrada — fallaba contra Meta con credenciales que no eran suyas.
+   */
+  const clientApiKey = ycloudApiKeyOf(creds);
+  const bodyParams = needsVariable ? [input.variable!.trim()] : [];
+  let waMessageId: string;
+  if (clientApiKey || isYcloudEnabled()) {
+    try {
+      waMessageId = await ycloudSendTemplate({
+        from: creds.displayPhoneNumber ?? "",
+        to,
+        name: template.name,
+        language: template.language,
+        bodyParams,
+        apiKey: clientApiKey,
+      });
+    } catch (err) {
+      throw new TemplateError(
+        "meta_error",
+        err instanceof Error ? err.message : "Error enviando por YCloud"
+      );
+    }
+  } else {
+    waMessageId = await callGraphSend(creds, {
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: template.name,
+        language: { code: template.language },
+        ...(needsVariable
+          ? {
+              components: [
+                { type: "body", parameters: [{ type: "text", text: bodyParams[0]! }] },
+              ],
+            }
+          : {}),
+      },
+    });
+  }
 
   const inserted = await db
     .insert(schema.message)

@@ -9,7 +9,7 @@ import {
 import { describirImagen, transcribirAudio } from "@/server/ai/transcribir";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
-import { onLeadActivity, onLeadReplied } from "@/server/inbox/lead-activity";
+import { avanzarLeadSilencioso, onLeadActivity } from "@/server/inbox/lead-activity";
 import {
   clearHandoff,
   isReturnToAgentPhrase,
@@ -151,6 +151,15 @@ export async function processMessagesValue(value: WebhookValue): Promise<void> {
 
   for (const msg of value.messages ?? []) {
     if (!SUPPORTED_TYPES.has(msg.type)) continue; // reacciones, etc.: ignorar
+    if (!msg.from) {
+      // Meta-directo no propaga hoy un identificador alternativo (waUserId)
+      // como sí hace YCloud: sin `from` no hay dónde guardar el mensaje.
+      // Se descarta con aviso, nunca con una excepción sin capturar.
+      console.warn(
+        `[webhook] MENSAJE DESCARTADO: falta "from" (id=${msg.id}, type=${msg.type})`
+      );
+      continue;
+    }
     const profileName = value.contacts?.find(
       (c) => c.wa_id === msg.from
     )?.profile?.name;
@@ -423,11 +432,7 @@ export async function ingestOutboundEcho(input: {
   // Contestar desde el celular también arranca la conversación en el embudo.
   // Aislado: el eco ya quedó registrado y el relevo humano de abajo es lo que
   // de verdad importa de este webhook.
-  try {
-    await onLeadReplied(organizationId, contact.id);
-  } catch (err) {
-    console.error("[embudo] no se pudo avanzar el lead:", err);
-  }
+  await avanzarLeadSilencioso(organizationId, contact.id);
 
   // Mismo trato que si hubiera escrito desde la bandeja: toma la conversación,
   // salvo que esté devolviéndole el turno al agente.

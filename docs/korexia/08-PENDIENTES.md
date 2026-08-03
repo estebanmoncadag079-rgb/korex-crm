@@ -52,10 +52,9 @@ abiertas. Queda esto, por orden:
 su plugin `twoFactor`. Es lo que de verdad blinda el acceso, más que cambiar la
 contraseña.
 
-**5. Subir a `next@15.5.21`.** La versión instalada arrastra 8 avisos, todos
-corregidos en ese parche. El más relevante necesita cuerpos con codificación
-rara y respuestas cacheadas, y las rutas de API aquí son `force-dynamic`: riesgo
-bajo, arreglo trivial.
+**5. ~~Subir a `next@15.5.21`~~** — ✅ **hecho el 3-ago-2026**, a `15.5.22`
+(corrige, entre otros, un SSRF CVSS 8.3 en Server Actions). Ver
+[10-SEGURIDAD.md](10-SEGURIDAD.md).
 
 **6. ~~Lista blanca de dominios en `/api/media/[id]`~~** — ✅ **hecho el
 31-jul-2026**. Solo se descarga por https desde los hosts de YCloud y Meta,
@@ -66,8 +65,9 @@ plantear el procesamiento de audio e imágenes.
 revisó todo el SQL crudo: siempre interpola columnas o constantes). Actualizar
 por higiene, probando, porque salta varias versiones menores.
 
-**8. `contactPhoneOf()` no usa `scoped()`.** No es explotable —el id viene de una
-conversación ya filtrada— pero rompe la disciplina del resto del código.
+**8. ~~`contactPhoneOf()` no usa `scoped()`~~** — ✅ **hecho el 3-ago-2026**,
+junto con un hallazgo más grave de la misma familia (`clearHandoff`/
+`markHumanTookOver` sin tenant — ver [10-SEGURIDAD.md](10-SEGURIDAD.md)).
 
 **9. Cabeceras de seguridad** (CSP, HSTS, X-Frame-Options) ausentes en
 `next.config.ts`. Probablemente las añade Traefik; conviene verificarlo.

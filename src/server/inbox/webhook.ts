@@ -44,7 +44,16 @@ export function isValidSignature(
 /* ---------- Tipos del payload de Meta (subconjunto soportado) ---------- */
 
 export type WebhookMessage = {
-  from: string;
+  /**
+   * Opcional a propósito: si Meta alguna vez omite el remitente (p. ej. el
+   * mismo caso de nombres de usuario de WhatsApp que ya se ve en YCloud, ver
+   * `ycloud-webhook.ts`), el tipo no debe fingir que siempre está — sin esto,
+   * `processMessagesValue` intentaría crear un contacto sin identificador y
+   * reventaría con una excepción sin capturar en vez de descartar el mensaje
+   * con un aviso. Hoy solo YCloud sirve el tráfico real, así que este camino
+   * está dormido, pero el tipo debe seguir siendo honesto.
+   */
+  from?: string;
   id: string;
   timestamp: string;
   type: string;

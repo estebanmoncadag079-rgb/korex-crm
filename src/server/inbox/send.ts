@@ -1,18 +1,15 @@
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
-import { graphRequest, MetaApiError, normalizeRecipient } from "@/lib/meta/client";
+import { graphRequest, resolveRecipient } from "@/lib/meta/client";
 import { isYcloudEnabled, ycloudSendText } from "@/lib/ycloud/client";
 import { publish } from "@/server/events/bus";
 import { registrarUsoWhatsapp } from "@/server/usage";
-import {
-  getCredentialsByOrg,
-  markReconnectRequired,
-  type Credentials,
-} from "@/server/whatsapp/credentials";
+import { getCredentialsByOrg, type Credentials } from "@/server/whatsapp/credentials";
+import { translateMetaError } from "@/server/whatsapp/meta-errors";
 import { isWindowOpen } from "@/server/inbox/window";
 import { serializeMessage } from "@/server/inbox/ingest";
-import { onLeadReplied } from "@/server/inbox/lead-activity";
+import { avanzarLeadSilencioso } from "@/server/inbox/lead-activity";
 
 /** Error tipado del envío; `code` mapea a HTTP en la capa de API. */
 export class SendError extends Error {
@@ -29,6 +26,20 @@ export class SendError extends Error {
     this.name = "SendError";
     this.code = code;
   }
+}
+
+/** Cómo mapea cada código de `SendError` al status HTTP de la API. */
+const SEND_ERROR_STATUS: Record<SendError["code"], number> = {
+  sandbox_violation: 403,
+  not_connected: 409,
+  reconnect_required: 409,
+  window_closed: 409,
+  meta_error: 422,
+  meta_unavailable: 503,
+};
+
+export function sendErrorStatus(err: SendError): number {
+  return SEND_ERROR_STATUS[err.code];
 }
 
 type SendResult = { messageId: string };
@@ -106,12 +117,10 @@ export async function sendText(input: {
    * igual que un teléfono (verificado en la documentación de Meta sobre
    * Business-Scoped User IDs). Nunca inventar ni pedir un teléfono para esto.
    */
-  if (!row.contact.phone && !row.contact.waUserId) {
+  const to = resolveRecipient(row.contact);
+  if (!to) {
     throw new SendError("meta_error", "El contacto no tiene teléfono ni identificador de WhatsApp");
   }
-  const to = row.contact.phone
-    ? normalizeRecipient(row.contact.phone)
-    : row.contact.waUserId!;
   const clientApiKey = ycloudApiKeyOf(credentials);
   let waMessageId: string;
   if (clientApiKey || isYcloudEnabled()) {
@@ -182,15 +191,11 @@ export async function sendText(input: {
   // El negocio contestó: el lead deja de estar "nuevo" en el embudo. Va tras el
   // envío y aislado a propósito — el mensaje ya salió por WhatsApp y un fallo
   // moviendo una tarjeta jamás puede convertirse en un error de envío.
-  try {
-    if (await onLeadReplied(input.organizationId, row.contact.id)) {
-      publish(input.organizationId, {
-        type: "conversation.updated",
-        data: { conversation: { id: input.conversationId } },
-      });
-    }
-  } catch (err) {
-    console.error("[embudo] no se pudo avanzar el lead:", err);
+  if (await avanzarLeadSilencioso(input.organizationId, row.contact.id)) {
+    publish(input.organizationId, {
+      type: "conversation.updated",
+      data: { conversation: { id: input.conversationId } },
+    });
   }
 
   return { messageId: message.id };
@@ -210,19 +215,10 @@ export async function callGraphSend(
     if (!id) throw new SendError("meta_error", "Meta no devolvió ID de mensaje");
     return id;
   } catch (err) {
-    if (err instanceof MetaApiError) {
-      if (err.isAuthError) {
-        await markReconnectRequired(credentials.organizationId);
-        throw new SendError(
-          "reconnect_required",
-          "El token de WhatsApp expiró: reconecta el número en Configuración"
-        );
-      }
-      if (err.status === 0 || err.status >= 500) {
-        throw new SendError("meta_unavailable", "Meta no está disponible ahora");
-      }
-      throw new SendError("meta_error", err.message);
-    }
-    throw err;
+    throw await translateMetaError(
+      err,
+      credentials.organizationId,
+      (code, message) => new SendError(code, message)
+    );
   }
 }

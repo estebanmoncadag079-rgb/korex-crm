@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
-import { SendError } from "@/server/inbox/send";
+import { SendError, sendErrorStatus } from "@/server/inbox/send";
 import {
   sendTemplate,
   TemplateError,
@@ -34,7 +34,7 @@ export const POST = withAuth(async (session, req: Request, ctx: Params) => {
       return apiError(templateErrorStatus(err), err.code, err.message);
     }
     if (err instanceof SendError) {
-      return apiError(403, err.code, err.message);
+      return apiError(sendErrorStatus(err), err.code, err.message);
     }
     throw err;
   }

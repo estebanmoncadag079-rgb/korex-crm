@@ -1,6 +1,7 @@
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
+import { scoped } from "@/lib/db/tenant";
 
 /**
  * Actividad de lead al recibir un mensaje (US2): si el contacto no tiene lead,
@@ -32,14 +33,14 @@ export async function onLeadActivity(
   const existing = await db
     .select({ id: schema.lead.id })
     .from(schema.lead)
-    .where(eq(schema.lead.contactId, contactId))
+    .where(scoped(schema.lead.organizationId, organizationId, eq(schema.lead.contactId, contactId)))
     .limit(1);
 
   if (existing[0]) {
     await db
       .update(schema.lead)
       .set({ lastActivityAt: at, updatedAt: new Date() })
-      .where(eq(schema.lead.id, existing[0].id));
+      .where(scoped(schema.lead.organizationId, organizationId, eq(schema.lead.id, existing[0].id)));
     return;
   }
 
@@ -209,6 +210,24 @@ export async function onLeadReplied(
     )
     .returning({ id: schema.lead.id });
   return movidos.length > 0;
+}
+
+/**
+ * `onLeadReplied` sin dejar que un fallo ahí tumbe el flujo que lo llama
+ * (enviar un mensaje, registrar un eco) — el negocio ya contestó, eso no
+ * puede perderse por un error moviendo una tarjeta del embudo. Estaba
+ * copiado en `inbox/send.ts` e `inbox/ingest.ts`.
+ */
+export async function avanzarLeadSilencioso(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  try {
+    return await onLeadReplied(organizationId, contactId);
+  } catch (err) {
+    console.error("[embudo] no se pudo avanzar el lead:", err);
+    return false;
+  }
 }
 
 /**

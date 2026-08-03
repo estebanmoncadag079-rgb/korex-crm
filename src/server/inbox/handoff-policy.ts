@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { scoped } from "@/lib/db/tenant";
 import { publish } from "@/server/events/bus";
 
 /**
@@ -134,7 +135,13 @@ export async function clearHandoff(
       aiEnabled: true,
       updatedAt: new Date(),
     })
-    .where(eq(schema.conversation.id, conversationId))
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversationId)
+      )
+    )
     .returning();
   if (!updated[0]) return;
   publish(organizationId, {
@@ -165,7 +172,13 @@ export async function markHumanTookOver(
       handoffReason: "operador",
       updatedAt: new Date(),
     })
-    .where(eq(schema.conversation.id, conversationId))
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversationId)
+      )
+    )
     .returning();
   if (!updated[0]) return;
   publish(organizationId, {

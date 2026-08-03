@@ -27,7 +27,7 @@ export type BoardLead = {
   stageId: string;
   position: number;
   lastActivityAt: string | null;
-  contact: { id: string; name: string; phone: string };
+  contact: { id: string; name: string; phone: string | null };
   conversationId: string | null;
 };
 

@@ -1,6 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
+import { scoped } from "@/lib/db/tenant";
 import { getEnv, isAiConfigured } from "@/lib/env";
 import { chatJson, type ChatMessage } from "@/lib/ai";
 import { publish } from "@/server/events/bus";
@@ -13,6 +14,7 @@ import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
 import {
   buscarServicio,
+  encontrarCitaActiva,
   esFechaValida,
   horaAAmPm,
   normalizarFecha,
@@ -517,7 +519,7 @@ export async function runAgentTurn(
       // Orden deliberado: primero el registro (fuente de verdad), después el
       // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
       // despedida — así un pedido nunca se pierde por un fallo de envío.
-      const phone = await contactPhoneOf(conversation.contactId);
+      const phone = await contactPhoneOf(organizationId, conversation.contactId);
       const result = await notifyTeam({
         organizationId,
         summary: action.summary,
@@ -591,36 +593,19 @@ export async function runAgentTurn(
         await deliverReply(conversation, msg);
         return action;
       }
-      const confirmacion = `✅ Quedaste agendada: *${servicio.name}* el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`;
-      await appendLeadNote(
-        organizationId,
-        conversation.contactId,
-        `Cita agendada: ${servicio.name} · ${fecha} ${action.hora} · ${resultado.staffName}`
-      );
-      const phoneBook = await contactPhoneOf(conversation.contactId);
-      await notifyTeam({
-        organizationId,
-        summary: `📅 Nueva cita: ${servicio.name} el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
-        customerPhone: phoneBook,
-        isTest: conversation.isTest,
-      });
-      await deliverReply(
+      await avisarYConfirmar({
         conversation,
-        action.farewell ? `${confirmacion}\n${action.farewell}` : confirmacion
-      );
+        organizationId,
+        confirmacion: `✅ Quedaste agendada: *${servicio.name}* el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
+        nota: `Cita agendada: ${servicio.name} · ${fecha} ${action.hora} · ${resultado.staffName}`,
+        avisoEquipo: `📅 Nueva cita: ${servicio.name} el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
+        farewell: action.farewell,
+      });
       return action;
     }
     case "reschedule_appointment": {
       const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
-      const candidatos = activas.map((a) => ({
-        id: a.id,
-        name: a.serviceName,
-        category: null,
-        priceCents: 0,
-        durationMin: 0,
-      }));
-      const encontrado = buscarServicio(candidatos, action.servicio);
-      const cita = encontrado ? activas.find((a) => a.id === encontrado.id) : undefined;
+      const cita = encontrarCitaActiva(activas, action.servicio);
       if (!cita) {
         await deliverReply(
           conversation,
@@ -654,36 +639,19 @@ export async function runAgentTurn(
         await deliverReply(conversation, msg);
         return action;
       }
-      const confirmacion = `✅ Tu cita de *${cita.serviceName}* quedó reprogramada para el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`;
-      await appendLeadNote(
-        organizationId,
-        conversation.contactId,
-        `Cita reprogramada: ${cita.serviceName} → ${nuevaFecha} ${action.nuevaHora}`
-      );
-      const phoneResched = await contactPhoneOf(conversation.contactId);
-      await notifyTeam({
-        organizationId,
-        summary: `🔁 Cita reprogramada: ${cita.serviceName} ahora el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`,
-        customerPhone: phoneResched,
-        isTest: conversation.isTest,
-      });
-      await deliverReply(
+      await avisarYConfirmar({
         conversation,
-        action.farewell ? `${confirmacion}\n${action.farewell}` : confirmacion
-      );
+        organizationId,
+        confirmacion: `✅ Tu cita de *${cita.serviceName}* quedó reprogramada para el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`,
+        nota: `Cita reprogramada: ${cita.serviceName} → ${nuevaFecha} ${action.nuevaHora}`,
+        avisoEquipo: `🔁 Cita reprogramada: ${cita.serviceName} ahora el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`,
+        farewell: action.farewell,
+      });
       return action;
     }
     case "cancel_appointment": {
       const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
-      const candidatos = activas.map((a) => ({
-        id: a.id,
-        name: a.serviceName,
-        category: null,
-        priceCents: 0,
-        durationMin: 0,
-      }));
-      const encontrado = buscarServicio(candidatos, action.servicio);
-      const cita = encontrado ? activas.find((a) => a.id === encontrado.id) : undefined;
+      const cita = encontrarCitaActiva(activas, action.servicio);
       if (!cita) {
         await deliverReply(
           conversation,
@@ -693,23 +661,14 @@ export async function runAgentTurn(
       }
       await cancelarCita(organizationId, cita.id);
       const { fecha, hora } = utcAFechaHoraBogota(cita.startsAt);
-      const confirmacion = `Listo, cancelé tu cita de *${cita.serviceName}* del ${fecha} a las ${horaAAmPm(hora)}.`;
-      await appendLeadNote(
-        organizationId,
-        conversation.contactId,
-        `Cita cancelada: ${cita.serviceName} · ${fecha} ${hora}`
-      );
-      const phoneCancel = await contactPhoneOf(conversation.contactId);
-      await notifyTeam({
-        organizationId,
-        summary: `❌ Cita cancelada: ${cita.serviceName} del ${fecha} a las ${horaAAmPm(hora)} (${cita.staffName}).`,
-        customerPhone: phoneCancel,
-        isTest: conversation.isTest,
-      });
-      await deliverReply(
+      await avisarYConfirmar({
         conversation,
-        action.farewell ? `${confirmacion}\n${action.farewell}` : confirmacion
-      );
+        organizationId,
+        confirmacion: `Listo, cancelé tu cita de *${cita.serviceName}* del ${fecha} a las ${horaAAmPm(hora)}.`,
+        nota: `Cita cancelada: ${cita.serviceName} · ${fecha} ${hora}`,
+        avisoEquipo: `❌ Cita cancelada: ${cita.serviceName} del ${fecha} a las ${horaAAmPm(hora)} (${cita.staffName}).`,
+        farewell: action.farewell,
+      });
       return action;
     }
   }
@@ -756,7 +715,7 @@ async function derivarAUnaPersona(conversation: Conversation): Promise<void> {
    * Pastelería, 1-ago-2026). Mismo mecanismo que el aviso de pedidos.
    */
   try {
-    const phone = await contactPhoneOf(conversation.contactId);
+    const phone = await contactPhoneOf(conversation.organizationId, conversation.contactId);
     await notifyTeam({
       organizationId: conversation.organizationId,
       summary:
@@ -826,7 +785,13 @@ export async function applyHandoff(
   const updated = await db
     .update(schema.conversation)
     .set({ handoffAt: new Date(), handoffReason: reason, updatedAt: new Date() })
-    .where(eq(schema.conversation.id, conversationId))
+    .where(
+      scoped(
+        schema.conversation.organizationId,
+        organizationId,
+        eq(schema.conversation.id, conversationId)
+      )
+    )
     .returning();
   if (!updated[0]) return;
   publish(organizationId, {
@@ -846,7 +811,9 @@ async function moveLeadToStage(
   await db
     .update(schema.lead)
     .set({ stageId, updatedAt: new Date(), lastActivityAt: new Date() })
-    .where(eq(schema.lead.contactId, contactId));
+    .where(
+      scoped(schema.lead.organizationId, organizationId, eq(schema.lead.contactId, contactId))
+    );
 }
 
 async function appendLeadNote(
@@ -858,7 +825,9 @@ async function appendLeadNote(
   const rows = await db
     .select({ id: schema.contact.id, notes: schema.contact.notes })
     .from(schema.contact)
-    .where(eq(schema.contact.id, contactId))
+    .where(
+      scoped(schema.contact.organizationId, organizationId, eq(schema.contact.id, contactId))
+    )
     .limit(1);
   const contact = rows[0];
   if (!contact) return;
@@ -869,5 +838,35 @@ async function appendLeadNote(
       notes: contact.notes ? `${contact.notes}\n${stamped}` : stamped,
       updatedAt: new Date(),
     })
-    .where(eq(schema.contact.id, contact.id));
+    .where(
+      scoped(schema.contact.organizationId, organizationId, eq(schema.contact.id, contact.id))
+    );
+}
+
+/**
+ * Patrón compartido por agendar/reprogramar/cancelar una cita: anotar el
+ * lead, avisar al equipo por WhatsApp con el enlace del cliente, y confirmar
+ * al cliente (con la despedida del modelo si trajo una). Estaba copiado tres
+ * veces con solo los textos cambiando.
+ */
+async function avisarYConfirmar(params: {
+  conversation: Conversation;
+  organizationId: string;
+  confirmacion: string;
+  nota: string;
+  avisoEquipo: string;
+  farewell?: string;
+}): Promise<void> {
+  await appendLeadNote(params.organizationId, params.conversation.contactId, params.nota);
+  const phone = await contactPhoneOf(params.organizationId, params.conversation.contactId);
+  await notifyTeam({
+    organizationId: params.organizationId,
+    summary: params.avisoEquipo,
+    customerPhone: phone,
+    isTest: params.conversation.isTest,
+  });
+  await deliverReply(
+    params.conversation,
+    params.farewell ? `${params.confirmacion}\n${params.farewell}` : params.confirmacion
+  );
 }

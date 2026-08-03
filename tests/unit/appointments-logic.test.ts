@@ -12,6 +12,7 @@ import {
   buscarServicio,
   calcularDisponibilidad,
   diaDeSemana,
+  encontrarCitaActiva,
   esFechaValida,
   esHoy,
   horaAAmPm,
@@ -50,6 +51,25 @@ describe("buscarServicio (catálogo por nombre parafraseado)", () => {
 
   it("con el catálogo vacío, nunca encuentra nada", () => {
     expect(buscarServicio([], "semipermanente")).toBeNull();
+  });
+});
+
+describe("encontrarCitaActiva (mismo emparejamiento, sobre citas activas)", () => {
+  const ACTIVAS = [
+    { id: "cit_1", serviceName: "Semipermanente" },
+    { id: "cit_2", serviceName: "Volumen Ruso" },
+  ];
+
+  it("encuentra por nombre parafraseado, igual que buscarServicio", () => {
+    expect(encontrarCitaActiva(ACTIVAS, "volumen rúso")?.id).toBe("cit_2");
+  });
+
+  it("sin match razonable, no inventa una cita", () => {
+    expect(encontrarCitaActiva(ACTIVAS, "corte de cabello")).toBeUndefined();
+  });
+
+  it("sin citas activas, nunca encuentra nada", () => {
+    expect(encontrarCitaActiva([], "semipermanente")).toBeUndefined();
   });
 });
 

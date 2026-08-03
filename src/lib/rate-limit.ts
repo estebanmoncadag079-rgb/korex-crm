@@ -44,3 +44,24 @@ export function resetRateLimit(): void {
 
 /** 10 intentos / 10 minutos por IP en login y registro (FR-062). */
 export const AUTH_RATE_LIMIT = { windowMs: 10 * 60 * 1000, max: 10 };
+
+/**
+ * IP real del cliente a partir de las cabeceras que pone el proxy (Traefik).
+ *
+ * `X-Forwarded-For` es una lista que cualquiera puede iniciar con lo que
+ * quiera; el proxy solo AÑADE la IP real al final, nunca la garantiza al
+ * principio. Tomar el primer valor deja rotar el header en cada intento y
+ * el rate-limit nunca se dispara (verificado: bastaba con mandar un
+ * `X-Forwarded-For` distinto en cada petición). `X-Real-Ip` (que sí pone el
+ * proxy) y, si falta, el ÚLTIMO salto de XFF son los que de verdad reflejan
+ * quién habló con el servidor.
+ */
+export function clientIpFrom(headers: {
+  get(name: string): string | null | undefined;
+}): string {
+  return (
+    headers.get("x-real-ip")?.trim() ||
+    headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
+    "local"
+  );
+}

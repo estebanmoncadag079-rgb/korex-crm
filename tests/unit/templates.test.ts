@@ -39,4 +39,15 @@ describe("renderBody", () => {
   it("sin valor → variable vacía", () => {
     expect(renderBody("Hola {{1}}!")).toBe("Hola !");
   });
+
+  it("un valor con '$' no se interpreta como referencia de grupo", () => {
+    // Antes: body.replace(REGEX, variable) trataba "$1" dentro del valor
+    // como el grupo capturado por VARIABLE_REGEX, no como texto literal.
+    expect(renderBody("Descuento: {{1}}", "$1,000 de descuento")).toBe(
+      "Descuento: $1,000 de descuento"
+    );
+    expect(renderBody("Promo: {{1}}", "2x1 y $&aún más")).toBe(
+      "Promo: 2x1 y $&aún más"
+    );
+  });
 });

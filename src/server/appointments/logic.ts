@@ -103,6 +103,26 @@ export function buscarServicio(
   return mejor.srv;
 }
 
+/**
+ * Igual que `buscarServicio`, pero sobre las citas activas de un contacto
+ * (para reprogramar/cancelar "la de peluquería" sin decir el nombre exacto).
+ * Genérica sobre `T` para no acoplarse al tipo `CitaActiva` de las queries.
+ */
+export function encontrarCitaActiva<T extends { id: string; serviceName: string }>(
+  activas: T[],
+  servicioTexto: string
+): T | undefined {
+  const candidatos: ServiceRow[] = activas.map((a) => ({
+    id: a.id,
+    name: a.serviceName,
+    category: null,
+    priceCents: 0,
+    durationMin: 0,
+  }));
+  const encontrado = buscarServicio(candidatos, servicioTexto);
+  return encontrado ? activas.find((a) => a.id === encontrado.id) : undefined;
+}
+
 // ─── fechas y horas ──────────────────────────────────────────────────────
 
 export function horaAMin(hhmm: string): number {

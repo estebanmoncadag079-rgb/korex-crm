@@ -94,3 +94,16 @@ export function normalizeRecipient(waId: string): string {
   }
   return waId;
 }
+
+/**
+ * A quién se envía: el teléfono normalizado, o el `wa_user_id` si el
+ * contacto no tiene teléfono (nombre de usuario de WhatsApp). `null` si no
+ * hay ninguno de los dos — el llamador decide con qué error tipado
+ * responder, porque `SendError` y `TemplateError` no comparten código.
+ */
+export function resolveRecipient(contact: {
+  phone: string | null;
+  waUserId: string | null;
+}): string | null {
+  return contact.phone ? normalizeRecipient(contact.phone) : contact.waUserId;
+}

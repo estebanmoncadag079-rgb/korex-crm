@@ -1,6 +1,6 @@
-# Seguridad: auditoría del 31-jul-2026
+# Seguridad: auditoría del 31-jul-2026 (con una ronda más el 3-ago-2026)
 
-> **Dentro:** Resumen · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Pendiente, sin urgencia · Lo que está bien hecho
+> **Dentro:** Resumen · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
 
 Auditoría completa del código, el historial de git y las dependencias
 (gitleaks + osv-scanner), con cada hallazgo verificado a mano contra este
@@ -78,12 +78,52 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 # 401 = correcto (rechaza lo no firmado)   ·   200 = expuesto
 ```
 
+## ✅ Corregido (3-ago-2026): un cliente podía silenciar/reactivar el agente de otro
+
+`clearHandoff`/`markHumanTookOver` (`inbox/handoff-policy.ts`) filtraban el
+`UPDATE` solo por `conversation.id`, sin exigir `organization_id` — la única
+excepción a la disciplina de `scoped()` que sostiene el resto del código
+(`updateConversation` sí lo hacía bien, al lado).
+
+**Cadena verificada**: alguien de la organización A manda un mensaje a
+`POST /api/conversations/{id_de_B}/messages` con el ID de una conversación de
+B (hace falta conocerlo — nanoid de 20 caracteres, no es adivinable ni se
+expone entre clientes por ningún endpoint). Con texto normal, deja mudo al
+agente de B (`markHumanTookOver` escribe antes de que `sendText` rechace por
+organización); con el atajo `#bot`, reactiva un agente que un operador de B
+tenía apagado a propósito. Ningún dato cruza — `sendText` sí valida la
+organización antes de enviar — pero la escritura del handoff ya había
+ocurrido.
+
+**Arreglado**: `scoped()` en ambas funciones. Se aprovechó para endurecer con
+el mismo criterio: `applyHandoff` (mismo archivo, `ai/pipeline.ts`),
+`moveLeadToStage`, `appendLeadNote`, `contactPhoneOf()` (pendiente #4 de
+abajo) y `onLeadActivity` (`inbox/lead-activity.ts`, encontrado en la misma
+pasada). Ninguno era explotable en la práctica hoy —los IDs son únicos
+globalmente entre organizaciones—, pero todos rompían la disciplina que el
+resto del código sostiene.
+
+## ✅ Corregido (3-ago-2026): el rate-limit del login se evadía falsificando la IP
+
+`lib/auth/index.ts` tomaba el **primer** valor de `X-Forwarded-For`, que
+controla quien hace la petición — el proxy (Traefik) solo AÑADE la IP real al
+final, nunca la garantiza al principio. Rotando ese header en cada intento,
+cada petición caía en una clave distinta del limitador y el tope de 10/10 min
+nunca se disparaba: fuerza bruta ilimitada contra `/sign-in/email`, justo
+cuando **no hay 2FA** y la contraseña del superadmin sigue expuesta (ver
+arriba).
+
+**Arreglado**: se prioriza `X-Real-Ip` (lo pone el proxy) y, si falta, el
+**último** salto de XFF. Extraído a `clientIpFrom()` en `lib/rate-limit.ts`
+para poder probarlo sin levantar better-auth — antes esta lógica vivía
+enterrada en el hook y no tenía ninguna prueba.
+
 ## 🟡 Pendiente, sin urgencia
 
-**1. Subir a `next@15.5.21`.** La versión instalada tiene 8 advisories, todos
-corregidos en ese parche. El más relevante para App Router necesita cuerpos con
-codificación rara y respuestas cacheadas, y las rutas de API aquí son
-`force-dynamic`. Riesgo real bajo, arreglo trivial.
+**1. ~~Subir a `next@15.5.21`~~** — ✅ **hecho el 3-ago-2026**, a `15.5.22`
+(la versión instalada tenía 8 advisories corregidos ahí, incluido un SSRF
+CVSS 8.3 en Server Actions — `GHSA-89xv-2m56-2m9x`). Verificado con
+`pnpm build` completo tras el salto.
 
 **2. ~~Lista blanca de dominios en `/api/media/[id]`~~** — ✅ **corregido el
 31-jul-2026**. Solo https y los hosts de YCloud/Meta, comparando el host
@@ -95,10 +135,12 @@ internas y los esquemas `file://` y `javascript:`.
 del usuario en la construcción de **identificadores** SQL. Se revisó todo el
 SQL crudo del proyecto: siempre interpola columnas de Drizzle o constantes, y
 la búsqueda usa valores parametrizados. **No hay ruta explotable aquí.**
-Actualizar por higiene, probando (salta varias versiones menores).
+Actualizar por higiene, probando (salta varias versiones menores). Reconfirmado
+el 3-ago-2026 con `osv-scanner`.
 
-**4. `contactPhoneOf()` no usa `scoped()`.** No es explotable —el id viene de
-una conversación ya filtrada— pero rompe la disciplina del resto del código.
+**4. ~~`contactPhoneOf()` no usa `scoped()`~~** — ✅ **corregido el 3-ago-2026**,
+junto con el resto de escrituras/lecturas sin tenant explícito de la misma
+pasada (ver arriba).
 
 **5. Cabeceras de seguridad** (CSP, HSTS, X-Frame-Options) no están en
 `next.config.ts`. Probablemente las añade Traefik; conviene verificarlo.

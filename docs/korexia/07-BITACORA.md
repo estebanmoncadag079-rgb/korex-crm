@@ -1,11 +1,30 @@
 # Bitácora: qué se cambió y por qué
 
-> **Dentro:** 2/3-ago-2026 — nombres de usuario de WhatsApp (BSUID): el bot no respondía · 1-ago-2026 (tarde/noche) — el vertical de citas y el bot que no respondía · 1-ago-2026 (mañana) — cotizador y el celular
+> **Dentro:** 3-ago-2026 — auditoría con 3 agentes (seguridad, refactor, código) · 2/3-ago-2026 — nombres de usuario de WhatsApp (BSUID): el bot no respondía · 1-ago-2026 (tarde/noche) — el vertical de citas y el bot que no respondía
 
 Historial de los cambios que llegaron a producción. Lo más reciente arriba.
 Las horas van en **UTC** salvo que diga "Colombia" (UTC−5). Entradas más
 antiguas en [20-BITACORA-31JUL-TARDE-NOCHE.md](20-BITACORA-31JUL-TARDE-NOCHE.md)
 y [12-BITACORA-ANTERIOR.md](12-BITACORA-ANTERIOR.md).
+
+---
+
+## 3-ago-2026 — auditoría con 3 agentes: seguridad, refactorización y código
+
+Tres agentes en paralelo revisaron todo el proyecto en modo solo-reporte;
+después se aplicó todo lo que valía la pena. Detalle completo en
+[22-AUDITORIA-3AGO.md](22-AUDITORIA-3AGO.md) y en
+[10-SEGURIDAD.md](10-SEGURIDAD.md) (la parte de seguridad).
+
+Lo más importante: un cliente podía **silenciar o reactivar el agente de
+otro** (escritura sin `scoped()` en `clearHandoff`/`markHumanTookOver`), y el
+**rate-limit del login se evadía** falsificando `X-Forwarded-For` — grave
+porque no hay 2FA y la contraseña del superadmin sigue expuesta. Ambos
+corregidos. También: `sendTemplate` **no funcionaba** para La Churra ni Lis
+(usaba Meta directo en vez de YCloud), una variable de plantilla con `$`
+corrompía el texto guardado, y Next.js subió a 15.5.22 (corrige un SSRF
+CVSS 8.3). El resto fue deduplicación sin cambiar comportamiento. 347 pruebas
+(44 archivos, 15 nuevas), `typecheck`, `lint` y `build` en verde.
 
 ---
 
@@ -146,48 +165,5 @@ desplegar y volver a correr `pnpm probar:citas` completo (agendar,
 reprogramar, cancelar) para confirmar que el bug de la fecha equivocada
 (domingo) no reaparece.
 
----
-
-## 1-ago-2026 (mañana) — cotizador, y la aplicación en el celular
-
-### El costo lo mandan los mensajes, no las conversaciones
-
-La tabla de precios cobraba "por conversación" como si todos los negocios
-cerraran igual. No lo hacen: **La Churra manda 6,7 mensajes por conversación y
-Lis 8,3**, y un negocio que necesitara 20 costaría más del doble.
-
-Hay **cotizador en `/admin`** con esa variable como campo. El modelo sale de
-medir, no de estimar: **0,0020 USD por respuesta** del agente, con las 38
-llamadas registradas dando 0,00197 en La Churra y 0,00202 en Lis. Coinciden
-porque lo que domina es el prompt del sistema, que se manda entero en cada turno.
-
-Efecto incómodo: el margen real de los planes baja del 87 al **79 %**. La cifra
-anterior salía del costo medio de hoy, donde el bot solo responde unas 3 veces
-por conversación y el resto lo atiende una persona. Ver
-[14-COTIZAR.md](14-COTIZAR.md) y [15-VENDER.md](15-VENDER.md).
-
-### Fotos: se transcriben, no se resumen
-
-Un pedido escrito a mano acababa como "[IMAGEN] Hoja con un pedido escrito a
-mano". Ahora son tres casos —comprobante, texto e imagen— y el texto se copia
-entero. Los productos se describen por lo que los distingue (capas, envase,
-toppings) para que el agente los empareje con su catálogo.
-[13-AUDIO-E-IMAGENES.md](13-AUDIO-E-IMAGENES.md).
-
-### La aplicación se puede usar desde un celular
-
-Estaba construida **solo para escritorio**. En un teléfono el menú ocupaba media
-pantalla y el resto se salía por el borde. 27 archivos, solo presentación —ni un
-fichero de `src/server`, `src/lib` o `src/app/api`—, y dos bugs de verdad por el
-camino: en Safari de iOS **no se podía contestar un mensaje**, y en el embudo las
-tarjetas **cambiaban de etapa al deslizar** la lista. [18-MOVIL.md](18-MOVIL.md).
-
-### Tres despliegues que no llegaron a producción
-
-Se construyó con la etiqueta `korex-crm:latest` en vez de
-`easypanel/korex-crm/crm:latest`. Cada build terminó bien, cada reinicio dijo
-`converged` y la web respondía 200 — mientras se construía **una imagen que no
-usa nadie**. Además la carpeta de la que construye EasyPanel se quedó sin
-sincronizar, así que el siguiente Desplegar habría revertido tres
-funcionalidades. Corregido y documentado en
-[02-INFRAESTRUCTURA.md](02-INFRAESTRUCTURA.md).
+Entradas del 1-ago-2026 (mañana) — cotizador y el celular — en
+[20-BITACORA-31JUL-TARDE-NOCHE.md](20-BITACORA-31JUL-TARDE-NOCHE.md).

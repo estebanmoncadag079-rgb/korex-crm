@@ -6,7 +6,7 @@ import {
   marcarCitaRecordada,
 } from "@/server/appointments/queries";
 import { getOrCreateConversation } from "@/server/inbox/ingest";
-import { SendError, sendText } from "@/server/inbox/send";
+import { SendError, sendErrorStatus, sendText } from "@/server/inbox/send";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +56,7 @@ export const POST = withAuth(async (session, _req: Request, ctx: Params) => {
         err.code === "window_closed"
           ? "El cliente no le ha escrito al negocio en las últimas 24 horas: WhatsApp no deja mandarle texto libre. Pídele que escriba algo primero, o contáctalo tú directamente."
           : err.message;
-      return apiError(422, err.code, message);
+      return apiError(sendErrorStatus(err), err.code, message);
     }
     throw err;
   }

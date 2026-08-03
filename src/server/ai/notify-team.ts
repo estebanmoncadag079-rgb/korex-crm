@@ -168,12 +168,15 @@ export async function notifyTeam(input: {
 }
 
 /** Teléfono del contacto de una conversación (para el enlace del aviso). */
-export async function contactPhoneOf(contactId: string): Promise<string | null> {
+export async function contactPhoneOf(
+  organizationId: string,
+  contactId: string
+): Promise<string | null> {
   const db = getDb();
   const rows = await db
     .select({ phone: schema.contact.phone })
     .from(schema.contact)
-    .where(eq(schema.contact.id, contactId))
+    .where(scoped(schema.contact.organizationId, organizationId, eq(schema.contact.id, contactId)))
     .limit(1);
   return rows[0]?.phone ?? null;
 }

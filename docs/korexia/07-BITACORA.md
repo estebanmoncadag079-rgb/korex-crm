@@ -26,6 +26,17 @@ corrompía el texto guardado, y Next.js subió a 15.5.22 (corrige un SSRF
 CVSS 8.3). El resto fue deduplicación sin cambiar comportamiento. 347 pruebas
 (44 archivos, 15 nuevas), `typecheck`, `lint` y `build` en verde.
 
+**Desplegado y verificado el mismo día**: el dueño desplegó desde EasyPanel
+(esto, más las dos tandas anteriores — citas y BSUID — que seguían sin
+confirmar). Verificación real, no solo "converged": contenedor nuevo creado
+después de la sincronización, `[migrate] migraciones aplicadas` en el log de
+arranque, columna `wa_user_id` presente en la tabla `contact` de producción,
+y el bundle compilado contiene `avanzarLeadSilencioso` (código de hoy). Se
+corrió además `pnpm probar:citas` **directamente en el contenedor real**
+contra `org_novxv78s08h12arzatr2`: ciclo agendar → reprogramar → cancelar
+completo, sin duplicar ni confirmar en falso — detalle en
+[19-CITAS.md](19-CITAS.md).
+
 ---
 
 ## 2/3-ago-2026 — nombres de usuario de WhatsApp (BSUID): otra causa de "el bot no responde"

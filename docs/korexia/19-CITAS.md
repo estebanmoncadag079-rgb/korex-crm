@@ -131,18 +131,31 @@ cliente en `/admin` y correr el Laboratorio ahí.
 
 ## Lo que falta
 
-- ⚠️ **Confirmar que el último despliegue incluye hasta el commit
-  `6a8c213`** (recordatorio manual). Al cierre de la sesión del 1-ago quedaban
-  sincronizados en la carpeta de EasyPanel pero sin confirmar desplegados:
-  el arreglo de "confirmó sin agendar" (`2943382`), el Laboratorio
-  (`7a5c1ed`) y el recordatorio (`6a8c213`). Verificar con el mismo método de
-  siempre: grep de un texto nuevo dentro del contenedor que corre
-  (`02-INFRAESTRUCTURA.md`), no basta con "converged".
-- ⚠️ **Volver a correr `pnpm probar:citas` completo** (agendar → reprogramar →
-  cancelar) contra `org_novxv78s08h12arzatr2` ("Peluqueria Demo (prueba)")
-  después de ese despliegue, para confirmar que el bug de "confirmó sin
-  agendar" (que agendaba en domingo, día cerrado) no reaparece. La última
-  corrida completa fue ANTES del arreglo.
+- ✅ **Despliegue confirmado (3-ago-2026)**: los commits de citas
+  (`2943382`, `7a5c1ed`, `6a8c213`), el arreglo de nombres de usuario de
+  WhatsApp y la auditoría del mismo día están **todos en vivo** — verificado
+  con grep dentro del contenedor real (no solo "converged") y consultando la
+  base de datos de producción directamente.
+- ✅ **`pnpm probar:citas` corrido contra producción tras el despliegue**
+  (3-ago-2026), directamente dentro del contenedor real con
+  `org_novxv78s08h12arzatr2`: ciclo completo **agendar → reprogramar →
+  cancelar** en la misma conversación, con confirmación explícita del
+  cliente en cada paso. El bug de "confirmó sin agendar" **no reapareció**
+  — al contrario, el agente rechazó correctamente reservar dos veces el
+  mismo horario ("Ese horario ya no está disponible") en vez de duplicarlo.
+  Verificado también en la tabla `appointment`: la cita reprogramada quedó
+  con `status='cancelada'` tras el ciclo.
+- **Detalle de comportamiento observado, no un bug**: sin una confirmación
+  explícita del cliente ("sí, resérvalo"), el modelo a veces prefiere
+  preguntar antes de llamar a `book_appointment` en vez de agendar directo
+  — es justo el comportamiento que se buscaba con la regla dura de "no
+  confirmar sin ejecutar". Y con fechas en lenguaje natural ambiguo ("el
+  miércoles", "mañana en la tarde") el modelo a veces responde que no hay
+  disponibilidad cuando sí la hay, mientras que con una fecha ISO explícita
+  (`2026-08-07 a las 15:00`) siempre acierta — variabilidad propia del
+  modelo al interpretar fechas relativas, no del motor de disponibilidad
+  (que sí calcula bien: lo prueba que ofrezca alternativas reales cuando de
+  verdad no hay cupo).
 - **No se portó la reprogramación en cascada** de Valentina (correr toda la
   agenda de una especialista X minutos): es una herramienta de administración
   del negocio, no algo que un cliente pida por chat. Si hace falta, es

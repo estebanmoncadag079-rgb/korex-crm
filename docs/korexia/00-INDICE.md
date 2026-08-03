@@ -84,9 +84,14 @@ contenedor, una base de datos, y dentro cada cliente vive aislado en su propia
 lo que es propio de cada uno son solo sus datos: su prompt, su conocimiento,
 su horario, su marca, su número y sus teléfonos de aviso.
 
-**Estado a 1-ago-2026**: dos clientes en producción (La Churra y Lis
-Pastelería, ambos con agente encendido) más la organización de la agencia.
-**Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** si retomas el proyecto: ahí
+**Estado a 3-ago-2026**: dos clientes en producción (La Churra y Lis
+Pastelería, ambos con agente encendido) más la organización de la agencia y
+una organización de prueba para el vertical de citas. Todos los cambios
+hechos hasta hoy (BSUID, citas, la auditoría de seguridad/refactor) están
+**desplegados y verificados en producción** — nada pendiente de desplegar
+al cierre de esta sesión.
+**Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** (y su continuación
+[21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md)) si retomas el proyecto: ahí
 está lo urgente ordenado por riesgo real. WhatsApp por la API oficial de
 Meta a través de YCloud. Todo corre en un VPS con EasyPanel.
 

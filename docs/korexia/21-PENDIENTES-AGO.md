@@ -1,31 +1,31 @@
 # Pendientes (continuación, agosto 2026)
 
-> **Dentro:** Por desplegar · Por verificar en producción · Citas: huecos conocidos
+> **Dentro:** Desplegado y verificado (3-ago-2026) · Por verificar en producción · Citas: huecos conocidos
 
 Sigue a [08-PENDIENTES.md](08-PENDIENTES.md) — se abrió aparte solo porque
 aquel ya estaba en el límite de 200 líneas.
 
 ---
 
-## Por desplegar
+## ✅ Desplegado y verificado (3-ago-2026)
 
-Código listo, con `typecheck`/`lint`/pruebas en verde, pero **sin confirmar
-que ya llegó a producción** (recordar: el dueño despliega desde EasyPanel,
-nunca el asistente):
+Las tres tandas de commits que quedaron pendientes en distintos momentos de
+esta semana **ya están confirmadas en producción**, con evidencia real (grep
+dentro del contenedor que corre + consultas directas a la base de datos, no
+solo "converged" ni un 200):
 
 1. **Nombres de usuario de WhatsApp (BSUID)** — contacto sin teléfono +
-   respuesta por `wa_user_id`. Detalle en la entrada más reciente de
-   [07-BITACORA.md](07-BITACORA.md) y en
-   [03-WHATSAPP-Y-YCLOUD.md](03-WHATSAPP-Y-YCLOUD.md). Incluye una
-   migración de base de datos (`0011_nervous_doctor_octopus.sql`), aditiva y
-   segura (columna nueva + `NOT NULL` que se quita).
-2. **Vertical de citas**: el arreglo de "confirmó sin agendar", el
-   Laboratorio (restricción a superadmin + reconocimiento de citas) y el
-   recordatorio manual — quedaron sincronizados en la carpeta de EasyPanel al
-   cierre del 1-ago pero sin confirmar despliegue. Antes de seguir con nada
-   de citas, desplegar y correr `pnpm probar:citas` completo (agendar,
-   reprogramar, cancelar) para confirmar que el bug de la fecha equivocada no
-   reaparece.
+   respuesta por `wa_user_id`. Columna `wa_user_id` confirmada en la tabla
+   `contact` real. Detalle en [07-BITACORA.md](07-BITACORA.md) y
+   [03-WHATSAPP-Y-YCLOUD.md](03-WHATSAPP-Y-YCLOUD.md).
+2. **Vertical de citas**: "confirmó sin agendar", Laboratorio restringido y
+   recordatorio manual. Re-verificado con `pnpm probar:citas` corrido
+   **directamente en el contenedor real** contra
+   `org_novxv78s08h12arzatr2`: ciclo agendar → reprogramar → cancelar
+   completo, sin duplicar ni confirmar en falso. Detalle en
+   [19-CITAS.md](19-CITAS.md).
+3. **Auditoría de seguridad/refactor/código** del 3-ago —
+   [22-AUDITORIA-3AGO.md](22-AUDITORIA-3AGO.md).
 
 ## Por verificar en producción
 
@@ -41,5 +41,12 @@ nunca el asistente):
   negocio, a veces responde "no hay disponibilidad hoy" en vez de dar el
   primer horario del día. No lo pidió corregir el dueño todavía; documentado
   para no perderlo de vista.
+- **Fechas en lenguaje natural ambiguo** ("el miércoles", "mañana en la
+  tarde") a veces le hacen decir al modelo que no hay disponibilidad cuando
+  sí la hay; con una fecha explícita (`2026-08-07 a las 15:00`) siempre
+  acierta. Detectado el 3-ago-2026 corriendo `pnpm probar:citas` contra
+  producción — el motor de disponibilidad calcula bien (ofrece alternativas
+  reales cuando de verdad no hay cupo), es la interpretación de fecha
+  relativa del modelo la que varía.
 - **Onboarding de un cliente real** de peluquería/estética: hoy solo existe
   una organización de prueba para el vertical de citas.

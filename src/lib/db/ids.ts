@@ -22,6 +22,7 @@ const prefixes = {
   staffMember: "stf",
   staffService: "ss",
   appointment: "apt",
+  webhookEvent: "whev",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

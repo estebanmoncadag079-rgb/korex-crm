@@ -633,3 +633,48 @@ export const learningProposal = pgTable(
   },
   (t) => [index("learning_org_status_idx").on(t.organizationId, t.status)]
 );
+
+/**
+ * Captura del webhook de YCloud ANTES de cualquier parseo de negocio (Fase 0
+ * de la revisión de arquitectura, 3-ago-2026). Invierte el modelo de fallo
+ * anterior: antes se respondía 200 y se procesaba después (con `after()`),
+ * así que un fallo a mitad de camino era invisible e irrecuperable — no
+ * quedaba ni rastro de qué había mandado YCloud. Ahora el crudo se guarda
+ * primero; si eso falla, se responde 5xx para que el proveedor pueda
+ * reintentar. Si el guardado sale bien pero el PROCESAMIENTO falla, queda
+ * aquí con `status='fallido'` y el error, en vez de perderse en un log que
+ * rota.
+ */
+export const webhookEvent = pgTable(
+  "webhook_event",
+  {
+    id: text("id").primaryKey(),
+    /** "agencia" (webhook único) o el organizationId de la puerta propia del cliente. */
+    source: text("source").notNull(),
+    /** Cuerpo exacto tal como llegó — sobrevive aunque no sea JSON válido. */
+    rawBody: text("raw_body").notNull(),
+    /** `rawBody` parseado, cuando es JSON válido. NULL si el parseo falló. */
+    payload: jsonb("payload"),
+    headers: jsonb("headers").notNull(),
+    signature: text("signature"),
+    /**
+     * A qué organización terminó perteneciendo, una vez resuelto (por
+     * número/wabaId). NULL si no se pudo resolver — eso también es una
+     * señal útil (número desconocido, cliente mal configurado).
+     */
+    organizationId: text("organization_id").references(() => organization.id, {
+      onDelete: "set null",
+    }),
+    status: text("status", { enum: ["recibido", "procesado", "fallido"] })
+      .notNull()
+      .default("recibido"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(1),
+    receivedAt: timestamp("received_at").notNull().defaultNow(),
+    processedAt: timestamp("processed_at"),
+  },
+  (t) => [
+    index("webhook_event_status_idx").on(t.status),
+    index("webhook_event_org_idx").on(t.organizationId),
+  ]
+);

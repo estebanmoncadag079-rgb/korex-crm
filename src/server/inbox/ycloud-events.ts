@@ -18,10 +18,9 @@ import { notifyTeam } from "@/server/ai/notify-team";
 export async function handleYcloudEvent(
   event: YcloudEvent,
   opts?: { expectOrganizationId?: string }
-): Promise<void> {
+): Promise<{ organizationId: string | null }> {
   if (event.type === "whatsapp.smb.message.echoes") {
-    await handleEcho(event, opts);
-    return;
+    return handleEcho(event, opts);
   }
   /*
    * Todo descarte deja rastro, y esto no es celo de registro: el 31-jul-2026
@@ -33,7 +32,7 @@ export async function handleYcloudEvent(
    */
   if (event.type !== "whatsapp.inbound_message.received") {
     console.info(`[ycloud webhook] evento ignorado (type=${event.type})`);
-    return;
+    return { organizationId: null };
   }
 
   const msg = parseYcloudInbound(event);
@@ -58,7 +57,7 @@ export async function handleYcloudEvent(
     // evita que el cliente se quede esperando sin que nadie se entere
     // (verificado en vivo el 1-ago-2026 en Lis Pastelería).
     await alertarMensajePerdido(m?.wabaId, m?.to);
-    return;
+    return { organizationId: null };
   }
 
   if (!msg.text && !msg.mediaUrl) {
@@ -80,7 +79,7 @@ export async function handleYcloudEvent(
       `[ycloud webhook] mensaje para un número sin cliente (to=${msg.to}, ` +
         `waba=${msg.wabaId}): regístralo en el panel de clientes`
     );
-    return;
+    return { organizationId: null };
   }
   if (!belongsTo(route.organizationId, opts)) {
     console.warn(
@@ -88,7 +87,7 @@ export async function handleYcloudEvent(
         `${msg.to} es de ${route.organizationId} y el webhook es de ` +
         `${opts?.expectOrganizationId}`
     );
-    return;
+    return { organizationId: route.organizationId };
   }
 
   await ingestInboundMessage(
@@ -107,6 +106,7 @@ export async function handleYcloudEvent(
     },
     { triggerAgent: route.triggerAgent }
   );
+  return { organizationId: route.organizationId };
 }
 
 /**
@@ -116,13 +116,13 @@ export async function handleYcloudEvent(
 async function handleEcho(
   event: YcloudEvent,
   opts?: { expectOrganizationId?: string }
-): Promise<void> {
+): Promise<{ organizationId: string | null }> {
   const echo = parseYcloudEcho(event);
   if (!echo) {
     console.warn(
       "[ycloud webhook] ECO DESCARTADO: el evento no trae los datos mínimos"
     );
-    return;
+    return { organizationId: null };
   }
 
   const route = await resolveRoute(echo.businessPhone, echo.wabaId);
@@ -130,13 +130,13 @@ async function handleEcho(
     console.warn(
       `[ycloud webhook] eco de un número sin cliente (from=${echo.businessPhone})`
     );
-    return;
+    return { organizationId: null };
   }
   if (!belongsTo(route.organizationId, opts)) {
     console.warn(
       `[ycloud webhook] ECO DESCARTADO por aislamiento (${echo.businessPhone})`
     );
-    return;
+    return { organizationId: route.organizationId };
   }
 
   await ingestOutboundEcho({
@@ -151,6 +151,7 @@ async function handleEcho(
     mediaId: echo.mediaId,
     mimeType: echo.mimeType,
   });
+  return { organizationId: route.organizationId };
 }
 
 /**

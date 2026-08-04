@@ -1,10 +1,14 @@
-import { after } from "next/server";
 import {
   verifyYcloudSignature,
   type YcloudEvent,
 } from "@/server/inbox/ycloud-webhook";
 import { handleYcloudEvent } from "@/server/inbox/ycloud-events";
 import { getCredentialsByOrg } from "@/server/whatsapp/credentials";
+import {
+  markWebhookEventFailed,
+  markWebhookEventProcessed,
+  recordWebhookEvent,
+} from "@/server/inbox/webhook-event-log";
 
 /**
  * Webhook de un cliente que trajo su PROPIA cuenta de YCloud.
@@ -16,6 +20,9 @@ import { getCredentialsByOrg } from "@/server/whatsapp/credentials";
  *
  * Ventaja de este camino: el cupo de números y el saldo de mensajes son del
  * cliente, así que la agencia no tiene techo de clientes ni adelanta el gasto.
+ *
+ * Captura del evento crudo antes de procesar: ver el comentario en
+ * `/api/webhooks/ycloud/route.ts` (Fase 0, 3-ago-2026).
  */
 export const dynamic = "force-dynamic";
 
@@ -36,20 +43,35 @@ export async function POST(req: Request, ctx: Params) {
     return new Response(null, { status: 401 });
   }
 
-  let event: YcloudEvent;
+  let recorded: { id: string; payload: unknown };
   try {
-    event = JSON.parse(rawBody) as YcloudEvent;
-  } catch {
+    recorded = await recordWebhookEvent({
+      source: organizationId,
+      rawBody,
+      headers: Object.fromEntries(req.headers.entries()),
+      signature: sig,
+      organizationId,
+    });
+  } catch (err) {
+    console.error("[ycloud webhook] no se pudo guardar el evento crudo:", err);
+    return new Response(null, { status: 503 });
+  }
+
+  if (!recorded.payload) {
+    await markWebhookEventFailed(recorded.id, "cuerpo no es JSON válido");
     return Response.json({ received: true });
   }
 
-  after(async () => {
-    try {
-      await handleYcloudEvent(event, { expectOrganizationId: organizationId });
-    } catch (err) {
-      console.error("[ycloud webhook] error procesando evento:", err);
-    }
-  });
+  try {
+    const { organizationId: resolved } = await handleYcloudEvent(
+      recorded.payload as YcloudEvent,
+      { expectOrganizationId: organizationId }
+    );
+    await markWebhookEventProcessed(recorded.id, resolved);
+  } catch (err) {
+    console.error("[ycloud webhook] error procesando evento:", err);
+    await markWebhookEventFailed(recorded.id, err);
+  }
 
   return Response.json({ received: true });
 }

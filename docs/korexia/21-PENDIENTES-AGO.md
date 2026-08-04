@@ -27,13 +27,37 @@ solo "converged" ni un 200):
 3. **Auditoría de seguridad/refactor/código** del 3-ago —
    [22-AUDITORIA-3AGO.md](22-AUDITORIA-3AGO.md).
 
-## Por verificar en producción
+## ✅ BSUID con un contacto real — verificado, y encontró un bug más (3-ago noche)
 
-- **BSUID con un contacto real**: no se puede probar por el Laboratorio (nunca
-  toca WhatsApp real) ni hay forma segura de simular un contacto con nombre
-  de usuario activado. La verificación definitiva es la próxima vez que
-  escriba un cliente así — revisar que el mensaje entra en la bandeja y que
-  se le puede responder desde ahí.
+La verificación pendiente llegó sola: Nathalia (clienta nueva de Lis con
+nombre de usuario de WhatsApp activado) escribió, y **ni el agente ni una
+respuesta manual desde la bandeja lograron contestarle** — YCloud rechazaba
+el envío con `Invalid E.164 phone number`. La entrada SÍ funcionaba (mensaje
+guardado bien), el problema estaba en el ENVÍO: el código mandaba el BSUID
+por el campo `to` (solo para teléfonos), cuando YCloud exige el campo
+`recipient` para un BSUID. Corregido y verificado — detalle completo en
+[23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
+
+## Revisión de arquitectura (3-ago noche): qué se implementó y qué no
+
+El dueño pidió evaluar 12 recomendaciones externas en 4 fases (tabla de
+eventos crudos, cola con `pg-boss`, debounce persistente, Row-Level Security,
+rate-limit por organización, contabilidad de costo por organización, más
+varias de menor alcance). Se implementó la Fase 0 completa (tabla
+`webhook_event`, quitar `after()`) por ser de alto valor y bajo costo. El
+resto se **decidió NO implementar por ahora**, con justificación explícita:
+el VPS es de un solo núcleo operado por una persona, y los 4 bugs reales
+encontrados esa misma sesión fueron todos de lógica, ninguno de fiabilidad de
+infraestructura — meter una cola o RLS ahora sería resolver un problema que
+no se ha visto que exista. Revisitar si el negocio crece lo suficiente en
+número de clientes o de tráfico. Detalle de la evaluación completa (con el
+razonamiento punto por punto) en
+[23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
+
+Nota aparte para cuando se retome **09-COSTOS.md**: la recomendación de
+"contabilidad de costo por organización" coincide con un pendiente que ya
+existía antes (panel de costo por cliente) — no es una idea nueva, solo
+confirma que sigue siendo válida.
 
 ## Citas: huecos conocidos
 

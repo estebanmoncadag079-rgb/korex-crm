@@ -61,6 +61,17 @@ Sin horario configurado no se le dice nada: mejor callar que afirmar en falso.
 Cubierto por pruebas (`horario-negocio.test.ts`), incluidos los bordes exactos
 de apertura y cierre y los días que el negocio no abre.
 
+### Horario propio del domingo (desde el 3-ago-2026)
+
+Hasta el 3-ago solo existía UN rango de horas para toda la semana — no se
+podía expresar "entre semana 10-20, domingo 14-19" (el caso real de Lis).
+`agent_profile.hoursOpenSunday`/`hoursCloseSunday` (nullable) resuelven esto:
+si ambos están definidos, el domingo SIEMPRE usa ese rango — sin necesidad de
+que el 7 esté en `hoursDays` — en vez del genérico. Es opcional: sin
+configurar, el domingo se comporta exactamente igual que antes. El motor de
+citas no lo usa (los campos son opcionales en su `BusinessHours` y ese módulo
+no los lee).
+
 ## El guardarraíl del cierre falso
 
 Aun con todo lo anterior, el 29-jul-2026 el agente de La Churra le dijo a un
@@ -75,6 +86,31 @@ mensaje estaba en el historial; **0 de 8** cuando no estaba.
 El arreglo (`src/server/ai/anuncio-de-cierre.ts`) es un **guardarraíl**: si el
 negocio está abierto y la respuesta anuncia un cierre, se descarta y se le pide
 al modelo que la reescriba, diciéndole explícitamente que eso es falso.
+
+## Mensajes sin texto no disparan al agente (desde el 3-ago-2026)
+
+Un mensaje sin texto ni adjunto (edición de WhatsApp, reacción/respuesta a un
+Estado, tipo no soportado) se guarda con un marcador para que no desaparezca
+del hilo — pero **ya no dispara un turno del agente**. Antes sí lo hacía, y
+el modelo, viendo ese marcador como si fuera lo que el cliente escribió,
+podía reaccionar sin sentido: caso real, ejecutó `handoff` al ver `[mensaje
+no compatible: tipo "edit"...]`, y como el negocio no tiene número de aviso
+configurado, el cliente quedó esperando sin que nadie se enterara. El mensaje
+se sigue viendo en la bandeja para que un humano lo atienda si hace falta.
+Cuando el caso es una **edición** de un mensaje de texto, además, el texto
+real corregido sí se lee (`edit.message.text.body` del evento de YCloud) y
+se le pasa al agente normal — no todo termina en el marcador. Detalle en
+[23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
+
+## Cuando el cliente pide un asesor, siempre se avisa
+
+El patrón de respaldo que fuerza `handoff` al detectar frases como "un
+asesor" (`matchesHandoffIntent`, corta el turno ANTES de llamar al modelo)
+avisa ahora al cliente ("dame un momentico, te comunico con una persona") **y**
+notifica al equipo — reusa el mismo mecanismo que ya existía para cuando
+falla el proveedor de IA (`derivarAUnaPersona`). Antes marcaba el handoff en
+silencio, sin decir nada: el cliente pedía hablar con alguien y el bot
+simplemente dejaba de responder, sin ninguna confirmación.
 
 ## Cómo se agrupan los mensajes
 

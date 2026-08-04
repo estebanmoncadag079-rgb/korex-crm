@@ -122,7 +122,7 @@ dueño, porque se leen mejor en WhatsApp.
 | Organización | `org_lispasteleria0001` |
 | Número | `573158339990` · WABA `190143772066943` |
 | Cuenta YCloud | **propia del cliente** |
-| Horario | 10:00–20:00, **lunes a sábado** (domingo cerrado) |
+| Horario | 10:00–20:00 lunes a sábado · **14:00–19:00 domingo** (desde el 3-ago-2026) |
 | Agente | **encendido** desde el 31-jul-2026 |
 | Conocimiento | 12 entradas |
 | Avisos de pedido | **ninguno** (a propósito, ver abajo) |
@@ -176,6 +176,15 @@ es un error —el contenido es correcto— pero se puede pulir en el prompt.
 
 Su bot anterior **ya no existe**: Meta le cerró la sesión al conectar el número
 a la API, y el servicio se borró del servidor el 31-jul.
+
+### Actualización 3-ago-2026 (noche)
+
+Menú inicial numerado (1. Ver menú · 2. Hacer un pedido · 3. Preguntas
+frecuentes · 4. Hablar con un asesor), regla de escalado para no inventar
+tortas grandes/personalizadas, y la explicación del domicilio movida a línea
+fija del resumen del pedido (antes era una instrucción suelta que el modelo
+omitía). Detalle completo en
+[23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
 
 ## korex.ia — la agencia
 

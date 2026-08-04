@@ -99,6 +99,34 @@ Se envía a YCloud (`/v2/whatsapp/messages/sendDirectly`) indicando el número
 del negocio y el del cliente. La clave que se usa depende del cliente: la suya
 si tiene cuenta propia, la de la agencia si no.
 
+> ⚠️ **Bug real (3-ago-2026): un BSUID mandado por el campo equivocado se
+> rechaza como teléfono inválido.** `sendDirectly` exige **uno** de `to`
+> (E.164) o `recipient` (BSUID) — nunca el BSUID por `to`. El arreglo de
+> BSUID (sección de arriba) guardaba bien estos contactos, pero al
+> **responder** siempre mandaba por `to`, así que YCloud devolvía `Invalid
+> E.164 phone number: CO.xxxx…` — ni el agente ni una respuesta manual desde
+> la bandeja lograban contestarle a un cliente con nombre de usuario
+> activado, en ningún negocio. Corregido: `resolveRecipient` devuelve un tipo
+> `{kind:"phone"|"waUserId", value}` y el envío arma el campo correcto según
+> cuál sea. Detalle en [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
+
+## Captura del webhook antes de procesar (`webhook_event`)
+
+Desde el 3-ago-2026, cada evento se guarda **crudo** (payload, headers,
+firma) en la tabla `webhook_event` ANTES de interpretarlo — si ese guardado
+falla, se responde `5xx` para que YCloud pueda reintentar. Antes se
+respondía `200` primero y se procesaba después en segundo plano (`after()`
+de Next.js); un fallo a mitad de camino quedaba invisible. Ya no hace falta
+`after()`: la app corre en un contenedor de larga vida (Docker Swarm), no en
+una función serverless que se apague al responder, así que el procesamiento
+va en el mismo request. Cada evento queda con `status`
+`recibido`/`procesado`/`fallido` + el error si aplica — consultable con:
+
+```sql
+select source, status, error, received_at from webhook_event
+where status = 'fallido' order by received_at desc;
+```
+
 ## La ventana de 24 horas (esto define lo que se puede y no se puede hacer)
 
 Meta solo deja enviar **texto libre** a alguien que le haya escrito al negocio

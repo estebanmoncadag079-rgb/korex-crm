@@ -35,6 +35,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [20-BITACORA-31JUL-TARDE-NOCHE.md](20-BITACORA-31JUL-TARDE-NOCHE.md) | Historial del 31 de julio (tarde y noche): seguridad, embudo, audio/imágenes |
 | [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md) | Continuación de 08: qué falta desplegar y verificar de citas y del arreglo de nombres de usuario de WhatsApp (BSUID) |
 | [22-AUDITORIA-3AGO.md](22-AUDITORIA-3AGO.md) | Auditoría con 3 agentes (seguridad, refactorización, revisión de código): bugs reales corregidos, deduplicación y qué se decidió no tocar |
+| [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md) | Cuatro bugs reales de "el bot no responde" (edición de WhatsApp, handoff mudo, BSUID rechazado como teléfono), la tabla `webhook_event`, un incidente de despliegue con lección aprendida, horario de domingo y el menú inicial de Lis |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -84,12 +85,14 @@ contenedor, una base de datos, y dentro cada cliente vive aislado en su propia
 lo que es propio de cada uno son solo sus datos: su prompt, su conocimiento,
 su horario, su marca, su número y sus teléfonos de aviso.
 
-**Estado a 3-ago-2026**: dos clientes en producción (La Churra y Lis
+**Estado a 3-ago-2026 (noche)**: dos clientes en producción (La Churra y Lis
 Pastelería, ambos con agente encendido) más la organización de la agencia y
 una organización de prueba para el vertical de citas. Todos los cambios
-hechos hasta hoy (BSUID, citas, la auditoría de seguridad/refactor) están
-**desplegados y verificados en producción** — nada pendiente de desplegar
-al cierre de esta sesión.
+hechos hasta hoy (BSUID, citas, la auditoría de seguridad/refactor, y la
+sesión de esta noche — ver [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md):
+BSUID en el envío, `webhook_event`, horario de domingo) están **desplegados y
+verificados en producción** — nada pendiente de desplegar al cierre de esta
+sesión.
 **Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** (y su continuación
 [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md)) si retomas el proyecto: ahí
 está lo urgente ordenado por riesgo real. WhatsApp por la API oficial de

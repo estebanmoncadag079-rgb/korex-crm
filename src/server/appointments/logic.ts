@@ -24,6 +24,14 @@ export type BusinessHours = {
   open: string | null;
   close: string | null;
   days: string | null;
+  /**
+   * Horario propio del domingo (opcional), solo leído por `businessStatus` /
+   * `abreMasTardeHoy` en @/server/ai/prompts — el motor de citas de este
+   * archivo lo ignora, el domingo sigue funcionando aquí como cualquier otro
+   * día de `days`.
+   */
+  openSunday?: string | null;
+  closeSunday?: string | null;
 };
 
 /** Una cita existente, ya reducida a minutos-desde-medianoche en hora de Colombia. */

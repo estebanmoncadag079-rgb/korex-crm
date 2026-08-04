@@ -94,3 +94,54 @@ describe("¿abre más tarde hoy?", () => {
     expect(abreMasTardeHoy({ open: null, close: null, days: null })).toBeNull();
   });
 });
+
+/**
+ * Patrón real (Lis Pastelería, 3-ago-2026): entre semana un horario, domingo
+ * reducido. El modelo de datos de antes solo tenía UN rango para toda la
+ * semana — no había forma de expresar "L-S 10-20, domingo 14-19".
+ */
+describe("horario propio del domingo (distinto al resto de la semana)", () => {
+  // L-S 10:00-20:00, domingo 14:00-19:00, sin el 7 en `days`.
+  const LIS = {
+    open: "10:00",
+    close: "20:00",
+    days: "1,2,3,4,5,6",
+    openSunday: "14:00",
+    closeSunday: "19:00",
+  };
+
+  it("domingo dentro de su propio rango: abierto, aunque el 7 no esté en days", () => {
+    // Domingo 26-jul-2026, 15:00 Bogotá.
+    expect(businessStatus(LIS, enBogota("2026-07-26T20:00:00Z"))).toBe("abierto");
+  });
+
+  it("domingo antes de las 14:00: cerrado, aunque caiga dentro del rango genérico 10-20", () => {
+    // Domingo 26-jul-2026, 10:00 Bogotá.
+    expect(businessStatus(LIS, enBogota("2026-07-26T15:00:00Z"))).toBe("cerrado");
+  });
+
+  it("domingo dice cuántos minutos faltan para SU apertura (14:00), no la genérica (10:00)", () => {
+    // Domingo 26-jul-2026, 10:00 Bogotá → abre a las 14:00 → 240 minutos.
+    expect(abreMasTardeHoy(LIS, enBogota("2026-07-26T15:00:00Z"))).toBe(240);
+  });
+
+  it("domingo después de las 19:00: cerrado, aunque el rango genérico llegara hasta las 20:00", () => {
+    // Domingo 26-jul-2026, 19:30 Bogotá.
+    expect(businessStatus(LIS, enBogota("2026-07-27T00:30:00Z"))).toBe("cerrado");
+    expect(abreMasTardeHoy(LIS, enBogota("2026-07-27T00:30:00Z"))).toBeNull();
+  });
+
+  it("un lunes normal sigue usando el rango genérico, sin verse afectado", () => {
+    // Lunes 27-jul-2026, 15:00 Bogotá.
+    expect(businessStatus(LIS, enBogota("2026-07-27T20:00:00Z"))).toBe("abierto");
+  });
+
+  it("sin horario propio de domingo configurado, domingo se rige por days como siempre", () => {
+    const sinDomingoPropio = { open: "10:00", close: "20:00", days: "1,2,3,4,5,6" };
+    // Domingo 26-jul-2026, 15:00 Bogotá: dentro de la franja genérica, pero
+    // el 7 no está en days.
+    expect(businessStatus(sinDomingoPropio, enBogota("2026-07-26T20:00:00Z"))).toBe(
+      "cerrado"
+    );
+  });
+});

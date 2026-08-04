@@ -328,6 +328,16 @@ export const agentProfile = pgTable(
     /** Días que abre, 1 = lunes … 7 = domingo. Ej: "1,2,3,4,5,6,7". */
     hoursDays: text("hours_days"),
     /**
+     * Horario propio del domingo, cuando es distinto al del resto de la
+     * semana (patrón real: entre semana un horario, domingo reducido). Si
+     * ambos están definidos, el domingo SIEMPRE usa este rango — sin
+     * necesidad de que el 7 esté en `hoursDays` — en vez del genérico.
+     * NULL = domingo se rige por `hoursOpen`/`hoursClose`/`hoursDays` como
+     * cualquier otro día (comportamiento de siempre, sin cambios).
+     */
+    hoursOpenSunday: text("hours_open_sunday"),
+    hoursCloseSunday: text("hours_close_sunday"),
+    /**
      * Números (E.164 sin '+', separados por coma) a los que se avisa por
      * WhatsApp cuando el agente cierra un pedido. La Cloud API no escribe a
      * grupos: son mensajes 1:1 a cada persona del equipo.

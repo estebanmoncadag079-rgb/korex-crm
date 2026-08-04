@@ -123,6 +123,8 @@ async function runAllCases(
     open: profile?.hoursOpen ?? null,
     close: profile?.hoursClose ?? null,
     days: profile?.hoursDays ?? null,
+    openSunday: profile?.hoursOpenSunday ?? null,
+    closeSunday: profile?.hoursCloseSunday ?? null,
   };
   const labNow = horaHabilDePrueba(horario);
 

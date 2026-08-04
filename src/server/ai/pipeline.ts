@@ -351,6 +351,8 @@ export async function runAgentTurn(
     open: profile.hoursOpen,
     close: profile.hoursClose,
     days: profile.hoursDays,
+    openSunday: profile.hoursOpenSunday,
+    closeSunday: profile.hoursCloseSunday,
   };
   const estado = businessStatus(hours, opts?.now);
 

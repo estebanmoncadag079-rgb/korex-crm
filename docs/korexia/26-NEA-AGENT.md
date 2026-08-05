@@ -105,6 +105,12 @@ aparte, no como reemplazo del motor.
 
 ## Estado
 
-370 → **380 pruebas** (10 nuevas: 4 de reintentos, 6 de horarios ofrecidos),
-`typecheck`, `lint` y `build` en verde. **Sin desplegar todavía** — incluye
-migración, que debe aplicar el arranque del contenedor.
+370 → **382 pruebas** (12 nuevas), `typecheck`, `lint` y `build` en verde.
+
+✅ **Desplegado y verificado el 5-ago-2026 20:19 UTC** (commit `3dfb91b`), con
+evidencia dentro del contenedor real, no un "converged": los textos del código
+nuevo aparecen en el bundle (`Para no equivocarme con tu cita`, `Solo estos
+horarios se pueden agendar`, `No se le pudo entregar la respuesta`), la tabla
+`offered_slot` existe en la base, y el log de arranque trae `[migrate]
+migraciones aplicadas` — la migración la aplicó el contenedor, nunca a mano.
+Una sola réplica, `healthy`, cero errores en el log.

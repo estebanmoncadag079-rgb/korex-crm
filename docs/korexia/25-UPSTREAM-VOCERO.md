@@ -132,6 +132,11 @@ dos columnas y sus dos índices únicos, así que solo cambió la lógica.
 **Sin migración**: las columnas `phone`/`wa_user_id` y sus índices únicos ya
 existían.
 
+✅ **Desplegado el 5-ago-2026 y verificado con datos reales**: de los contactos
+tocados tras el despliegue, **4 quedaron con las DOS señales (teléfono +
+BSUID) y ninguno con solo teléfono** — antes se guardaba solo el teléfono en
+el 100 % de los casos. El duplicado latente está cerrado.
+
 **Backfill pendiente de decidir**: los eventos ya guardados en `webhook_event`
 (desde el 3-ago) permiten completar el BSUID de **17 contactos** de una vez,
 sin esperar a que vuelvan a escribir. Es un `UPDATE` sobre producción, así que

@@ -90,3 +90,8 @@ Cerrarlo del todo pide **registrar hasta qué mensaje procesó cada turno** (una
 marca por conversación) y, cuando queden entrantes sin procesar, ponerlos al
 final del array en vez de omitir el turno. Es trabajo aparte y todavía no hay
 un caso real que lo pida.
+
+✅ **Desplegado el 5-ago-2026 20:19 UTC** (commit `3dfb91b`), verificado dentro
+del contenedor. Tras el despliegue, La Churra y Lis atendieron pedidos reales
+completos —incluido uno con comprobante de pago y confirmación— **sin un solo
+mensaje en `failed` ni un handoff de error**.

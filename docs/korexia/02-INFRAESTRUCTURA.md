@@ -104,6 +104,18 @@ ssh ... 'tar -xzf /tmp/korex-crm.tar.gz -C /etc/easypanel/projects/korex-crm/crm
 > quedó una bomba de relojería — el siguiente Desplegar habría revertido tres
 > funcionalidades. Se detectó a tiempo y se sincronizó (con copia previa en
 > `/root/code-respaldo-antes-sync-*`).
+>
+> **Volvió a pasar el 5-ago-2026, por el otro extremo**: el asistente dejó
+> cuatro arreglos probados **sin commitear**, el dueño pulsó Desplegar dando
+> por hecho que estaban listos, y EasyPanel reconstruyó el código del 3-ago.
+> El servicio quedó sano y "desplegado" — pero sin ninguno de los arreglos.
+> Se detectó porque la verificación del paso 5 se hace **dentro del
+> contenedor**: `grep` de una cadena del código nuevo y `\d offered_slot` en
+> la base, las dos en NO. **Un contenedor recién creado y `healthy` no prueba
+> que lleve tu cambio.**
+>
+> Regla que se saca de las dos veces: **el aviso de "ya desplegué" no cierra
+> nada**. Cierra el paso 5, y el paso 5 es evidencia dentro del contenedor.
 
 Detalles que importan:
 

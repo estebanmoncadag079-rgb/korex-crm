@@ -80,11 +80,24 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 ## Nombres de usuario de WhatsApp (BSUID): clientes sin teléfono visible
 
 WhatsApp lanzó en 2026 los **nombres de usuario**: quien lo activa oculta su
-teléfono a los negocios. En ese caso el evento **nunca trae `from`/`to`**,
-sino un identificador estable por negocio (Business-Scoped User ID, formato
-`"CO.xxxx…"`) en `fromUserId`/`toUserId`. Confirmado en vivo el 2-ago-2026 con
-clientes reales de Lis y La Churra — antes del arreglo, esos mensajes se
-perdían sin dejar rastro (ver [07-BITACORA.md](07-BITACORA.md)).
+teléfono a los negocios. Meta manda entonces un identificador estable por
+negocio (Business-Scoped User ID, formato `"CO.xxxx…"`) en
+`fromUserId`/`toUserId`. Confirmado en vivo el 2-ago-2026 con clientes reales
+de Lis y La Churra — antes del arreglo, esos mensajes se perdían sin dejar
+rastro (ver [07-BITACORA.md](07-BITACORA.md)).
+
+> ⚠️ **Corregido el 5-ago-2026**: aquí decía que el evento "nunca trae
+> `from`/`to`" cuando hay BSUID. **Es falso**, y el código sigue asumiéndolo
+> (`ycloud-webhook.ts`: `waUserId: m.from ? null : m.fromUserId`, que tira el
+> BSUID si llega el teléfono). Medido sobre los eventos reales guardados en
+> `webhook_event`: **98 de 99 traen los dos campos a la vez**, y solo 1 trajo
+> BSUID sin teléfono. Consecuencia latente: el día que Meta deje de mandar
+> `from` para un cliente que ya escribía —la dirección declarada de su
+> migración— se creará un **contacto y una conversación nuevos** para la misma
+> persona, partiendo su historial. Todavía no ha pasado (verificado: no hay
+> contactos duplicados), pero el arreglo es guardar **ambas** señales y
+> fusionar por la que llegue. Análisis completo en
+> [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md).
 
 - El contacto se guarda **sin teléfono**, identificado por ese `wa_user_id`.
 - **Se le puede seguir respondiendo**: el mismo identificador sirve como
@@ -126,6 +139,11 @@ va en el mismo request. Cada evento queda con `status`
 select source, status, error, received_at from webhook_event
 where status = 'fallido' order by received_at desc;
 ```
+
+> Su primer uso real fue el **4-ago-2026**: dejó ver que un mensaje al que el
+> bot no respondió llegaba **vacío desde Meta** (`type: "unsupported"`, error
+> `131051`), sin contenido recuperable por ninguna vía. Detalle y consultas de
+> diagnóstico en [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md).
 
 ## La ventana de 24 horas (esto define lo que se puede y no se puede hacer)
 

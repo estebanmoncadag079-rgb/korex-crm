@@ -29,7 +29,7 @@ describe("mensajes entrantes de un cliente con nombre de usuario (sin teléfono)
     expect(parsed?.text).toBe("hola");
   });
 
-  it("con from normal, waUserId queda en null (nunca vienen juntos)", () => {
+  it("sin fromUserId en el evento, waUserId queda en null", () => {
     const parsed = parseYcloudInbound({
       type: "whatsapp.inbound_message.received",
       whatsappInboundMessage: {
@@ -43,6 +43,30 @@ describe("mensajes entrantes de un cliente con nombre de usuario (sin teléfono)
     });
     expect(parsed?.from).toBe("573046838172");
     expect(parsed?.waUserId).toBeNull();
+  });
+
+  /**
+   * El caso NORMAL, contra lo que se creía: 98 de 99 eventos reales traen las
+   * dos señales (medido el 5-ago-2026 sobre `webhook_event`). Payload real de
+   * Heidy Chinguad, Lis Pastelería, 4-ago-2026. Guardar solo el teléfono era
+   * lo que dejaba al contacto listo para duplicarse.
+   */
+  it("cuando vienen from Y fromUserId, conserva LAS DOS señales", () => {
+    const parsed = parseYcloudInbound({
+      type: "whatsapp.inbound_message.received",
+      whatsappInboundMessage: {
+        id: "6a7214dc4223092dfcffb074",
+        wabaId: "190143772066943",
+        from: "+573165345762",
+        fromUserId: "CO.1031124232991481",
+        to: "+573158339990",
+        customerProfile: { name: "Heidy Chinguad", username: "HeidyChinguad" },
+        type: "text",
+        text: { body: "hola" },
+      },
+    });
+    expect(parsed?.from).toBe("573165345762");
+    expect(parsed?.waUserId).toBe("CO.1031124232991481");
   });
 
   it("sin from ni fromUserId, no hay nada procesable → null", () => {
@@ -78,7 +102,7 @@ describe("ecos hacia un cliente con nombre de usuario (sin teléfono)", () => {
     expect(echo?.customerWaUserId).toBe("CO.1364549445033644");
   });
 
-  it("con to normal, customerWaUserId queda en null", () => {
+  it("sin toUserId en el evento, customerWaUserId queda en null", () => {
     const echo = parseYcloudEcho({
       type: "whatsapp.smb.message.echoes",
       whatsappMessage: {
@@ -92,6 +116,23 @@ describe("ecos hacia un cliente con nombre de usuario (sin teléfono)", () => {
     });
     expect(echo?.customerPhone).toBe("573046838172");
     expect(echo?.customerWaUserId).toBeNull();
+  });
+
+  it("cuando vienen to Y toUserId, conserva las dos señales", () => {
+    const echo = parseYcloudEcho({
+      type: "whatsapp.smb.message.echoes",
+      whatsappMessage: {
+        wamid: "wamid.eco.3",
+        wabaId: "waba_a",
+        from: "+573155136091",
+        to: "+573046838172",
+        toUserId: "CO.1364549445033644",
+        type: "text",
+        text: "listo",
+      },
+    });
+    expect(echo?.customerPhone).toBe("573046838172");
+    expect(echo?.customerWaUserId).toBe("CO.1364549445033644");
   });
 
   it("sin to ni toUserId, no se procesa", () => {

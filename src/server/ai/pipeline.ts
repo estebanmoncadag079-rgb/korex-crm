@@ -7,6 +7,7 @@ import { chatJson, type ChatMessage } from "@/lib/ai";
 import { publish } from "@/server/events/bus";
 import { isWindowOpen } from "@/server/inbox/window";
 import { SendError, sendText } from "@/server/inbox/send";
+import { serializeMessage } from "@/server/inbox/ingest";
 import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
@@ -27,7 +28,10 @@ import {
   citasActivasDeContacto,
   crearCita,
   disponibilidadReal,
+  estaEntreLosOfrecidos,
+  limpiarOfrecidos,
   proximasFechasConCupo,
+  registrarOfrecidos,
   reprogramarCita,
   resolverEspecialista,
 } from "@/server/appointments/queries";
@@ -196,6 +200,31 @@ export function textosAlCliente(action: AgentActionType): string[] {
 }
 
 /**
+ * Anota lo que el agente acaba de ofrecer, para que `book_appointment` no
+ * pueda reservar otra cosa. Nunca tumba el turno: si falla, se queda sin
+ * registro y la reserva se valida como antes (solo contra disponibilidad
+ * real) — degradar a lo de siempre es mejor que dejar al cliente sin cita.
+ */
+async function anotarOfrecidos(
+  organizationId: string,
+  conversationId: string | undefined,
+  serviceId: string,
+  slots: { fecha: string; hora: string }[]
+): Promise<void> {
+  if (!conversationId) return;
+  try {
+    await registrarOfrecidos({
+      organizationId,
+      conversationId,
+      serviceId,
+      slots,
+    });
+  } catch (err) {
+    console.warn("[citas] no se pudieron anotar los horarios ofrecidos:", err);
+  }
+}
+
+/**
  * Resuelve una `consult_availability`: valida el servicio y la especialista
  * pedidos contra el catálogo real, y calcula los horarios reales. Devuelve un
  * mensaje de sistema en primera persona del servidor — nunca datos inventados,
@@ -206,7 +235,8 @@ async function resolverConsultaDisponibilidad(
   services: CatalogEntry[],
   hours: BusinessHours,
   action: Extract<AgentActionType, { action: "consult_availability" }>,
-  now?: Date
+  now?: Date,
+  conversationId?: string
 ): Promise<string> {
   const servicio = buscarServicio(services, action.servicio);
   if (!servicio) {
@@ -240,8 +270,14 @@ async function resolverConsultaDisponibilidad(
     if (!horas.length) {
       return `[SISTEMA] No hay horarios libres para "${servicio.name}" el ${fecha}. Ofrece otra fecha.`;
     }
+    await anotarOfrecidos(
+      organizationId,
+      conversationId,
+      servicio.id,
+      horas.map((hora) => ({ fecha, hora }))
+    );
     const lista = horas.map((h) => horaAAmPm(h)).join(", ");
-    return `[SISTEMA] Horarios REALES disponibles para "${servicio.name}" el ${fecha}: ${lista}. Ofrécele SOLO estas opciones para que el cliente elija.`;
+    return `[SISTEMA] Horarios REALES disponibles para "${servicio.name}" el ${fecha}: ${lista}. Ofrécele SOLO estas opciones para que el cliente elija. Solo estos horarios se pueden agendar.`;
   }
 
   const proximas = await proximasFechasConCupo({
@@ -254,10 +290,16 @@ async function resolverConsultaDisponibilidad(
   if (!proximas.length) {
     return `[SISTEMA] No encontré cupos próximos para "${servicio.name}". Dile al cliente que lo confirmas con el equipo.`;
   }
+  await anotarOfrecidos(
+    organizationId,
+    conversationId,
+    servicio.id,
+    proximas.flatMap((p) => p.horarios.map((hora) => ({ fecha: p.fecha, hora })))
+  );
   const texto = proximas
     .map((p) => `${p.fecha}: ${p.horarios.map(horaAAmPm).join(", ")}`)
     .join(" | ");
-  return `[SISTEMA] Próximas fechas con cupo para "${servicio.name}": ${texto}. Ofrécele elegir día y hora de estas opciones reales.`;
+  return `[SISTEMA] Próximas fechas con cupo para "${servicio.name}": ${texto}. Ofrécele elegir día y hora de estas opciones reales. Solo estos horarios se pueden agendar.`;
 }
 
 /**
@@ -312,6 +354,39 @@ export async function runAgentTurn(
   history.reverse();
   const lastInbound = [...history].reverse().find((m) => m.direction === "in");
   if (!lastInbound) return null;
+
+  /**
+   * Nada nuevo que responder: el último mensaje de la conversación es del
+   * propio agente, así que su respuesta anterior ya cubrió lo que escribió el
+   * cliente. Se sale sin gastar una llamada al modelo.
+   *
+   * **Venta perdida real (Jorge, La Churra, 2-ago-2026 18:32 Colombia)**: el
+   * cliente escribió "Azur y canela" y 11 s después se corrigió con "Azúcar y
+   * canela", mientras el agente ya estaba respondiendo. El segundo mensaje
+   * entró con el turno en marcha, así que quedó encolado (`entry.pending`) y
+   * disparó un SEGUNDO turno en cuanto terminó el primero. Ese turno no tenía
+   * nada que contestar: el historial terminaba en la propia respuesta del
+   * agente, y `toChatHistory` la mapea como `assistant` — con el array
+   * terminado en `assistant`, google/gemini-2.5-flash devuelve `content:
+   * null` (el mismo comportamiento ya verificado el 1-ago-2026 en el loop de
+   * disponibilidad, ver el comentario de "user, no system" más abajo). Sin
+   * contenido, el turno se daba por fallido y disparaba `handoff` de error:
+   * el cliente, que estaba a un paso de cerrar el pedido, recibió "te
+   * comunico con una persona" y no volvió a escribir.
+   *
+   * Límite conocido: si un mensaje llega en el segundo escaso que va entre
+   * que el turno lee el historial y guarda su respuesta, ese mensaje se queda
+   * sin contestar (antes disparaba el handoff falso, que tampoco lo
+   * contestaba). Cerrarlo del todo exige registrar hasta qué mensaje procesó
+   * cada turno — trabajo aparte, y sin caso real que lo pida todavía.
+   */
+  const ultimo = history[history.length - 1];
+  if (ultimo && ultimo.direction !== "in") {
+    console.info(
+      `[agente] turno omitido en ${conversationId}: el último mensaje ya es una respuesta del agente`
+    );
+    return null;
+  }
 
   // Ventana cerrada: el agente JAMÁS envía texto libre → handoff 'ventana'.
   if (!conversation.isTest && !isWindowOpen(conversation.lastInboundAt)) {
@@ -411,7 +486,8 @@ export async function runAgentTurn(
       services,
       hours,
       action,
-      opts?.now
+      opts?.now,
+      conversation.id
     );
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     /**
@@ -580,6 +656,37 @@ export async function runAgentTurn(
         return action;
       }
       const fecha = normalizarFecha(action.fecha) ?? action.fecha;
+
+      /**
+       * Solo se agenda un horario que el agente haya ofrecido en esta
+       * conversación. `crearCita` ya comprueba que el hueco esté libre, pero
+       * eso no impide agendar uno que nunca se ofreció: el caso real es una
+       * fecha relativa mal entendida ("el miércoles", "mañana en la tarde")
+       * que cae por casualidad en un hueco libre. Antes se reservaba mal y el
+       * cliente se enteraba al llegar. Ahora se le devuelven las opciones que
+       * de verdad se le ofrecieron. Idea tomada de `nea-agent`.
+       */
+      const ofrecido = await estaEntreLosOfrecidos({
+        organizationId,
+        conversationId: conversation.id,
+        fecha,
+        hora: action.hora,
+      });
+      if (!ofrecido.ok) {
+        const opciones = ofrecido.ofrecidos
+          .map((o) => `${o.fecha} a las ${horaAAmPm(o.hora)}`)
+          .join(", ");
+        console.warn(
+          `[citas] reserva rechazada en ${conversation.id}: ${fecha} ${action.hora} ` +
+            `no está entre los ofrecidos (${opciones})`
+        );
+        await deliverReply(
+          conversation,
+          `Para no equivocarme con tu cita: los horarios que tengo disponibles son ${opciones}. ¿Cuál prefieres?`
+        );
+        return action;
+      }
+
       const resultado = await crearCita({
         organizationId,
         contactId: conversation.contactId,
@@ -598,6 +705,8 @@ export async function runAgentTurn(
         await deliverReply(conversation, msg);
         return action;
       }
+      // La cita ya existe: lo ofrecido dejó de tener sentido.
+      await limpiarOfrecidos(organizationId, conversation.id).catch(() => {});
       await avisarYConfirmar({
         conversation,
         organizationId,
@@ -728,7 +837,7 @@ async function derivarAUnaPersona(
   const teamSummary = opts?.teamSummary ?? AVISO_EQUIPO_ERROR;
 
   try {
-    await deliverReply(conversation, AVISO_DE_DERIVACION);
+    await deliverReply(conversation, AVISO_DE_DERIVACION, { esAviso: true });
   } catch (err) {
     // Que no se pueda avisar no debe impedir la derivación: lo importante es
     // que quede en la bandeja para que alguien la atienda.
@@ -755,10 +864,25 @@ async function derivarAUnaPersona(
   }
 }
 
-/** Entrega la respuesta: envío real o persistencia sandbox (is_test). */
+/**
+ * Entrega la respuesta: envío real o persistencia sandbox (is_test).
+ *
+ * Si el envío falla de verdad (ya reintentado lo pasajero dentro del cliente
+ * de YCloud), la respuesta **no se tira**: se guarda con `status: "failed"` y
+ * la conversación pasa a una persona. Hasta el 5-ago-2026 el error subía
+ * hasta `executeTurn`, que solo lo escribía en el registro — el texto que el
+ * agente ya había generado (y pagado) desaparecía sin dejar fila, sin relevo
+ * y sin aviso al equipo: el cliente esperando y nadie enterado. Es el mismo
+ * agujero que `nea-agent` tapó con su `pending_send` (ver
+ * docs/korexia/26-NEA-AGENT.md).
+ *
+ * `esAviso` corta la recursión: el aviso de derivación entra por aquí también,
+ * y no puede volver a derivar si es él quien falla.
+ */
 async function deliverReply(
   conversation: Conversation,
-  text: string
+  text: string,
+  opts?: { esAviso?: boolean }
 ): Promise<void> {
   if (conversation.isTest) {
     await persistTestOutbound(conversation, text);
@@ -776,7 +900,64 @@ async function deliverReply(
       await applyHandoff(conversation.id, conversation.organizationId, "ventana");
       return;
     }
-    throw err;
+    await persistirSalienteFallido(conversation, text, err);
+    if (opts?.esAviso) throw err;
+    await derivarAUnaPersona(conversation, {
+      reason: "error",
+      teamSummary: AVISO_EQUIPO_ENVIO_FALLIDO,
+    });
+  }
+}
+
+const AVISO_EQUIPO_ENVIO_FALLIDO =
+  "⚠️ No se le pudo entregar la respuesta a un cliente por WhatsApp. El texto " +
+  "quedó guardado en la conversación, marcado como no enviado: revísalo y " +
+  "respóndele desde la bandeja.";
+
+/**
+ * Deja constancia de la respuesta que no se pudo entregar. Sin `waMessageId`
+ * (nunca llegó a WhatsApp) y con el motivo en `error`, para que quien abra la
+ * conversación vea el texto y el porqué en vez de un hueco. La bandeja ya
+ * pinta `failed` con el triángulo rojo.
+ */
+async function persistirSalienteFallido(
+  conversation: Conversation,
+  text: string,
+  err: unknown
+): Promise<void> {
+  try {
+    const db = getDb();
+    const inserted = await db
+      .insert(schema.message)
+      .values({
+        id: newId("message"),
+        organizationId: conversation.organizationId,
+        conversationId: conversation.id,
+        direction: "out",
+        type: "text",
+        text,
+        status: "failed",
+        error: err instanceof Error ? err.message : String(err),
+        aiGenerated: true,
+      })
+      .returning();
+    const message = inserted[0];
+    if (message) {
+      publish(conversation.organizationId, {
+        type: "message.new",
+        data: {
+          conversationId: conversation.id,
+          message: serializeMessage(message),
+        },
+      });
+    }
+  } catch (guardar) {
+    // Último recinto: si ni siquiera se puede guardar, al menos que quede en
+    // el registro con el texto completo, para poder reenviarlo a mano.
+    console.error(
+      `[agente] respuesta PERDIDA en ${conversation.id} (no se pudo guardar): ${text}`,
+      guardar
+    );
   }
 }
 

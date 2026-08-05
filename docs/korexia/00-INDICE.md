@@ -36,6 +36,10 @@ producción, qué se cambió y qué quedó pendiente.
 | [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md) | Continuación de 08: qué falta desplegar y verificar de citas y del arreglo de nombres de usuario de WhatsApp (BSUID) |
 | [22-AUDITORIA-3AGO.md](22-AUDITORIA-3AGO.md) | Auditoría con 3 agentes (seguridad, refactorización, revisión de código): bugs reales corregidos, deduplicación y qué se decidió no tocar |
 | [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md) | Cuatro bugs reales de "el bot no responde" (edición de WhatsApp, handoff mudo, BSUID rechazado como teléfono), la tabla `webhook_event`, un incidente de despliegue con lección aprendida, horario de domingo y el menú inicial de Lis |
+| [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md) | Los mensajes que **Meta entrega vacíos**: por qué el bot no responde, el payload real, cada cuánto pasa y cómo reconocerlo en 30 segundos |
+| [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md) | ¿Conviene traer la actualización de Vocero CRM? Qué sirve, qué no, el bug latente de identidad que destapó y por qué el merge está descartado |
+| [26-NEA-AGENT.md](26-NEA-AGENT.md) | Qué se tomó del agente de citas `nea-agent`: que una respuesta no se pierda si falla el envío, agendar solo lo ofrecido, y la regla anti off-topic |
+| [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md) | La venta que se perdió porque el cliente se corrigió a sí mismo: un turno sin nada que responder dejaba mudo a Gemini y disparaba un handoff falso |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

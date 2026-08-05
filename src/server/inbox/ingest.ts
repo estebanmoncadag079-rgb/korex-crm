@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
@@ -39,6 +39,42 @@ const SUPPORTED_TYPES = new Set([
  */
 export type ContactIdentifier = { phone: string | null; waUserId: string | null };
 
+/**
+ * Busca por CUALQUIERA de las dos señales, no por una elegida de antemano: es
+ * lo que evita que la misma persona nazca dos veces cuando Meta cambia de
+ * señal a mitad de camino. Devuelve los candidatos del más antiguo al más
+ * nuevo — el más viejo es el que tiene el historial.
+ */
+async function buscarPorIdentidad(
+  organizationId: string,
+  { phone, waUserId }: ContactIdentifier
+) {
+  const señales = [
+    phone ? eq(schema.contact.phone, phone) : null,
+    waUserId ? eq(schema.contact.waUserId, waUserId) : null,
+  ].filter((s) => s !== null);
+
+  return getDb()
+    .select()
+    .from(schema.contact)
+    .where(and(eq(schema.contact.organizationId, organizationId), or(...señales)))
+    .orderBy(schema.contact.createdAt);
+}
+
+/**
+ * Un contacto se identifica por su teléfono, por su BSUID, o por los dos.
+ *
+ * **Lo normal es que lleguen los dos** (98 de 99 eventos reales, medido el
+ * 5-ago-2026): antes se guardaba solo el teléfono y se tiraba el BSUID, así
+ * que el día que Meta dejara de mandar `from` para un cliente conocido —la
+ * dirección declarada de su migración— ese cliente habría entrado como
+ * contacto y conversación NUEVOS, con el historial partido y el agente
+ * saludándolo como a un desconocido.
+ *
+ * Ahora se guardan ambas y **la que llegue tarde se rellena sobre el contacto
+ * que ya existía**, que es el caso real de Nathalia y Marii (guardadas solo
+ * por BSUID, sin teléfono, antes de este arreglo).
+ */
 export async function getOrCreateContact(
   organizationId: string,
   identifier: ContactIdentifier,
@@ -49,7 +85,48 @@ export async function getOrCreateContact(
     throw new Error("getOrCreateContact: hace falta phone o waUserId");
   }
   const db = getDb();
-  const displayFallback = phone ?? waUserId!;
+
+  const candidatos = await buscarPorIdentidad(organizationId, identifier);
+  if (candidatos.length > 0) {
+    const existing = candidatos[0]!;
+    /**
+     * Dos contactos distintos, uno por cada señal: son la misma persona, pero
+     * fusionarlos en caliente implica mover mensajes, conversaciones, leads y
+     * citas — demasiado para hacerlo solo y sin que nadie mire. Se usa el más
+     * antiguo (el del historial) y se deja el aviso para resolverlo a mano.
+     * No debería ocurrir con este arreglo puesto: es defensa por si ya había
+     * duplicados de antes.
+     */
+    if (candidatos.length > 1) {
+      console.warn(
+        `[contacto] MISMA PERSONA EN DOS CONTACTOS de ${organizationId}: ` +
+          candidatos.map((c) => `${c.id} (tel=${c.phone ?? "-"}, bsuid=${c.waUserId ?? "-"})`).join(" | ") +
+          ` — se usa ${existing.id}; fusionar a mano`
+      );
+    }
+
+    // La señal que faltaba: se rellena sin pisar nunca una ya guardada.
+    const faltantes: Partial<typeof schema.contact.$inferInsert> = {};
+    if (phone && !existing.phone) faltantes.phone = phone;
+    if (waUserId && !existing.waUserId) faltantes.waUserId = waUserId;
+    // Reactivar si estaba archivado (el nombre editado por el operador se respeta).
+    const reactivar = existing.archivedAt !== null;
+
+    if (Object.keys(faltantes).length > 0 || reactivar) {
+      const [actualizado] = await db
+        .update(schema.contact)
+        .set({
+          ...faltantes,
+          ...(reactivar ? { archivedAt: null } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.contact.id, existing.id))
+        .returning();
+      if (actualizado) return { contact: actualizado, isNew: false };
+    }
+    return { contact: existing, isNew: false };
+  }
+
   const inserted = await db
     .insert(schema.contact)
     .values({
@@ -57,43 +134,17 @@ export async function getOrCreateContact(
       organizationId,
       phone,
       waUserId,
-      name: name?.trim() || displayFallback,
+      name: name?.trim() || phone || waUserId!,
     })
-    .onConflictDoNothing({
-      // Sin teléfono, ese índice nunca choca (NULL no colisiona en Postgres):
-      // hay que apuntar al de wa_user_id para no duplicar el contacto en cada
-      // mensaje nuevo de la misma persona.
-      target: phone
-        ? [schema.contact.organizationId, schema.contact.phone]
-        : [schema.contact.organizationId, schema.contact.waUserId],
-    })
+    // Cubre los dos índices únicos (teléfono y BSUID) sin nombrar ninguno: si
+    // otro webhook simultáneo se adelantó, se resuelve leyendo abajo.
+    .onConflictDoNothing()
     .returning();
   if (inserted[0]) return { contact: inserted[0], isNew: true };
 
-  const rows = await db
-    .select()
-    .from(schema.contact)
-    .where(
-      and(
-        eq(schema.contact.organizationId, organizationId),
-        phone
-          ? eq(schema.contact.phone, phone)
-          : eq(schema.contact.waUserId, waUserId!)
-      )
-    )
-    .limit(1);
-  const existing = rows[0];
-  if (!existing) throw new Error("contacto no encontrado tras upsert");
-
-  // Reactivar si estaba archivado (el nombre editado por el operador se respeta).
-  if (existing.archivedAt) {
-    await db
-      .update(schema.contact)
-      .set({ archivedAt: null, updatedAt: new Date() })
-      .where(eq(schema.contact.id, existing.id));
-    existing.archivedAt = null;
-  }
-  return { contact: existing, isNew: false };
+  const [carrera] = await buscarPorIdentidad(organizationId, identifier);
+  if (!carrera) throw new Error("contacto no encontrado tras upsert");
+  return { contact: carrera, isNew: false };
 }
 
 export async function getOrCreateConversation(

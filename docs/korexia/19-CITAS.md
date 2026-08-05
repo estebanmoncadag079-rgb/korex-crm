@@ -76,7 +76,15 @@ en vez de un bucle.
 Acciones de escritura: `book_appointment`, `reschedule_appointment`,
 `cancel_appointment`. Cada una revalida la disponibilidad real antes de
 tocar la base de datos (nunca confía en lo que el modelo cree que consultó
-hace dos turnos). A diferencia de `notify_order`, **no disparan handoff
+hace dos turnos).
+
+Desde el **5-ago-2026** hay una segunda barrera: **solo se puede agendar un
+horario que el agente haya ofrecido** en esa conversación (tabla
+`offered_slot`, poblada por `consult_availability`). Estar libre ya no basta —
+si el modelo se confunde con una fecha relativa y elige un hueco que nunca
+ofreció, se le responde al cliente con los horarios reales en vez de
+reservarle mal. Sin nada ofrecido se deja pasar, para no romper al cliente que
+pide día y hora concretos. Detalle en [26-NEA-AGENT.md](26-NEA-AGENT.md). A diferencia de `notify_order`, **no disparan handoff
 automático**: agendar una cita no necesita que una persona coordine nada, así
 que el agente sigue atendiendo.
 

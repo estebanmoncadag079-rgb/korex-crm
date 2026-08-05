@@ -95,11 +95,16 @@ export type YcloudEvent = {
     wabaId?: string;
     from?: string; // número del cliente (E.164, con +)
     /**
-     * Business-Scoped User ID (formato "CO.xxxx…"): lo que manda YCloud EN
-     * VEZ de `from` cuando el cliente tiene nombre de usuario de WhatsApp
-     * activado (función lanzada por Meta en 2026, oculta el teléfono a los
-     * negocios). Confirmado con el payload completo en producción el
-     * 2-ago-2026 — nunca vienen los dos juntos.
+     * Business-Scoped User ID (formato "CO.xxxx…"): el identificador estable
+     * que da Meta cuando el cliente tiene nombre de usuario de WhatsApp
+     * activado (función lanzada en 2026, oculta el teléfono a los negocios).
+     *
+     * ⚠️ Aquí decía "nunca vienen los dos juntos", y era **falso**: medido el
+     * 5-ago-2026 sobre los eventos reales de `webhook_event`, **98 de 99
+     * traen `from` Y `fromUserId` a la vez**; solo 1 trajo el BSUID solo.
+     * Por eso se guardan **las dos** señales siempre que lleguen: el día que
+     * Meta deje de mandar `from` para alguien que ya escribía, el contacto se
+     * reconoce por el BSUID en vez de nacer duplicado.
      */
     fromUserId?: string;
     to?: string; // número del negocio
@@ -176,7 +181,8 @@ export function parseYcloudEcho(event: YcloudEvent): ParsedEcho | null {
     wabaId: m.wabaId ?? "",
     businessPhone: stripPlus(m.from ?? ""),
     customerPhone: m.to ? stripPlus(m.to) : null,
-    customerWaUserId: m.to ? null : (m.toUserId ?? null),
+    // Las dos señales, igual que en el entrante (`parseYcloudInbound`).
+    customerWaUserId: m.toUserId ?? null,
     type: m.type ?? "text",
     text,
     unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
@@ -203,7 +209,8 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
     id: m.id,
     wabaId: m.wabaId,
     from: m.from ? stripPlus(m.from) : null,
-    waUserId: m.from ? null : (m.fromUserId ?? null),
+    // Las DOS señales, no una: ver la nota de `fromUserId` arriba.
+    waUserId: m.fromUserId ?? null,
     to: stripPlus(m.to ?? ""),
     name: m.customerProfile?.name ?? null,
     type: editedText ? "text" : (m.type ?? "text"),

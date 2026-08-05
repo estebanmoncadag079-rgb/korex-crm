@@ -22,6 +22,7 @@ const prefixes = {
   staffMember: "stf",
   staffService: "ss",
   appointment: "apt",
+  offeredSlot: "ofs",
   webhookEvent: "whev",
 } as const;
 

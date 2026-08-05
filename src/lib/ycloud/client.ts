@@ -95,8 +95,73 @@ export async function ycloudSendText(input: {
   );
 }
 
-/** POST único a sendDirectly: traduce el error de YCloud y devuelve el wamid. */
+/**
+ * Esperas entre reintentos de un fallo pasajero. Cortas a propósito: el
+ * cliente está esperando la respuesta del negocio en WhatsApp, y un reintento
+ * tardío se parece cada vez más a un mensaje duplicado.
+ */
+const REINTENTOS_MS = [300, 1200];
+
+/**
+ * Un fallo del que vale la pena reintentar: se cayó la red o YCloud contestó
+ * mal por un momento. Un 4xx (número inválido, clave mala, ventana cerrada)
+ * va a fallar igual las veces que se repita — reintentarlo solo retrasa el
+ * aviso al equipo.
+ */
+function esPasajero(err: unknown): boolean {
+  if (err instanceof YcloudHttpError) return err.status === 429 || err.status >= 500;
+  return true; // fetch lanzó: no hubo respuesta (red, DNS, timeout)
+}
+
+class YcloudHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "YcloudHttpError";
+  }
+}
+
+/**
+ * POST a sendDirectly, con reintento de los fallos pasajeros: traduce el
+ * error de YCloud y devuelve el wamid.
+ *
+ * Los reintentos se agregaron el 5-ago-2026. Antes, un hipo de red dejaba
+ * perdida la respuesta que el agente ya había generado (y pagado), sin fila
+ * en la base ni aviso a nadie — el cliente se quedaba esperando y el equipo
+ * no se enteraba. Idea tomada de `nea-agent` (su `pending_send`, incidente
+ * del 3-ago-2026); ver docs/korexia/26-NEA-AGENT.md.
+ *
+ * Riesgo asumido: si YCloud llegó a procesar el mensaje pero la respuesta se
+ * perdió en el camino, el reintento lo duplica. Se prefiere un mensaje
+ * repetido a un cliente sin respuesta, y por eso los reintentos son pocos y
+ * seguidos.
+ */
 async function sendDirectly(
+  payload: Record<string, unknown>,
+  apiKey: string
+): Promise<string> {
+  let ultimo: unknown;
+  for (let intento = 0; intento <= REINTENTOS_MS.length; intento++) {
+    try {
+      return await postSendDirectly(payload, apiKey);
+    } catch (err) {
+      ultimo = err;
+      const espera = REINTENTOS_MS[intento];
+      if (espera === undefined || !esPasajero(err)) break;
+      console.warn(
+        `[ycloud] envío falló (${err instanceof Error ? err.message : err}) — ` +
+          `reintento ${intento + 1} de ${REINTENTOS_MS.length} en ${espera} ms`
+      );
+      await new Promise((r) => setTimeout(r, espera));
+    }
+  }
+  throw ultimo;
+}
+
+/** Un solo POST, sin reintentos. */
+async function postSendDirectly(
   payload: Record<string, unknown>,
   apiKey: string
 ): Promise<string> {
@@ -121,7 +186,8 @@ async function sendDirectly(
   } | null;
 
   if (!res.ok) {
-    throw new Error(
+    throw new YcloudHttpError(
+      res.status,
       json?.message ?? json?.error?.message ?? `YCloud respondió ${res.status}`
     );
   }

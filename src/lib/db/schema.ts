@@ -486,6 +486,40 @@ export const appointment = pgTable(
   ]
 );
 
+/**
+ * Los horarios que el agente le ofreció al cliente en esta conversación.
+ *
+ * Existen para una sola regla: **solo se puede agendar un horario que el
+ * agente haya ofrecido**. `crearCita` ya valida que el hueco esté libre, pero
+ * eso no impide que el modelo agende uno que nunca ofreció — el caso real es
+ * una fecha relativa mal entendida ("el miércoles", "mañana en la tarde", ver
+ * 19-CITAS.md) que cae por casualidad en un hueco libre y se reserva mal.
+ *
+ * Se reemplazan enteros en cada consulta de disponibilidad: lo ofrecido antes
+ * ya no vale. Idea tomada de `offered_slots` de `nea-agent`.
+ */
+export const offeredSlot = pgTable(
+  "offered_slot",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    serviceId: text("service_id")
+      .notNull()
+      .references(() => service.id, { onDelete: "cascade" }),
+    /** Fecha en formato DD/MM/AAAA, tal como la maneja el motor de citas. */
+    fecha: text("fecha").notNull(),
+    /** Hora "HH:MM" en hora de Bogotá, igual que `disponibilidadReal`. */
+    hora: text("hora").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("offered_slot_conversation_idx").on(t.conversationId)]
+);
+
 export const template = pgTable(
   "template",
   {

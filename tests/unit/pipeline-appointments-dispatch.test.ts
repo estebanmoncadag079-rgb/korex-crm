@@ -31,6 +31,11 @@ vi.mock("@/server/appointments/queries", () => ({
   catalogoParaPrompt: (...a: unknown[]) => catalogoParaPrompt(...a),
   disponibilidadReal: vi.fn(),
   proximasFechasConCupo: vi.fn(),
+  // Sin horarios ofrecidos en la conversación, la reserva pasa igual que
+  // antes (ver `estaEntreLosOfrecidos`): estos casos prueban el despacho.
+  estaEntreLosOfrecidos: () => Promise.resolve({ ok: true }),
+  registrarOfrecidos: () => Promise.resolve(),
+  limpiarOfrecidos: () => Promise.resolve(),
 }));
 
 const notifyTeam = vi.fn();

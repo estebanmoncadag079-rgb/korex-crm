@@ -49,7 +49,12 @@ vi.mock("@/lib/db", () => ({
     }),
     select: () => ({
       from: () => ({
-        where: () => ({ limit: () => Promise.resolve([]) }),
+        // `limit` para la conversación, `orderBy` para la identidad del
+        // contacto (que busca por teléfono Y BSUID, del más antiguo al nuevo).
+        where: () => ({
+          limit: () => Promise.resolve([]),
+          orderBy: () => Promise.resolve([]),
+        }),
       }),
     }),
     update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),

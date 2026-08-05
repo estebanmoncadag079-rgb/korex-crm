@@ -732,3 +732,108 @@ export async function updateAppointmentStatus(
     .returning();
   return rows[0] ?? null;
 }
+
+/**
+ * Guarda los horarios que el agente acaba de ofrecerle al cliente,
+ * reemplazando los de la consulta anterior: lo que se ofreció antes ya no
+ * vale.
+ *
+ * Sostiene la regla "solo se agenda lo que se ofreció" (ver `offeredSlot` en
+ * el esquema). Un fallo aquí no puede tumbar el turno: en el peor caso se
+ * queda sin registro y `estaEntreLosOfrecidos` deja pasar, que es el
+ * comportamiento que había antes de esto.
+ */
+export async function registrarOfrecidos(input: {
+  organizationId: string;
+  conversationId: string;
+  serviceId: string;
+  /** Pares fecha (DD/MM/AAAA) + hora (HH:MM) tal como se le muestran al cliente. */
+  slots: { fecha: string; hora: string }[];
+}): Promise<void> {
+  const db = getDb();
+  await db
+    .delete(schema.offeredSlot)
+    .where(
+      scoped(
+        schema.offeredSlot.organizationId,
+        input.organizationId,
+        eq(schema.offeredSlot.conversationId, input.conversationId)
+      )
+    );
+  if (!input.slots.length) return;
+  await db.insert(schema.offeredSlot).values(
+    input.slots.map((s) => ({
+      id: newId("offeredSlot"),
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      serviceId: input.serviceId,
+      fecha: s.fecha,
+      hora: s.hora,
+    }))
+  );
+}
+
+export async function ofrecidosDeConversacion(
+  organizationId: string,
+  conversationId: string
+): Promise<{ fecha: string; hora: string }[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      fecha: schema.offeredSlot.fecha,
+      hora: schema.offeredSlot.hora,
+    })
+    .from(schema.offeredSlot)
+    .where(
+      scoped(
+        schema.offeredSlot.organizationId,
+        organizationId,
+        eq(schema.offeredSlot.conversationId, conversationId)
+      )
+    );
+  return rows;
+}
+
+/**
+ * ¿Este horario es uno de los que el agente ofreció?
+ *
+ * **Sin nada ofrecido devuelve `true` a propósito**: hay conversaciones donde
+ * el cliente pide un día y una hora concretos y el agente agenda directo sin
+ * pasar por la consulta. Ese camino funciona hoy y `crearCita` lo valida
+ * igual contra la disponibilidad real; bloquearlo sería romper algo que sirve.
+ * La regla muerde donde está el riesgo: cuando SÍ se ofrecieron horarios y el
+ * modelo termina reservando otro distinto.
+ */
+export async function estaEntreLosOfrecidos(input: {
+  organizationId: string;
+  conversationId: string;
+  fecha: string;
+  hora: string;
+}): Promise<{ ok: true } | { ok: false; ofrecidos: { fecha: string; hora: string }[] }> {
+  const ofrecidos = await ofrecidosDeConversacion(
+    input.organizationId,
+    input.conversationId
+  );
+  if (!ofrecidos.length) return { ok: true };
+  const coincide = ofrecidos.some(
+    (o) => o.fecha === input.fecha && o.hora === input.hora
+  );
+  return coincide ? { ok: true } : { ok: false, ofrecidos };
+}
+
+/** Tras agendar: lo ofrecido dejó de tener sentido. */
+export async function limpiarOfrecidos(
+  organizationId: string,
+  conversationId: string
+): Promise<void> {
+  const db = getDb();
+  await db
+    .delete(schema.offeredSlot)
+    .where(
+      scoped(
+        schema.offeredSlot.organizationId,
+        organizationId,
+        eq(schema.offeredSlot.conversationId, conversationId)
+      )
+    );
+}

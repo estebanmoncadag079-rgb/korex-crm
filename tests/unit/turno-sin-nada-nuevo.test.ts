@@ -110,6 +110,11 @@ const PROFILE = {
 
 const t = (s: number) => new Date(2026, 7, 2, 18, 32, s);
 
+/** Los mensajes tal como se los pasa el pipeline al modelo (2º argumento). */
+function mensajesDelModelo(): { role: string; content: string }[] {
+  return chatJson.mock.calls[0]?.[1] ?? [];
+}
+
 describe("runAgentTurn: un turno sin nada nuevo que responder", () => {
   beforeEach(() => {
     vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
@@ -146,6 +151,85 @@ describe("runAgentTurn: un turno sin nada nuevo que responder", () => {
     expect(chatJson).not.toHaveBeenCalled(); // no se gasta una llamada al modelo
     expect(sendText).not.toHaveBeenCalled(); // y NO le llega el "te comunico con una persona"
     expect(notifyTeam).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Caso Tatis (Lis Pastelería, 5-ago-2026 13:47 Colombia): preguntó "¿ya
+   * tienen servicio a domi?" y 4 s después eligió "1" del menú, cuando el
+   * agente ya estaba respondiendo. Le contestaron lo del domicilio y el "1"
+   * quedó guardado POR DETRÁS de esa respuesta: nunca recibió la carta, y
+   * encima el turno siguiente derivó a un humano.
+   *
+   * Con la marca de hasta dónde llegó el turno anterior, el "1" se reconoce
+   * como pendiente y se le pasa al modelo AL FINAL, después de la respuesta
+   * ya enviada.
+   */
+  it("el caso Tatis: el mensaje que se coló va al final, después de la respuesta ya enviada", async () => {
+    selectQueue.push(
+      [{ ...CONVERSATION, lastTurnInboundAt: t(59) }], // el turno anterior llegó hasta "Depronto…"
+      [PROFILE],
+      [
+        {
+          id: "m3",
+          direction: "out",
+          text: "¡Claro que sí! 💗 Hacemos domicilios por medio de *Yango*…",
+          aiGenerated: true,
+          createdAt: t(64),
+        },
+        { id: "m2", direction: "in", text: "1", createdAt: t(63) },
+        {
+          id: "m1",
+          direction: "in",
+          text: "Depronto ya tienen servicio a domi?",
+          createdAt: t(59),
+        },
+      ],
+      [],
+      [],
+      []
+    );
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { action: "reply", text: "¡Aquí tienes nuestra carta! 💗" },
+      usage: { promptTokens: 10, completionTokens: 5 },
+      model: "test",
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_jorge");
+
+    const mensajes = mensajesDelModelo();
+    const ultimo = mensajes[mensajes.length - 1]!;
+    // Termina en el cliente, no en el agente: es lo que evita el `content: null`
+    expect(ultimo.role).toBe("user");
+    expect(ultimo.content).toBe("1");
+    // Y la respuesta ya enviada queda ANTES, como contexto
+    const posDomicilio = mensajes.findIndex((m) => m.content.includes("Yango"));
+    expect(posDomicilio).toBeGreaterThan(-1);
+    expect(posDomicilio).toBeLessThan(mensajes.length - 1);
+  });
+
+  it("con marca al día, un mensaje ya respondido no vuelve a disparar el turno", async () => {
+    selectQueue.push(
+      [{ ...CONVERSATION, lastTurnInboundAt: t(63) }], // ya se procesó hasta el "1"
+      [PROFILE],
+      [
+        {
+          id: "m3",
+          direction: "out",
+          text: "¡Aquí tienes nuestra carta! 💗",
+          aiGenerated: true,
+          createdAt: t(64),
+        },
+        { id: "m2", direction: "in", text: "1", createdAt: t(63) },
+      ]
+    );
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const accion = await runAgentTurn("cv_jorge");
+
+    expect(accion).toBeNull();
+    expect(chatJson).not.toHaveBeenCalled();
   });
 
   it("con un mensaje del cliente al final, el turno corre normal", async () => {

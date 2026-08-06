@@ -150,6 +150,27 @@ async function executeTurn(conversationId: string): Promise<void> {
  * abierto. Con el historial real de producción, el modelo lo reprodujo 5 veces
  * de cada 6. Se le retira el texto — no el turno — para que no tenga qué copiar.
  */
+/**
+ * Los mensajes del cliente que el agente todavía no ha atendido.
+ *
+ * Con marca (`lastTurnInboundAt`), es exacto: todo lo entrante posterior.
+ *
+ * Sin marca —conversaciones anteriores a que existiera la columna— se cae al
+ * criterio que se puede deducir del propio historial: los entrantes que hay
+ * DESPUÉS de la última respuesta del agente. Es lo que se desplegó el 5-ago y
+ * no falla nunca en falso; solo se queda corto justo en el caso de carrera,
+ * que es lo que la marca vino a resolver.
+ */
+export function entrantesSinResponder<
+  T extends { id: string; direction: string; createdAt: Date },
+>(history: T[], marca: Date | null | undefined): T[] {
+  if (marca) {
+    return history.filter((m) => m.direction === "in" && m.createdAt > marca);
+  }
+  const ultimoSaliente = history.map((m) => m.direction).lastIndexOf("out");
+  return history.slice(ultimoSaliente + 1).filter((m) => m.direction === "in");
+}
+
 export function toChatHistory(
   history: { direction: string; text: string | null; aiGenerated?: boolean }[],
   estado?: "abierto" | "cerrado" | null
@@ -345,7 +366,7 @@ export async function runAgentTurn(
   // comportamiento configurado aunque el agente aún no esté encendido.
   if (!conversation.isTest && !profile.enabled) return null;
 
-  const history = await db
+  let history = await db
     .select()
     .from(schema.message)
     .where(eq(schema.message.conversationId, conversationId))
@@ -356,37 +377,53 @@ export async function runAgentTurn(
   if (!lastInbound) return null;
 
   /**
-   * Nada nuevo que responder: el último mensaje de la conversación es del
-   * propio agente, así que su respuesta anterior ya cubrió lo que escribió el
-   * cliente. Se sale sin gastar una llamada al modelo.
+   * Qué mensajes del cliente siguen sin respuesta.
    *
-   * **Venta perdida real (Jorge, La Churra, 2-ago-2026 18:32 Colombia)**: el
-   * cliente escribió "Azur y canela" y 11 s después se corrigió con "Azúcar y
-   * canela", mientras el agente ya estaba respondiendo. El segundo mensaje
-   * entró con el turno en marcha, así que quedó encolado (`entry.pending`) y
-   * disparó un SEGUNDO turno en cuanto terminó el primero. Ese turno no tenía
-   * nada que contestar: el historial terminaba en la propia respuesta del
-   * agente, y `toChatHistory` la mapea como `assistant` — con el array
-   * terminado en `assistant`, google/gemini-2.5-flash devuelve `content:
-   * null` (el mismo comportamiento ya verificado el 1-ago-2026 en el loop de
-   * disponibilidad, ver el comentario de "user, no system" más abajo). Sin
-   * contenido, el turno se daba por fallido y disparaba `handoff` de error:
-   * el cliente, que estaba a un paso de cerrar el pedido, recibió "te
-   * comunico con una persona" y no volvió a escribir.
+   * No basta con mirar el último mensaje: cuando alguien escribe mientras el
+   * agente ya está respondiendo, su mensaje queda guardado ANTES de la
+   * respuesta y parece contestado sin estarlo. Por eso cada turno anota hasta
+   * dónde llegó (`lastTurnInboundAt`) y aquí se compara contra esa marca.
    *
-   * Límite conocido: si un mensaje llega en el segundo escaso que va entre
-   * que el turno lee el historial y guarda su respuesta, ese mensaje se queda
-   * sin contestar (antes disparaba el handoff falso, que tampoco lo
-   * contestaba). Cerrarlo del todo exige registrar hasta qué mensaje procesó
-   * cada turno — trabajo aparte, y sin caso real que lo pida todavía.
+   * Los dos casos reales que lo motivan, ambos por lo mismo:
+   *
+   * - **Jorge (La Churra, 2-ago)**: escribió "Azur y canela" y se corrigió con
+   *   "Azúcar y canela" mientras el agente respondía. El segundo mensaje
+   *   disparó un turno que no tenía nada que contestar → el historial
+   *   terminaba en la propia respuesta del agente → `content: null` de
+   *   gemini-2.5-flash → handoff de error. Venta perdida.
+   * - **Tatis (Lis, 5-ago)**: preguntó por el domicilio y 4 s después eligió
+   *   "1" del menú. Le contestaron lo del domicilio; el "1" quedó por detrás
+   *   de esa respuesta y **nunca recibió la carta**.
+   *
+   * Sin pendientes se omite el turno (y su llamada al modelo). Con
+   * pendientes, se reordenan al final del historial: el modelo ve su
+   * respuesta anterior y, después, lo que el cliente sigue esperando — que es
+   * exactamente lo que pasó visto desde el chat.
    */
-  const ultimo = history[history.length - 1];
-  if (ultimo && ultimo.direction !== "in") {
+  const pendientes = entrantesSinResponder(history, conversation.lastTurnInboundAt);
+  if (!pendientes.length) {
     console.info(
-      `[agente] turno omitido en ${conversationId}: el último mensaje ya es una respuesta del agente`
+      `[agente] turno omitido en ${conversationId}: no hay mensajes del cliente sin responder`
     );
     return null;
   }
+
+  /**
+   * La marca se guarda ANTES de llamar al modelo, no después: si el turno
+   * falla a mitad, estos mensajes NO deben volver a dispararlo en bucle —
+   * para eso está la derivación a una persona.
+   */
+  const hastaAqui = pendientes[pendientes.length - 1]!.createdAt;
+  await db
+    .update(schema.conversation)
+    .set({ lastTurnInboundAt: hastaAqui })
+    .where(eq(schema.conversation.id, conversationId));
+
+  const pendientesIds = new Set(pendientes.map((m) => m.id));
+  history = [
+    ...history.filter((m) => !pendientesIds.has(m.id)),
+    ...pendientes,
+  ];
 
   // Ventana cerrada: el agente JAMÁS envía texto libre → handoff 'ventana'.
   if (!conversation.isTest && !isWindowOpen(conversation.lastInboundAt)) {

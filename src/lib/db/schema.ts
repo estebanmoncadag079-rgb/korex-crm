@@ -208,6 +208,18 @@ export const conversation = pgTable(
     }),
     lastInboundAt: timestamp("last_inbound_at"),
     lastMessageAt: timestamp("last_message_at"),
+    /**
+     * Hasta qué mensaje del cliente llegó el último turno del agente.
+     *
+     * Sin esta marca no hay forma de distinguir un mensaje que el agente ya
+     * respondió de uno que se le coló mientras respondía: los dos quedan en
+     * la base ANTES de la respuesta. El segundo caso es real y frecuente —
+     * con `AGENT_COALESCE_MS=3000`, a un cliente le basta escribir su segunda
+     * frase 4 s después para caer justo en el turno en marcha (Tatis, Lis
+     * Pastelería, 5-ago-2026: preguntó por el domicilio y eligió "1" del
+     * menú; le contestaron solo lo del domicilio).
+     */
+    lastTurnInboundAt: timestamp("last_turn_inbound_at"),
     unreadCount: integer("unread_count").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

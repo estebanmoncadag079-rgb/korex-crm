@@ -78,20 +78,67 @@ tal cual y comprueba que no se llama al modelo, no se envía nada al cliente y
 no se avisa al equipo — y que un turno normal (mensaje del cliente al final)
 sigue corriendo.
 
-## Lo que queda abierto
-
-Si un mensaje llega en el segundo escaso que va **entre que el turno lee el
-historial y guarda su respuesta**, ese mensaje se queda sin contestar: el
-turno siguiente lo verá "por detrás" de la respuesta y se omitirá. Antes de
-este arreglo ese caso disparaba el handoff falso, que tampoco lo contestaba —
-así que no empeora nada, pero tampoco lo cierra.
-
-Cerrarlo del todo pide **registrar hasta qué mensaje procesó cada turno** (una
-marca por conversación) y, cuando queden entrantes sin procesar, ponerlos al
-final del array en vez de omitir el turno. Es trabajo aparte y todavía no hay
-un caso real que lo pida.
-
 ✅ **Desplegado el 5-ago-2026 20:19 UTC** (commit `3dfb91b`), verificado dentro
 del contenedor. Tras el despliegue, La Churra y Lis atendieron pedidos reales
 completos —incluido uno con comprobante de pago y confirmación— **sin un solo
 mensaje en `failed` ni un handoff de error**.
+
+---
+
+# Segunda parte: Tatis, y el mensaje que sí se perdía
+
+El caso real que faltaba llegó el mismo día. **Tatis, Lis Pastelería, 5-ago
+13:47 Colombia** (18:47 UTC, **1 h 32 min antes** de que el arreglo de arriba
+estuviera en producción):
+
+| Hora | Quién | Qué |
+|---|---|---|
+| 18:46:59 | Tatis | "Depronto ya tienen servicio a domi?" |
+| 18:47:03.074 | Tatis | **"1"** (Ver menú y precios) |
+| 18:47:03.995 | agente | "¡Claro que sí! Hacemos domicilios por *Yango*…" |
+| 18:47:15 | agente | "Dame un momentico… te comunico con una persona" |
+
+Mismo mecanismo que Jorge, con una consecuencia peor: **el "1" quedó guardado
+por detrás de la respuesta y nunca recibió la carta**. Eran dos cosas
+distintas —una pregunta y una opción del menú— y se atendió una sola.
+
+## Por qué pasa tan seguido: el debounce está en 3 s
+
+`AGENT_COALESCE_MS=3000` en producción (no el default de 6000). Con 3
+segundos, a un cliente le basta escribir su segunda frase 4 s después para
+caer justo en el turno en marcha. La agrupación de ráfagas casi no llega a
+hacer su trabajo.
+
+## El cierre: una marca de hasta dónde llegó cada turno
+
+El límite que quedaba abierto arriba ya no lo está. `conversation.
+last_turn_inbound_at` (migración `0015_thin_shriek.sql`) registra hasta qué
+mensaje del cliente llegó el último turno, y `entrantesSinResponder()` compara
+contra esa marca:
+
+- **Sin pendientes** → el turno se omite antes de llamar al modelo (el caso
+  Jorge, que ahorra además la llamada).
+- **Con pendientes** → el turno corre, y los pendientes se **reordenan al
+  final** del historial: el modelo ve su respuesta anterior y, después, lo que
+  el cliente sigue esperando. Que es exactamente lo que pasó visto desde el
+  chat — y de paso garantiza que el array **nunca termine en `assistant`**,
+  que es la raíz de todo esto.
+
+La marca se guarda **antes** de llamar al modelo: si el turno falla a mitad,
+esos mensajes no pueden volver a dispararlo en bucle.
+
+Para conversaciones anteriores a la columna (marca nula) se cae al criterio
+del 5-ago —los entrantes que hay después de la última respuesta—, que no falla
+en falso y solo se queda corto justo en el caso de carrera.
+
+**Además**, una regla nueva en el contrato de acciones: si el cliente manda
+varias cosas seguidas, se atienden **todas**, en el orden en que las escribió,
+y eso nunca es motivo para escalar a una persona.
+
+## Recomendación pendiente de decidir
+
+Subir `AGENT_COALESCE_MS` de 3000 a 6000 haría que estos dos mensajes cayeran
+en el **mismo** turno y el cliente recibiera UNA respuesta que cubre las dos
+cosas, en vez de dos mensajes seguidos. El costo son 3 segundos más de espera
+en todas las respuestas. Es un cambio de variable de entorno, sin desplegar
+código.

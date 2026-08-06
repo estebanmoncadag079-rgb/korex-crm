@@ -117,11 +117,28 @@ simplemente dejaba de responder, sin ninguna confirmación.
 Los clientes escriben en ráfagas ("hola" / "quiero pedir" / "un cremoso"). Si
 el agente respondiera a cada uno, contestaría tres veces a medias.
 
-Por eso **espera 3 segundos** desde el último mensaje antes de responder
+Por eso **espera 6 segundos** desde el último mensaje antes de responder
 (`AGENT_COALESCE_MS`), y cada mensaje nuevo reinicia la cuenta.
 
 **Excepción: el primer mensaje de una conversación no espera.** El saludo sale
 al instante, porque ahí el cliente está mirando la pantalla sin nada que leer.
+
+> ⚙️ **Dónde se cambia**: `AGENT_COALESCE_MS` **no vive en el código** — el
+> repo trae 6000 por defecto (`docker-compose.yml`, `.env.example`). El valor
+> real de producción está en la configuración del servicio de EasyPanel
+> (`korex-crm` → `crm` → Entorno) y se ve con
+> `docker service inspect korex-crm_crm`. Cambiarlo por SSH con `docker
+> service update` funciona hasta el siguiente **Desplegar**, que lo revierte:
+> hay que tocarlo en el panel.
+>
+> **Historial del valor**: 6 s al principio → **3 s** (para bajar la latencia)
+> → **6 s otra vez el 5-ago-2026**. El motivo de volver: con 3 segundos, a un
+> cliente le basta escribir su segunda frase 4 s después para caer en el turno
+> ya en marcha, y esa carrera provocó dos incidentes reales el mismo día
+> (Jorge y Tatis, ver [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md)).
+> Con 6 s, las dos frases caen en el mismo turno y el cliente recibe **una
+> respuesta que cubre todo** en vez de dos sueltas. El código ya tolera la
+> carrera desde ese día; esto la hace además poco frecuente.
 
 ### Cuánto tarda en responder
 
@@ -129,7 +146,7 @@ Medido en producción (27-jul-2026):
 
 | Parte | Tiempo |
 |---|---|
-| Espera deliberada | 3 s (antes 6) |
+| Espera deliberada | 6 s (fue 3 entre julio y el 5-ago-2026) |
 | El modelo piensa | 2–4 s |
 | Envío por YCloud | < 1 s |
 | Entrega del webhook | ~2 s |

@@ -135,10 +135,18 @@ en falso y solo se queda corto justo en el caso de carrera.
 varias cosas seguidas, se atienden **todas**, en el orden en que las escribió,
 y eso nunca es motivo para escalar a una persona.
 
-## Recomendación pendiente de decidir
+## El debounce vuelve a 6 segundos (decidido el 5-ago-2026)
 
-Subir `AGENT_COALESCE_MS` de 3000 a 6000 haría que estos dos mensajes cayeran
-en el **mismo** turno y el cliente recibiera UNA respuesta que cubre las dos
-cosas, en vez de dos mensajes seguidos. El costo son 3 segundos más de espera
-en todas las respuestas. Es un cambio de variable de entorno, sin desplegar
-código.
+Con 3000, estos dos mensajes caían en turnos distintos; con 6000 caen en el
+**mismo** turno y el cliente recibe UNA respuesta que cubre las dos cosas, en
+vez de dos sueltas. Cuesta 3 segundos más de espera en todas las respuestas, y
+el dueño lo aprobó a cambio de esto.
+
+Las dos capas se complementan y ninguna sustituye a la otra: **el código ya
+tolera la carrera** (nada se pierde aunque ocurra) y **el debounce la hace
+poco frecuente**.
+
+⚠️ Ese valor **no está en el código** —el repo trae 6000 por defecto— sino en
+la configuración del servicio de EasyPanel. Cambiarlo por SSH con `docker
+service update` dura hasta el siguiente Desplegar. Ver
+[04-AGENTE-IA.md](04-AGENTE-IA.md).

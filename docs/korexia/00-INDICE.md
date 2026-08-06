@@ -40,6 +40,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md) | ¿Conviene traer la actualización de Vocero CRM? Qué sirve, qué no, el bug latente de identidad que destapó y por qué el merge está descartado |
 | [26-NEA-AGENT.md](26-NEA-AGENT.md) | Qué se tomó del agente de citas `nea-agent`: que una respuesta no se pierda si falla el envío, agendar solo lo ofrecido, y la regla anti off-topic |
 | [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md) | La venta que se perdió porque el cliente se corrigió a sí mismo: un turno sin nada que responder dejaba mudo a Gemini y disparaba un handoff falso |
+| [28-BITACORA-4-6AGO.md](28-BITACORA-4-6AGO.md) | **Historial del 4 al 6 de agosto**: cinco casos de "no respondió" (tres con la misma causa de fondo), los dos repos revisados y el despliegue que no llevaba nada |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -89,18 +90,25 @@ contenedor, una base de datos, y dentro cada cliente vive aislado en su propia
 lo que es propio de cada uno son solo sus datos: su prompt, su conocimiento,
 su horario, su marca, su número y sus teléfonos de aviso.
 
-**Estado a 3-ago-2026 (noche)**: dos clientes en producción (La Churra y Lis
-Pastelería, ambos con agente encendido) más la organización de la agencia y
-una organización de prueba para el vertical de citas. Todos los cambios
-hechos hasta hoy (BSUID, citas, la auditoría de seguridad/refactor, y la
-sesión de esta noche — ver [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md):
-BSUID en el envío, `webhook_event`, horario de domingo) están **desplegados y
-verificados en producción** — nada pendiente de desplegar al cierre de esta
-sesión.
+**Estado a 6-ago-2026 (madrugada)**: dos clientes en producción (La Churra y
+Lis Pastelería, ambos con agente encendido) más la organización de la agencia
+y una organización de prueba para el vertical de citas. **Todo lo hecho hasta
+hoy está desplegado y verificado dentro del contenedor** —commits `3dfb91b` y
+`ef2f836`, ver [28-BITACORA-4-6AGO.md](28-BITACORA-4-6AGO.md)— y la carpeta de
+EasyPanel quedó sincronizada, así que ningún Desplegar futuro revierte nada.
+
 **Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** (y su continuación
 [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md)) si retomas el proyecto: ahí
 está lo urgente ordenado por riesgo real. WhatsApp por la API oficial de
 Meta a través de YCloud. Todo corre en un VPS con EasyPanel.
+
+> 🔦 **Si el reporte es "el bot no responde"**, no investigues desde cero:
+> hay **13 causas ya confirmadas con evidencia real**. Las cuatro más
+> recientes están en [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md) y
+> [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md), y el resumen de
+> todas, en la memoria del asistente. La que más veces ha vuelto, por caminos
+> distintos: **si el último mensaje que ve el modelo no es del cliente,
+> Gemini devuelve vacío** y el turno acaba en un handoff falso.
 
 ## Dónde está cada cosa
 

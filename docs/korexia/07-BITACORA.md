@@ -3,8 +3,12 @@
 > **Dentro:** 3-ago-2026 — auditoría con 3 agentes (seguridad, refactor, código) · 2/3-ago-2026 — nombres de usuario de WhatsApp (BSUID): el bot no respondía · 1-ago-2026 (tarde/noche) — el vertical de citas y el bot que no respondía
 
 Historial de los cambios que llegaron a producción. Lo más reciente arriba.
-Las horas van en **UTC** salvo que diga "Colombia" (UTC−5). **Entrada más
-reciente en [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md)** (mismo
+Las horas van en **UTC** salvo que diga "Colombia" (UTC−5).
+
+**Entrada más reciente: [28-BITACORA-4-6AGO.md](28-BITACORA-4-6AGO.md)** —
+cinco casos de "no respondió" (tres con la misma causa de fondo), la revisión
+de los repos `vocero-crm` y `nea-agent`, y el despliegue que no llevaba nada.
+Antes de esa, [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md) (mismo
 3-ago, más tarde: el bug de BSUID en el envío — el más grave de la sesión —,
 `webhook_event`, un incidente de despliegue y el horario de domingo).
 Entradas más antiguas en

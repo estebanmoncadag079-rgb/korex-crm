@@ -1,6 +1,8 @@
 # Pendientes (continuación, agosto 2026)
 
-> **Dentro:** Desplegado y verificado (3-ago-2026) · Por verificar en producción · Citas: huecos conocidos
+> **Dentro:** Desplegado y verificado (3-ago-2026) · Por verificar en
+> producción · Decisiones pendientes de la sesión del 4-6 de agosto · Citas:
+> huecos conocidos
 
 Sigue a [08-PENDIENTES.md](08-PENDIENTES.md) — se abrió aparte solo porque
 aquel ya estaba en el límite de 200 líneas.
@@ -58,6 +60,42 @@ Nota aparte para cuando se retome **09-COSTOS.md**: la recomendación de
 "contabilidad de costo por organización" coincide con un pendiente que ya
 existía antes (panel de costo por cliente) — no es una idea nueva, solo
 confirma que sigue siendo válida.
+
+## Decisiones pendientes de la sesión del 4-6 de agosto
+
+Todas salieron de [28-BITACORA-4-6AGO.md](28-BITACORA-4-6AGO.md). Ninguna es
+urgente; ninguna bloquea nada.
+
+**A. Backfill de identidad (21 contactos).** El arreglo del 5-ago guarda las
+dos señales, pero solo de aquí en adelante: hoy hay **9 contactos con las dos,
+79 con solo teléfono y 6 con solo BSUID**. Los eventos ya guardados en
+`webhook_event` permiten completar **21** de una vez con un `UPDATE`, en vez
+de esperar a que cada cliente vuelva a escribir. Es escritura sobre
+producción, por eso no se corrió sola. Los demás se van completando solos.
+
+**B. Adjuntos y fotos** (del upstream, ver
+[26-NEA-AGENT.md](26-NEA-AGENT.md) y [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md)).
+Guardar los adjuntos en disco propio cierra el **pendiente #23** (los
+comprobantes caducan a los 30 días en YCloud) y habilita **mandar fotos de
+productos desde la bandeja**, que es lo que pidió el dueño el 1-ago. Es el
+trabajo grande: pide volumen persistente en EasyPanel, entra en los respaldos
+y hay que reescribir la subida y descarga contra YCloud.
+
+**C. Seguimiento único** (de `nea-agent`). Un empujón a las N horas si el
+cliente se queda callado, uno solo por conversación, respetando la ventana de
+24 h y la IA en pausa. korex.ia no tiene nada parecido. El dueño lo dejó fuera
+de esta tanda; queda decidir a qué clientes se les activaría.
+
+**D. Detector determinista de hostilidad** (de `nea-agent`). El planteamiento
+es correcto —contar entre turnos es lo que un LLM hace mal— pero su léxico es
+100 % mexicano: para Colombia hay que rehacerlo. **Sin caso real que lo pida
+todavía.**
+
+**E. Límite residual de la carrera.** Con la marca de procesados
+(`last_turn_inbound_at`) el mensaje que se cuela ya no se pierde. Si algún día
+aparece un caso donde el modelo responda de forma redundante al mensaje
+reordenado, la vuelta de tuerca sería avisarle en el propio contexto de que
+esa parte ya la contestó.
 
 ## Citas: huecos conocidos
 

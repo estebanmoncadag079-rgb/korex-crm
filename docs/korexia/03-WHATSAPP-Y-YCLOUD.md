@@ -14,8 +14,8 @@ oficial (BSP). Motivos:
   Manager de cada cliente.
 
 El código conserva **también** el camino directo a Meta (por si un cliente trae
-su propia app), y decide solo cuál usar: si el `phone_number_id` empieza por
-`ycloud:`, sale por YCloud; si no, por Meta.
+su propia app) y decide solo: si el `phone_number_id` empieza por `ycloud:`,
+sale por YCloud; si no, por Meta.
 
 ## Cómo entra un mensaje
 
@@ -87,19 +87,13 @@ de Lis y La Churra — antes del arreglo, esos mensajes se perdían sin dejar
 rastro (ver [07-BITACORA.md](07-BITACORA.md)).
 
 > ⚠️ **Corregido el 5-ago-2026**: aquí decía que el evento "nunca trae
-> `from`/`to`" cuando hay BSUID. **Es falso**, y el código sigue asumiéndolo
-> (`ycloud-webhook.ts`: `waUserId: m.from ? null : m.fromUserId`, que tira el
-> BSUID si llega el teléfono). Medido sobre los eventos reales guardados en
-> `webhook_event`: **98 de 99 traen los dos campos a la vez**, y solo 1 trajo
-> BSUID sin teléfono. Consecuencia latente: el día que Meta deje de mandar
-> `from` para un cliente que ya escribía —la dirección declarada de su
-> migración— se creará un **contacto y una conversación nuevos** para la misma
-> persona, partiendo su historial. Todavía no ha pasado (verificado: no hay
-> contactos duplicados), pero el arreglo es guardar **ambas** señales y
-> fusionar por la que llegue. Análisis completo en
-> [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md).
+> `from`/`to`" cuando hay BSUID. **Es falso** — medido sobre `webhook_event`,
+> **98 de 99 traen los dos campos a la vez**. El código los tiraba y eso dejaba
+> a cada cliente listo para duplicarse; **ya está arreglado y desplegado**: se
+> guardan las dos señales y el contacto se reconoce por cualquiera. Análisis
+> en [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md).
 
-- El contacto se guarda **sin teléfono**, identificado por ese `wa_user_id`.
+- Sin teléfono, el contacto se identifica por su `wa_user_id`.
 - **Se le puede seguir respondiendo**: el mismo identificador sirve como
   destinatario del envío, igual que un número — no hace falta (ni se puede)
   averiguar su teléfono real.
@@ -114,36 +108,36 @@ si tiene cuenta propia, la de la agencia si no.
 
 > ⚠️ **Bug real (3-ago-2026): un BSUID mandado por el campo equivocado se
 > rechaza como teléfono inválido.** `sendDirectly` exige **uno** de `to`
-> (E.164) o `recipient` (BSUID) — nunca el BSUID por `to`. El arreglo de
-> BSUID (sección de arriba) guardaba bien estos contactos, pero al
-> **responder** siempre mandaba por `to`, así que YCloud devolvía `Invalid
-> E.164 phone number: CO.xxxx…` — ni el agente ni una respuesta manual desde
-> la bandeja lograban contestarle a un cliente con nombre de usuario
-> activado, en ningún negocio. Corregido: `resolveRecipient` devuelve un tipo
-> `{kind:"phone"|"waUserId", value}` y el envío arma el campo correcto según
-> cuál sea. Detalle en [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
+> (E.164) o `recipient` (BSUID) — nunca el BSUID por `to`. Mientras estuvo
+> mal, **nadie podía contestarle a un cliente con nombre de usuario activado**,
+> ni el agente ni una persona desde la bandeja, en ningún negocio. Corregido
+> con un tipo `{kind:"phone"|"waUserId", value}`. Detalle en
+> [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md).
+
+**Un fallo pasajero se reintenta** (red, `5xx`, `429`; dos veces) y si aun así
+no sale, la respuesta **se guarda como `failed`** y la conversación pasa a una
+persona — antes se perdía sin rastro. Ver [26-NEA-AGENT.md](26-NEA-AGENT.md).
 
 ## Captura del webhook antes de procesar (`webhook_event`)
 
 Desde el 3-ago-2026, cada evento se guarda **crudo** (payload, headers,
 firma) en la tabla `webhook_event` ANTES de interpretarlo — si ese guardado
 falla, se responde `5xx` para que YCloud pueda reintentar. Antes se
-respondía `200` primero y se procesaba después en segundo plano (`after()`
-de Next.js); un fallo a mitad de camino quedaba invisible. Ya no hace falta
-`after()`: la app corre en un contenedor de larga vida (Docker Swarm), no en
-una función serverless que se apague al responder, así que el procesamiento
-va en el mismo request. Cada evento queda con `status`
-`recibido`/`procesado`/`fallido` + el error si aplica — consultable con:
+respondía `200` primero y se procesaba en segundo plano (`after()` de
+Next.js), donde un fallo a mitad de camino quedaba invisible; ya no hace
+falta, porque la app corre en un contenedor de larga vida (Docker Swarm) y no
+en una función serverless que se apague al responder. Cada evento queda con
+`status` `recibido`/`procesado`/`fallido` + el error si aplica:
 
 ```sql
 select source, status, error, received_at from webhook_event
 where status = 'fallido' order by received_at desc;
 ```
 
-> Su primer uso real fue el **4-ago-2026**: dejó ver que un mensaje al que el
-> bot no respondió llegaba **vacío desde Meta** (`type: "unsupported"`, error
-> `131051`), sin contenido recuperable por ninguna vía. Detalle y consultas de
-> diagnóstico en [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md).
+> Sirvió a los dos días: el **4-ago-2026** dejó ver que un mensaje sin
+> respuesta llegaba **vacío desde Meta** (`type: "unsupported"`, error
+> `131051`), y el **5-ago** que 98 de 99 eventos traen teléfono y BSUID a la
+> vez. Ver [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md).
 
 ## La ventana de 24 horas (esto define lo que se puede y no se puede hacer)
 
@@ -201,7 +195,5 @@ sobra para el volumen real (~15 conversaciones diarias por negocio). Meta lo
 sube solo según calidad y uso.
 
 La **calidad** (verde / amarilla / roja) baja si los clientes bloquean o
-reportan el número. La Churra está en **verde**.
-
-Sin verificar el negocio en Meta se pueden tener hasta 2 números por
-portafolio; con la verificación, hasta 20.
+reportan el número. La Churra está en **verde**. Sin verificar el negocio en
+Meta se pueden tener hasta 2 números por portafolio; con la verificación, 20.

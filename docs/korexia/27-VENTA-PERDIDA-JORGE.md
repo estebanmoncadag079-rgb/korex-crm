@@ -150,3 +150,16 @@ poco frecuente**.
 la configuración del servicio de EasyPanel. Cambiarlo por SSH con `docker
 service update` dura hasta el siguiente Desplegar. Ver
 [04-AGENTE-IA.md](04-AGENTE-IA.md).
+
+## ✅ Desplegado y verificado (6-ago-2026 02:46 UTC)
+
+Commit `ef2f836`, con evidencia dentro del contenedor real:
+
+- `AGENT_COALESCE_MS=6000` confirmado en el servicio (`docker service
+  inspect`), no solo en el panel.
+- Los textos del código nuevo están en el bundle: `no hay mensajes del cliente
+  sin responder`, `obliga al cliente a repetirse`, `Son cosas diferentes`.
+- Columna `conversation.last_turn_inbound_at` presente en la base, y el
+  contador de migraciones pasó de 15 a **16** — la aplicó el arranque del
+  contenedor (`[migrate] migraciones aplicadas`), nunca a mano.
+- Una sola réplica, `healthy`, **0 errores** en el log, `/api/health` en `ok`.

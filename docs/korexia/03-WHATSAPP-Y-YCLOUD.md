@@ -175,9 +175,8 @@ Al conectar un número se elige entre:
 > **Hay que tenerlo previsto**: si el bot nuevo no está listo, el negocio se
 > queda sin atención automática.
 
-**La API oficial NO aparece en "Dispositivos vinculados" del teléfono.** Esa
-lista es solo para WhatsApp Web y de escritorio. Que esté vacía es lo normal y
-correcto; no significa que algo falte.
+**La API oficial NO aparece en "Dispositivos vinculados" del teléfono**: esa
+lista es solo para WhatsApp Web y de escritorio. Que esté vacía es lo normal.
 
 ## Qué se guarda y qué no
 
@@ -196,4 +195,6 @@ sube solo según calidad y uso.
 
 La **calidad** (verde / amarilla / roja) baja si los clientes bloquean o
 reportan el número. La Churra está en **verde**. Sin verificar el negocio en
-Meta se pueden tener hasta 2 números por portafolio; con la verificación, 20.
+Meta caben 2 números por portafolio; con la verificación, 20. 🔑 **Ese límite
+NO limita cuántos clientes caben**: cada uno entra con **su propia cuenta de
+YCloud** y su propio portafolio (ver [05-CLIENTES.md](05-CLIENTES.md)).

@@ -63,7 +63,14 @@ sin el `+`, separados por comas.
 En `/admin` → cliente → **Número de WhatsApp**. Solo la agencia; el cliente no
 ve esa pantalla.
 
-Si el cliente trae **su propia cuenta de YCloud** (recomendado):
+> 🔑 **Regla del negocio: una cuenta de YCloud POR CLIENTE** (decisión del
+> dueño, 6-ago-2026). Cada cliente trae su cuenta y su portafolio, así que
+> **el límite de 2 números por portafolio NO limita cuántos clientes caben**:
+> no hay techo por ese lado y la verificación de negocio en Meta sigue sin
+> urgir. Lo que **no** se hace es abrir cuentas extra a nombre de la agencia
+> para saltarse ese límite — lo prohíbe el contrato de YCloud.
+
+Con su propia cuenta de YCloud:
 
 1. Pegar **solo la API key** y guardar
 2. La pantalla devuelve la **URL del webhook**
@@ -72,6 +79,16 @@ Si el cliente trae **su propia cuenta de YCloud** (recomendado):
 
 Cada campo tiene su propio botón **"Guardar claves"**. Los campos se vacían al
 guardar porque son contraseñas: el mensaje de confirmación dice cuál entró.
+
+> 📜 **El historial se aprueba UNA vez y no tiene vuelta atrás.** En
+> coexistencia, durante el signup **al dueño le llega un mensaje de Facebook
+> Business en su propio WhatsApp** —no en el navegador de quien hace el alta—
+> con *Connect* y luego **Confirm**: ese *Confirm* autoriza a compartir su
+> historial de chats. Si lo ignora, **Meta no envía nada, nunca**, y solo se
+> recupera desconectando y reconectando el número. **Avísale antes y está
+> pendiente de su teléfono ese día.** El evento `whatsapp.smb.history` queda
+> guardado solo en `webhook_event` aunque aún no haya código que lo procese
+> — ver [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md).
 
 ### 8. Probar ANTES de apagar nada
 
@@ -109,11 +126,9 @@ movimiento**: dos bots en el mismo número responden dos veces.
 | Conocimiento | 14 entradas |
 | Avisos de pedido | 3 teléfonos del equipo |
 
-Fue el primer cliente y el conejillo de indias de casi todo. Su bot anterior
-(no oficial) se apagó el 26-jul y desde entonces atiende korex.ia.
-
-Detalle propio: los nombres de las salsas van **en mayúsculas** por pedido del
-dueño, porque se leen mejor en WhatsApp.
+Fue el primer cliente y el conejillo de indias de casi todo; su bot anterior
+(no oficial) se apagó el 26-jul. Detalle propio: los nombres de las salsas van
+**en mayúsculas** por pedido del dueño, porque se leen mejor en WhatsApp.
 
 ## Lis Pastelería — cremosos y tortas, Cali
 
@@ -132,15 +147,10 @@ Su contenido salió del bot anterior: 11 productos con precios, 11 toppings,
 cuántos lleva cada tamaño, domicilios por Yango, pago **solo por
 transferencia** y el flujo de regalo con tarjeta.
 
-**Lo que se pierde respecto a su bot viejo**, y conviene que lo sepa:
-
-- **El aviso al grupo de WhatsApp**: Meta no permite escribir en grupos por la
-  API. Ahora el aviso va al celular de la dueña.
-- **Los estados de pedido automáticos** ("en preparación", "despachado"…) que
-  enviaba su panel anterior.
-
-**Lo que gana**: se acabaron los cortes de conexión cada 50 minutos que sufría
-su bot no oficial, y el riesgo de que le bloqueen el número.
+**Respecto a su bot viejo pierde** el aviso al grupo de WhatsApp (Meta no deja
+escribir en grupos por la API) y los estados de pedido automáticos ("en
+preparación", "despachado"…). **Gana** que se acabaron los cortes de conexión
+cada 50 minutos y el riesgo de que le bloqueen el número.
 
 ⚠️ **`notify_phones` vaciado a propósito (1-ago-2026)**: Lis no tiene equipo,
 atiende y despacha todo ella misma directamente desde el WhatsApp del negocio
@@ -155,24 +165,17 @@ investigación que llevó a esto (mensajes que no se respondían) en
 
 ### Prueba del agente (31-jul-2026)
 
-Antes de encenderlo se corrió una conversación de pedido completa contra el
-modelo real, con su prompt y su conocimiento: **5 turnos, 5 respuestas válidas,
-sin reintentos**.
+Antes de encenderlo se corrió un pedido completo contra el modelo real:
+**5 turnos, 5 respuestas válidas, sin reintentos**. Acertó en todo lo que
+importa — avisó de que estaba fuera de horario sin anunciar un cierre falso,
+recitó los precios exactos, supo que el Cremoso de 16 oz lleva 3 toppings,
+calculó bien el total y cerró con `notify_order` completo.
 
-Acertó en todo lo que importa: avisó de que estaba **fuera de horario** y
-ofreció coordinar para las 10:00 (sin anunciar un cierre falso), recitó el menú
-con los precios exactos, supo que **el Cremoso de 16 oz lleva 3 toppings**,
-hizo las preguntas en mayúsculas y negrita, calculó bien el total y cerró con
-`notify_order`. El resumen para el equipo salió completo: producto, toppings,
-nombre, celular, dirección, total y forma de pago.
+La herramienta quedó en el servidor como `/root/probar-lis.py`: sirve de
+plantilla para validar el agente de **cualquier** cliente sin gastar WhatsApp.
 
-La herramienta de prueba quedó en el servidor como `/root/probar-lis.py`; sirve
-de plantilla para validar el agente de cualquier cliente **sin gastar WhatsApp
-ni arriesgar una conversación real**.
-
-Detalle menor observado: cuando el negocio está cerrado, el resumen repite la
-etiqueta "Entrega" en dos líneas (la dirección y el aviso de coordinación). No
-es un error —el contenido es correcto— pero se puede pulir en el prompt.
+Detalle menor sin corregir: con el negocio cerrado, el resumen repite la
+etiqueta "Entrega" en dos líneas. El contenido es correcto.
 
 Su bot anterior **ya no existe**: Meta le cerró la sesión al conectar el número
 a la API, y el servicio se borró del servidor el 31-jul.

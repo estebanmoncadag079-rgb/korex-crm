@@ -157,13 +157,13 @@ cliente en `/admin` y correr el Laboratorio ahí.
   explícita del cliente ("sí, resérvalo"), el modelo a veces prefiere
   preguntar antes de llamar a `book_appointment` en vez de agendar directo
   — es justo el comportamiento que se buscaba con la regla dura de "no
-  confirmar sin ejecutar". Y con fechas en lenguaje natural ambiguo ("el
-  miércoles", "mañana en la tarde") el modelo a veces responde que no hay
-  disponibilidad cuando sí la hay, mientras que con una fecha ISO explícita
-  (`2026-08-07 a las 15:00`) siempre acierta — variabilidad propia del
-  modelo al interpretar fechas relativas, no del motor de disponibilidad
-  (que sí calcula bien: lo prueba que ofrezca alternativas reales cuando de
-  verdad no hay cupo).
+  confirmar sin ejecutar".
+- ✅ **Lo de las "fechas ambiguas" SÍ era un bug, y ya está corregido**
+  (7-ago-2026). Aquí decía que el modelo fallaba al interpretar fechas
+  relativas y que con ISO "siempre acertaba": era al revés. `normalizarFecha`
+  **rechazaba el formato ISO**, la fecha se usaba cruda y `esFechaValida` la
+  leía como día "2026" → *"el lunes 10 de agosto ya pasó"*, dicho un viernes
+  7. Ahora se aceptan `DD/MM/AAAA` y `AAAA-MM-DD`.
 - **No se portó la reprogramación en cascada** de Valentina (correr toda la
   agenda de una especialista X minutos): es una herramienta de administración
   del negocio, no algo que un cliente pida por chat. Si hace falta, es

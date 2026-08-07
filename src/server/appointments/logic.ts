@@ -154,9 +154,29 @@ export function horaAAmPm(hhmm: string): string {
   return `${h - 12}:${mm} PM`;
 }
 
-/** "D/M/AAAA" (con guiones o slashes, sin ceros) → "DD/MM/AAAA" o null. */
+/**
+ * "D/M/AAAA" o "AAAA-MM-DD" → "DD/MM/AAAA" (o null si no es ninguna).
+ *
+ * El prompt pide DD/MM/AAAA, pero **el modelo manda ISO a menudo**: es el
+ * formato en el que "piensa" un LLM.
+ *
+ * **Bug real, encontrado el 7-ago-2026** probando el vertical de citas antes
+ * de su primer cliente: el agente resolvió "el lunes" como `2026-08-10`, esto
+ * devolvía `null`, la fecha se usaba sin normalizar y `esFechaValida` la leía
+ * como DD/MM (día "2026") → le respondió a la clienta **"el lunes 10 de
+ * agosto ya pasó"**… un viernes 7. Estaba anotado en 19-CITAS.md como una
+ * "inconsistencia del modelo con las fechas relativas"; no lo era: era un
+ * formato que el servidor no aceptaba.
+ */
 export function normalizarFecha(texto: string): string | null {
-  const m = (texto || "").trim().match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+  const t = (texto || "").trim();
+
+  const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso?.[1] && iso[2] && iso[3]) {
+    return `${iso[3].padStart(2, "0")}/${iso[2].padStart(2, "0")}/${iso[1]}`;
+  }
+
+  const m = t.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
   if (!m || !m[1] || !m[2] || !m[3]) return null;
   return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
 }

@@ -171,10 +171,13 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
 
     expect(action?.action).toBe("book_appointment");
     expect(crearCita).toHaveBeenCalledTimes(1);
+    // El modelo manda ISO y el servidor la normaliza a DD/MM/AAAA antes de
+    // tocar la base. Antes llegaba SIN normalizar y `esFechaValida` la leía
+    // como día "2026" → "esa fecha ya pasó" (bug del 7-ago-2026).
     expect(crearCita.mock.calls[0]![0]).toMatchObject({
       organizationId: "org_1",
       contactId: "ct_1",
-      fecha: "2026-08-10",
+      fecha: "10/08/2026",
       hora: "10:00",
     });
 
@@ -224,7 +227,7 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
     expect(reprogramarCita).toHaveBeenCalledTimes(1);
     expect(reprogramarCita.mock.calls[0]![0]).toMatchObject({
       appointmentId: "cit_1",
-      nuevaFecha: "2026-08-11",
+      nuevaFecha: "11/08/2026", // normalizada desde el ISO que manda el modelo
       nuevaHora: "11:00",
     });
     expect(notifyTeam.mock.calls[0]![0].summary).toMatch(/reprogramada/);

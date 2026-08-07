@@ -99,9 +99,22 @@ describe("normalizarFecha", () => {
     expect(normalizarFecha("5-8-2026")).toBe("05/08/2026");
   });
 
+  /**
+   * Aquí se esperaba `null` para el formato ISO, y eso **era el bug**: el
+   * modelo manda `2026-08-10` a menudo, la fecha seguía sin normalizar y
+   * `esFechaValida` la leía como DD/MM (día "2026"). Caso real del 7-ago-2026:
+   * el agente le dijo a una clienta "el lunes 10 de agosto ya pasó" un
+   * viernes 7.
+   */
+  it("acepta el formato ISO que manda el modelo", () => {
+    expect(normalizarFecha("2026-08-05")).toBe("05/08/2026");
+    expect(normalizarFecha("2026-8-5")).toBe("05/08/2026");
+  });
+
   it("rechaza formatos que no calzan", () => {
     expect(normalizarFecha("mañana")).toBeNull();
-    expect(normalizarFecha("2026-08-05")).toBeNull();
+    expect(normalizarFecha("08/2026")).toBeNull();
+    expect(normalizarFecha("")).toBeNull();
   });
 });
 

@@ -103,12 +103,14 @@ esa parte ya la contestó.
   negocio, a veces responde "no hay disponibilidad hoy" en vez de dar el
   primer horario del día. No lo pidió corregir el dueño todavía; documentado
   para no perderlo de vista.
-- **Fechas en lenguaje natural ambiguo** ("el miércoles", "mañana en la
-  tarde") a veces le hacen decir al modelo que no hay disponibilidad cuando
-  sí la hay; con una fecha explícita (`2026-08-07 a las 15:00`) siempre
-  acierta. Detectado el 3-ago-2026 corriendo `pnpm probar:citas` contra
-  producción — el motor de disponibilidad calcula bien (ofrece alternativas
-  reales cuando de verdad no hay cupo), es la interpretación de fecha
-  relativa del modelo la que varía.
+- ✅ **"Fechas en lenguaje natural ambiguo": NO era el modelo, era un bug.**
+  Estaba anotado aquí como una inconsistencia suya. El **7-ago-2026**,
+  probando el vertical antes de su primer cliente real, salió la causa:
+  `normalizarFecha` solo aceptaba `DD/MM/AAAA`, y **el modelo manda ISO a
+  menudo** (`2026-08-10`). La fecha se usaba sin normalizar y `esFechaValida`
+  la leía como día "2026" → el agente le dijo a la clienta **"el lunes 10 de
+  agosto ya pasó"** un viernes 7. Corregido: se aceptan los dos formatos.
+  Dos pruebas del repo **codificaban el bug** (esperaban que el ISO se
+  rechazara y que la fecha llegara sin normalizar); se corrigieron también.
 - **Onboarding de un cliente real** de peluquería/estética: hoy solo existe
   una organización de prueba para el vertical de citas.

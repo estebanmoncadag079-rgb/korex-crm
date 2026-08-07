@@ -28,6 +28,36 @@ desde la bandeja o **desde el celular** (gracias al evento de ecos).
 > salió por WhatsApp antes de que llegue el eco). Desde el celular es mejor una
 > frase natural.
 
+### Al devolver el turno, el agente CONTINÚA (6-ago-2026)
+
+Antes, el comando solo quitaba el relevo: el agente quedaba despierto pero
+**mudo** hasta que el cliente volviera a escribir. **Caso real de Lis**: la
+clienta escribió "Cremoso de 7 Oz" (18:16:43), Lis devolvió el turno
+(18:18:30) y el agente no dijo nada durante **5 minutos**, hasta que la
+clienta escribió "Gracias" — solo entonces soltó la respuesta que ya tenía
+lista. El día anterior, con otra clienta, Lis tuvo que escribir la respuesta a
+mano y repetir el comando.
+
+Ahora, tanto el comando desde el celular como el botón **Reactivar IA** de la
+bandeja disparan el turno en el acto. Si el cliente no tiene nada pendiente,
+el turno **se omite solo** (`entrantesSinResponder`, ver
+[27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md)): el agente no suelta
+un mensaje de la nada.
+
+### Y sabe qué resolvió la persona, aunque fuera por voz o foto
+
+Lo que escribe una persona del negocio ya le llegaba al agente marcado como
+*"lo escribió una persona del negocio, NO tú"*. Desde hoy, sus **notas de voz
+se transcriben y sus fotos se describen**, igual que las del cliente — antes
+eran invisibles y el agente podía retomar contradiciendo lo que la persona
+acababa de resolver por audio.
+
+La foto del negocio se lee con una instrucción **propia**: el negocio no se
+paga a sí mismo, así que ahí no se busca un comprobante (lo que sí se hace con
+las del cliente, ver [13-AUDIO-E-IMAGENES.md](13-AUDIO-E-IMAGENES.md)). Efecto
+secundario útil: **el comando dicho en una nota de voz también devuelve el
+turno**, porque la frase se busca sobre el texto ya transcrito.
+
 ## El aviso de pedido
 
 Cuando el cliente confirma, el agente usa `notify_order`:

@@ -395,7 +395,9 @@ async function mediaATexto(
     mediaUrl?: string | null;
     mimeType?: string | null;
   },
-  organizationId: string
+  organizationId: string,
+  /** Quién lo mandó: cambia la instrucción con la que se lee la imagen. */
+  deQuien: "cliente" | "negocio" = "cliente"
 ): Promise<string | null> {
   if (!input.mediaUrl) return input.text;
   const pie = input.text?.trim() || null;
@@ -416,6 +418,7 @@ async function mediaATexto(
       mediaUrl: input.mediaUrl,
       mimeType: input.mimeType,
       apiKey: await getYcloudApiKey(organizationId),
+      deQuien,
     });
     if (!texto) return input.text;
     return pie ? `${pie}\n${texto}` : texto;
@@ -454,6 +457,22 @@ export async function ingestOutboundEcho(input: {
   const conversation = await getOrCreateConversation(organizationId, contact.id);
   const waTimestamp = toDate(input.timestamp);
 
+  /**
+   * El audio y las fotos que manda el NEGOCIO desde su celular también se
+   * convierten a texto, igual que los del cliente.
+   *
+   * Sin esto, el agente no se entera de que existieron: `toChatHistory`
+   * descarta las filas sin texto. Si Lis resuelve por nota de voz "el
+   * domicilio son 8.000" y devuelve el turno, el agente retomaba sin saberlo
+   * y podía decir otra cosa. Con el comando de retorno disparando el turno
+   * (abajo), esto pasó de incómodo a necesario.
+   */
+  const texto = await mediaATexto(
+    { ...input, organizationId },
+    organizationId,
+    "negocio"
+  );
+
   const inserted = await db
     .insert(schema.message)
     .values({
@@ -463,7 +482,7 @@ export async function ingestOutboundEcho(input: {
       waMessageId: input.waMessageId,
       direction: "out",
       type: input.type,
-      text: input.text,
+      text: texto,
       // Ya salió por WhatsApp: nació entregado, no "pendiente".
       status: "sent",
       aiGenerated: false,
@@ -498,8 +517,24 @@ export async function ingestOutboundEcho(input: {
 
   // Mismo trato que si hubiera escrito desde la bandeja: toma la conversación,
   // salvo que esté devolviéndole el turno al agente.
-  if (isReturnToAgentPhrase(input.text)) {
+  if (isReturnToAgentPhrase(texto)) {
     await clearHandoff(conversation.id, organizationId);
+    /**
+     * Y sigue la conversación en el acto, sin esperar a que el cliente vuelva
+     * a escribir. Antes el comando solo quitaba el relevo: el agente quedaba
+     * despierto pero mudo, y quien había pedido algo se quedaba esperando.
+     *
+     * Caso real (Lis, 6-ago-2026): la clienta escribió "Cremoso de 7 Oz" a
+     * las 18:16:43, Lis devolvió el turno a las 18:18:30 y el agente **no
+     * dijo nada durante 5 minutos**, hasta que la clienta escribió "Gracias"
+     * a las 18:21 — solo entonces soltó la respuesta que ya tenía lista. El
+     * día anterior, con otra clienta, Lis tuvo que escribir la respuesta a
+     * mano y repetir el comando.
+     *
+     * Si no hay nada pendiente del cliente, `runAgentTurn` lo detecta y se
+     * omite solo (`entrantesSinResponder`): no suelta un mensaje de la nada.
+     */
+    await maybeRunAgentTurn(conversation.id, { immediate: true });
   } else {
     await markHumanTookOver(conversation.id, organizationId);
   }

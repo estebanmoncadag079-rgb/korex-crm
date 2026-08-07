@@ -223,14 +223,41 @@ const INSTRUCCION_IMAGEN = [
 ].join("\n");
 
 /**
+ * Lo que manda el NEGOCIO por su celular es otra cosa: la foto de un producto,
+ * la carta, la pantalla con su cuenta bancaria. Nunca un comprobante que haya
+ * que verificar — el negocio no se paga a sí mismo. Pedirle al modelo que
+ * busque un comprobante aquí solo invita a que etiquete mal.
+ *
+ * Esto no lo lee el cliente: es lo que verá el agente para saber qué resolvió
+ * la persona antes de devolverle el turno.
+ */
+const INSTRUCCION_IMAGEN_NEGOCIO = [
+  "Mira esta imagen que un NEGOCIO envió por WhatsApp a un cliente, en español.",
+  "Sirve para que un asistente sepa qué le mandaron al cliente. Elige UNO:",
+  "",
+  "1) La imagen CONTIENE TEXTO útil (la carta con precios, unos datos de pago, una dirección, una captura).",
+  "Empieza por [TEXTO] y TRANSCRIBE todo lo que se lea, completo y en el mismo orden.",
+  "- Los precios y los números de cuenta cópialos EXACTOS, dígito por dígito.",
+  "- Si algo no se entiende, escríbelo como (ilegible). No lo adivines.",
+  "",
+  "2) NO hay texto relevante: es la foto de un producto o del local.",
+  "Empieza por [IMAGEN] y describe en una o dos líneas qué se ve (producto, tamaño, sabores, colores).",
+  "NO adivines el precio ni el nombre comercial.",
+].join("\n");
+
+/**
  * Describe una imagen recibida. Mismas garantías que el audio: nunca lanza, y
  * si algo falla el mensaje se guarda igual sin descripción.
+ *
+ * `deQuien` cambia la instrucción: la del cliente puede ser un comprobante de
+ * pago (y hay todo un formato para eso); la del negocio, nunca.
  */
 export async function describirImagen(input: {
   organizationId: string;
   mediaUrl: string;
   mimeType?: string | null;
   apiKey?: string | null;
+  deQuien?: "cliente" | "negocio";
 }): Promise<ResultadoTranscripcion> {
   if (!isAiConfigured()) return { texto: null, motivo: "sin_ia" };
   if (!esOrigenPermitido(input.mediaUrl)) {
@@ -261,7 +288,13 @@ export async function describirImagen(input: {
           {
             role: "user",
             content: [
-              { type: "text", text: INSTRUCCION_IMAGEN },
+              {
+                type: "text",
+                text:
+                  input.deQuien === "negocio"
+                    ? INSTRUCCION_IMAGEN_NEGOCIO
+                    : INSTRUCCION_IMAGEN,
+              },
               { type: "image_url", image_url: { url: dataUrl } },
             ],
           },

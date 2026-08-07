@@ -127,6 +127,12 @@ Meta involucrada), solo sale si el cliente le ha escrito al negocio en las
 en vez de fallar en silencio. No hay ningún proceso que revise citas próximas
 solo: si nadie aprieta el botón, no se manda nada.
 
+> 🔴 **Para un salón esto es un problema de fondo, no un detalle**: la clienta
+> agenda el lunes para el viernes y el jueves su ventana lleva días cerrada.
+> Vale igual para los avisos de la cascada. La salida es una **plantilla de
+> utilidad** — cómo funciona, qué cuesta y quién la crea, en
+> [29-RECORDATORIOS-Y-PLANTILLAS.md](29-RECORDATORIOS-Y-PLANTILLAS.md).
+
 ## El Laboratorio ya reconoce citas (1-ago-2026)
 
 Extendido `/lab`: el juez recibe el mismo catálogo y contrato de acciones de
@@ -164,9 +170,19 @@ cliente en `/admin` y correr el Laboratorio ahí.
   **rechazaba el formato ISO**, la fecha se usaba cruda y `esFechaValida` la
   leía como día "2026" → *"el lunes 10 de agosto ya pasó"*, dicho un viernes
   7. Ahora se aceptan `DD/MM/AAAA` y `AAAA-MM-DD`.
-- **No se portó la reprogramación en cascada** de Valentina (correr toda la
-  agenda de una especialista X minutos): es una herramienta de administración
-  del negocio, no algo que un cliente pida por chat. Si hace falta, es
-  trabajo aparte.
+- ✅ **Cascada de agenda — hecha el 7-ago-2026**, al entrar el primer cliente
+  real. En `/appointments`, "Mover el día de una especialista": se elige
+  persona y día, se **ve primero** qué citas tiene, y desde ahí se **pasan a
+  otra persona** o se **cancela el día completo**. Se le escribe a cada
+  clienta.
+  - **Nada se mueve a ciegas**: antes de reasignar cada cita se comprueba que
+    la otra persona **atienda ese servicio** y que **tenga el hueco libre**.
+    Lo que no pasa el filtro se queda donde está y sale listado — dos
+    clientas a la misma hora con la misma persona es peor que avisar de un
+    choque.
+  - **A quien no se le pudo avisar sale en una lista aparte** ("hay que
+    llamarla"): es la ventana de 24 h, ver abajo.
+  - No se portó "correr la agenda X minutos" (lo que sí tenía Valentina): el
+    dueño eligió estas dos y no esa.
 - **El panel `/services` no tiene edición inline de precio/duración**: para
   corregir un dato hoy hay que archivar el servicio y crear uno nuevo.

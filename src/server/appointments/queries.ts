@@ -837,3 +837,190 @@ export async function limpiarOfrecidos(
       )
     );
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Cascada: mover o liberar la agenda de una especialista de un día entero.
+ *
+ * Herramienta de administración del negocio, no algo que un cliente pida por
+ * chat: "Laura se enfermó, pasa sus citas de hoy a Camila" o "libera el
+ * viernes de Laura". Portado de `BOT VALENTINA CON IA` a petición del dueño
+ * (7-ago-2026), al entrar el primer cliente real de citas.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+export type CitaDeAgenda = {
+  id: string;
+  contactId: string;
+  serviceId: string;
+  serviceName: string;
+  durationMin: number;
+  contactName: string;
+  startsAt: Date;
+  endsAt: Date;
+};
+
+/** Las citas activas de una especialista en un día (fecha DD/MM/AAAA). */
+export async function agendaDelDia(input: {
+  organizationId: string;
+  staffId: string;
+  fecha: string;
+}): Promise<CitaDeAgenda[]> {
+  const rango = rangoDelDiaUtc(input.fecha);
+  if (!rango) return [];
+  const [desdeUtc, hastaUtc] = rango;
+  const db = getDb();
+  return db
+    .select({
+      id: schema.appointment.id,
+      contactId: schema.appointment.contactId,
+      serviceId: schema.appointment.serviceId,
+      serviceName: schema.service.name,
+      durationMin: schema.service.durationMin,
+      contactName: schema.contact.name,
+      startsAt: schema.appointment.startsAt,
+      endsAt: schema.appointment.endsAt,
+    })
+    .from(schema.appointment)
+    .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
+    .innerJoin(schema.contact, eq(schema.contact.id, schema.appointment.contactId))
+    .where(
+      scoped(
+        schema.appointment.organizationId,
+        input.organizationId,
+        and(
+          eq(schema.appointment.staffId, input.staffId),
+          inArray(schema.appointment.status, [...CITAS_ACTIVAS]),
+          gte(schema.appointment.startsAt, desdeUtc),
+          lt(schema.appointment.startsAt, hastaUtc)
+        )
+      )
+    )
+    .orderBy(asc(schema.appointment.startsAt));
+}
+
+export type ResultadoCascada = {
+  /** Citas que sí se movieron o cancelaron. */
+  aplicadas: CitaDeAgenda[];
+  /**
+   * Las que NO se tocaron y por qué. **No se fuerzan**: dejar dos clientas a
+   * la misma hora con la misma persona es peor que avisar de un choque.
+   */
+  conflictos: { cita: CitaDeAgenda; motivo: string }[];
+};
+
+/**
+ * Pasa las citas de una especialista a otra, el mismo día y a la misma hora.
+ *
+ * Dos comprobaciones antes de mover cada una, y si alguna falla la cita se
+ * queda donde está y sale en `conflictos`:
+ *  1. La nueva especialista ATIENDE ese servicio (no basta con que exista).
+ *  2. Su hueco está libre a esa hora.
+ */
+export async function reasignarAgenda(input: {
+  organizationId: string;
+  staffOrigenId: string;
+  staffDestinoId: string;
+  fecha: string;
+}): Promise<ResultadoCascada> {
+  const db = getDb();
+  const citas = await agendaDelDia({
+    organizationId: input.organizationId,
+    staffId: input.staffOrigenId,
+    fecha: input.fecha,
+  });
+  const aplicadas: CitaDeAgenda[] = [];
+  const conflictos: { cita: CitaDeAgenda; motivo: string }[] = [];
+
+  const atiende = new Set(
+    (
+      await db
+        .select({ serviceId: schema.staffService.serviceId })
+        .from(schema.staffService)
+        .where(
+          scoped(
+            schema.staffService.organizationId,
+            input.organizationId,
+            eq(schema.staffService.staffId, input.staffDestinoId)
+          )
+        )
+    ).map((r) => r.serviceId)
+  );
+
+  for (const cita of citas) {
+    if (!atiende.has(cita.serviceId)) {
+      conflictos.push({ cita, motivo: `no atiende ${cita.serviceName}` });
+      continue;
+    }
+    const ocupado = await haySolapamiento({
+      organizationId: input.organizationId,
+      staffId: input.staffDestinoId,
+      desde: cita.startsAt,
+      hasta: cita.endsAt,
+    });
+    if (ocupado) {
+      conflictos.push({ cita, motivo: "ya tiene otra cita a esa hora" });
+      continue;
+    }
+    await db
+      .update(schema.appointment)
+      .set({ staffId: input.staffDestinoId, updatedAt: new Date() })
+      .where(
+        scoped(
+          schema.appointment.organizationId,
+          input.organizationId,
+          eq(schema.appointment.id, cita.id)
+        )
+      );
+    aplicadas.push(cita);
+  }
+  return { aplicadas, conflictos };
+}
+
+/** Cancela todas las citas activas de una especialista ese día. */
+export async function liberarAgenda(input: {
+  organizationId: string;
+  staffId: string;
+  fecha: string;
+}): Promise<ResultadoCascada> {
+  const db = getDb();
+  const citas = await agendaDelDia(input);
+  for (const cita of citas) {
+    await db
+      .update(schema.appointment)
+      .set({ status: "cancelada", updatedAt: new Date() })
+      .where(
+        scoped(
+          schema.appointment.organizationId,
+          input.organizationId,
+          eq(schema.appointment.id, cita.id)
+        )
+      );
+  }
+  return { aplicadas: citas, conflictos: [] };
+}
+
+/** ¿La especialista tiene algo que se cruce con este rango? */
+async function haySolapamiento(input: {
+  organizationId: string;
+  staffId: string;
+  desde: Date;
+  hasta: Date;
+}): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: schema.appointment.id })
+    .from(schema.appointment)
+    .where(
+      scoped(
+        schema.appointment.organizationId,
+        input.organizationId,
+        and(
+          eq(schema.appointment.staffId, input.staffId),
+          inArray(schema.appointment.status, [...CITAS_ACTIVAS]),
+          lt(schema.appointment.startsAt, input.hasta),
+          gte(schema.appointment.endsAt, input.desde)
+        )
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}

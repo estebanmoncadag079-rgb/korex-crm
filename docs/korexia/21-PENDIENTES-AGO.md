@@ -1,8 +1,8 @@
 # Pendientes (continuación, agosto 2026)
 
 > **Dentro:** Desplegado y verificado (3-ago-2026) · Por verificar en
-> producción · Decisiones pendientes de la sesión del 4-6 de agosto · Citas:
-> huecos conocidos
+> producción · **Para el día 1 del salón de belleza** · Decisiones pendientes
+> de la sesión del 4-6 de agosto · Citas: huecos conocidos
 
 Sigue a [08-PENDIENTES.md](08-PENDIENTES.md) — se abrió aparte solo porque
 aquel ya estaba en el límite de 200 líneas.
@@ -60,6 +60,44 @@ Nota aparte para cuando se retome **09-COSTOS.md**: la recomendación de
 "contabilidad de costo por organización" coincide con un pendiente que ya
 existía antes (panel de costo por cliente) — no es una idea nueva, solo
 confirma que sigue siendo válida.
+
+## 🔴 Para el día 1 del salón de belleza (primer cliente de citas)
+
+Por orden. Lo del código ya está hecho y desplegado (ver
+[31-BITACORA-7AGO.md](31-BITACORA-7AGO.md)); esto es lo que depende de datos y
+de terceros.
+
+**1. Cambiar la contraseña del superadmin.** Sigue pendiente desde el 31-jul y
+ahora entra un tercer negocio con datos de sus clientas. Es el punto 1 de
+[08-PENDIENTES.md](08-PENDIENTES.md).
+
+**2. Crear su organización y copiarle el catálogo.** El SQL está en
+`scripts/salon-catalogo.sql` (41 servicios, 5 especialistas, asignación por
+categoría); solo hay que cambiar el `organizationId`. Hoy vive en la
+organización de pruebas `org_novxv78s08h12arzatr2`, con citas de prueba dentro
+que conviene borrar.
+
+**3. Confirmar su HORARIO real.** Se usó 09:00–19:00 de lunes a sábado, que
+era el de la demo. Si abren distinto, todo lo demás sale mal: disponibilidad,
+calendario y lo que el agente le dice a la clienta.
+
+**4. Cargarle el conocimiento (KB).** ⚠️ **No es opcional.** Con el `kb_entry`
+vacío, el agente **inventó una dirección** durante las pruebas ("Calle 123
+#45-67"). Hace falta: dirección, cómo llegar, parqueadero, formas de pago,
+política de cancelación y de retrasos, y qué pasa si la clienta llega tarde.
+
+**5. Conectar su número** con su propia cuenta de YCloud, y **estar pendientes
+de su teléfono** durante el signup para que apruebe compartir el historial:
+sale una vez y no se puede volver a pedir ([05-CLIENTES.md](05-CLIENTES.md)).
+
+**6. Crear la plantilla de recordatorios** en su consola de YCloud, con el
+texto de [29-RECORDATORIOS-Y-PLANTILLAS.md](29-RECORDATORIOS-Y-PLANTILLAS.md).
+Sin ella, recordar una cita agendada con días de antelación **no funciona**, y
+los avisos de la cascada tampoco.
+
+**7. Abrir `/appointments` en un teléfono de verdad.** El calendario se diseñó
+y se revisó, pero nadie lo ha visto en un móvil: comprobar que la rejilla se
+desplace de lado sin arrastrar la página y que los bloques de 15 min se lean.
 
 ## Decisiones pendientes de la sesión del 4-6 de agosto
 

@@ -35,13 +35,11 @@ flag — el `CONTRATO_DE_ACCIONES` original (pedidos) no se toca, así que La
 Churra y Lis no ganan ni pierden nada.
 
 ⚠️ **Nota de la auditoría de seguridad (1-ago-2026)**: las FK de `appointment`
-y `staff_service` hacia `service`/`staff_member` son de una sola columna — no
-atan `organization_id` a nivel de constraint (igual que `lead` con `contact`).
-El aislamiento entre tenants ahí lo hace la APLICACIÓN, no la base de datos:
-todo endpoint que reciba un `serviceId`/`staffId` desde el cliente debe
-revalidarlo contra la organización de la sesión antes de escribir. Ya está
-hecho así en los endpoints existentes (`serviceIdsDeLaOrg()` en
-`queries.ts` filtra antes de enlazar `staff_service`).
+y `staff_service` hacia `service`/`staff_member` son de una sola columna y **no
+atan `organization_id` a nivel de constraint**. El aislamiento ahí lo hace la
+APLICACIÓN: todo endpoint que reciba un `serviceId`/`staffId` del cliente debe
+revalidarlo contra la organización de la sesión antes de escribir — como hace
+`serviceIdsDeLaOrg()` en `queries.ts`.
 
 ## El motor de disponibilidad
 
@@ -57,10 +55,9 @@ CRUD de catálogo, `disponibilidadReal()`, `crearCita()`, `reprogramarCita()`,
 mismo horario que ya usan los pedidos — así que un cliente de citas configura
 su horario en un solo lugar.
 
-**Principio central, igual que con el horario de atención**: la disponibilidad
-la calcula el servidor y se le entrega resuelta al modelo. Nunca se le pide
-que haga la aritmética de fechas él mismo (la lección del bug "abierto a
-medianoche", ver [04-AGENTE-IA.md](04-AGENTE-IA.md)).
+**Principio central**: la disponibilidad la calcula el servidor y se le
+entrega resuelta al modelo — nunca se le pide aritmética de fechas. Lo mismo
+vale para el horario y el calendario ([04-AGENTE-IA.md](04-AGENTE-IA.md)).
 
 ## Cómo decide el agente (el loop de consulta)
 
@@ -94,37 +91,31 @@ coordine nada.
    duración) y el personal, asignando qué servicios atiende cada quien. **Un
    servicio sin nadie asignado no se puede agendar** — el prompt se lo dice al
    agente para que no lo ofrezca.
-3. Configurar horario (`hoursOpen`/`hoursClose`/`hoursDays`) — hoy solo por
-   base de datos, mismo hueco que ya tienen los pedidos (ver
-   [08-PENDIENTES.md](08-PENDIENTES.md), punto 18).
-4. Conectar el número y encender el agente, como cualquier cliente
-   ([05-CLIENTES.md](05-CLIENTES.md)).
+3. Configurar horario (`hoursOpen`/`hoursClose`/`hoursDays`) — solo por base
+   de datos ([08-PENDIENTES.md](08-PENDIENTES.md), punto 18).
+4. Conectar el número y encender el agente ([05-CLIENTES.md](05-CLIENTES.md)).
 
 ## Probarlo sin gastar WhatsApp
 
-`corepack pnpm probar:citas <organizationId>` (o con mensajes propios:
-`pnpm probar:citas <organizationId> "hola" "quiero un semipermanente" "mañana"`).
+`corepack pnpm probar:citas <organizationId> "hola" "quiero semipermanente"`.
 
-Crea un contacto y una conversación `is_test` dentro de esa organización y hace
-correr el guion por `runAgentTurn` real — el sandbox jamás toca Graph/YCloud
-(verificado en `tests/unit/send-sandbox.test.ts`), mismo principio que el
-Laboratorio. Requiere que la organización ya tenga el flag encendido y al
-menos un servicio con especialista asignado.
+Crea un contacto y una conversación `is_test` y corre el guion por
+`runAgentTurn` real — el sandbox jamás toca Graph/YCloud (verificado en
+`tests/unit/send-sandbox.test.ts`). Requiere el flag encendido y al menos un
+servicio con especialista. Para correrlo **dentro del contenedor** (la imagen
+de producción no trae `scripts/`), ver [30-SALON-PRUEBAS.md](30-SALON-PRUEBAS.md).
 
 ## Recordatorio de cita — manual, no automático
 
-Decisión del dueño (1-ago-2026): **nada de recordatorios automáticos**. El
-personal administrativo lo dispara cuando ellos decidan, con el botón
-**"Recordar"** en `/appointments` (cualquier cita activa: pendiente,
-confirmada o reagendada). Envía un texto libre por WhatsApp con el servicio,
-la fecha, la hora y la especialista, y guarda `appointment.remindedAt` para
-que se vea en el panel cuándo se envió el último.
+Decisión del dueño (1-ago-2026): **nada de recordatorios automáticos**. Lo
+dispara el personal con el botón **"Recordar"** en `/appointments` (cualquier
+cita activa), que manda un texto libre con servicio, fecha, hora y
+especialista, y guarda `appointment.remindedAt`. Si nadie lo aprieta, no se
+manda nada.
 
-**Límite real, no un bug**: como es texto libre (no hay plantilla de
-Meta involucrada), solo sale si el cliente le ha escrito al negocio en las
-últimas 24 h — si no, el botón devuelve un error explicando exactamente eso,
-en vez de fallar en silencio. No hay ningún proceso que revise citas próximas
-solo: si nadie aprieta el botón, no se manda nada.
+**Límite real, no un bug**: al ser texto libre, solo sale si el cliente
+escribió en las últimas 24 h — si no, el botón devuelve un error explicándolo,
+en vez de fallar en silencio.
 
 > 🔴 **Para un salón esto es un problema de fondo, no un detalle**: la clienta
 > agenda el lunes para el viernes y el jueves su ventana lleva días cerrada.
@@ -137,9 +128,11 @@ solo: si nadie aprieta el botón, no se manda nada.
 En `/appointments`, además de la lista con filtros por estado:
 
 - **Calendario del día**: una columna por especialista y las citas colocadas
-  por hora. La lista sirve para buscar una cita concreta; para ver cómo va el
-  día y dónde quedan huecos hace falta la rejilla. Navega por días y solo
-  pinta las columnas de quien trabaja ese día.
+  por hora, con **selector para saltar a cualquier fecha**. La lista sirve
+  para buscar una cita concreta; para ver cómo va el día y dónde quedan huecos
+  hace falta la rejilla. Pide su día al servidor (`?fecha=`) en vez de filtrar
+  la lista general, que viene limitada a 200: al saltar lejos podía pintar
+  vacío un día con citas.
 - **Nueva cita a mano.** Hasta hoy las citas **solo nacían por WhatsApp**, y
   eso dejaba un agujero que duele el primer día: la clienta que llama por
   teléfono o llega al local **no existía en la agenda**, así que el agente
@@ -185,12 +178,10 @@ cliente en `/admin` y correr el Laboratorio ahí.
   preguntar antes de llamar a `book_appointment` en vez de agendar directo
   — es justo el comportamiento que se buscaba con la regla dura de "no
   confirmar sin ejecutar".
-- ✅ **Lo de las "fechas ambiguas" SÍ era un bug, y ya está corregido**
-  (7-ago-2026). Aquí decía que el modelo fallaba al interpretar fechas
-  relativas y que con ISO "siempre acertaba": era al revés. `normalizarFecha`
-  **rechazaba el formato ISO**, la fecha se usaba cruda y `esFechaValida` la
-  leía como día "2026" → *"el lunes 10 de agosto ya pasó"*, dicho un viernes
-  7. Ahora se aceptan `DD/MM/AAAA` y `AAAA-MM-DD`.
+- ✅ **Lo de las "fechas ambiguas" SÍ era un bug, corregido el 7-ago-2026**:
+  no fallaba el modelo, `normalizarFecha` **rechazaba el formato ISO** y la
+  fecha se leía como día "2026". Con eso y otros cuatro datos que le faltaban
+  al agente, ver [31-BITACORA-7AGO.md](31-BITACORA-7AGO.md).
 - ✅ **Cascada de agenda — hecha el 7-ago-2026**, al entrar el primer cliente
   real. En `/appointments`, "Mover el día de una especialista": se elige
   persona y día, se **ve primero** qué citas tiene, y desde ahí se **pasan a

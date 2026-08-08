@@ -144,6 +144,16 @@ citas. No se tocó —hay salones que venden producto— pero conviene saberlo.
 > eran correctas. **Verificar con la salida completa antes de dar algo por
 > roto.**
 
+## Lo que se añadió al panel el mismo día
+
+Probar destapó que la dueña **no podía agendar ella misma**: las citas solo
+nacían por WhatsApp, así que la clienta que llama por teléfono o llega al
+local no existía en la agenda y el agente daba ese hueco por libre.
+
+Se añadió agendar a mano, el calendario del día con selector de fecha y la
+cascada. Detalle en [19-CITAS.md](19-CITAS.md); el hilo completo del día en
+[31-BITACORA-7AGO.md](31-BITACORA-7AGO.md).
+
 ## Cómo repetir la tanda
 
 El catálogo está en `org_novxv78s08h12arzatr2` (la organización de pruebas).

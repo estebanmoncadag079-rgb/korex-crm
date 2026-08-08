@@ -69,3 +69,39 @@ export const MENSAJE_RETIRADO =
  */
 export const CORRECCION_DE_CIERRE_FALSO =
   "ALTO. Tu respuesta anterior le anunciaba al cliente que el negocio cerró o que su pedido queda para mañana, y eso es FALSO: el negocio está ABIERTO ahora mismo (lo calcula el sistema, no es opinión). Reescribe tu respuesta atendiendo con normalidad, sin mencionar cierres, reagendamientos ni horarios de apertura. Responde ÚNICAMENTE el objeto JSON.";
+
+/**
+ * ¿Este texto le está diciendo al cliente que su CITA quedó agendada?
+ *
+ * Mismo problema que el cierre falso, con otra cara: el servidor sabe si la
+ * cita existe —la escribe él—, pero quien redacta es un modelo, y un modelo
+ * confirma cosas que no pasaron.
+ *
+ * **Caso real (7-ago-2026, probando el salón antes de su primer día)**: a un
+ * "si confirmo" suelto, sin nada agendado en la conversación, respondió *"¡Te
+ * agendamos para el jueves 13 de agosto a las 10:00 con Laura para Baño de
+ * acrílico o poligel!"* — con `reply`, no con `book_appointment`. Se inventó
+ * el servicio, el día, la hora y la especialista. **No se guardó ninguna
+ * cita**, y la clienta se habría presentado a un salón que no la espera.
+ *
+ * El prompt ya lo prohíbe con todas las letras ("NUNCA digas quedaste
+ * agendada usando reply"). No bastó: por eso se comprueba en el servidor.
+ */
+const ANUNCIOS_DE_CITA: RegExp[] = [
+  /\b(?:qued(?:as|aste|ó|o)|est(?:ás|as))\s+agendad[oa]\b/i,
+  // Sin `\b` al final: en JS no hay límite de palabra después de una vocal
+  // acentuada, así que "te reservé" no matcheaba aunque "te reservamos" sí.
+  /\bte\s+(?:la\s+)?(?:agend(?:amos|é|e)|reserv(?:amos|é|e)|apart(?:amos|é|e))/i,
+  /\b(?:tu\s+)?cita\s+(?:ya\s+)?(?:qued(?:ó|o|a)|est[áa])\s+(?:agendada|confirmada|reservada|lista)\b/i,
+  /\bcita\s+agendada\s+con\s+éxito\b/i,
+  /\bya\s+(?:te\s+)?(?:la\s+)?(?:dej[éeo]|dejamos)\s+agendada\b/i,
+];
+
+export function anunciaCitaAgendada(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  return ANUNCIOS_DE_CITA.some((re) => re.test(texto));
+}
+
+/** La corrección cuando confirmó una cita que nadie agendó. */
+export const CORRECCION_DE_CITA_FANTASMA =
+  "ALTO. Tu respuesta le dice al cliente que su cita quedó agendada, pero NO emitiste book_appointment ni reschedule_appointment en este turno: la cita NO existe y el cliente se presentaría un día que nadie lo espera. Si tienes servicio, fecha y hora confirmados por el cliente, emite la ACCIÓN de verdad. Si te falta algún dato o el cliente no ha confirmado, pregúntaselo con reply SIN dar nada por agendado. Responde ÚNICAMENTE el objeto JSON.";

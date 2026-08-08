@@ -37,7 +37,9 @@ import {
 } from "@/server/appointments/queries";
 import {
   anunciaCierre,
+  anunciaCitaAgendada,
   CORRECCION_DE_CIERRE_FALSO,
+  CORRECCION_DE_CITA_FANTASMA,
   MENSAJE_RETIRADO,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
@@ -617,6 +619,50 @@ export async function runAgentTurn(
     } else {
       console.error(
         "[agente] el cierre falso persiste tras la corrección; lo toma una persona"
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Confirmar una cita que NO se agendó: el cliente se presenta un día que
+   * nadie lo espera.
+   *
+   * Solo las acciones de cita escriben en la agenda. Si el texto anuncia que
+   * "quedaste agendada" y la acción es otra —`reply`, típicamente—, la cita no
+   * existe. Caso real probando el salón (7-ago-2026): a un "si confirmo"
+   * suelto se inventó servicio, día, hora y especialista.
+   *
+   * Mismo tratamiento que el cierre falso: una oportunidad de rehacerlo con
+   * la corrección delante y, si insiste, lo atiende una persona.
+   */
+  const ACCIONES_QUE_AGENDAN = ["book_appointment", "reschedule_appointment"];
+  if (
+    profile.appointmentsEnabled &&
+    !ACCIONES_QUE_AGENDAN.includes(action.action) &&
+    textosAlCliente(action).some(anunciaCitaAgendada)
+  ) {
+    console.warn("[agente] confirmó una cita sin agendarla; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_CITA_FANTASMA },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/cita-fantasma`
+    );
+    if (
+      reintento.ok &&
+      (ACCIONES_QUE_AGENDAN.includes(reintento.data.action) ||
+        !textosAlCliente(reintento.data).some(anunciaCitaAgendada))
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        "[agente] sigue confirmando una cita inexistente; lo toma una persona"
       );
       await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };

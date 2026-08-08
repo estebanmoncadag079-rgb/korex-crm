@@ -84,6 +84,66 @@ la agenda de una misma especialista.
 - **Los recordatorios siguen sin plantilla** — ver
   [29-RECORDATORIOS-Y-PLANTILLAS.md](29-RECORDATORIOS-Y-PLANTILLAS.md).
 
+
+## Tanda exhaustiva: 35 escenarios (7-ago-2026, noche)
+
+Segunda vuelta, pedida por el dueño: "por lo menos 30 escenarios". Todos
+contra el modelo real, en conversaciones `is_test`.
+
+### Lo que salió mal (y se corrigió)
+
+**🔴 El horario, inventado.** Con el negocio cerrado, el prompt le decía *que*
+estaba cerrado pero **nunca a qué hora abre**. El modelo lo rellenaba solo:
+dijo *"de 8:00 a 19:00"* dos veces y *"de 9 am a 6 pm"* otra, siendo
+09:00–19:00. Tres respuestas, tres horarios falsos, dichos con seguridad total.
+**Corregido**: el prompt lleva ahora el horario semanal completo, siempre —
+abierto o cerrado. Reverificado con tres preguntas distintas, las tres exactas.
+
+**🔴 Confirmó una cita que no existía.** A un `si confirmo` suelto respondió
+*"¡Te agendamos para el jueves 13 a las 10:00 con Laura para Baño de acrílico
+o poligel!"* — con `reply`, no con `book_appointment`. Servicio, día, hora y
+especialista, todo inventado; **ninguna cita guardada**. La clienta se habría
+presentado a un salón que no la espera. El prompt ya lo prohibía con todas las
+letras; no bastó. **Corregido en el servidor** con el mismo mecanismo que ya
+frena los cierres falsos: si el texto confirma una cita y la acción no agenda,
+el turno se rehace con la corrección delante y, si insiste, pasa a una persona.
+Reverificado 5 veces: ya no da nada por hecho, y **ninguna cita inventada llegó
+a la agenda**.
+
+**⚠️ Con el conocimiento VACÍO, se inventa datos.** A "¿dónde quedan?"
+respondió *"Bogotá, Calle 123 #45-67"* — el `kb_entry` de esa organización
+está vacío. No es un bug del código: es el recordatorio de que **el salón no
+puede encenderse sin su KB cargado** (dirección, parqueadero, formas de pago,
+políticas). Sin datos, el modelo rellena.
+
+**⚠️ Vocabulario de pedidos en un negocio de citas.** Ante entradas sin
+sentido llegó a cerrar un `notify_order` hablando de *"pago y entrega"* y
+*"gracias por tu compra"*. El contrato de pedidos sigue activo junto al de
+citas. No se tocó —hay salones que venden producto— pero conviene saberlo.
+
+### Lo que salió bien
+
+| # | Escenario | Resultado |
+|---|---|---|
+| 1-3 | Fecha explícita · sin hora · "mañana" | ✅ |
+| 4-5 | Fuera de horario · domingo cerrado | ✅ lo dice y ofrece otro día |
+| 6-7 | Fecha pasada · a 3 meses | ✅ pide confirmación |
+| 8-10 | 3 a.m. · 8 p.m. · 31 de febrero | ✅ *"febrero no tiene 31 días"* |
+| 11-14 | Servicio inexistente · "un retoque" (12) · "volumen" (5) · "kiero semiperminente" | ✅ pregunta o corrige, no adivina |
+| 15-17 | Precio · duración · el más barato | ✅ cifras exactas |
+| 18-20 | Dos servicios · quién atiende · especialista inexistente | ✅ |
+| 21-22 | Reagendar y cancelar SIN cita | ✅ *"no encontré una cita activa"* |
+| 23-25 | Reagendar a hora ocupada · cancelar y volver a agendar · cliente que cambia 3 veces | ✅ |
+| 26-28 | Para otra persona · pide descuento · pide una receta | ✅ no inventa descuentos, rechaza el off-topic |
+| 29-32 | Solo un emoji · pide asesora · dirección · avisa retraso | ✅ (handoff correcto) |
+| 34-35 | Dos citas el mismo día · dos servicios con la misma especialista | ✅ Geimar uñas + Hilary lifting |
+
+> ⚠️ **Nota de método**: la primera lectura marcó como fallos varios casos que
+> estaban bien. Era el filtro `grep` del guion, que solo capturaba la primera
+> línea de cada respuesta. Al releerlas completas, 05, 07, 10, 11, 13, 18 y 21
+> eran correctas. **Verificar con la salida completa antes de dar algo por
+> roto.**
+
 ## Cómo repetir la tanda
 
 El catálogo está en `org_novxv78s08h12arzatr2` (la organización de pruebas).

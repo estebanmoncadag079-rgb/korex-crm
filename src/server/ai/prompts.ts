@@ -117,6 +117,54 @@ function rangoDelDia(
   return { open: hours.open, close: hours.close };
 }
 
+const DIAS_CORTOS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+
+/**
+ * El horario de la semana en una línea, para que el agente no se lo invente.
+ *
+ * **Al modelo se le decía si el negocio está abierto o cerrado, pero nunca a
+ * qué hora abre.** Al querer informar al cliente se lo inventaba: probando el
+ * salón (7-ago-2026, horario real 09:00–19:00) dijo "de 8:00 a 19:00" dos
+ * veces y "de 9 am a 6 pm" otra. Tres respuestas, tres horarios falsos, todos
+ * dichos con total seguridad.
+ */
+export function horarioLegible(hours: {
+  open: string | null;
+  close: string | null;
+  days: string | null;
+  openSunday?: string | null;
+  closeSunday?: string | null;
+}): string {
+  const dias = (hours.days ?? "")
+    .split(",")
+    .map((d) => Number(d.trim()))
+    .filter((d) => d >= 1 && d <= 6)
+    .sort((a, b) => a - b);
+
+  const partes: string[] = [];
+  if (dias.length && hours.open && hours.close) {
+    // Rango corrido (1,2,3,4,5,6) → "lunes a sábado"; si no, se listan.
+    const corrido =
+      dias.length > 1 && dias[dias.length - 1]! - dias[0]! === dias.length - 1;
+    const cuando = corrido
+      ? `${DIAS_CORTOS[dias[0]! - 1]} a ${DIAS_CORTOS[dias[dias.length - 1]! - 1]}`
+      : dias.map((d) => DIAS_CORTOS[d - 1]).join(", ");
+    partes.push(`${cuando} de ${hours.open} a ${hours.close}`);
+  }
+
+  if (hours.openSunday && hours.closeSunday) {
+    partes.push(`domingo de ${hours.openSunday} a ${hours.closeSunday}`);
+  } else if ((hours.days ?? "").split(",").map((d) => d.trim()).includes("7")) {
+    if (hours.open && hours.close) partes.push(`domingo de ${hours.open} a ${hours.close}`);
+  } else {
+    partes.push("domingo CERRADO");
+  }
+
+  return partes.length
+    ? `HORARIO DEL NEGOCIO (di exactamente esto si te preguntan, no lo redondees ni lo cambies): ${partes.join(" · ")}.`
+    : "";
+}
+
 export function businessStatus(
   hours: {
     open: string | null;
@@ -269,7 +317,6 @@ export function abreMasTardeHoy(
 
 /** La hora y, si hay horario configurado, si el negocio atiende ahora mismo. */
 function estadoDelNegocio(profile: AgentProfile, now: Date = new Date()): string {
-  const hora = `Ahora mismo es ${nowForBusiness(now)} en Colombia (formato 24 h).`;
   const hours = {
     open: profile.hoursOpen,
     close: profile.hoursClose,
@@ -277,6 +324,13 @@ function estadoDelNegocio(profile: AgentProfile, now: Date = new Date()): string
     openSunday: profile.hoursOpenSunday,
     closeSunday: profile.hoursCloseSunday,
   };
+  // El horario va SIEMPRE, abierto o cerrado: sin él el modelo se lo inventa.
+  const hora = [
+    `Ahora mismo es ${nowForBusiness(now)} en Colombia (formato 24 h).`,
+    horarioLegible(hours),
+  ]
+    .filter(Boolean)
+    .join(" ");
   const estado = businessStatus(hours, now);
   if (!estado) return hora;
   if (estado === "abierto") {

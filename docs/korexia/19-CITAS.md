@@ -78,15 +78,14 @@ Acciones de escritura: `book_appointment`, `reschedule_appointment`,
 tocar la base de datos (nunca confía en lo que el modelo cree que consultó
 hace dos turnos).
 
-Desde el **5-ago-2026** hay una segunda barrera: **solo se puede agendar un
-horario que el agente haya ofrecido** en esa conversación (tabla
-`offered_slot`, poblada por `consult_availability`). Estar libre ya no basta —
-si el modelo se confunde con una fecha relativa y elige un hueco que nunca
-ofreció, se le responde al cliente con los horarios reales en vez de
-reservarle mal. Sin nada ofrecido se deja pasar, para no romper al cliente que
-pide día y hora concretos. Detalle en [26-NEA-AGENT.md](26-NEA-AGENT.md). A diferencia de `notify_order`, **no disparan handoff
-automático**: agendar una cita no necesita que una persona coordine nada, así
-que el agente sigue atendiendo.
+Desde el **5-ago-2026**, segunda barrera: **solo se agenda un horario que el
+agente haya ofrecido** en esa conversación (tabla `offered_slot`). Estar libre
+ya no basta — si se confunde con una fecha relativa y elige un hueco que nunca
+ofreció, se le responden los horarios reales en vez de reservar mal. Sin nada
+ofrecido se deja pasar, para no romper al cliente que pide día y hora
+concretos ([26-NEA-AGENT.md](26-NEA-AGENT.md)). A diferencia de
+`notify_order`, **no disparan handoff**: agendar no necesita que una persona
+coordine nada.
 
 ## Dar de alta un cliente de citas
 
@@ -132,6 +131,28 @@ solo: si nadie aprieta el botón, no se manda nada.
 > Vale igual para los avisos de la cascada. La salida es una **plantilla de
 > utilidad** — cómo funciona, qué cuesta y quién la crea, en
 > [29-RECORDATORIOS-Y-PLANTILLAS.md](29-RECORDATORIOS-Y-PLANTILLAS.md).
+
+## Lo que la dueña puede hacer desde el panel (7-ago-2026)
+
+En `/appointments`, además de la lista con filtros por estado:
+
+- **Calendario del día**: una columna por especialista y las citas colocadas
+  por hora. La lista sirve para buscar una cita concreta; para ver cómo va el
+  día y dónde quedan huecos hace falta la rejilla. Navega por días y solo
+  pinta las columnas de quien trabaja ese día.
+- **Nueva cita a mano.** Hasta hoy las citas **solo nacían por WhatsApp**, y
+  eso dejaba un agujero que duele el primer día: la clienta que llama por
+  teléfono o llega al local **no existía en la agenda**, así que el agente
+  daba ese hueco por libre **y se lo ofrecía a otra**. Verificado en vivo:
+  tras agendar a mano un Volumen 3D de Hilary a las 14:00, el agente dejó de
+  ofrecer esa hora y pasó a las 16:30 — justo cuando ella termina.
+  Pasa por el **mismo** `crearCita` que el agente (valida horario, servicio y
+  solape), y pide nombre y celular: el celular normalizado es lo que une la
+  cita con la conversación de WhatsApp de esa clienta.
+- **Mover el día de una especialista**: pasarlo a otra o liberarlo (arriba).
+
+**Lo que NO hay todavía**: editar precio o duración de un servicio (hay que
+archivarlo y crear otro), ni configurar horario y marca por pantalla.
 
 ## El Laboratorio ya reconoce citas (1-ago-2026)
 

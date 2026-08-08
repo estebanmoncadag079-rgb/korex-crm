@@ -1024,3 +1024,22 @@ async function haySolapamiento(input: {
     .limit(1);
   return rows.length > 0;
 }
+
+/** El horario del negocio, para quien agenda desde el panel. */
+export async function horarioDeLaOrganizacion(
+  organizationId: string
+): Promise<BusinessHours | null> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      open: schema.agentProfile.hoursOpen,
+      close: schema.agentProfile.hoursClose,
+      days: schema.agentProfile.hoursDays,
+      openSunday: schema.agentProfile.hoursOpenSunday,
+      closeSunday: schema.agentProfile.hoursCloseSunday,
+    })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  return rows[0] ?? null;
+}

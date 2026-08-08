@@ -39,3 +39,20 @@ export function avatarColor(seed: string): string {
 export function formatPhone(phone: string | null): string {
   return phone ? `+${phone}` : "Sin teléfono (usuario de WhatsApp)";
 }
+
+/**
+ * El celular tal como lo teclea el salón al agendar a mano → E.164 sin "+".
+ *
+ * Importa más de lo que parece: es lo que une la cita con la conversación de
+ * WhatsApp de esa clienta. Guardado con otro formato, la cita cuelga de un
+ * contacto distinto — el agente no sabría que ya tiene cita y el botón de
+ * recordar le escribiría a nadie. Y en un salón lo teclean como les sale:
+ * "300 123 4567", "+57 300…", con guiones o los 10 dígitos pelados.
+ */
+export function normalizarTelefonoCo(entrada: string): string | null {
+  const d = entrada.replace(/\D/g, "");
+  if (d.length === 10 && d.startsWith("3")) return `57${d}`;
+  if (d.length === 12 && d.startsWith("57")) return d;
+  // Otro país: se acepta tal cual si tiene un largo razonable.
+  return d.length >= 8 && d.length <= 15 ? d : null;
+}

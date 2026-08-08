@@ -5,6 +5,7 @@ import { Bell } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CalendarioDia } from "./calendario-dia";
 import { CascadaAgenda } from "./cascada-agenda";
 
 type Appointment = {
@@ -120,6 +121,8 @@ export function AppointmentsClient() {
         </p>
       </header>
       <div className="space-y-4 p-4 md:p-6">
+        <CalendarioDia citas={appointments} onCambio={() => void refetch(filtro)} />
+
         <CascadaAgenda onCambio={() => void refetch(filtro)} />
 
         <div className="flex flex-wrap gap-2">

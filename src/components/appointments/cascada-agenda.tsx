@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { CalendarX2, Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 
 /**
  * Mover el día entero de una especialista: pasarlo a otra persona o
@@ -43,6 +47,7 @@ function hoyEnBogota(): string {
 }
 
 export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
+  const uid = useId();
   const [abierto, setAbierto] = useState(false);
   const [personal, setPersonal] = useState<Persona[]>([]);
   const [staffId, setStaffId] = useState("");
@@ -102,7 +107,7 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
   if (!abierto) {
     return (
       <Button variant="outline" size="sm" onClick={() => setAbierto(true)}>
-        <Users className="mr-1.5 h-4 w-4" strokeWidth={1.7} />
+        <Users className="h-4 w-4" strokeWidth={1.7} />
         Mover el día de una especialista
       </Button>
     );
@@ -110,19 +115,19 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
 
   return (
     <Card>
-      <CardContent className="space-y-3 pt-4">
-        <div className="flex items-center justify-between">
+      <CardContent className="space-y-3 pt-5">
+        <div className="flex items-center justify-between gap-2">
           <p className="font-medium">Mover el día de una especialista</p>
           <Button variant="ghost" size="sm" onClick={() => setAbierto(false)}>
             Cerrar
           </Button>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3">
-          <label className="text-sm">
-            <span className="text-muted-foreground">Especialista</span>
-            <select
-              className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor={`${uid}-especialista`}>Especialista</Label>
+            <Select
+              id={`${uid}-especialista`}
               value={staffId}
               onChange={(e) => {
                 setStaffId(e.target.value);
@@ -135,26 +140,26 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
                   {p.name}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </div>
 
-          <label className="text-sm">
-            <span className="text-muted-foreground">Día</span>
-            <input
+          <div className="space-y-1">
+            <Label htmlFor={`${uid}-fecha`}>Día</Label>
+            <Input
+              id={`${uid}-fecha`}
               type="date"
-              className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
               value={fecha}
               onChange={(e) => {
                 setFecha(e.target.value);
                 setPrevia(null);
               }}
             />
-          </label>
+          </div>
 
-          <label className="text-sm">
-            <span className="text-muted-foreground">Pasar sus citas a</span>
-            <select
-              className="mt-1 w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+          <div className="space-y-1">
+            <Label htmlFor={`${uid}-destino`}>Pasar sus citas a</Label>
+            <Select
+              id={`${uid}-destino`}
               value={destinoId}
               onChange={(e) => setDestinoId(e.target.value)}
             >
@@ -166,8 +171,8 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
                     {p.name}
                   </option>
                 ))}
-            </select>
-          </label>
+            </Select>
+          </div>
         </div>
 
         <Button size="sm" onClick={verAgenda} disabled={!staffId || cargando}>
@@ -177,7 +182,7 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         {previa && (
-          <div className="space-y-2 rounded-md border p-3">
+          <div className="space-y-2 rounded-md border bg-subtle p-3">
             {previa.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No tiene citas activas ese día. No hay nada que mover.
@@ -203,7 +208,7 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
                     disabled={!destinoId || cargando}
                     onClick={() => void ejecutar("reasignar")}
                   >
-                    <Users className="mr-1.5 h-4 w-4" strokeWidth={1.7} />
+                    <Users className="h-4 w-4" strokeWidth={1.7} />
                     Pasar a otra persona
                   </Button>
                   <Button
@@ -212,7 +217,7 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
                     disabled={cargando}
                     onClick={() => void ejecutar("liberar")}
                   >
-                    <CalendarX2 className="mr-1.5 h-4 w-4" strokeWidth={1.7} />
+                    <CalendarX2 className="h-4 w-4" strokeWidth={1.7} />
                     Cancelar todas
                   </Button>
                 </div>
@@ -222,16 +227,16 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
         )}
 
         {resultado && (
-          <div className="space-y-2 rounded-md border p-3 text-sm">
+          <div className="space-y-3 rounded-md border bg-subtle p-3 text-sm">
             <p className="font-medium">
               Listo: {resultado.aplicadas.length} cita(s) · {resultado.avisos.avisadas}{" "}
               clienta(s) avisada(s)
             </p>
             {resultado.conflictos.length > 0 && (
-              <div>
-                <p className="font-medium text-[#8a6d3b]">
-                  Sin mover ({resultado.conflictos.length}) — resuélvelas a mano:
-                </p>
+              <div className="space-y-1">
+                <Badge variant="warning">
+                  Sin mover ({resultado.conflictos.length}) — resuélvelas a mano
+                </Badge>
                 <ul className="text-muted-foreground">
                   {resultado.conflictos.map((c) => (
                     <li key={c.id}>
@@ -242,10 +247,10 @@ export function CascadaAgenda({ onCambio }: { onCambio: () => void }) {
               </div>
             )}
             {resultado.avisos.sinAvisar.length > 0 && (
-              <div>
-                <p className="font-medium text-destructive">
-                  Hay que LLAMAR a {resultado.avisos.sinAvisar.length}:
-                </p>
+              <div className="space-y-1">
+                <Badge variant="destructive">
+                  Hay que llamar a {resultado.avisos.sinAvisar.length}
+                </Badge>
                 <ul className="text-muted-foreground">
                   {resultado.avisos.sinAvisar.map((s, i) => (
                     <li key={i}>

@@ -62,9 +62,21 @@ la agenda de una misma especialista.
 
 ## Lo que queda por afinar
 
-- **Ofrece demasiadas horas de golpe**: llegó a listar 17 opciones en un
-  mensaje. Funciona, pero en WhatsApp se lee fatal. Se arregla con una línea
-  del prompt (ofrecer 3 y preguntar), pendiente de decidir.
+- ✅ **Ofrecía 17 horarios de golpe** — corregido el mismo día. Ahora menciona
+  **3** (mañana, mediodía y tarde, o los más cercanos a lo que pidió) y avisa
+  de que tiene más.
+
+  > ⚠️ **El primer intento rompió algo peor.** Al decirle solo "ofrece máximo
+  > 3", el modelo empezó a tratar esos 3 como los ÚNICOS y le negó a una
+  > clienta las 11:00 de un día con la agenda **entera vacía**. Un muro de
+  > texto se lee mal; esto pierde citas. Hizo falta decirle explícitamente que
+  > mencionar 3 no borra las demás, y que negar una hora que sí está libre
+  > "es un error grave: le quita una cita al negocio". Reverificado: ofrece 3
+  > y, al pedirle las 11:00, la agenda sin discutir.
+  >
+  > La lección se repite: **recortar lo que el modelo VE es peligroso;
+  > recortar lo que DICE es lo que se quería.** Al modelo se le sigue pasando
+  > la lista completa.
 - **Al elegir especialista para una hora libre** prefiere correr la hora antes
   que usar a la compañera libre en algunos casos. El motor sí ofrece ambas
   (verificado: a las 9:00 aparecía Laura); es el modelo el que elige. Se

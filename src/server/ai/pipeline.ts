@@ -298,7 +298,10 @@ async function resolverConsultaDisponibilidad(
       horas.map((hora) => ({ fecha, hora }))
     );
     const lista = horas.map((h) => horaAAmPm(h)).join(", ");
-    return `[SISTEMA] Horarios REALES disponibles para "${servicio.name}" el ${fecha}: ${lista}. Ofrécele SOLO estas opciones para que el cliente elija. Solo estos horarios se pueden agendar.`;
+    return (
+      `[SISTEMA] Horarios REALES disponibles para "${servicio.name}" el ${fecha}: ${lista}. ` +
+      `Solo estos horarios se pueden agendar. ${COMO_OFRECER}`
+    );
   }
 
   const proximas = await proximasFechasConCupo({
@@ -320,8 +323,30 @@ async function resolverConsultaDisponibilidad(
   const texto = proximas
     .map((p) => `${p.fecha}: ${p.horarios.map(horaAAmPm).join(", ")}`)
     .join(" | ");
-  return `[SISTEMA] Próximas fechas con cupo para "${servicio.name}": ${texto}. Ofrécele elegir día y hora de estas opciones reales. Solo estos horarios se pueden agendar.`;
+  return (
+    `[SISTEMA] Próximas fechas con cupo para "${servicio.name}": ${texto}. ` +
+    `Solo estos horarios se pueden agendar. ${COMO_OFRECER}`
+  );
 }
+
+/**
+ * Cómo presentar los horarios, no cuáles.
+ *
+ * La lista completa se le sigue dando al modelo —la necesita para saber si lo
+ * que pida el cliente está libre—, pero **al cliente no se le vuelcan
+ * enteros**. Probando el salón (7-ago-2026) llegó a mandar **17 horarios en
+ * un solo mensaje**: en WhatsApp eso es un muro de texto que nadie lee, y
+ * quien pregunta por una hora concreta no quiere un listado.
+ */
+const COMO_OFRECER =
+  "TODAS las horas de esta lista están libres y se pueden agendar. Al CLIENTE " +
+  "menciónale solo 3 para no abrumarlo (las más cercanas a lo que pidió; si no " +
+  "pidió hora: una de la mañana, una del mediodía y una de la tarde) y dile " +
+  "que si ninguna le sirve tienes más. " +
+  "OJO: mencionar 3 no significa que las demás no existan — si el cliente pide " +
+  "CUALQUIER otra hora que esté en esta lista, agéndala directamente. Decirle " +
+  "que no está disponible una hora que sí aparece aquí es un error grave: le " +
+  "quita una cita al negocio.";
 
 /**
  * Ejecuta UN turno del agente ahora (el Laboratorio lo llama directo, con

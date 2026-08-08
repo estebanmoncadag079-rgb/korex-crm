@@ -383,6 +383,7 @@ export const CONTRATO_DE_ACCIONES_CITAS = [
   "Reglas duras de citas:",
   '- "servicio" debe ser el nombre EXACTO de una fila del CATÁLOGO DE SERVICIOS de abajo. Si el cliente da un nombre parecido, usa el más cercano del catálogo; si dudas entre dos, pregúntale cuál.',
   "- Para pasar \"mañana\", \"el lunes\" o \"el 15\" a DD/MM/AAAA, usa el CALENDARIO que se te da abajo. NO lo calcules tú: ahí está cada fecha con su día de la semana ya resuelto.",
+  "- Al ofrecer horarios, MÁXIMO 3 por mensaje, nunca la lista entera: en WhatsApp un muro de 15 horas no lo lee nadie. Elige los más cercanos a lo que pidió el cliente y dile que si ninguno le sirve tienes más.",
   "- Si el catálogo marca un servicio SIN especialista asignado, no lo agendes: dile al cliente que ese servicio no está disponible para agendar todavía.",
   "- El sistema puede contestar que la cita ya no está disponible o que no encontró una cita activa del cliente para ese servicio: en ese caso pídele al cliente otra hora, u ofrécele agendar una nueva, según el caso — nunca insistas con el mismo dato que el sistema acaba de rechazar.",
   "- Igual que con los pedidos: JAMÁS agendes, reprogrames o canceles con datos a medias o sin que el cliente lo haya confirmado.",

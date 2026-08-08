@@ -25,6 +25,16 @@ describe("la hora que ve el agente", () => {
     expect(nowForBusiness(MEDIANOCHE_EN_BOGOTA, "UTC")).toMatch(/05:02/);
   });
 
+  /**
+   * Sin el AÑO, al agente se le pide convertir "el lunes" a DD/MM/AAAA con un
+   * dato que no tiene: se inventaba uno pasado y el servidor le respondía que
+   * la fecha ya pasó. Caso real del 7-ago-2026, probando el salón antes de su
+   * primer día: **"el lunes 10 de agosto ya pasó"**, dicho un viernes 7.
+   */
+  it("incluye el año: sin él, el agente manda fechas al pasado", () => {
+    expect(nowForBusiness(MEDIANOCHE_EN_BOGOTA)).toMatch(/2026/);
+  });
+
   it("incluye el día de la semana, que decide si el negocio abre", () => {
     expect(nowForBusiness(MEDIANOCHE_EN_BOGOTA).toLowerCase()).toContain("martes");
   });

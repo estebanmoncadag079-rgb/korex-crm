@@ -735,8 +735,24 @@ export async function runAgentTurn(
         now: opts?.now,
       });
       if (!resultado.ok) {
-        const msg =
-          resultado.reason === "fuera_de_horario"
+        /**
+         * El hueco puede estar ocupado por la PROPIA clienta: pasa cada vez
+         * que dice "sí, confirmo" después de que la cita ya quedó hecha. El
+         * mensaje genérico ("ese horario ya no está disponible") la deja
+         * pensando que se cayó su cita, cuando es suya. Salió tres veces
+         * seguidas probando el salón antes de su primer día (7-ago-2026).
+         */
+        const suya =
+          resultado.reason === "sin_cupo" &&
+          (await citasActivasDeContacto(organizationId, conversation.contactId)).some(
+            (c) =>
+              c.serviceId === servicio.id &&
+              utcAFechaHoraBogota(c.startsAt).fecha === fecha &&
+              utcAFechaHoraBogota(c.startsAt).hora === action.hora
+          );
+        const msg = suya
+          ? `Tranquila, esa cita ya está confirmada: *${servicio.name}* el ${fecha} a las ${horaAAmPm(action.hora)}. ¡Te esperamos!`
+          : resultado.reason === "fuera_de_horario"
             ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
             : "Ese horario ya no está disponible. ¿Qué otra hora prefieres?";
         await deliverReply(conversation, msg);

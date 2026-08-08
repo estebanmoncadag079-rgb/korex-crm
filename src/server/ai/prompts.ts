@@ -1,6 +1,6 @@
 import type { schema } from "@/lib/db";
 import type { TranscriptLine } from "@/lib/types";
-import type { ServiceRow } from "@/server/appointments/logic";
+import { partesEnNegocio, type ServiceRow } from "@/server/appointments/logic";
 
 type AgentProfile = typeof schema.agentProfile.$inferSelect;
 type KbEntry = typeof schema.kbEntry.$inferSelect;
@@ -53,6 +53,18 @@ export function nowForBusiness(now: Date = new Date(), timeZone = BUSINESS_TIMEZ
     weekday: "long",
     day: "numeric",
     month: "long",
+    /**
+     * El AÑO faltaba, y costaba citas. Al agente se le pide convertir "el
+     * lunes" a DD/MM/AAAA, pero solo se le daba "viernes, 7 de agosto": tenía
+     * que inventarse el año, ponía uno pasado y el servidor le respondía —con
+     * razón— que esa fecha ya pasó. La clienta oía **"el lunes 10 de agosto
+     * ya pasó"** un viernes 7.
+     *
+     * Encontrado el 7-ago-2026 probando el catálogo real del salón antes de
+     * su primer día. Estaba anotado desde el 3-ago como "el modelo interpreta
+     * mal las fechas relativas" — no era eso: le faltaba el dato.
+     */
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     // 24 horas a propósito: con am/pm el agente leía las 12:02 de la
@@ -314,6 +326,49 @@ export const CONTRATO_DE_ACCIONES = [
 ].join("\n");
 
 /**
+ * Los próximos 14 días con su día de semana y su fecha ya resuelta.
+ *
+ * **El modelo no sabe contar días.** Se le pedía convertir "el lunes" a
+ * DD/MM/AAAA por su cuenta y se equivocaba: un viernes 7 de agosto de 2026
+ * respondió "el lunes 9 de agosto" — el 9 era domingo, el día que el salón
+ * cierra. Mismo principio que el horario y la disponibilidad: **la aritmética
+ * la hace el servidor y se le entrega resuelta** (ver 04-AGENTE-IA.md).
+ *
+ * Se marca qué días atiende el negocio, para que ni ofrezca un domingo
+ * cerrado ni mande al servidor una fecha que va a rechazar.
+ */
+export function calendarioProximosDias(
+  hours: { days: string | null },
+  now: Date = new Date(),
+  dias = 14
+): string {
+  const habiles = new Set(
+    (hours.days ?? "1,2,3,4,5,6,7")
+      .split(",")
+      .map((d) => Number(d.trim()))
+      .filter((d) => d >= 1 && d <= 7)
+  );
+  const hoy = partesEnNegocio(now);
+  const base = Date.UTC(hoy.y, hoy.m - 1, hoy.d);
+  const nombres = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+
+  const filas: string[] = [];
+  for (let i = 0; i < dias; i++) {
+    const d = new Date(base + i * 86400000);
+    const dow = ((d.getUTCDay() + 6) % 7) + 1; // 1=lunes … 7=domingo
+    const fecha = [
+      String(d.getUTCDate()).padStart(2, "0"),
+      String(d.getUTCMonth() + 1).padStart(2, "0"),
+      d.getUTCFullYear(),
+    ].join("/");
+    const etiqueta = i === 0 ? " (HOY)" : i === 1 ? " (mañana)" : "";
+    const abierto = habiles.has(dow) ? "" : " — CERRADO, no lo ofrezcas";
+    filas.push(`${nombres[dow - 1]} ${fecha}${etiqueta}${abierto}`);
+  }
+  return `CALENDARIO (usa estas fechas tal cual, no las calcules):\n${filas.join("\n")}`;
+}
+
+/**
  * Adenda del contrato SOLO para organizaciones con vertical de citas
  * (agent_profile.appointmentsEnabled). Aparte de CONTRATO_DE_ACCIONES para no
  * inflar el prompt de los clientes de pedidos (La Churra, Lis) con acciones
@@ -327,7 +382,7 @@ export const CONTRATO_DE_ACCIONES_CITAS = [
   '- {"action":"cancel_appointment","servicio":"...","farewell":"opcional"} — cancela una cita activa del cliente para ese servicio.',
   "Reglas duras de citas:",
   '- "servicio" debe ser el nombre EXACTO de una fila del CATÁLOGO DE SERVICIOS de abajo. Si el cliente da un nombre parecido, usa el más cercano del catálogo; si dudas entre dos, pregúntale cuál.',
-  "- Convierte tú misma expresiones como \"mañana\" o \"el viernes\" a DD/MM/AAAA, usando la fecha de hoy que se te dio arriba.",
+  "- Para pasar \"mañana\", \"el lunes\" o \"el 15\" a DD/MM/AAAA, usa el CALENDARIO que se te da abajo. NO lo calcules tú: ahí está cada fecha con su día de la semana ya resuelto.",
   "- Si el catálogo marca un servicio SIN especialista asignado, no lo agendes: dile al cliente que ese servicio no está disponible para agendar todavía.",
   "- El sistema puede contestar que la cita ya no está disponible o que no encontró una cita activa del cliente para ese servicio: en ese caso pídele al cliente otra hora, u ofrécele agendar una nueva, según el caso — nunca insistas con el mismo dato que el sistema acaba de rechazar.",
   "- Igual que con los pedidos: JAMÁS agendes, reprogrames o canceles con datos a medias o sin que el cliente lo haya confirmado.",
@@ -408,6 +463,13 @@ export function buildAgentSystemPrompt(input: {
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     input.appointments
       ? `CATÁLOGO DE SERVICIOS (citas):\n${renderCatalogo(input.appointments.catalog)}`
+      : null,
+    // Solo donde hace falta contar días: los clientes de pedidos no agendan.
+    input.appointments
+      ? calendarioProximosDias(
+          { days: profile.hoursDays },
+          input.now
+        )
       : null,
     `Etapas del pipeline disponibles: ${stageNames}`,
     CONTRATO_DE_ACCIONES,

@@ -42,6 +42,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md) | La venta que se perdió porque el cliente se corrigió a sí mismo: un turno sin nada que responder dejaba mudo a Gemini y disparaba un handoff falso |
 | [28-BITACORA-4-6AGO.md](28-BITACORA-4-6AGO.md) | **Historial del 4 al 6 de agosto**: cinco casos de "no respondió" (tres con la misma causa de fondo), los dos repos revisados y el despliegue que no llevaba nada |
 | [29-RECORDATORIOS-Y-PLANTILLAS.md](29-RECORDATORIOS-Y-PLANTILLAS.md) | Por qué un salón no puede recordar citas sin plantilla, qué cuesta, quién la crea y por qué octubre de 2026 no lo arregla |
+| [30-SALON-PRUEBAS.md](30-SALON-PRUEBAS.md) | El catálogo real del primer cliente de citas y la tanda de pruebas antes de su día 1: tres bugs encontrados y nueve escenarios verificados |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

@@ -3,6 +3,7 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import { normalizarFecha } from "@/server/appointments/logic";
 import {
   appointmentsEnabledFor,
+  citasDelDia,
   crearCita,
   horarioDeLaOrganizacion,
   listAppointments,
@@ -32,6 +33,19 @@ export const GET = withAuth(async (session, req: Request) => {
   const status = (ESTADOS_VALIDOS as string[]).includes(statusParam ?? "")
     ? (statusParam as AppointmentStatus)
     : undefined;
+
+  /**
+   * `?fecha=AAAA-MM-DD` devuelve solo las de ese día.
+   *
+   * Lo usa el calendario. Sin esto tenía que filtrar en el navegador sobre la
+   * lista general, que viene limitada a 200: al saltar a un día lejano podía
+   * pintarlo vacío teniendo citas. Un día siempre cabe entero.
+   */
+  const fecha = normalizarFecha(url.searchParams.get("fecha") ?? "");
+  if (fecha) {
+    const appointments = await citasDelDia(session.organizationId, fecha);
+    return Response.json({ appointments });
+  }
 
   const appointments = await listAppointments(session.organizationId, { status });
   return Response.json({ appointments });

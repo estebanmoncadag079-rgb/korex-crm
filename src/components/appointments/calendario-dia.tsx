@@ -5,6 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { NuevaCita } from "./nueva-cita";
 
 /**
@@ -86,13 +87,15 @@ const PX_POR_MIN = 1;
 const CABECERA = 36;
 
 export function CalendarioDia({
-  citas,
+  refresco,
   onCambio,
 }: {
-  citas: Cita[];
+  /** Cambia cuando algo de fuera tocó la agenda: fuerza recargar el día. */
+  refresco: number;
   onCambio: () => void;
 }) {
   const [dia, setDia] = useState(hoyBogota());
+  const [citas, setCitas] = useState<Cita[]>([]);
   const [personal, setPersonal] = useState<{ id: string; name: string }[]>([]);
   const [nueva, setNueva] = useState(false);
   const [ahora, setAhora] = useState(ahoraBogota);
@@ -104,15 +107,37 @@ export function CalendarioDia({
       .catch(() => setPersonal([]));
   }, []);
 
+  /**
+   * El día se le pide al servidor, no se filtra de la lista de abajo: esa
+   * viene limitada a 200 y al saltar a un día lejano lo pintaba vacío
+   * teniendo citas.
+   */
+  useEffect(() => {
+    let vigente = true;
+    void fetch(`/api/appointments?fecha=${dia}`)
+      .then((r) => (r.ok ? r.json() : { appointments: [] }))
+      .then((d) => {
+        if (vigente) setCitas(d.appointments ?? []);
+      })
+      .catch(() => {
+        if (vigente) setCitas([]);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [dia, refresco]);
+
   // La línea de "ahora" avanza sola cada minuto sin recargar la agenda.
   useEffect(() => {
     const t = setInterval(() => setAhora(ahoraBogota()), 60_000);
     return () => clearInterval(t);
   }, []);
 
+  // El servidor ya devuelve solo ese día; aquí solo se quitan las canceladas,
+  // que no ocupan hueco en la agenda.
   const delDia = useMemo(
-    () => citas.filter((c) => fechaBogota(c.startsAt) === dia && ACTIVAS.includes(c.status)),
-    [citas, dia]
+    () => citas.filter((c) => ACTIVAS.includes(c.status)),
+    [citas]
   );
 
   // La rejilla se ajusta a lo que hay: si nadie madruga, no se pintan las 6am.
@@ -161,7 +186,7 @@ export function CalendarioDia({
               {delDia.length} {delDia.length === 1 ? "cita" : "citas"}
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <div className="flex items-center gap-1">
               <Button
                 variant="outline"
@@ -187,6 +212,22 @@ export function CalendarioDia({
                 <ChevronRight className="h-4 w-4" strokeWidth={1.7} />
               </Button>
             </div>
+
+            {/*
+              Ir a un día concreto sin dar veinte clics en la flecha: mirar
+              "el martes de la otra semana" es lo normal en un salón, y con
+              solo ‹ › eso son ocho pulsaciones.
+            */}
+            <Input
+              type="date"
+              aria-label="Ir a una fecha"
+              className="h-9 w-[9.5rem] px-2"
+              value={dia}
+              onChange={(e) => {
+                if (e.target.value) setDia(e.target.value);
+              }}
+            />
+
             <Button size="sm" onClick={() => setNueva((v) => !v)}>
               <Plus className="h-4 w-4" strokeWidth={1.7} />
               Nueva cita

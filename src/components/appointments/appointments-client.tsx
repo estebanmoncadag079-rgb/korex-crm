@@ -63,6 +63,8 @@ export function AppointmentsClient() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Appointment["status"] | "">("");
+  /** Sube cuando algo cambia la agenda: el calendario recarga su día. */
+  const [refresco, setRefresco] = useState(0);
 
   const refetch = useCallback(async (status: Appointment["status"] | "") => {
     const qs = status ? `?status=${status}` : "";
@@ -78,13 +80,19 @@ export function AppointmentsClient() {
     void refetch(filtro);
   }, [filtro, refetch]);
 
+  /** Algo tocó la agenda: se recargan la lista Y el calendario. */
+  function refrescarTodo() {
+    setRefresco((n) => n + 1);
+    void refetch(filtro);
+  }
+
   async function cambiarEstado(id: string, status: Appointment["status"]) {
     await fetch(`/api/appointments/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status }),
     }).catch(() => null);
-    void refetch(filtro);
+    refrescarTodo();
   }
 
   const [recordando, setRecordando] = useState<Set<string>>(new Set());
@@ -121,9 +129,9 @@ export function AppointmentsClient() {
         </p>
       </header>
       <div className="space-y-4 p-4 md:p-6">
-        <CalendarioDia citas={appointments} onCambio={() => void refetch(filtro)} />
+        <CalendarioDia refresco={refresco} onCambio={refrescarTodo} />
 
-        <CascadaAgenda onCambio={() => void refetch(filtro)} />
+        <CascadaAgenda onCambio={refrescarTodo} />
 
         <div className="flex flex-wrap gap-2">
           {FILTROS.map((f) => (

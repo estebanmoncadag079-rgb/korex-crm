@@ -1043,3 +1043,48 @@ export async function horarioDeLaOrganizacion(
     .limit(1);
   return rows[0] ?? null;
 }
+
+/**
+ * Las citas de UN día, con la misma forma que `listAppointments`.
+ *
+ * El calendario pide su día al servidor en vez de filtrar en el navegador
+ * sobre la lista general (limitada a 200): al saltar a un día lejano podía
+ * pintarlo vacío teniendo citas. Trae también las canceladas — la vista las
+ * distingue, y ocultarlas haría creer que ese hueco nunca existió.
+ */
+export async function citasDelDia(
+  organizationId: string,
+  fecha: string
+): Promise<AppointmentRow[]> {
+  const rango = rangoDelDiaUtc(fecha);
+  if (!rango) return [];
+  const [desdeUtc, hastaUtc] = rango;
+  const db = getDb();
+  return db
+    .select({
+      id: schema.appointment.id,
+      serviceName: schema.service.name,
+      staffName: schema.staffMember.name,
+      contactName: schema.contact.name,
+      contactPhone: schema.contact.phone,
+      startsAt: schema.appointment.startsAt,
+      endsAt: schema.appointment.endsAt,
+      status: schema.appointment.status,
+      remindedAt: schema.appointment.remindedAt,
+    })
+    .from(schema.appointment)
+    .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
+    .innerJoin(schema.staffMember, eq(schema.staffMember.id, schema.appointment.staffId))
+    .innerJoin(schema.contact, eq(schema.contact.id, schema.appointment.contactId))
+    .where(
+      scoped(
+        schema.appointment.organizationId,
+        organizationId,
+        and(
+          gte(schema.appointment.startsAt, desdeUtc),
+          lt(schema.appointment.startsAt, hastaUtc)
+        )
+      )
+    )
+    .orderBy(asc(schema.appointment.startsAt));
+}

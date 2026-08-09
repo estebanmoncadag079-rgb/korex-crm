@@ -231,6 +231,47 @@ export async function avanzarLeadSilencioso(
 }
 
 /**
+ * ¿Este mensaje entrante es un comprobante de pago?
+ *
+ * Se exige que sea una IMAGEN: la marca `[COMPROBANTE]` la escribe el propio
+ * sistema al leer la foto (`ai/transcribir.ts`), así que un cliente que teclee
+ * esa palabra a mano no mueve su tarjeta.
+ */
+export function esComprobanteDePago(
+  texto: string | null | undefined,
+  tipo: string
+): boolean {
+  if (tipo !== "image") return false;
+  return (texto ?? "").includes("[COMPROBANTE]");
+}
+
+/**
+ * Cierra el lead cuando llega un comprobante de pago (9-ago-2026).
+ *
+ * Hasta hoy el embudo solo se cerraba si el AGENTE emitía un pedido confirmado.
+ * En los negocios donde el equipo atiende a mano —Lis contesta desde el WhatsApp
+ * del propio negocio, sin entrar al CRM— el agente no corre nunca, así que la
+ * venta se cobraba y se entregaba con la tarjeta parada en "En conversación".
+ * Medido el 9-ago: **15 de 51 leads en columnas abiertas tenían comprobante**;
+ * el tablero decía 16 clientes cuando había 31.
+ *
+ * El comprobante es la única señal de venta que llega SOLA, sin depender de que
+ * nadie recuerde pulsar nada. No prueba que el pago sea válido —eso lo revisa
+ * el equipo— pero sí que la conversación dejó de ser una consulta.
+ */
+export async function cerrarLeadPorComprobante(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  try {
+    return await onLeadWon(organizationId, contactId);
+  } catch (err) {
+    console.error("[embudo] no se pudo cerrar el lead por comprobante:", err);
+    return false;
+  }
+}
+
+/**
  * Pedido confirmado: el lead pasa a la etapa de cierre (`won`).
  *
  * Es el único salto que pisa cualquier etapa anterior — un pedido cerrado manda

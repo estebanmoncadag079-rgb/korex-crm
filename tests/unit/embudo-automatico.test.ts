@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   arranqueDelEmbudo,
   cierreDelEmbudo,
+  esComprobanteDePago,
   type EtapaEmbudo,
 } from "@/server/inbox/lead-activity";
 
@@ -135,5 +136,50 @@ describe("dónde nace un lead según quién habló primero", () => {
     const otro = arranqueDelEmbudo(reordenado)!;
     expect(otro.desde.id).toBe("a");
     expect(otro.hacia.id).toBe("m");
+  });
+});
+
+/**
+ * Cierre por comprobante (9-ago-2026).
+ *
+ * Hasta hoy el embudo solo se cerraba si el AGENTE confirmaba un pedido. En los
+ * negocios donde el equipo atiende a mano, el agente no corre nunca: medido en
+ * producción, 15 de 51 leads en columnas abiertas ya tenían comprobante de
+ * pago. El tablero decía 16 clientes cuando había 31.
+ */
+describe("cierre por comprobante de pago", () => {
+  it("una imagen con la marca del sistema cierra la venta", () => {
+    expect(
+      esComprobanteDePago(
+        "[COMPROBANTE] Nequi · $44.000,00 · 03/08/2026 · ref: M08725283",
+        "image"
+      )
+    ).toBe(true);
+  });
+
+  it("vale aunque el cliente haya escrito un pie de foto antes", () => {
+    // `mediaATexto` compone `${pie}\n${texto}`: la marca no queda al principio.
+    expect(
+      esComprobanteDePago("ya te pasé el pago\n[COMPROBANTE] Nequi · $44.000", "image")
+    ).toBe(true);
+  });
+
+  it("NO se fía de un texto escrito a mano: la marca la pone el sistema al leer una foto", () => {
+    // Si bastara el texto, cualquiera se auto-ascendería a cliente tecleándolo.
+    expect(esComprobanteDePago("[COMPROBANTE] te pagué, en serio", "text")).toBe(
+      false
+    );
+  });
+
+  it("una foto cualquiera no cierra nada", () => {
+    expect(esComprobanteDePago("[IMAGEN] una torta de chocolate", "image")).toBe(
+      false
+    );
+    expect(esComprobanteDePago("[TEXTO] Calle 5 #10-20", "image")).toBe(false);
+  });
+
+  it("sin texto no revienta", () => {
+    expect(esComprobanteDePago(null, "image")).toBe(false);
+    expect(esComprobanteDePago(undefined, "image")).toBe(false);
   });
 });

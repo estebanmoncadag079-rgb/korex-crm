@@ -9,7 +9,12 @@ import {
 import { describirImagen, transcribirAudio } from "@/server/ai/transcribir";
 import type { WebhookValue } from "@/server/inbox/webhook";
 import { applyStatusUpdate } from "@/server/inbox/status";
-import { avanzarLeadSilencioso, onLeadActivity } from "@/server/inbox/lead-activity";
+import {
+  avanzarLeadSilencioso,
+  cerrarLeadPorComprobante,
+  esComprobanteDePago,
+  onLeadActivity,
+} from "@/server/inbox/lead-activity";
 import {
   clearHandoff,
   isReturnToAgentPhrase,
@@ -306,6 +311,12 @@ export async function ingestInboundMessage(
     .where(eq(schema.conversation.id, conversation.id));
 
   await onLeadActivity(organizationId, contact.id, waTimestamp);
+
+  // Un comprobante cierra el lead aunque el agente no intervenga: en los
+  // negocios que atienden a mano, era la venta que el tablero nunca veía.
+  if (esComprobanteDePago(textoFinal, input.type)) {
+    await cerrarLeadPorComprobante(organizationId, contact.id);
+  }
 
   publish(organizationId, {
     type: "message.new",

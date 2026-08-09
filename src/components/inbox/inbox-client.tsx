@@ -12,6 +12,7 @@ import { MessageThread } from "./message-thread";
 import { Composer } from "./composer";
 import { ContactPanel } from "./contact-panel";
 import { ModoAtencion } from "./modo-atencion";
+import { MarcarCliente } from "./marcar-cliente";
 
 export function InboxClient() {
   const [conversations, setConversations] = useState<ConversationDto[] | null>(
@@ -178,7 +179,11 @@ export function InboxClient() {
   );
 
   const patchConversation = useCallback(
-    async (patch: { aiEnabled?: boolean; reactivate?: boolean }) => {
+    async (patch: {
+      aiEnabled?: boolean;
+      reactivate?: boolean;
+      markWon?: boolean;
+    }) => {
       if (!selectedIdRef.current) return;
       await fetch(`/api/conversations/${selectedIdRef.current}`, {
         method: "PATCH",
@@ -264,6 +269,9 @@ export function InboxClient() {
                   conversation={selected}
                   agentReady={agentReady}
                   onPatch={patchConversation}
+                />
+                <MarcarCliente
+                  onMarcar={() => patchConversation({ markWon: true })}
                 />
                 {/* Escritorio ancho: reabre la columna que el operador plegó. */}
                 {!panelOpen && (

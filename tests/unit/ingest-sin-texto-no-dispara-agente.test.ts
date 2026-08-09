@@ -18,6 +18,8 @@ vi.mock("@/server/events/bus", () => ({ publish: vi.fn() }));
 vi.mock("@/server/inbox/lead-activity", () => ({
   avanzarLeadSilencioso: vi.fn().mockResolvedValue(undefined),
   onLeadActivity: vi.fn().mockResolvedValue(undefined),
+  cerrarLeadPorComprobante: vi.fn().mockResolvedValue(false),
+  esComprobanteDePago: vi.fn(() => false),
 }));
 vi.mock("@/server/inbox/handoff-policy", () => ({
   clearHandoff: vi.fn().mockResolvedValue(undefined),

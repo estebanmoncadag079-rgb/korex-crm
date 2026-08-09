@@ -28,6 +28,18 @@ export const HANDOFF_RESUME_HOURS = 2;
  * negocio normal. **El precio es un falso positivo posible**: si un operador
  * usa esa frase queriendo pasar a una PERSONA de verdad, el agente retomará.
  * Para eso está el botón de la bandeja, que es explícito.
+ *
+ * ⚠️ **Ese falso positivo YA OCURRIÓ** (Lis, 8-ago-2026, 23:59). Un operador
+ * escribió "Te dejo con el encargado" para anunciar que seguía una persona; se
+ * limpió el relevo y el agente respondió **tres segundos después**,
+ * contradiciéndolo delante de la clienta. Se le planteó al dueño el 9-ago y
+ * **decidió mantenerlo**: la frase natural le importa más que el caso raro.
+ * Queda anotado para que nadie lo trate como un bug nuevo si vuelve a pasar —
+ * y para que quien mire este código sepa que el riesgo es real, no teórico.
+ *
+ * Si algún día se revisa: en Colombia "el encargado" es casi siempre una
+ * persona. Las alternativas para devolver el turno sin ambigüedad son "te dejo
+ * con el asistente", "con el bot", el atajo #bot y el botón IA/Humano.
  */
 const QUIEN_ATIENDE = "agente|asistente|bot|ia|encargado|encargada";
 

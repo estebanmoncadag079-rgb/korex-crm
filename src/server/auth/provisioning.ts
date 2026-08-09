@@ -10,13 +10,21 @@ import { getAuth, runInternalSignup } from "@/lib/auth";
  * exactamente crear su organización sembrada + su cuenta propietaria.
  */
 
-/** Etapas sembradas del pipeline (US2). */
+/**
+ * Etapas sembradas del pipeline (US2).
+ *
+ * El ancla `lost` se llama **"Por recuperar"** y no "Perdido" (9-ago-2026):
+ * ahí caen solos los leads que llevan dos días sin responder
+ * (`DIAS_PARA_ENFRIAR`), y casi ninguno está perdido de verdad — son gente a la
+ * que hay que ir a buscar. El nombre es solo una etiqueta que cada cliente
+ * puede cambiar desde el tablero; la lógica mira `kind`.
+ */
 export const SEED_STAGES: { name: string; kind: "open" | "won" | "lost" }[] = [
   { name: "Nuevo", kind: "open" },
   { name: "En conversación", kind: "open" },
   { name: "Interesado", kind: "open" },
   { name: "Cliente", kind: "won" },
-  { name: "Perdido", kind: "lost" },
+  { name: "Por recuperar", kind: "lost" },
 ];
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];

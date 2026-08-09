@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   arranqueDelEmbudo,
   cierreDelEmbudo,
+  enfriamientoDelEmbudo,
   esComprobanteDePago,
   type EtapaEmbudo,
 } from "@/server/inbox/lead-activity";
@@ -181,5 +182,52 @@ describe("cierre por comprobante de pago", () => {
   it("sin texto no revienta", () => {
     expect(esComprobanteDePago(null, "image")).toBe(false);
     expect(esComprobanteDePago(undefined, "image")).toBe(false);
+  });
+});
+
+describe("enfriamiento: a dónde bajan las tarjetas sin respuesta", () => {
+  it("elige el ancla `lost`, que es donde se va a recuperar gente", () => {
+    expect(enfriamientoDelEmbudo(SEMBRADO)).toEqual(SEMBRADO[4]);
+  });
+
+  it("no la confunde con el ancla de cierre", () => {
+    // Enfriarse y ganar son cosas opuestas: si esto se cruzara, cada cliente
+    // que se queda callado dos días aparecería como venta cerrada.
+    expect(enfriamientoDelEmbudo(SEMBRADO)).not.toEqual(cierreDelEmbudo(SEMBRADO));
+  });
+
+  it("se guía por el orden, no por cómo lleguen de la consulta", () => {
+    const desordenadas = [SEMBRADO[4]!, SEMBRADO[1]!, SEMBRADO[3]!];
+    expect(enfriamientoDelEmbudo(desordenadas)).toEqual(SEMBRADO[4]);
+  });
+
+  it("con dos etapas perdidas se queda con la primera del tablero", () => {
+    const dos: EtapaEmbudo[] = [
+      { id: "a", position: 0, kind: "open" },
+      { id: "l2", position: 5, kind: "lost" },
+      { id: "l1", position: 4, kind: "lost" },
+    ];
+    expect(enfriamientoDelEmbudo(dos)?.id).toBe("l1");
+  });
+
+  it("devuelve null si el cliente se quedó sin ancla de enfriamiento", () => {
+    // Sin ella no hay a dónde mover, y `enfriarLeadsInactivos` no toca nada en
+    // vez de inventarse una columna.
+    const sinLost: EtapaEmbudo[] = [
+      { id: "a", position: 0, kind: "open" },
+      { id: "b", position: 1, kind: "open" },
+      { id: "w", position: 2, kind: "won" },
+    ];
+    expect(enfriamientoDelEmbudo(sinLost)).toBeNull();
+  });
+
+  it("no depende del nombre: el cliente puede llamarla como quiera", () => {
+    // El tablero deja renombrar las etapas, y "Por recuperar" ya es un cambio
+    // de nombre sobre "Perdido". Nada de esto mira el texto.
+    const renombrada: EtapaEmbudo[] = [
+      { id: "a", position: 0, kind: "open" },
+      { id: "x", position: 1, kind: "lost" },
+    ];
+    expect(enfriamientoDelEmbudo(renombrada)?.id).toBe("x");
   });
 });

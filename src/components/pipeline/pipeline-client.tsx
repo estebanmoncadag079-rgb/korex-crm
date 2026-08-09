@@ -27,9 +27,23 @@ export type BoardLead = {
   stageId: string;
   position: number;
   lastActivityAt: string | null;
+  /** Última vez que escribió el cliente. Null si nunca lo hizo. */
+  lastInboundAt: string | null;
   contact: { id: string; name: string; phone: string | null };
   conversationId: string | null;
 };
+
+/**
+ * Días completos que el cliente lleva sin escribir. Null si nunca escribió o si
+ * contestó hoy — ahí no hay nada que reprochar y la tarjeta no debe gritar.
+ */
+function diasSinResponder(lastInboundAt: string | null): number | null {
+  if (!lastInboundAt) return null;
+  const dias = Math.floor(
+    (Date.now() - new Date(lastInboundAt).getTime()) / 86_400_000
+  );
+  return dias >= 1 ? dias : null;
+}
 
 export function PipelineClient() {
   const [stages, setStages] = useState<StageDto[]>([]);
@@ -252,6 +266,7 @@ function LeadCard({
   onVerConversacion?: (lead: BoardLead) => void;
   viendo?: boolean;
 }) {
+  const sinResponder = diasSinResponder(lead.lastInboundAt);
   return (
     <div
       className={cn(
@@ -266,11 +281,23 @@ function LeadCard({
         <ContactAvatar name={lead.contact.name} seed={lead.contact.id} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{lead.contact.name}</p>
-          <p className="text-[11px] text-muted-foreground">
-            {lead.lastActivityAt
-              ? `Actividad: ${formatTime(lead.lastActivityAt)}`
-              : "Sin actividad"}
-          </p>
+          {/*
+            Mientras el cliente responde, lo útil es cuándo fue la última vez.
+            En cuanto se hace el silencio, lo útil es CUÁNTO lleva callado: es
+            el dato con el que se decide a quién ir a recuperar primero.
+          */}
+          {sinResponder !== null ? (
+            <p className="text-[11px] font-medium text-amber-600 dark:text-amber-500">
+              Sin responder hace {sinResponder}{" "}
+              {sinResponder === 1 ? "día" : "días"}
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              {lead.lastActivityAt
+                ? `Actividad: ${formatTime(lead.lastActivityAt)}`
+                : "Sin actividad"}
+            </p>
+          )}
         </div>
         {/*
           El botón corta los eventos de los DOS sensores: el de ratón escucha

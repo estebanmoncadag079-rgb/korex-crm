@@ -90,3 +90,71 @@ no hace daño: `onLeadWon` ignora al lead que ya estaba ganado.
   antes de sacar conclusiones del tablero.
 - **Los leads perdidos no se marcan solos.** Nadie mueve nada a "Perdido", así
   que esa columna no significa nada todavía.
+
+---
+
+## El otro lado del embudo: los que se enfrían (9-ago-2026, tarde)
+
+Cerrado el agujero de las ventas invisibles quedaba el simétrico, y el dueño lo
+señaló: *"los clientes que se enfrían son importantes y deben ir allí"*.
+
+### Por qué la columna de perdidos marcaba 0
+
+Solo se llegaba de dos maneras: que el AGENTE emitiera `move_stage` —y para eso
+el cliente tenía que **anunciar** que se iba ("ya compré en otro lado"), cosa que
+casi nadie hace— o arrastrando la tarjeta a mano. No existía ningún camino
+automático. Resultado: "En conversación" acumulaba vivos y muertos juntos.
+
+### La regla: 2 días de silencio
+
+El dueño descartó los 7 y 15 días que se le propusieron, con razón: *"para
+clientes que están pidiendo comida y servicios de peluquería son antojos y una
+necesidad inmediata"*. Los datos le daban la razón — medido sobre 68 tarjetas en
+columnas abiertas:
+
+| Umbral | Tarjetas que se moverían |
+|---|---|
+| 2 días | **49** |
+| 7 días | 17 |
+| 15 días | **0** |
+
+Con 15 días la función no habría hecho nada.
+
+**Se mide desde el último mensaje ENTRANTE** (`conversation.last_inbound_at`), no
+desde la última actividad: si contara la actividad general, bastaría con que el
+negocio escribiera para recalentar la tarjeta aunque el cliente nunca contestara
+— justo al revés de lo que se busca.
+
+### Lo que hizo obligatoria la segunda pieza
+
+Un umbral corto sin retorno automático es una trampa:
+
+> Cliente pregunta el lunes → el miércoles se enfría → **el jueves vuelve y hace
+> un pedido** → su tarjeta se queda en "Por recuperar" mientras compra.
+
+Con 15 días eso pasa poco; con 2, todo el tiempo. Por eso `reactivarLeadPorMensaje`
+sube la tarjeta al llegar un mensaje entrante. **Solo desde la etapa de
+enfriamiento**: un lead ganado que escribe de nuevo sigue siendo cliente, que era
+la razón original de que un lead cerrado no se reabriera.
+
+### Dónde vive
+
+| Pieza | Dónde |
+|---|---|
+| `DIAS_PARA_ENFRIAR = 2`, `enfriarLeadsInactivos`, `reactivarLeadPorMensaje` | `server/inbox/lead-activity.ts` |
+| Disparo cada 10 min | `server/ai/worker.ts` (ciclo de mantenimiento) |
+| Retorno al escribir | `server/inbox/ingest.ts` |
+| "Sin responder hace X días" en la tarjeta | `components/pipeline/pipeline-client.tsx` |
+
+Nada de esto mira el NOMBRE de la etapa, solo su `kind`: por eso el ancla `lost`
+pudo pasar a llamarse **"Por recuperar"** (también en `SEED_STAGES`) sin tocar
+una línea de lógica, y cada cliente puede renombrarla desde el tablero.
+
+### Probado contra Postgres real
+
+`tests/integration/enfriamiento-leads.test.ts`, 9 casos: que baje el frío, que no
+toque al activo, que **no enfríe a quien nunca escribió** (la subconsulta da NULL),
+que no saque a un ganado, que sea idempotente, que el umbral mande, y los tres del
+retorno. Las pruebas encontraron un fallo real antes de desplegar: el driver
+revienta al enlazar un `Date` dentro de un `sql` crudo, así que la fecha va como
+texto ISO con cast explícito.

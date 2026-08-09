@@ -20,6 +20,7 @@ vi.mock("@/server/inbox/lead-activity", () => ({
   onLeadActivity: vi.fn().mockResolvedValue(undefined),
   cerrarLeadPorComprobante: vi.fn().mockResolvedValue(false),
   esComprobanteDePago: vi.fn(() => false),
+  reactivarLeadSilencioso: vi.fn().mockResolvedValue(false),
 }));
 vi.mock("@/server/inbox/handoff-policy", () => ({
   clearHandoff: vi.fn().mockResolvedValue(undefined),

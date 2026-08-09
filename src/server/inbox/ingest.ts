@@ -14,6 +14,7 @@ import {
   cerrarLeadPorComprobante,
   esComprobanteDePago,
   onLeadActivity,
+  reactivarLeadSilencioso,
 } from "@/server/inbox/lead-activity";
 import {
   clearHandoff,
@@ -321,6 +322,10 @@ export async function ingestInboundMessage(
     .where(eq(schema.conversation.id, conversation.id));
 
   await onLeadActivity(organizationId, contact.id, waTimestamp);
+
+  // Volvió a escribir: si se había enfriado, su tarjeta sube de nuevo a la
+  // conversación. Va antes que el comprobante para no pisar un cierre.
+  await reactivarLeadSilencioso(organizationId, contact.id);
 
   // Un comprobante cierra el lead aunque el agente no intervenga: en los
   // negocios que atienden a mano, era la venta que el tablero nunca veía.

@@ -20,6 +20,9 @@ export const GET = withAuth(async (session) => {
       lead: schema.lead,
       contact: schema.contact,
       conversationId: schema.conversation.id,
+      // Última vez que escribió el CLIENTE: es lo que mide el enfriamiento, y
+      // no la actividad general, que el propio negocio puede recalentar.
+      lastInboundAt: schema.conversation.lastInboundAt,
     })
     .from(schema.lead)
     .innerJoin(schema.contact, eq(schema.lead.contactId, schema.contact.id))
@@ -45,6 +48,7 @@ export const GET = withAuth(async (session) => {
       stageId: r.lead.stageId,
       position: r.lead.position,
       lastActivityAt: r.lead.lastActivityAt?.toISOString() ?? null,
+      lastInboundAt: r.lastInboundAt?.toISOString() ?? null,
       contact: {
         id: r.contact.id,
         name: r.contact.name,

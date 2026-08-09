@@ -1,4 +1,4 @@
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -166,6 +166,21 @@ export function cierreDelEmbudo<T extends EtapaEmbudo>(stages: T[]): T | null {
   );
 }
 
+/**
+ * Etapa de enfriamiento: la ancla `lost`, sembrada como "Perdido" y renombrada
+ * a "Por recuperar" — el nombre lo pone cada cliente desde el tablero y aquí no
+ * se mira nunca, solo el `kind`.
+ */
+export function enfriamientoDelEmbudo<T extends EtapaEmbudo>(
+  stages: T[]
+): T | null {
+  return (
+    stages
+      .filter((s) => s.kind === "lost")
+      .sort((a, b) => a.position - b.position)[0] ?? null
+  );
+}
+
 /** Todas las etapas de la organización, para decidir el destino en memoria. */
 async function etapasDe(organizationId: string): Promise<EtapaEmbudo[]> {
   const db = getDb();
@@ -302,4 +317,149 @@ export async function onLeadWon(
     )
     .returning({ id: schema.lead.id });
   return movidos.length > 0;
+}
+
+/**
+ * Días sin respuesta del cliente tras los que su tarjeta se da por enfriada.
+ *
+ * Dos, y es a propósito: en comida y en peluquería se compra por antojo o por
+ * necesidad inmediata, así que a las 48 h de silencio ya hay que ir a buscar a
+ * esa persona. Medido el 9-ago-2026 sobre 68 tarjetas en columnas abiertas: con
+ * 15 días no se habría movido ninguna y la regla no habría servido de nada; con
+ * 2 días se mueven 49.
+ */
+export const DIAS_PARA_ENFRIAR = 2;
+
+/**
+ * El silencio también es información: las tarjetas frías bajan a la etapa de
+ * enfriamiento para poder ir a recuperarlas.
+ *
+ * Antes no existía ningún camino automático hacia esa columna — el agente solo
+ * la movía si el cliente ANUNCIABA que se iba ("ya compré en otro lado"), que
+ * casi nadie hace, y en los negocios atendidos a mano el agente ni corre. Por
+ * eso marcaba 0 mientras "En conversación" acumulaba vivos y muertos juntos.
+ *
+ * Se cuenta desde el último mensaje ENTRANTE, no desde la última actividad: si
+ * contara la actividad general, bastaría con que el negocio escribiera para
+ * recalentar la tarjeta aunque el cliente nunca contestara — justo al revés de
+ * lo que se busca. Un lead que jamás escribió no se enfría: el subconsulta da
+ * NULL y la comparación lo deja fuera.
+ *
+ * Las conversaciones del Laboratorio quedan excluidas: son pruebas, no clientes.
+ */
+export async function enfriarLeadsInactivos(
+  organizationId: string,
+  dias = DIAS_PARA_ENFRIAR
+): Promise<number> {
+  const db = getDb();
+
+  const stages = await etapasDe(organizationId);
+  const enfriamiento = enfriamientoDelEmbudo(stages);
+  if (!enfriamiento) return 0; // embudo sin ancla de enfriamiento
+
+  const abiertas = stages.filter((s) => s.kind === "open").map((s) => s.id);
+  if (abiertas.length === 0) return 0;
+
+  const corte = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+
+  const movidos = await db
+    .update(schema.lead)
+    .set({ stageId: enfriamiento.id, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.lead.organizationId, organizationId),
+        inArray(schema.lead.stageId, abiertas),
+        /*
+         * La fecha va como texto ISO con cast explícito: dentro de un `sql`
+         * crudo el driver no sabe de qué tipo es el parámetro y un `Date` lo
+         * hace reventar al enlazarlo ("Received an instance of Date"). Se
+         * compara en UTC a los dos lados, que es como se guardan los timestamps.
+         */
+        sql`(
+          SELECT max(c.last_inbound_at)
+            FROM ${schema.conversation} c
+           WHERE c.contact_id = ${schema.lead.contactId}
+             AND c.is_test = false
+        ) < ${corte.toISOString()}::timestamp`
+      )
+    )
+    .returning({ id: schema.lead.id });
+
+  return movidos.length;
+}
+
+/**
+ * El cliente enfriado volvió a escribir: su tarjeta regresa a la conversación.
+ *
+ * Sin esto, la regla de 2 días sería una trampa: alguien que pregunta el lunes,
+ * se enfría el miércoles y vuelve el jueves a pedir se quedaría en "Por
+ * recuperar" mientras compra. Cuanto más corto el umbral, más falta hace.
+ *
+ * Solo revive desde la etapa de enfriamiento —el filtro va en el WHERE—, así
+ * que **un lead ganado que escribe de nuevo sigue siendo cliente**: esa era la
+ * razón original de que un lead cerrado no se reabriera, y se respeta.
+ */
+export async function reactivarLeadPorMensaje(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  const db = getDb();
+
+  const stages = await etapasDe(organizationId);
+  const enfriamiento = enfriamientoDelEmbudo(stages);
+  const arranque = arranqueDelEmbudo(stages);
+  if (!enfriamiento || !arranque) return false;
+
+  const movidos = await db
+    .update(schema.lead)
+    .set({ stageId: arranque.hacia.id, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.lead.organizationId, organizationId),
+        eq(schema.lead.contactId, contactId),
+        eq(schema.lead.stageId, enfriamiento.id)
+      )
+    )
+    .returning({ id: schema.lead.id });
+
+  return movidos.length > 0;
+}
+
+/**
+ * Enfría las tarjetas de todos los clientes, uno a uno.
+ *
+ * Cada organización va en su propio `try`: un embudo mal formado (sin ancla de
+ * enfriamiento, por ejemplo) no puede dejar sin revisar a los demás negocios.
+ */
+export async function enfriarLeadsDeTodasLasOrganizaciones(): Promise<number> {
+  const db = getDb();
+  const orgs = await db
+    .select({ id: schema.organization.id })
+    .from(schema.organization);
+
+  let total = 0;
+  for (const org of orgs) {
+    try {
+      total += await enfriarLeadsInactivos(org.id);
+    } catch (err) {
+      console.error(`[embudo] no se pudo enfriar los leads de ${org.id}:`, err);
+    }
+  }
+  return total;
+}
+
+/**
+ * `reactivarLeadPorMensaje` sin que un fallo tumbe la ingesta: que llegue el
+ * mensaje del cliente importa más que dónde quede su tarjeta.
+ */
+export async function reactivarLeadSilencioso(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  try {
+    return await reactivarLeadPorMensaje(organizationId, contactId);
+  } catch (err) {
+    console.error("[embudo] no se pudo reactivar el lead:", err);
+    return false;
+  }
 }

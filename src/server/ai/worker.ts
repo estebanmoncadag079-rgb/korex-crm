@@ -9,6 +9,7 @@ import {
   type TrabajoTomado,
 } from "@/server/ai/cola";
 import { runAgentTurn } from "@/server/ai/pipeline";
+import { enfriarLeadsDeTodasLasOrganizaciones } from "@/server/inbox/lead-activity";
 import { reprocesarWebhooksFallidos } from "@/server/inbox/webhook-event-log";
 
 /**
@@ -29,6 +30,9 @@ const CONCURRENCIA_MAX = 4;
 const SONDEO_MS = 1_000;
 /** Cada cuánto se buscan trabajos huérfanos y webhooks por reprocesar. */
 const MANTENIMIENTO_MS = 60_000;
+/** Cada cuánto se bajan a "por recuperar" las tarjetas sin respuesta. */
+const ENFRIAMIENTO_MS = 10 * 60_000;
+let ultimoEnfriamiento = 0;
 
 type EstadoWorker = {
   id: string;
@@ -167,5 +171,22 @@ async function mantenimiento(): Promise<void> {
     await limpiarRateLimit();
   } catch (err) {
     console.error("[worker] limpieza del rate-limit falló:", err);
+  }
+
+  /*
+   * Las tarjetas frías no se revisan en cada vuelta: quien lleva dos días
+   * callado puede esperar diez minutos más, y esto recorre TODAS las
+   * organizaciones en un servidor de un solo núcleo.
+   */
+  if (Date.now() - ultimoEnfriamiento >= ENFRIAMIENTO_MS) {
+    ultimoEnfriamiento = Date.now();
+    try {
+      const enfriadas = await enfriarLeadsDeTodasLasOrganizaciones();
+      if (enfriadas > 0) {
+        console.log(`[worker] ${enfriadas} tarjeta(s) movida(s) por enfriamiento`);
+      }
+    } catch (err) {
+      console.error("[worker] enfriamiento de leads falló:", err);
+    }
   }
 }

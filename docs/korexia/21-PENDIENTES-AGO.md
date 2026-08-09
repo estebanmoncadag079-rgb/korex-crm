@@ -7,6 +7,10 @@
 Sigue a [08-PENDIENTES.md](08-PENDIENTES.md) — se abrió aparte solo porque
 aquel ya estaba en el límite de 200 líneas.
 
+> ➡️ **Continúa en [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md)
+> (9-ago-2026)**, que además **ordena todo lo pendiente por riesgo e impacto
+> real**. Si solo vas a leer un archivo de pendientes, lee ese.
+
 ---
 
 ## ✅ Desplegado y verificado (3-ago-2026)

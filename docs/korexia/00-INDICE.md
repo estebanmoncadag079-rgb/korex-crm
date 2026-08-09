@@ -47,6 +47,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md) | **El catálogo oficial del salón**, precio por precio: los 12 retoques que estaban mal cargados, las reglas que van al KB y lo que el catálogo no dice |
 | [33-ESCALABILIDAD.md](33-ESCALABILIDAD.md) | **De 3 a 100 clientes**: por qué la máquina no es el problema, los seis bloqueadores reales medidos con evidencia, y en qué orden se atacan |
 | [34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md) | La cola en Postgres que sustituyó al debounce en memoria: cómo funciona, qué mirar cuando falla y cómo levantar varias réplicas |
+| [35-BITACORA-8-9AGO.md](35-BITACORA-8-9AGO.md) | **Historial del 8 y 9 de agosto**: el catálogo oficial del salón, el diagnóstico de escalabilidad medido, la cola de turnos y las primeras pruebas contra Postgres real |
+| [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md) | 🔴 **Todo lo pendiente, ordenado por riesgo e impacto real.** Empieza por aquí si retomas el proyecto |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -96,22 +98,27 @@ contenedor, una base de datos, y dentro cada cliente vive aislado en su propia
 lo que es propio de cada uno son solo sus datos: su prompt, su conocimiento,
 su horario, su marca, su número y sus teléfonos de aviso.
 
-**Estado a 8-ago-2026 (madrugada)**: dos clientes en producción (La Churra y
-Lis Pastelería) más la agencia y la organización de pruebas de citas — y un
+**Estado a 9-ago-2026**: dos clientes en producción (La Churra y Lis
+Pastelería) más la agencia y la organización de pruebas de citas — y un
 **tercero a punto de entrar: un salón de belleza**, primer cliente real del
 vertical de citas. El **8-ago llegó su catálogo oficial** y reemplazó al que se
 había cargado a mano: 46 servicios, 5 especialistas, transcrito precio por
-precio en [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md). Lo que falta para su
-día 1 está en
-[21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md), y el hilo del día en
-[31-BITACORA-7AGO.md](31-BITACORA-7AGO.md). **Todo el código está desplegado y
-verificado dentro del contenedor**, y la carpeta de EasyPanel quedó
+precio en [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md).
+
+El **8-9 de agosto se empezó a preparar el salto a 50-100 clientes**: se midió
+que la máquina no era el límite (la app usa 93 MB y 0 % de CPU) y se sacó de la
+memoria del proceso lo que ataba la instalación a **una sola instancia** — el
+turno del agente ahora vive en una cola en Postgres
+([34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md)). **Todo el código está desplegado
+y verificado dentro del contenedor**, y la carpeta de EasyPanel quedó
 sincronizada: ningún Desplegar futuro revierte nada.
 
-**Empieza por [08-PENDIENTES.md](08-PENDIENTES.md)** (y su continuación
-[21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md)) si retomas el proyecto: ahí
-está lo urgente ordenado por riesgo real. WhatsApp por la API oficial de
-Meta a través de YCloud. Todo corre en un VPS con EasyPanel.
+**Empieza por [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md)** si
+retomas el proyecto: reúne **todo lo pendiente ordenado por riesgo e impacto
+real**, y enlaza hacia atrás a [08-PENDIENTES.md](08-PENDIENTES.md) y
+[21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md), que conservan el detalle.
+WhatsApp por la API oficial de Meta a través de YCloud. Todo corre en un VPS
+con EasyPanel.
 
 > 🔦 **Si el reporte es "el bot no responde"**, no investigues desde cero:
 > hay **13 causas ya confirmadas con evidencia real**. Las cuatro más

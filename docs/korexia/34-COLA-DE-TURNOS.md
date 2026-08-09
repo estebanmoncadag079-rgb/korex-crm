@@ -1,7 +1,8 @@
 # La cola de turnos del agente
 
-> **Dentro:** Qué cambió y por qué · Cómo funciona · Qué mirar cuando algo va
-> mal · Levantar varias réplicas · Probarlo con una base desechable
+> **Dentro:** Qué cambió y por qué · Cómo funciona · El reparto entre clientes ·
+> Qué mirar cuando algo va mal · Levantar varias réplicas · Probarlo con una
+> base desechable
 
 Implementación de las **fases 1 y 2** de
 [33-ESCALABILIDAD.md](33-ESCALABILIDAD.md) (8-ago-2026). Sustituye el debounce
@@ -55,7 +56,20 @@ Piezas, todas en `server/ai/cola.ts`:
 | `fallarTrabajo` | Reprograma con espera creciente (10 s, 1 min, 5 min, 15 min) hasta `MAX_INTENTOS`; después queda `fallido` |
 | `rescatarHuerfanos` | Devuelve a la cola lo que quedó `corriendo` en un proceso muerto |
 
-Tres constantes con motivo, no elegidas al azar:
+### El reparto entre clientes (9-ago-2026)
+
+Ninguna organización puede tener más de **`CONCURRENCIA_POR_ORG` (2)** turnos
+corriendo a la vez, de los 4 que atiende el worker. Se añadió al saber que
+entraba un cliente que vende ~10× lo de Lis: sin tope, su hora pico se llevaba
+los cuatro huecos y los demás negocios hacían cola detrás — sus clientes
+esperando sin saber por qué.
+
+Es un límite de **simultaneidad, no de cuánto se atiende**: lo que no entra
+ahora entra en el sondeo siguiente, un segundo después. Va en el `WHERE` de
+`tomarTrabajo`, así que lo aplica Postgres y vale igual con una réplica que con
+cinco.
+
+Cuatro constantes con motivo, no elegidas al azar:
 
 - **`HUERFANO_TRAS_MS` = 5 min.** Tiene que ser holgadamente mayor que el turno
   más lento: rescatar demasiado pronto duplicaría una respuesta que todavía
@@ -64,6 +78,8 @@ Tres constantes con motivo, no elegidas al azar:
   sin parar no sería atendido nunca.
 - **`CONCURRENCIA_MAX` = 4** (en `worker.ts`). Sin límite, una ráfaga de varios
   clientes lanzaría decenas de llamadas al modelo desde un VPS de un núcleo.
+- **`CONCURRENCIA_POR_ORG` = 2.** La mitad del cupo: el negocio más grande
+  nunca deja a los demás sin sitio.
 
 ## Qué mirar cuando algo va mal
 

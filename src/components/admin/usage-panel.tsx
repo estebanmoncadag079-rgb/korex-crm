@@ -43,6 +43,27 @@ function usd(n: number): string {
   return `$${n.toFixed(2)}`;
 }
 
+/**
+ * Lo que cuesta UNA llamada al modelo.
+ *
+ * Es la cifra que hay que vigilar, y no la del mes: el total sube porque hay
+ * más tráfico —eso es bueno— o porque cada llamada se encareció —eso es un
+ * problema—, y solo este cociente distingue una cosa de la otra. Sube cuando
+ * crece el prompt del sistema, que se manda entero en cada turno y domina el
+ * costo, o cuando aparecen llamadas más caras (transcribir audios, reintentos).
+ *
+ * Cinco decimales porque lo que se vigila son movimientos pequeños: Lis pasó
+ * de 0,00202 a 0,00288 —un 43 % más— y con menos resolución ese desvío avanza
+ * a saltos en vez de verse venir.
+ *
+ * Sin llamadas se muestra una raya, no "$0": no gastó nada porque no hubo
+ * tráfico, que no es lo mismo que atender gratis.
+ */
+function usdPorLlamada(costoUsd: number, llamadas: number): string {
+  if (llamadas === 0) return "—";
+  return `$${(costoUsd / llamadas).toFixed(5)}`;
+}
+
 export function UsagePanel() {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -75,12 +96,15 @@ export function UsagePanel() {
         <CardDescription>
           Lo que llevan gastado los clientes este mes en IA y en mensajes de
           WhatsApp. Se anota cada llamada al modelo y cada mensaje enviado, con
-          el costo exacto que informa el proveedor.
+          el costo exacto que informa el proveedor. La columna que conviene
+          vigilar es <strong className="text-foreground">Costo por llamada</strong>:
+          el total sube también cuando hay más clientes, pero si sube el costo
+          unitario es que algo se encareció.
         </CardDescription>
       </CardHeader>
       <CardContent>
         {/*
-         * Seis columnas no caben en un teléfono. La tabla se desplaza dentro
+         * Siete columnas no caben en un teléfono. La tabla se desplaza dentro
          * de su caja (nunca la página entera) y `min-w` le impide encogerse
          * hasta partir cada cifra en dos líneas.
          */}
@@ -88,7 +112,7 @@ export function UsagePanel() {
           Desliza la tabla para ver todas las columnas.
         </p>
         <div className="-mx-1 overflow-x-auto px-1">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[680px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Cliente</th>
@@ -97,6 +121,9 @@ export function UsagePanel() {
                 </th>
                 <th className="whitespace-nowrap pb-2 pr-4 text-right font-medium">
                   Costo IA
+                </th>
+                <th className="whitespace-nowrap pb-2 pr-4 text-right font-medium">
+                  Costo por llamada
                 </th>
                 <th className="pb-2 pr-4 text-right font-medium">Mensajes</th>
                 <th className="whitespace-nowrap pb-2 pr-4 text-right font-medium">
@@ -114,6 +141,9 @@ export function UsagePanel() {
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums">
                     {usd(f.costoIaUsd)}
+                  </td>
+                  <td className="py-2 pr-4 text-right tabular-nums">
+                    {usdPorLlamada(f.costoIaUsd, f.llamadasIa)}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums">
                     {f.mensajes.toLocaleString("es-CO")}
@@ -135,6 +165,14 @@ export function UsagePanel() {
                 </td>
                 <td className="pt-2 pr-4 text-right tabular-nums">
                   {usd(datos.total.costoIaUsd)}
+                </td>
+                {/*
+                 * Promedio ponderado (gasto total ÷ llamadas totales), no la
+                 * media de las columnas: así un cliente con cuatro llamadas no
+                 * pesa lo mismo que uno con trescientas.
+                 */}
+                <td className="pt-2 pr-4 text-right tabular-nums">
+                  {usdPorLlamada(datos.total.costoIaUsd, datos.total.llamadasIa)}
                 </td>
                 <td className="pt-2 pr-4 text-right tabular-nums">
                   {datos.total.mensajes.toLocaleString("es-CO")}

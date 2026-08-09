@@ -1,6 +1,6 @@
 # Contador de costos por cliente
 
-> **Dentro:** Para qué existe · Dónde se ve · Qué se anota y cuándo · Tres decisiones que conviene entender · Dos garantías del diseño · Lo que aún falta · Cómo consultarlo sin la pantalla
+> **Dentro:** Para qué existe · Dónde se ve · La columna que hay que mirar · Qué se anota y cuándo · Tres decisiones que conviene entender · Dos garantías del diseño · Lo que aún falta · Cómo consultarlo sin la pantalla
 
 ## Para qué existe
 
@@ -23,6 +23,33 @@ y se quitó: era una cifra que envejecía sola y no cuadraba con ninguna factura
 real. Si algún día hace falta en pesos, que sea con una tasa consultada, no
 inventada.
 
+## La columna que hay que mirar
+
+**Costo por llamada** (añadida el 9-ago-2026): el gasto de IA dividido entre el
+número de llamadas. Es el dato que se vigila, y no el total del mes.
+
+El total sube por dos motivos que se parecen en la pantalla y no se parecen en
+nada en la realidad: **hay más tráfico** —que es lo que se busca— o **cada
+llamada se encareció** —que es un problema—. El total solo no los distingue;
+el cociente sí.
+
+Sube cuando **crece el prompt del sistema**, que se manda entero en cada turno
+y domina el costo (~94 % es entrada), o cuando aparecen llamadas que no son del
+agente: transcribir notas de voz, reintentos por JSON mal formado, el rescate
+con el modelo caro de respaldo.
+
+Se muestra con **cinco decimales** a propósito. Lo que se vigila son movimientos
+pequeños: Lis pasó de 0,00202 (medido en julio con 38 llamadas, ver
+`src/lib/cotizador.ts`) a **0,00288** en agosto —un 43 % más— mientras La Churra
+seguía clavada en 0,00198. Con menos resolución ese desvío avanza a saltos en
+vez de verse venir.
+
+El total de la fila de abajo es un **promedio ponderado** (gasto total ÷
+llamadas totales), no la media de la columna: así un cliente con cuatro llamadas
+no pesa lo mismo que uno con trescientas. Un cliente sin llamadas muestra una
+raya, no `$0` — no gastó porque no hubo tráfico, que no es lo mismo que atender
+gratis.
+
 ## Qué se anota y cuándo
 
 Cada gasto se registra **en el momento en que ocurre**, en la tabla
@@ -35,6 +62,19 @@ Cada gasto se registra **en el momento en que ocurre**, en la tabla
 | `tokens_in` / `tokens_out` | tokens de entrada y salida |
 | `cost_usd` | el importe, decimal exacto de 10 decimales |
 | `ref` | de dónde salió: la conversación o el `wamid` |
+
+> ⚠️ **"Respuestas IA" son llamadas al modelo, no mensajes enviados**, y por eso
+> casi siempre son más que la columna de mensajes. Se anotan desde tres sitios:
+> `pipeline.ts` (el agente, contando los reintentos), `transcribir.ts` (pasar
+> una nota de voz a texto) y `aprendizaje.ts` — los dos últimos gastan IA sin
+> escribirle nada a nadie. En agosto de 2026: Lis 295 llamadas / 247 mensajes,
+> La Churra 101 / 96, y la Peluquería Demo 223 / 0 por ser el laboratorio de
+> pruebas, sin número conectado.
+>
+> **Los mensajes son solo los SALIENTES.** Los que escribe el cliente no se
+> cuentan: son gratis siempre. Y como el registro está en el punto único de
+> envío (`send.ts`), incluye también los que manda una persona desde el CRM
+> durante un relevo, no solo los del bot.
 
 ## Tres decisiones que conviene entender
 

@@ -139,6 +139,37 @@ where status = 'fallido' order by received_at desc;
 > `131051`), y el **5-ago** que 98 de 99 eventos traen teléfono y BSUID a la
 > vez. Ver [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md).
 
+Desde el 9-ago, los que quedan en `fallido` **se reprocesan solos** con espera
+creciente (ver [34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md)): guardarlos evitó
+perderlos, pero mientras nadie los mirara el cliente seguía sin respuesta.
+
+## Qué hace YCloud si respondemos mal (VERIFICADO, 9-ago-2026)
+
+Estaba supuesto y sin comprobar; de esto depende que un despliegue o una
+migración no pierdan mensajes. Confirmado en la documentación oficial
+(`helpdocs.ycloud.com/help-center/developer/webhook`):
+
+| Punto | Qué dice YCloud |
+|---|---|
+| Cuándo reintenta | Ante **cualquier respuesta que no sea 2xx**, o si no respondemos |
+| Cuántas veces | **7 intentos**: 10 s → 30 s → 5 min → 30 min → 1 h → 2 h → 2 h |
+| Después | A los 7 fallos, **el evento se descarta para siempre** |
+| Cuánto podemos tardar | **Menos de 6 s** para conservar prioridad; pasar de **10 s** penaliza |
+| Si fallamos mucho | Suspende la URL **3 minutos** (200 fallos/min, o 10 min de fallo acumulado por minuto) |
+
+Lo que se saca de aquí, en concreto:
+
+- **Un despliegue no pierde mensajes.** El corte es de ~30 s y el primer
+  reintento llega a los 10 s.
+- **Una parada de mantenimiento tiene ~6 horas de colchón**, no infinito. Más
+  allá, los mensajes se pierden de verdad.
+- **Un reintento no duplica nada**: la ingesta hace `onConflictDoNothing` sobre
+  `wa_message_id`, así que el evento repetido se descarta en silencio.
+- **El límite de 6 segundos se cumple desde el 8-ago**, y no antes: hasta
+  entonces el turno del agente corría dentro del propio request y esperaba al
+  modelo. Ahora el webhook solo guarda y encola
+  ([34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md)).
+
 ## La ventana de 24 horas (esto define lo que se puede y no se puede hacer)
 
 Meta solo deja enviar **texto libre** a alguien que le haya escrito al negocio

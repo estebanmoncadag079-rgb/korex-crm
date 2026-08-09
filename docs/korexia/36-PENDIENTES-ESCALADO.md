@@ -66,19 +66,23 @@ Lo que hay que construir, por orden de dolor:
 3. **Plantilla de prompt por vertical** (pedidos / citas) en vez de copiar y
    adaptar el de otro cliente.
 
-## 4. 🟠 Vigilar los turnos fallidos (señal nueva)
+> ✅ **Hecho el 9-ago: editar un servicio desde la pantalla.** Antes, subir un
+> precio obligaba a archivar y recrear el servicio, o a que la agencia entrara
+> a la base de datos — y eso no es el alta, es el **mantenimiento**, que pasa
+> muchas más veces. El `PATCH` del servidor ya existía desde que nació el
+> vertical de citas; solo faltaba el botón. **Vale la pena buscar más casos
+> así**: capacidades ya construidas que nadie puede usar porque no tienen
+> pantalla. Son las mejoras más baratas que quedan.
 
-Desde el 8-ago existe una señal que antes no había:
+## 4. ✅ Vigilar los turnos fallidos — HECHO (9-ago-2026)
 
-```sql
-SELECT conversation_id, attempts, last_error, updated_at
-  FROM agent_job WHERE status = 'fallido' ORDER BY updated_at DESC;
-```
+`monitor-bots-alerta.sh` ya avisa por Telegram de dos cosas que el chequeo de
+salud de Docker no puede ver, porque en ambas la web responde con normalidad:
+un cliente que se quedó **sin respuesta**, y la **cola que no se vacía** (el
+bot mudo con el contenedor sano). Detalle en
+[34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md).
 
-**Una fila ahí significa que un cliente se quedó sin respuesta** tras 5
-intentos. Conviene mirarlo al revisar el día. Lo natural sería que entrara en
-`monitor-bots-alerta.sh` (cron cada 15 min) y avisara por Telegram, como el
-resto de la vigilancia — **no está hecho**.
+Probado insertando un fallo de mentira: la alerta llegó y la fila se borró.
 
 ## 5. 🟠 Subir a dos réplicas
 
@@ -89,16 +93,19 @@ tolerancia a que un proceso muera.
 Se dejó aparte a propósito, para no mezclarlo con el despliegue que lo hizo
 posible. Antes conviene ver unos días de tráfico real con la cola.
 
-## 6. 🟠 Confirmar la política de reintentos de YCloud ante un 5xx
+## 6. ✅ Reintentos de YCloud — VERIFICADO (9-ago-2026)
 
-**Dato que falta y del que dependen dos cosas.** El webhook responde 503 si no
-puede guardar el evento crudo, y con la app caída Traefik también devuelve 5xx.
-Si YCloud reintenta, ningún mensaje se pierde durante un despliegue o una
-migración; si no reintenta, hay una ventana real de pérdida.
+**Sí reintenta**: 7 veces (10 s → 30 s → 5 min → 30 min → 1 h → 2 h → 2 h) ante
+cualquier respuesta que no sea 2xx. Tabla completa y consecuencias en
+[03-WHATSAPP-Y-YCLOUD.md](03-WHATSAPP-Y-YCLOUD.md).
 
-Se dio por supuesto que reintenta, pero **no se ha verificado en su
-documentación**. Es media hora de trabajo y cambia el plan de la migración
-futura.
+Lo que importa para lo que viene: **un despliegue no pierde mensajes**, y una
+parada de mantenimiento tiene **~6 horas de colchón, no infinito**. Pasado eso,
+el evento se descarta para siempre. Los reintentos tampoco duplican nada.
+
+⚠️ Un límite que hay que respetar y que antes se incumplía: **hay que responder
+en menos de 6 segundos**. Se cumple desde el 8-ago, cuando el turno del agente
+dejó de correr dentro del propio request.
 
 ## 7. 🟠 Fase 4: aislamiento y control por cliente
 
@@ -145,3 +152,8 @@ resincronizar**, y la base pesa 16 MB con una sola extensión (`plpgsql`).
   trabajo del 8-ago. Ensucia la señal del gate.
 - **`webhook_event` crece sin política de retención**: es la tabla más grande
   (2,5 MB con 831 filas). Con 100 clientes hay que decidir cuánto se guarda.
+- **`monitor-bots-alerta.sh` solo existe en `/root` del VPS.** No está en el
+  repositorio (lleva el token de Telegram dentro, y aquí no van secretos) y los
+  respaldos automáticos cubren `/opt/korex-crm`, no `/root`. Si se pierde el
+  servidor, se pierde la vigilancia entera y hay que reescribirla. Lo razonable
+  es versionar el script con el token sacado a una variable de entorno.

@@ -86,7 +86,28 @@ En los logs del contenedor: `[worker]` marca el arranque, los rescates y los
 turnos agotados.
 
 > ⚠️ **`status='fallido'` en `agent_job` significa que alguien no recibió
-> respuesta.** Es la única señal; conviene mirarla al revisar el día.
+> respuesta.**
+
+### Ya no hay que acordarse de mirarlo (9-ago-2026)
+
+`monitor-bots-alerta.sh` (cron cada 15 min) vigila la cola y avisa por
+Telegram. Se le añadieron dos señales que **el chequeo de salud de Docker no
+puede ver**, porque en ambos casos la web responde con normalidad:
+
+| Señal | Qué significa | Aviso |
+|---|---|---|
+| `status='fallido'` nuevos desde la última revisión | Alguien escribió y se quedó sin respuesta tras agotar los 5 intentos | 🔴 con el error registrado, para contestarle a mano |
+| `pendiente` con `run_at` vencido hace **más de 10 min** | El worker no está vaciando la cola: **el bot está mudo con el contenedor sano** | 🟡 con la instrucción de reiniciar el CRM |
+
+Diez minutos es margen de sobra: el debounce normal son segundos, así que ese
+retraso no es carga, es que nadie está atendiendo la cola.
+
+Los mensajes **no se pierden** cuando pasa: quedan en `agent_job` y se atienden
+al reanudar. El total acumulado de turnos fallidos sale además en el latido
+diario del monitor.
+
+**Probado el 9-ago** insertando un `agent_job` fallido de mentira: la alerta
+llegó a Telegram y la fila se borró después.
 
 ## Levantar varias réplicas
 

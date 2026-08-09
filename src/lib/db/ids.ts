@@ -24,6 +24,8 @@ const prefixes = {
   appointment: "apt",
   offeredSlot: "ofs",
   webhookEvent: "whev",
+  agentJob: "job",
+  rateLimitHit: "rl",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

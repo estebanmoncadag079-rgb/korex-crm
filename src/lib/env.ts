@@ -43,6 +43,16 @@ const envSchema = z.object({
   SUPPORT_WHATSAPP: z.string().optional(),
   AGENT_COALESCE_MS: z.coerce.number().int().min(0).default(6000),
   /**
+   * Si este proceso vacía la cola de turnos del agente (`agent_job`).
+   * Encendido por defecto: con varias réplicas, todas pueden hacerlo a la vez
+   * sin pisarse. Se apaga con `0` para dejar una instancia que solo sirva el
+   * panel — útil para aislar un problema sin dejar de atender WhatsApp.
+   */
+  AGENT_WORKER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v !== "0" && v?.toLowerCase() !== "false"),
+  /**
    * Corridas del Laboratorio que puede lanzar un CLIENTE al mes. Cada una
    * simula seis conversaciones completas y las califica con IA — la paga la
    * agencia, que por eso no tiene cupo.

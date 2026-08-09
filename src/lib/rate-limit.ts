@@ -1,45 +1,82 @@
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db";
+import { newId } from "@/lib/db/ids";
+
 /**
- * Limitación de tasa in-process por clave (IP) con ventana deslizante
- * (FR-062). Suficiente para el monolito de una instancia; sin Redis
- * (Constitución II).
+ * Limitación de tasa por clave (IP) con ventana deslizante (FR-062).
+ *
+ * ⚠️ **Vive en la base, no en memoria** (8-ago-2026). El `Map` de `globalThis`
+ * que había aquí contaba por proceso: al levantar réplicas, "10 intentos por
+ * IP" se convertía en 10 × número de réplicas — el límite se aflojaba justo
+ * cuando había más tráfico, y quien probara contraseñas a lo bruto solo tenía
+ * que insistir hasta caer en otra instancia.
  */
-
-type Bucket = number[]; // timestamps (ms) de los intentos
-
-const globalForRl = globalThis as unknown as {
-  __voceroRateLimit?: Map<string, Bucket>;
-};
-
-function store(): Map<string, Bucket> {
-  if (!globalForRl.__voceroRateLimit) {
-    globalForRl.__voceroRateLimit = new Map();
-  }
-  return globalForRl.__voceroRateLimit;
-}
 
 export type RateLimitResult = { allowed: boolean; remaining: number };
 
-export function checkRateLimit(
+/**
+ * Cuenta un intento y dice si se permite.
+ *
+ * Dos concesiones deliberadas, ambas correctas para lo que protege (el login):
+ *
+ * - **Puede colarse un intento de más** si dos peticiones caen exactamente a la
+ *   vez: ambas leen el mismo conteo antes de insertar. Bloquear la tabla para
+ *   evitarlo costaría más de lo que vale afinar 10 intentos en 10 minutos.
+ * - **Si la base falla, se permite el intento** en vez de rechazarlo. No abre
+ *   ningún hueco: sin base tampoco hay con qué validar la contraseña, y
+ *   rechazar convertiría un hipo de la base en un "nadie puede entrar".
+ */
+export async function checkRateLimit(
   key: string,
-  opts: { windowMs: number; max: number },
-  now: number = Date.now()
-): RateLimitResult {
-  const buckets = store();
-  const cutoff = now - opts.windowMs;
-  const bucket = (buckets.get(key) ?? []).filter((t) => t > cutoff);
+  opts: { windowMs: number; max: number }
+): Promise<RateLimitResult> {
+  try {
+    const db = getDb();
+    const filas = (await db.execute(sql`
+      WITH caducados AS (
+        DELETE FROM rate_limit_hit
+         WHERE key = ${key}
+           AND at < now() - make_interval(secs => ${opts.windowMs} / 1000.0)
+      ), vigentes AS (
+        SELECT count(*)::int AS n
+          FROM rate_limit_hit
+         WHERE key = ${key}
+           AND at >= now() - make_interval(secs => ${opts.windowMs} / 1000.0)
+      ), anotado AS (
+        INSERT INTO rate_limit_hit (id, key, at)
+        SELECT ${newId("rateLimitHit")}, ${key}, now()
+          FROM vigentes WHERE vigentes.n < ${opts.max}
+        RETURNING 1
+      )
+      SELECT (SELECT n FROM vigentes) AS previos,
+             EXISTS (SELECT 1 FROM anotado) AS permitido
+    `)) as unknown as Array<{ previos: number; permitido: boolean }>;
 
-  if (bucket.length >= opts.max) {
-    buckets.set(key, bucket);
-    return { allowed: false, remaining: 0 };
+    const f = filas[0];
+    if (!f) return { allowed: true, remaining: opts.max - 1 };
+    const previos = Number(f.previos ?? 0);
+    return f.permitido
+      ? { allowed: true, remaining: Math.max(0, opts.max - previos - 1) }
+      : { allowed: false, remaining: 0 };
+  } catch (err) {
+    console.error("[rate-limit] no se pudo consultar la base:", err);
+    return { allowed: true, remaining: opts.max };
   }
-  bucket.push(now);
-  buckets.set(key, bucket);
-  return { allowed: true, remaining: opts.max - bucket.length };
+}
+
+/** Borra los intentos ya caducados de TODAS las claves. Lo llama el worker. */
+export async function limpiarRateLimit(maxEdadMs = 24 * 3600_000): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`
+    DELETE FROM rate_limit_hit
+     WHERE at < now() - make_interval(secs => ${maxEdadMs} / 1000.0)
+  `);
 }
 
 /** Solo para tests. */
-export function resetRateLimit(): void {
-  store().clear();
+export async function resetRateLimit(): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`DELETE FROM rate_limit_hit`);
 }
 
 /** 10 intentos / 10 minutos por IP en login y registro (FR-062). */

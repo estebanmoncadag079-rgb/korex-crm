@@ -11,5 +11,5 @@ export async function maybeRunAgentTurn(
   opts?: { immediate?: boolean }
 ): Promise<void> {
   if (!isAiConfigured()) return;
-  scheduleAgentTurn(conversationId, opts);
+  await scheduleAgentTurn(conversationId, opts);
 }

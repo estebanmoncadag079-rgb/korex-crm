@@ -65,3 +65,61 @@ export async function markWebhookEventFailed(
     })
     .where(eq(schema.webhookEvent.id, id));
 }
+
+/** Intentos de procesamiento antes de dejar el evento quieto para siempre. */
+export const MAX_INTENTOS_WEBHOOK = 5;
+
+/**
+ * Reintenta los eventos que se guardaron bien pero fallaron al procesarse
+ * (8-ago-2026).
+ *
+ * La Fase 0 del 3-ago dejó de perder eventos, que era lo importante — pero
+ * quedarse en `status='fallido'` sin que nadie los mirara significa que un
+ * mensaje de un cliente real seguía sin contestarse: lo único que cambiaba es
+ * que ahora había constancia. Esto cierra el círculo.
+ *
+ * Espera creciente por número de intentos (1 min, 4, 9, 16…) para no reintentar
+ * en bucle contra una causa que no se ha arreglado, y tope de intentos para que
+ * un evento roto de verdad no se reprocese eternamente.
+ */
+export async function reprocesarWebhooksFallidos(
+  limite = 20
+): Promise<number> {
+  const db = getDb();
+  const { handleYcloudEvent } = await import("@/server/inbox/ycloud-events");
+
+  const pendientes = await db
+    .select({
+      id: schema.webhookEvent.id,
+      payload: schema.webhookEvent.payload,
+      source: schema.webhookEvent.source,
+      attempts: schema.webhookEvent.attempts,
+    })
+    .from(schema.webhookEvent)
+    .where(
+      sql`${schema.webhookEvent.status} = 'fallido'
+          AND ${schema.webhookEvent.payload} IS NOT NULL
+          AND ${schema.webhookEvent.attempts} < ${MAX_INTENTOS_WEBHOOK}
+          AND ${schema.webhookEvent.receivedAt} <
+              now() - make_interval(secs => 60 * power(${schema.webhookEvent.attempts}, 2))`
+    )
+    .limit(limite);
+
+  let reprocesados = 0;
+  for (const evento of pendientes) {
+    try {
+      // `source` es "agencia" o el organizationId de la puerta propia.
+      const esperada =
+        evento.source === "agencia" ? undefined : evento.source;
+      const { organizationId } = await handleYcloudEvent(
+        evento.payload as Parameters<typeof handleYcloudEvent>[0],
+        esperada ? { expectOrganizationId: esperada } : undefined
+      );
+      await markWebhookEventProcessed(evento.id, organizationId);
+      reprocesados += 1;
+    } catch (err) {
+      await markWebhookEventFailed(evento.id, err);
+    }
+  }
+  return reprocesados;
+}

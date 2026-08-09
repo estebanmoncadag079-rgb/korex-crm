@@ -43,14 +43,19 @@ import {
   MENSAJE_RETIRADO,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
+import { encolarTurno } from "@/server/ai/cola";
 
 /**
  * Turno del agente (FR-021..FR-025).
  *
- * Coalesce + lock in-process por conversación: ráfagas de mensajes → UNA
- * respuesta; nunca dos turnos simultáneos; lo que llega durante un turno
- * re-encola exactamente un turno más. Suficiente para el monolito de una
- * instancia (sin colas externas — Constitución II).
+ * Ráfagas de mensajes → UNA respuesta; nunca dos turnos simultáneos por
+ * conversación; lo que llega durante un turno se atiende en el siguiente.
+ *
+ * ⚠️ Esa coalescencia **ya no vive en este proceso**: está en la tabla
+ * `agent_job` (ver `server/ai/cola.ts`, 8-ago-2026). El `Map` de `globalThis`
+ * con `setTimeout` que había aquí solo funcionaba con una instancia — con dos
+ * réplicas el cliente recibía la respuesta dos veces, y un reinicio con un
+ * temporizador pendiente perdía el turno sin dejar rastro.
  */
 
 /**
@@ -61,23 +66,6 @@ import { registrarUsoIa } from "@/server/usage";
  */
 export const HISTORY_LIMIT = 20;
 
-type CoalesceEntry = {
-  timer: ReturnType<typeof setTimeout> | null;
-  running: boolean;
-  pending: boolean;
-};
-
-const globalForAgent = globalThis as unknown as {
-  __agentCoalesce?: Map<string, CoalesceEntry>;
-};
-
-function coalesceMap(): Map<string, CoalesceEntry> {
-  if (!globalForAgent.__agentCoalesce) {
-    globalForAgent.__agentCoalesce = new Map();
-  }
-  return globalForAgent.__agentCoalesce;
-}
-
 /**
  * Punto de entrada con debounce (mensajes entrantes reales).
  *
@@ -85,49 +73,16 @@ function coalesceMap(): Map<string, CoalesceEntry> {
  * donde no hay nada que agrupar (quien saluda con "hola" no viene escribiendo
  * en ráfaga) y la espera solo se nota — es el momento en que el cliente aún no
  * tiene nada que leer mientras el agente piensa.
+ *
+ * Ya no ejecuta nada: deja el turno en la cola y vuelve. Lo ejecuta el worker
+ * (`server/ai/worker.ts`), que puede ser este proceso o cualquier otra réplica.
  */
-export function scheduleAgentTurn(
+export async function scheduleAgentTurn(
   conversationId: string,
   opts?: { immediate?: boolean }
-): void {
-  const map = coalesceMap();
-  const entry = map.get(conversationId) ?? {
-    timer: null,
-    running: false,
-    pending: false,
-  };
-  map.set(conversationId, entry);
-
-  if (entry.running) {
-    entry.pending = true; // se re-encola al terminar el turno actual
-    return;
-  }
-  if (entry.timer) clearTimeout(entry.timer);
-  const delay = opts?.immediate ? 0 : getEnv().AGENT_COALESCE_MS;
-  entry.timer = setTimeout(() => {
-    entry.timer = null;
-    void executeTurn(conversationId);
-  }, delay);
-}
-
-async function executeTurn(conversationId: string): Promise<void> {
-  const map = coalesceMap();
-  const entry = map.get(conversationId);
-  if (!entry || entry.running) return;
-  entry.running = true;
-  try {
-    await runAgentTurn(conversationId);
-  } catch (err) {
-    console.error("[agente] turno falló:", err);
-  } finally {
-    entry.running = false;
-    if (entry.pending) {
-      entry.pending = false;
-      void executeTurn(conversationId);
-    } else {
-      map.delete(conversationId);
-    }
-  }
+): Promise<void> {
+  const delayMs = opts?.immediate ? 0 : getEnv().AGENT_COALESCE_MS;
+  await encolarTurno(conversationId, { delayMs });
 }
 
 /**

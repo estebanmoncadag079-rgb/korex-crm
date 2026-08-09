@@ -734,3 +734,83 @@ export const webhookEvent = pgTable(
     index("webhook_event_org_idx").on(t.organizationId),
   ]
 );
+
+/**
+ * Cola de trabajos del agente (8-ago-2026, fases 1 y 2 de
+ * `docs/korexia/33-ESCALABILIDAD.md`).
+ *
+ * Sustituye al `Map` de `globalThis` con `setTimeout` que vivía en
+ * `server/ai/pipeline.ts`. Aquel funcionaba con un solo proceso y solo con
+ * suerte: **dos réplicas respondían dos veces al mismo cliente** (estuvo a
+ * punto de pasar el 3-ago, cuando Swarm dejó dos contenedores vivos), y un
+ * reinicio con un temporizador pendiente **perdía el turno para siempre** —
+ * el cliente se quedaba esperando una respuesta que ya no iba a llegar.
+ *
+ * El debounce y la cola son el mismo problema, así que son una sola tabla:
+ * `runAt` es "cuándo toca ejecutarlo". Cada mensaje nuevo del cliente empuja
+ * ese instante hacia adelante (eso es el debounce) mediante un `ON CONFLICT`
+ * sobre el índice único parcial de abajo; el worker toma lo que ya venció.
+ *
+ * Un trabajo terminado se BORRA: lo que queda aquí es lo pendiente y lo que
+ * fracasó de verdad, así la tabla no crece sin límite.
+ */
+export const agentJob = pgTable(
+  "agent_job",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pendiente", "corriendo", "fallido"] })
+      .notNull()
+      .default("pendiente"),
+    /** Cuándo toca ejecutarlo. Lo empuja cada mensaje nuevo: es el debounce. */
+    runAt: timestamp("run_at").notNull().defaultNow(),
+    attempts: integer("attempts").notNull().default(0),
+    /**
+     * Quién lo tomó y cuándo. Si el proceso muere, `rescatarHuerfanos` los
+     * devuelve a la cola por este campo: es lo que impide que un reinicio
+     * deje a un cliente sin respuesta.
+     */
+    lockedAt: timestamp("locked_at"),
+    lockedBy: text("locked_by"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    /**
+     * Como mucho UN trabajo pendiente por conversación — es la coalescencia
+     * que antes hacía `clearTimeout`. Parcial a propósito: mientras uno está
+     * `corriendo`, se admite crear el siguiente `pendiente` (equivale al
+     * `pending: true` del código viejo), y así los mensajes que llegan a
+     * mitad de turno se atienden juntos en el turno siguiente.
+     */
+    uniqueIndex("agent_job_conv_pendiente_uq")
+      .on(t.conversationId)
+      .where(sql`status = 'pendiente'`),
+    index("agent_job_listos_idx").on(t.status, t.runAt),
+    index("agent_job_org_idx").on(t.organizationId),
+  ]
+);
+
+/**
+ * Ventana deslizante del rate-limit, en la base y no en memoria.
+ *
+ * El `Map` de `globalThis` que había en `lib/rate-limit.ts` se multiplicaba
+ * por réplica: con tres procesos, "10 intentos por IP" se convertía en 30 —
+ * el límite se relajaba justo cuando más tráfico había.
+ */
+export const rateLimitHit = pgTable(
+  "rate_limit_hit",
+  {
+    id: text("id").primaryKey(),
+    /** Clave del cubo: `${ruta}:${ip}`. */
+    key: text("key").notNull(),
+    at: timestamp("at").notNull().defaultNow(),
+  },
+  (t) => [index("rate_limit_key_at_idx").on(t.key, t.at)]
+);

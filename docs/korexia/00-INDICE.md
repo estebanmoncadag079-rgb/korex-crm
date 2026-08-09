@@ -45,6 +45,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [30-SALON-PRUEBAS.md](30-SALON-PRUEBAS.md) | El catálogo real del primer cliente de citas y la tanda de pruebas antes de su día 1: cinco bugs encontrados y 35 escenarios verificados |
 | [31-BITACORA-7AGO.md](31-BITACORA-7AGO.md) | **Historial del 7 de agosto**: el primer cliente de citas, los cinco datos que le faltaban al agente, lo que la dueña no podía hacer y qué se descartó |
 | [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md) | **El catálogo oficial del salón**, precio por precio: los 12 retoques que estaban mal cargados, las reglas que van al KB y lo que el catálogo no dice |
+| [33-ESCALABILIDAD.md](33-ESCALABILIDAD.md) | **De 3 a 100 clientes**: por qué la máquina no es el problema, los seis bloqueadores reales medidos con evidencia, y en qué orden se atacan |
+| [34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md) | La cola en Postgres que sustituyó al debounce en memoria: cómo funciona, qué mirar cuando falla y cómo levantar varias réplicas |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

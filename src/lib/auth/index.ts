@@ -84,7 +84,10 @@ function createAuth() {
         // Rate limit por IP en login/registro (FR-062): 10 / 10 min → 429.
         if (RATE_LIMITED_PATHS.has(ctx.path)) {
           const ip = ctx.headers ? clientIpFrom(ctx.headers) : "local";
-          const result = checkRateLimit(`${ctx.path}:${ip}`, AUTH_RATE_LIMIT);
+          const result = await checkRateLimit(
+            `${ctx.path}:${ip}`,
+            AUTH_RATE_LIMIT
+          );
           if (!result.allowed) {
             throw new APIError("TOO_MANY_REQUESTS", {
               message: "Demasiados intentos; espera unos minutos",

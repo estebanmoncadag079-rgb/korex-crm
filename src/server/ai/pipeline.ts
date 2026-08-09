@@ -40,6 +40,8 @@ import {
   anunciaCitaAgendada,
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
+  CORRECCION_DE_PRODUCTO_OLVIDADO,
+  productosOlvidados,
   MENSAJE_RETIRADO,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
@@ -391,6 +393,18 @@ export async function runAgentTurn(
   }
 
   /**
+   * Lo que el cliente escribió sin responder y lo último que dijo el agente
+   * antes de este turno. Con eso se comprueba después que no se haya dejado
+   * caer un producto que ya estaba pedido (ver el guardarraíl más abajo).
+   */
+  const pendientesDelCliente = pendientes
+    .map((m) => m.text)
+    .filter((t): t is string => Boolean(t));
+  const ultimaRespuestaPrevia =
+    [...history].reverse().find((m) => m.direction === "out" && m.text)?.text ??
+    null;
+
+  /**
    * La marca se guarda ANTES de llamar al modelo, no después: si el turno
    * falla a mitad, estos mensajes NO deben volver a dispararlo en bucle —
    * para eso está la derivación a una persona.
@@ -621,6 +635,54 @@ export async function runAgentTurn(
       );
       await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Un producto ya pedido que desaparece del pedido (9-ago-2026).
+   *
+   * Tercer guardarraíl que acaba aquí por el mismo motivo que los dos de
+   * arriba: se intentó por prompt y, contra el pipeline real, solo funcionaba
+   * cuando el cliente decía "y TAMBIÉN uno de 16" — no cuando decía "quiero un
+   * cremoso de 16", que es como ocurrió de verdad.
+   *
+   * A diferencia del cierre falso y la cita fantasma, aquí NO se deriva a una
+   * persona si insiste: equivocarse de tamaño es recuperable en el resumen, y
+   * con un negocio de volumen sacar a un humano en cada duda es peor remedio
+   * que la enfermedad. Se registra y se sigue.
+   */
+  const olvidados = productosOlvidados({
+    ultimaRespuestaDelAgente: ultimaRespuestaPrevia,
+    mensajesDelCliente: pendientesDelCliente,
+    respuestaNueva: textosAlCliente(action).join(" "),
+  });
+  if (olvidados.length > 0) {
+    console.warn(
+      `[agente] se dejó caer ${olvidados.join(", ")} del pedido; rehaciendo el turno`
+    );
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_PRODUCTO_OLVIDADO },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/producto-olvidado`
+    );
+    if (
+      reintento.ok &&
+      productosOlvidados({
+        ultimaRespuestaDelAgente: ultimaRespuestaPrevia,
+        mensajesDelCliente: pendientesDelCliente,
+        respuestaNueva: textosAlCliente(reintento.data).join(" "),
+      }).length === 0
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        `[agente] el pedido sigue sin ${olvidados.join(", ")} tras la corrección; sale como está`
+      );
     }
   }
 

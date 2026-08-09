@@ -89,11 +89,26 @@ export async function encolarTurno(
 }
 
 /**
+ * Cuántos turnos puede tener UNA organización corriendo a la vez.
+ *
+ * Sin este tope, un cliente con mucho volumen ocupa los cuatro huecos del
+ * worker en su hora pico y los demás negocios hacen cola detrás — sus clientes
+ * esperando sin saber por qué. Con el tope, el grande usa como mucho la mitad
+ * y siempre queda sitio para los otros.
+ *
+ * No es un límite de cuánto atiende cada cliente: es de cuánto atiende **a la
+ * vez**. Lo que no entra ahora entra en el siguiente sondeo, un segundo
+ * después.
+ */
+export const CONCURRENCIA_POR_ORG = 2;
+
+/**
  * Toma un trabajo vencido y lo marca `corriendo`, o devuelve `null`.
  *
  * `SKIP LOCKED` deja que varios workers tiren de la misma cola sin bloquearse.
- * El `NOT EXISTS` es la regla de un turno a la vez por conversación: si ya hay
- * uno corriendo para esa conversación, este espera su vuelta.
+ * El primer `NOT EXISTS` es la regla de un turno a la vez por conversación: si
+ * ya hay uno corriendo para esa conversación, este espera su vuelta. El conteo
+ * por organización es el reparto justo entre negocios.
  */
 export async function tomarTrabajo(
   worker: string
@@ -116,6 +131,11 @@ export async function tomarTrabajo(
                  WHERE r.conversation_id = c.conversation_id
                    AND r.status = 'corriendo'
               )
+          AND (
+                SELECT count(*) FROM agent_job o
+                 WHERE o.organization_id = c.organization_id
+                   AND o.status = 'corriendo'
+              ) < ${CONCURRENCIA_POR_ORG}
         ORDER BY c.run_at
           FOR UPDATE SKIP LOCKED
         LIMIT 1

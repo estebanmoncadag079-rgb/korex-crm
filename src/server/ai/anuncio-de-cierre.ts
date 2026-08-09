@@ -105,3 +105,79 @@ export function anunciaCitaAgendada(texto: string | null | undefined): boolean {
 /** La corrección cuando confirmó una cita que nadie agendó. */
 export const CORRECCION_DE_CITA_FANTASMA =
   "ALTO. Tu respuesta le dice al cliente que su cita quedó agendada, pero NO emitiste book_appointment ni reschedule_appointment en este turno: la cita NO existe y el cliente se presentaría un día que nadie lo espera. Si tienes servicio, fecha y hora confirmados por el cliente, emite la ACCIÓN de verdad. Si te falta algún dato o el cliente no ha confirmado, pregúntaselo con reply SIN dar nada por agendado. Responde ÚNICAMENTE el objeto JSON.";
+
+/* ============================================================
+ * Producto que desaparece del pedido (9-ago-2026)
+ * ============================================================ */
+
+/**
+ * El cliente pide un tamaño, el agente le pregunta los toppings, el cliente
+ * nombra OTRO tamaño — y el primero se esfuma del pedido sin que nadie lo note.
+ *
+ * **Caso real (Lis, 8-ago-2026)**: "Cremoso de 7 Oz" → el agente pregunta el
+ * topping → "Quiero un cremoso de 16 Oz" → *"¡Qué delicia! Un Cremoso de 16
+ * oz…"*. El de 7 oz nunca volvió a aparecer. El cliente no lo nota hasta el
+ * resumen, si es que lo nota: se paga uno y se esperaban dos.
+ *
+ * Se intentó primero por prompt (regla en el contrato de acciones). Verificado
+ * contra el pipeline real: **funciona cuando el cliente dice "y también uno de
+ * 16", y NO cuando dice "quiero un cremoso de 16"** — justo el caso reportado.
+ * Tercer guardarraíl que acaba en el servidor por lo mismo que los otros dos:
+ * el prompt no basta.
+ *
+ * Se detecta por la MEDIDA (7 oz, 16 oz, 500 ml…) y no por el nombre del
+ * producto, porque es lo que distingue las variantes que se confunden entre sí
+ * y no depende del catálogo de cada negocio.
+ */
+const MEDIDA = /(\d{1,4})\s*(oz|onz|onzas?|ml|cc|lt?|litros?|gr?|gramos?|kg|cm|pulgadas?)\b/gi;
+
+/** Medidas normalizadas que aparecen en un texto: "7 Oz" y "7oz" → "7oz". */
+export function medidasEn(texto: string | null | undefined): string[] {
+  if (!texto) return [];
+  const encontradas = new Set<string>();
+  for (const m of texto.matchAll(MEDIDA)) {
+    encontradas.add(`${m[1]}${m[2]!.toLowerCase()}`);
+  }
+  return [...encontradas];
+}
+
+/**
+ * El cliente dijo explícitamente que CAMBIA de opción. Ahí sustituir es lo
+ * correcto y el guardarraíl debe callarse.
+ */
+const CAMBIO_EXPLICITO =
+  /\b(mejor|en\s+vez|en\s+lugar|c[áa]mbi(?:a|alo|amelo)|cambio|no,?\s+mejor|ya\s+no\s+quiero|cancela)\b/i;
+
+/**
+ * ¿La respuesta se olvidó de un producto que seguía vivo?
+ *
+ * Devuelve las medidas que el agente tenía sobre la mesa y ha dejado caer.
+ * Vacío = todo en orden.
+ */
+export function productosOlvidados(input: {
+  /** Lo que el agente dijo en su turno anterior (ahí está lo que estaba en curso). */
+  ultimaRespuestaDelAgente: string | null | undefined;
+  /** Lo que el cliente ha escrito sin responder todavía. */
+  mensajesDelCliente: string[];
+  /** Lo que el agente va a contestar ahora. */
+  respuestaNueva: string;
+}): string[] {
+  // Si el cliente anuncia un cambio, sustituir es lo que toca.
+  if (input.mensajesDelCliente.some((t) => CAMBIO_EXPLICITO.test(t))) return [];
+
+  const enCurso = medidasEn(input.ultimaRespuestaDelAgente);
+  if (enCurso.length === 0) return [];
+
+  const nuevasDelCliente = input.mensajesDelCliente.flatMap(medidasEn);
+  // Solo interesa cuando el cliente introdujo una medida DISTINTA: ahí es donde
+  // el modelo sustituye en silencio.
+  const introdujoOtra = nuevasDelCliente.some((m) => !enCurso.includes(m));
+  if (!introdujoOtra) return [];
+
+  const enLaRespuesta = medidasEn(input.respuestaNueva);
+  return enCurso.filter((m) => !enLaRespuesta.includes(m));
+}
+
+/** La corrección cuando se dejó caer un producto que el cliente ya había pedido. */
+export const CORRECCION_DE_PRODUCTO_OLVIDADO =
+  "ALTO. El cliente ya había pedido un producto y en tu respuesta desapareció: solo hablas del último que nombró. No lo sustituyas por tu cuenta. Si el cliente lo está SUMANDO, lleva los DOS y pide lo que falte de cada uno. Si no está claro si lo suma o lo cambia, pregúntaselo en UNA línea ('¿te lo agrego al de antes o lo cambiamos?') sin descartar nada todavía. Responde ÚNICAMENTE el objeto JSON.";

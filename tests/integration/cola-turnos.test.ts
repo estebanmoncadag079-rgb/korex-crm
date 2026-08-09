@@ -174,6 +174,46 @@ describe.skipIf(!hayBase)("cola de turnos del agente (Postgres real)", () => {
     expect(estado.corriendo).toBe(0);
   });
 
+  it("un cliente con mucho volumen NO ocupa toda la cola", async () => {
+    // Cuatro conversaciones de la MISMA organización listas a la vez: es la
+    // hora pico de un negocio grande. Sin tope se llevaría los cuatro huecos
+    // del worker y los demás clientes esperarían detrás.
+    const extra = ["cv_test_cola_3", "cv_test_cola_4"];
+    const contactosExtra = ["ct_test_cola_3", "ct_test_cola_4"];
+    for (let i = 0; i < extra.length; i++) {
+      await db.execute(sql`
+        INSERT INTO contact (id, organization_id, phone, name, created_at)
+        VALUES (${contactosExtra[i]!}, ${FIXTURE.org}, ${`57000000001${i}`}, 'Test', now())
+        ON CONFLICT (id) DO NOTHING
+      `);
+      await db.execute(sql`
+        INSERT INTO conversation (id, organization_id, contact_id, created_at)
+        VALUES (${extra[i]!}, ${FIXTURE.org}, ${contactosExtra[i]!}, now())
+        ON CONFLICT (id) DO NOTHING
+      `);
+    }
+
+    for (const cv of [
+      FIXTURE.conversacion,
+      FIXTURE.conversacion2,
+      ...extra,
+    ]) {
+      await m.cola.encolarTurno(cv, { delayMs: 0 });
+    }
+
+    const tomados = [];
+    for (let i = 0; i < 4; i++) {
+      const t = await m.cola.tomarTrabajo(`w${i}`);
+      if (t) tomados.push(t);
+    }
+    expect(tomados).toHaveLength(m.cola.CONCURRENCIA_POR_ORG);
+
+    // Al liberar uno, entra el siguiente de esa organización: es un tope de
+    // simultaneidad, no un límite de cuánto se le atiende en total.
+    await m.cola.completarTrabajo(tomados[0]!.id);
+    expect(await m.cola.tomarTrabajo("w9")).not.toBeNull();
+  });
+
   it("el aplazamiento tiene techo: quien escribe sin parar igual es atendido", async () => {
     await m.cola.encolarTurno(FIXTURE.conversacion, { delayMs: 1000 });
     // Muchos mensajes seguidos, cada uno pidiendo esperar más.

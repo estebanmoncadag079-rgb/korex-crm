@@ -3,7 +3,7 @@
 > **Dentro:** El orden y por qué · 1. Contraseña del superadmin · 2. El día 1
 > del salón · 3. Automatizar el alta de clientes · 4. Vigilar los turnos
 > fallidos · 5. Subir a dos réplicas · 6. Reintentos de YCloud · 7. Fase 4 ·
-> 8. Fase 5 · 9. Higiene
+> 8. Fase 5 · 8b. El producto que desaparece (cerrado) · 9. Higiene
 
 Sigue a [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md), que llegó al límite de
 200 líneas. **Ordenado por riesgo e impacto real, no por dificultad ni por
@@ -115,8 +115,15 @@ clientes:
 - **RLS (Row-Level Security)**: hoy que los datos de un negocio no se filtren a
   otro depende de que **cada consulta** lleve su `organizationId` a mano. Con
   100 clientes, un `where` olvidado es un incidente de privacidad.
-- **Rate-limit por organización**: un cliente con tráfico anómalo consume el
-  turno de todos.
+- ✅ **Reparto de la cola entre clientes — HECHO (9-ago-2026)**: ningún negocio
+  puede tener más de `CONCURRENCIA_POR_ORG` (2) turnos corriendo a la vez, de
+  los 4 del worker. Se hizo al saber que entra un cliente que vende ~10× lo de
+  Lis: sin tope, su hora pico dejaba a los demás negocios esperando detrás. Es
+  un límite de simultaneidad, no de cuánto se le atiende: lo que no entra ahora
+  entra un segundo después. Probado contra Postgres real.
+- **Rate-limit de abuso por organización**: lo anterior reparte el trabajo, pero
+  no frena a un cliente con tráfico anómalo (un bucle de otro bot, por ejemplo).
+  Sigue pendiente.
 - **Panel de costo y uso por cliente**: `usage_event` tiene más de 1.000 filas
   que nadie explota. Sin esto no se puede facturar por consumo ni detectar
   abusos. Coincide con un pendiente que ya existía en
@@ -143,9 +150,20 @@ Tres cosas que muerden el día de la migración, anotadas para no redescubrirlas
 A favor: los IDs son texto (`nanoid`), así que **no hay secuencias que
 resincronizar**, y la base pesa 16 MB con una sola extensión (`plpgsql`).
 
-## 8b. 🟠 En observación: el producto que desaparece del pedido
+## 8b. ✅ El producto que desaparece del pedido — CERRADO (9-ago-2026)
 
-**Arreglado a medias el 9-ago-2026, y el dueño decidió observar antes de seguir.**
+> **Resuelto con un guardarraíl en el servidor**, al saber que el lunes entra un
+> cliente que vende ~10× lo de Lis: con ese volumen, un producto que se cae en
+> silencio deja de ser una anécdota y pasa a ser dinero diario.
+>
+> Verificado con el pipeline real: el log dice `se dejó caer 7oz del pedido;
+> rehaciendo el turno` y la respuesta corregida lleva **los dos** cremosos,
+> pidiendo los toppings de cada uno. El control también pasa: con "no, mejor
+> uno de 16 oz" **sustituye** en vez de duplicar.
+>
+> Detalle abajo, que explica por qué el prompt no bastó.
+
+**Historia (por qué acabó en el servidor):**
 
 Caso: el cliente pide un Cremoso de 7 oz, el agente le pregunta los toppings, y
 al decir "Quiero un cremoso de 16 Oz" el de 7 oz **desaparece del pedido** sin
@@ -164,16 +182,26 @@ del contenedor:
 ya obligó a poner dos guardarraíles en el servidor (`anunciaCierre` y
 `anunciaCitaAgendada`): hay conductas que el prompt no consigue.
 
-Si el caso se repite, quedan dos vías, en orden de coste:
+**Cómo quedó**: `productosOlvidados` compara las medidas (7 oz, 16 oz, 500 ml…)
+que el agente tenía sobre la mesa con las de su respuesta nueva. Si dejó caer
+alguna, se rehace el turno con la corrección delante — igual que el cierre
+falso y la cita fantasma. Se detecta por MEDIDA y no por nombre de producto:
+es lo que distingue las variantes que se confunden y no depende del catálogo de
+cada negocio.
 
-1. **Reforzarlo en `escalation_rules`** de cada cliente de pedidos. Es dato, es
-   barato y hay precedente del 3-ago (una regla que el modelo ignoraba en
-   `instructions` empezó a respetarse ahí). Solo arregla al cliente que se
-   toque, y sin garantía.
-2. **Guardarraíl en el servidor**: detectar que el cliente nombró un producto
-   nuevo con otro a medias y que la respuesta no lo menciona, y obligar al
-   modelo a rehacerla. Es lo único que no depende de que el modelo tenga un
-   buen día, y sirve para todos los clientes.
+Dos decisiones deliberadas:
+
+- **Si el cliente dice que cambia** ("mejor", "en vez de", "cámbialo"), el
+  guardarraíl calla: ahí sustituir es lo correcto.
+- **Si insiste tras la corrección, NO se deriva a una persona** (a diferencia
+  de los otros dos guardarraíles). Equivocarse de tamaño se recupera en el
+  resumen, y con un negocio de volumen sacar a un humano en cada duda es peor
+  remedio que la enfermedad. Se registra en el log y se sigue.
+
+**Límite conocido**: solo ve productos que se distinguen por una medida. Dos
+productos con nombre distinto y sin medida ("un polvoroso y un cremoso") no los
+compara. Si aparece ese caso, el siguiente paso es extraer los nombres del
+catálogo del KB.
 
 > 🔧 **Herramienta nueva: `pnpm probar:agente <organizationId> "msg1" "msg2"`.**
 > Copia de `probar:citas` sin la exigencia del vertical de citas, así que

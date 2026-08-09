@@ -143,6 +143,48 @@ Tres cosas que muerden el día de la migración, anotadas para no redescubrirlas
 A favor: los IDs son texto (`nanoid`), así que **no hay secuencias que
 resincronizar**, y la base pesa 16 MB con una sola extensión (`plpgsql`).
 
+## 8b. 🟠 En observación: el producto que desaparece del pedido
+
+**Arreglado a medias el 9-ago-2026, y el dueño decidió observar antes de seguir.**
+
+Caso: el cliente pide un Cremoso de 7 oz, el agente le pregunta los toppings, y
+al decir "Quiero un cremoso de 16 Oz" el de 7 oz **desaparece del pedido** sin
+que nadie lo note. Es dinero que se cae en silencio.
+
+Se añadió una regla al prompt del sistema (no sustituir; sumar si el cliente es
+claro, preguntar si es ambiguo). Verificado contra el **pipeline real** dentro
+del contenedor:
+
+| Lo que dice el cliente | Resultado |
+|---|---|
+| "y **también** uno de 16" | ✅ "sería un Cremoso de 7 oz y un Cremoso de 16 oz" |
+| "**Quiero** un cremoso de 16 Oz" | ❌ sigue sustituyendo — el caso reportado |
+
+**La regla del prompt no basta para el caso ambiguo.** Es el mismo patrón que
+ya obligó a poner dos guardarraíles en el servidor (`anunciaCierre` y
+`anunciaCitaAgendada`): hay conductas que el prompt no consigue.
+
+Si el caso se repite, quedan dos vías, en orden de coste:
+
+1. **Reforzarlo en `escalation_rules`** de cada cliente de pedidos. Es dato, es
+   barato y hay precedente del 3-ago (una regla que el modelo ignoraba en
+   `instructions` empezó a respetarse ahí). Solo arregla al cliente que se
+   toque, y sin garantía.
+2. **Guardarraíl en el servidor**: detectar que el cliente nombró un producto
+   nuevo con otro a medias y que la respuesta no lo menciona, y obligar al
+   modelo a rehacerla. Es lo único que no depende de que el modelo tenga un
+   buen día, y sirve para todos los clientes.
+
+> 🔧 **Herramienta nueva: `pnpm probar:agente <organizationId> "msg1" "msg2"`.**
+> Copia de `probar:citas` sin la exigencia del vertical de citas, así que
+> **sirve para los clientes de pedidos**. Usa el pipeline REAL con una
+> conversación `is_test` que jamás toca WhatsApp. Salió de aquí: reconstruir el
+> prompt a mano en un script aparte (`/root/probar-lis.py`) **no vale** —aquel
+> ni siquiera incluía las `escalation_rules`, así que probaba un prompt que no
+> es el de producción. Para el contenedor, la receta de bundle está en
+> [30-SALON-PRUEBAS.md](30-SALON-PRUEBAS.md) (autocontenido, sin
+> `--packages=external`: la imagen no trae `drizzle-orm`).
+
 ## 9. ⚪ Higiene
 
 - **12 tablas `*_backup_*`** creadas a mano en producción (respaldos manuales

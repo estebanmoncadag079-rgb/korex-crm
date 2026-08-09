@@ -5,6 +5,10 @@
 Complemento de [14-COTIZAR.md](14-COTIZAR.md), que tiene los números. Esto es
 lo que se hace **delante del cliente**.
 
+> 📣 El escalón anterior —**que te conozcan**: guiones de video, ganchos y qué se
+> puede prometer sin quemar al cliente— está en
+> [40-MARKETING-Y-CONTENIDO.md](40-MARKETING-Y-CONTENIDO.md).
+
 ## Qué preguntarle al cliente
 
 Dos bloques. El primero fija **el plan**; el segundo fija **el precio**.

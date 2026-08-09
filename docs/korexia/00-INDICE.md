@@ -52,6 +52,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [37-EMBUDO-VENTAS-INVISIBLES.md](37-EMBUDO-VENTAS-INVISIBLES.md) | Por qué el tablero decía 16 clientes cuando había 31: el embudo solo se cerraba si actuaba el agente, y en Lis atiende una persona. Y el lado simétrico: **los que se enfrían bajan solos a "Por recuperar" a los 2 días** |
 | [38-GUARDARRAILES.md](38-GUARDARRAILES.md) | **Cuando el prompt no basta**: los tres guardarraíles del servidor, por qué existen, cómo se añade uno y cuándo NO conviene |
 | [39-BITACORA-9AGO-TARDE.md](39-BITACORA-9AGO-TARDE.md) | **Historial de la tarde del 9 de agosto**: si Lis sigue siendo rentable en octubre (sí, al 94 %), el costo por llamada en el panel, el chat dentro del Pipeline y el embudo de los que se enfrían |
+| [40-MARKETING-Y-CONTENIDO.md](40-MARKETING-Y-CONTENIDO.md) | **Cómo se promociona korex.ia**: qué se puede prometer y qué no, el guion base de video, los ganchos que salen de datos reales, cómo producirlo gratis y la regla de no mostrar conversaciones de clientes |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

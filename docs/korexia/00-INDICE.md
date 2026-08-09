@@ -36,7 +36,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md) | Continuación de 08: qué falta desplegar y verificar de citas y del arreglo de nombres de usuario de WhatsApp (BSUID) |
 | [22-AUDITORIA-3AGO.md](22-AUDITORIA-3AGO.md) | Auditoría con 3 agentes (seguridad, refactorización, revisión de código): bugs reales corregidos, deduplicación y qué se decidió no tocar |
 | [23-BITACORA-3AGO-NOCHE.md](23-BITACORA-3AGO-NOCHE.md) | Cuatro bugs reales de "el bot no responde" (edición de WhatsApp, handoff mudo, BSUID rechazado como teléfono), la tabla `webhook_event`, un incidente de despliegue con lección aprendida, horario de domingo y el menú inicial de Lis |
-| [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md) | Los mensajes que **Meta entrega vacíos**: por qué el bot no responde, el payload real, cada cuánto pasa y cómo reconocerlo en 30 segundos |
+| [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md) | Los mensajes que **Meta entrega vacíos**: por qué el bot no responde, el payload real, cada cuánto pasa y cómo reconocerlo en 30 segundos. Además: **los emojis sí se leen**, y qué no ve el agente (reacciones, stickers) |
 | [25-UPSTREAM-VOCERO.md](25-UPSTREAM-VOCERO.md) | ¿Conviene traer la actualización de Vocero CRM? Qué sirve, qué no, el bug latente de identidad que destapó y por qué el merge está descartado |
 | [26-NEA-AGENT.md](26-NEA-AGENT.md) | Qué se tomó del agente de citas `nea-agent`: que una respuesta no se pierda si falla el envío, agendar solo lo ofrecido, y la regla anti off-topic |
 | [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md) | La venta que se perdió porque el cliente se corrigió a sí mismo: un turno sin nada que responder dejaba mudo a Gemini y disparaba un handoff falso |
@@ -49,8 +49,9 @@ producción, qué se cambió y qué quedó pendiente.
 | [34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md) | La cola en Postgres que sustituyó al debounce en memoria: cómo funciona, qué mirar cuando falla y cómo levantar varias réplicas |
 | [35-BITACORA-8-9AGO.md](35-BITACORA-8-9AGO.md) | **Historial del 8 y 9 de agosto**: el catálogo oficial del salón, el diagnóstico de escalabilidad medido, la cola de turnos y las primeras pruebas contra Postgres real |
 | [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md) | 🔴 **Todo lo pendiente, ordenado por riesgo e impacto real.** Empieza por aquí si retomas el proyecto |
-| [37-EMBUDO-VENTAS-INVISIBLES.md](37-EMBUDO-VENTAS-INVISIBLES.md) | Por qué el tablero decía 16 clientes cuando había 31: el embudo solo se cerraba si actuaba el agente, y en Lis atiende una persona |
+| [37-EMBUDO-VENTAS-INVISIBLES.md](37-EMBUDO-VENTAS-INVISIBLES.md) | Por qué el tablero decía 16 clientes cuando había 31: el embudo solo se cerraba si actuaba el agente, y en Lis atiende una persona. Y el lado simétrico: **los que se enfrían bajan solos a "Por recuperar" a los 2 días** |
 | [38-GUARDARRAILES.md](38-GUARDARRAILES.md) | **Cuando el prompt no basta**: los tres guardarraíles del servidor, por qué existen, cómo se añade uno y cuándo NO conviene |
+| [39-BITACORA-9AGO-TARDE.md](39-BITACORA-9AGO-TARDE.md) | **Historial de la tarde del 9 de agosto**: si Lis sigue siendo rentable en octubre (sí, al 94 %), el costo por llamada en el panel, el chat dentro del Pipeline y el embudo de los que se enfrían |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -114,6 +115,14 @@ turno del agente ahora vive en una cola en Postgres
 ([34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md)). **Todo el código está desplegado
 y verificado dentro del contenedor**, y la carpeta de EasyPanel quedó
 sincronizada: ningún Desplegar futuro revierte nada.
+
+La **tarde del 9** se trabajó el dinero y el embudo
+([39-BITACORA-9AGO-TARDE.md](39-BITACORA-9AGO-TARDE.md)): quedó medido que
+**cobrar 200.000 COP sigue dejando 94 % de margen** aunque Meta empiece a cobrar
+los mensajes en octubre —el costo que pesa es el fijo, no Meta—, el panel de
+consumo muestra ahora el **costo por llamada**, la conversación se abre **dentro
+del Pipeline** y las tarjetas que llevan **2 días sin respuesta bajan solas a
+"Por recuperar"** (49 se movieron al desplegar).
 
 **Empieza por [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md)** si
 retomas el proyecto: reúne **todo lo pendiente ordenado por riesgo e impacto

@@ -172,69 +172,8 @@ rápido y, al llegar a cero, el bot enmudece sin avisar.
 
 ---
 
-## 8. Dos cosas de la tarde del 9: mirar el costo por llamada y el chat en el Pipeline
+## 8. La tarde del 9 de agosto
 
-### El costo por llamada, en el panel de consumo
-
-El dueño preguntó si con el cobro de Meta desde octubre seguía siendo rentable
-cobrarle 200.000 COP a Lis. Sí, y con holgura: Meta le suma **~2.300 COP al mes**
-(el 1,2 % de la mensualidad), y el punto de equilibrio está en **566
-conversaciones/día** cuando hace 35. El costo que de verdad pesa no es Meta sino
-el fijo — un salto al plan Growth de YCloud son 39 USD/mes, **54 veces** el
-impacto de Meta sobre Lis.
-
-De ahí salió el cambio: el panel mostraba el gasto del mes, que sube tanto si
-hay más tráfico (bueno) como si cada llamada se encareció (malo), sin
-distinguirlos. Se añadió **Costo por llamada**. Detalle en
-[09-COSTOS.md](09-COSTOS.md).
-
-### Por qué Lis había subido un 43 % por llamada
-
-Investigado sobre `usage_event` a petición del dueño. **Dos llamadas de 296** —
-el 0,7 % del tráfico— se llevaron el **22 % del gasto**:
-
-| Cuándo | Origen | Tokens de entrada | Costo |
-|---|---|---|---|
-| 3-ago 15:51 | rescate del agente, conversación de 44 mensajes en un día | 48.111 | 0,0967 |
-| 4-ago 01:13 | módulo de **aprendizaje** | 54.792 | 0,0880 |
-
-Las dos son caídas al modelo de respaldo (Sonnet 4.5). **Una caída cuesta como
-~45 llamadas normales de Gemini.** Sin ellas Lis estaría en 0,00225 por llamada,
-a un pelo de La Churra (0,00197); el resto de la diferencia es que su prompt es
-más grande (7.505 tokens de entrada por llamada frente a 6.675).
-
-Dos cosas que conviene recordar: el **aprendizaje** normalmente corre con Gemini
-y cuesta ~0,006 — esa noche cayó a Sonnet y costó 15× más; y es un proceso de la
-agencia, no atención a clientas, pero **se carga a la cuenta del cliente**.
-
-### El chat dentro del Pipeline (solo lectura)
-
-Reporte del dueño: *"le damos al botón y nos arroja a la lista de conectados, y
-si queremos revisar otro cliente tenemos que volver"*. El botón de la tarjeta
-era un enlace que **sacaba del tablero** hacia `/inbox`.
-
-Ahora la conversación se abre **en un panel a la derecha, sin salir del
-Pipeline**, y cambiar de cliente es un clic. Casi todo estaba hecho: se reutiliza
-`MessageThread` tal cual y la API `/api/conversations/{id}/messages`, que ya
-existían sueltos.
-
-**Solo lectura a propósito.** Responder arrastra el compositor, el relevo del
-agente y la ventana de 24 h — justo la lógica delicada del inbox. El pie del
-panel enlaza a la Bandeja, donde eso ya está probado.
-
-Decisiones del panel: se refresca cada 6 s pero **se detiene con la pestaña en
-segundo plano** (el VPS tiene un solo núcleo); al cambiar de tarjeta se remonta
-para no heredar el scroll ni mostrar un instante los mensajes del cliente
-anterior bajo el nombre del nuevo; y en móvil se abre a pantalla completa,
-porque tablero y panel no caben a la vez.
-
-### Lo que quedó pendiente de las columnas
-
-El dueño quiere ver solo **Nuevo · En conversación · Cliente**:
-
-- **"Interesado" la puede borrar él** desde *Gestionar etapas* (tiene 0 leads).
-- **"Perdido" no se puede**: la API bloquea las etapas ancla a propósito
-  (`'Las etapas ancla ("ganado" y "perdido") no se pueden eliminar'`), y hace
-  bien — un lead marcado como perdido tiene que poder ir a algún sitio. Para
-  quitarla del tablero haría falta un interruptor de "mostrar en el tablero" por
-  etapa, que es cambio de esquema. **No se hizo**: no estaba autorizado.
+Siguió el trabajo con el panel de consumo, el Pipeline y el embudo de los que se
+enfrían. Está en su propia bitácora:
+**[39-BITACORA-9AGO-TARDE.md](39-BITACORA-9AGO-TARDE.md)**.

@@ -227,3 +227,16 @@ catálogo del KB.
   respaldos automáticos cubren `/opt/korex-crm`, no `/root`. Si se pierde el
   servidor, se pierde la vigilancia entera y hay que reescribirla. Lo razonable
   es versionar el script con el token sacado a una variable de entorno.
+
+## 10. ⚪ De la tarde del 9-ago (detalle en [39](39-BITACORA-9AGO-TARDE.md))
+
+- **Traer el precio real de cada mensaje de YCloud** — hoy se anotan a 0. Es
+  correcto hasta el 1-oct, pero **después el panel mentirá** mientras la wallet
+  se vacía. Es el pendiente con fecha límite.
+- **Ocultar una etapa del tablero sin borrarla.** Las anclas `won`/`lost` no se
+  pueden eliminar, y hacen bien. El dueño quería ver solo tres columnas: haría
+  falta un interruptor por etapa, que es cambio de esquema. No autorizado.
+- **El agente no ve reacciones ni stickers** ([24](24-MENSAJES-UNSUPPORTED.md)).
+- **El avatar parte los emojis del nombre** ("Kathe 😜" → `K◆`). Cosmético.
+- **Vigilar las caídas al modelo de respaldo**: dos llamadas a Sonnet costaron el
+  22 % del mes de Lis. Si se vuelven frecuentes, el costo se nota ahí primero.

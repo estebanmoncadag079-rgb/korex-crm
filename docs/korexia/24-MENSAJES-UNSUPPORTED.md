@@ -2,7 +2,7 @@
 
 > **Dentro:** Qué es y por qué el bot no responde · El paquete real que manda
 > YCloud · Cómo se ve en la bandeja · Cada cuánto pasa · Por qué se decidió
-> dejarlo así · Cómo reconocerlo en 30 segundos
+> dejarlo así · Cómo reconocerlo en 30 segundos · **Los emojis SÍ se leen**
 
 Un cliente escribe algo, **para él el mensaje sale normal**, y el negocio no
 responde nada. No es un fallo del CRM ni del agente: **Meta entrega el evento
@@ -116,3 +116,41 @@ where raw_body like '%<telefono>%' order by received_at desc limit 1;
 
 Si el `type` **no** es `unsupported`, el problema es otro: seguir por el
 checklist de causas confirmadas de "el bot no responde".
+
+---
+
+## Los emojis SÍ se leen (verificado 9-ago-2026)
+
+Pregunta del dueño, y conviene separarla de lo anterior porque se confunden.
+
+**Un emoji dentro de un mensaje es texto normal.** No hay ningún filtro que lo
+quite: llega a la base y al agente tal cual lo escribió el cliente. Medido en
+producción: **116 mensajes entrantes con emoji**, 5 de ellos **solo un emoji**.
+
+De esos 5, el agente respondió 4:
+
+| Recibido | Qué hizo |
+|---|---|
+| 💅 | respondió con el saludo de Valentina |
+| 😭 | lo interpretó y derivó a una persona |
+| 🤤🤤 · 😍 | respondieron (Lis) |
+| ☺️ | **sin respuesta** |
+
+El que no contestó **no fue por el emoji**: esa conversación estaba en
+`handoff_reason = 'operador'` desde 10 segundos antes. El bot calla a propósito
+cuando una persona toma el chat, y habría hecho lo mismo con cualquier texto.
+
+### Lo que el agente NO ve
+
+- **Reacciones** (el emoji pegado a un mensaje, que no se envía como mensaje):
+  llegan como `type: "unsupported"` — el caso de todo este archivo. Se guardan y
+  el agente ve el aviso *"mensaje no compatible"*, pero **no cuál era el emoji**.
+- **Stickers**: `sticker` está en `SUPPORTED_TYPES`, así que el mensaje se
+  guarda, pero no trae texto y `toChatHistory` descarta las filas sin texto →
+  **el agente no se entera**.
+
+### Un detalle cosmético, aparte
+
+El avatar **parte los emojis del nombre del contacto**: "Kathe 😜" se ve como
+`K◆` en el Pipeline, porque al sacar las iniciales corta el emoji por la mitad.
+No afecta a las conversaciones.

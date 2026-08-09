@@ -72,19 +72,34 @@ ahora entra un tercer negocio con datos de sus clientas. Es el punto 1 de
 [08-PENDIENTES.md](08-PENDIENTES.md).
 
 **2. Crear su organización y copiarle el catálogo.** El SQL está en
-`scripts/salon-catalogo.sql` (41 servicios, 5 especialistas, asignación por
+`scripts/salon-catalogo.sql` (46 servicios, 5 especialistas, asignación por
 categoría); solo hay que cambiar el `organizationId`. Hoy vive en la
 organización de pruebas `org_novxv78s08h12arzatr2`, con citas de prueba dentro
 que conviene borrar.
 
-**3. Confirmar su HORARIO real.** Se usó 09:00–19:00 de lunes a sábado, que
-era el de la demo. Si abren distinto, todo lo demás sale mal: disponibilidad,
-calendario y lo que el agente le dice a la clienta.
+> ✅ **8-ago: llegó el catálogo OFICIAL** (PDF de la dueña) y el script se
+> rehízo contra él —
+> [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md). **Los 12 retoques que estaban
+> cargados tenían el precio equivocado**: el agente habría cotizado un retoque
+> de Volumen 3D en 20.000 cuando vale 80.000. Ahora son 17 (cada retoque tiene
+> dos precios, 10-15 días y 20 días) y hay categoría propia de Cejas y Lifting.
+> **Falta aplicarlo a la base de datos de la organización de pruebas.**
+
+**3. Confirmar su HORARIO real y las DURACIONES.** Se usó 09:00–19:00 de lunes
+a sábado, que era el de la demo. Si abren distinto, todo lo demás sale mal:
+disponibilidad, calendario y lo que el agente le dice a la clienta. **El
+catálogo oficial no trae ni una sola duración** — las del script son
+estimaciones, y con ellas el agente vende huecos que quizá no existen. Se
+pregunta junto con el horario.
 
 **4. Cargarle el conocimiento (KB).** ⚠️ **No es opcional.** Con el `kb_entry`
 vacío, el agente **inventó una dirección** durante las pruebas ("Calle 123
 #45-67"). Hace falta: dirección, cómo llegar, parqueadero, formas de pago,
 política de cancelación y de retrasos, y qué pasa si la clienta llega tarde.
+Más las **tres reglas del catálogo oficial**, que no son servicios y el agente
+tampoco puede adivinar: el retoque solo aplica si conserva el **60 % de las
+extensiones**, pasados **30 días es montura nueva** (otro precio), e
+**Hidralips es mínimo 3 sesiones** ([32-CATALOGO-SALON.md](32-CATALOGO-SALON.md)).
 
 **5. Conectar su número** con su propia cuenta de YCloud, y **estar pendientes
 de su teléfono** durante el signup para que apruebe compartir el historial:

@@ -44,6 +44,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [29-RECORDATORIOS-Y-PLANTILLAS.md](29-RECORDATORIOS-Y-PLANTILLAS.md) | Por qué un salón no puede recordar citas sin plantilla, qué cuesta, quién la crea y por qué octubre de 2026 no lo arregla |
 | [30-SALON-PRUEBAS.md](30-SALON-PRUEBAS.md) | El catálogo real del primer cliente de citas y la tanda de pruebas antes de su día 1: cinco bugs encontrados y 35 escenarios verificados |
 | [31-BITACORA-7AGO.md](31-BITACORA-7AGO.md) | **Historial del 7 de agosto**: el primer cliente de citas, los cinco datos que le faltaban al agente, lo que la dueña no podía hacer y qué se descartó |
+| [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md) | **El catálogo oficial del salón**, precio por precio: los 12 retoques que estaban mal cargados, las reglas que van al KB y lo que el catálogo no dice |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -96,9 +97,10 @@ su horario, su marca, su número y sus teléfonos de aviso.
 **Estado a 8-ago-2026 (madrugada)**: dos clientes en producción (La Churra y
 Lis Pastelería) más la agencia y la organización de pruebas de citas — y un
 **tercero a punto de entrar: un salón de belleza**, primer cliente real del
-vertical de citas. Su catálogo (41 servicios, 5 especialistas) está cargado en
-la organización de pruebas y ejercitado con 35 escenarios contra el modelo
-real; lo que falta para su día 1 está en
+vertical de citas. El **8-ago llegó su catálogo oficial** y reemplazó al que se
+había cargado a mano: 46 servicios, 5 especialistas, transcrito precio por
+precio en [32-CATALOGO-SALON.md](32-CATALOGO-SALON.md). Lo que falta para su
+día 1 está en
 [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md), y el hilo del día en
 [31-BITACORA-7AGO.md](31-BITACORA-7AGO.md). **Todo el código está desplegado y
 verificado dentro del contenedor**, y la carpeta de EasyPanel quedó

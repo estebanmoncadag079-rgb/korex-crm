@@ -147,6 +147,20 @@ Su contenido salió del bot anterior: 11 productos con precios, 11 toppings,
 cuántos lleva cada tamaño, domicilios por Yango, pago **solo por
 transferencia** y el flujo de regalo con tarjeta.
 
+> 🎂 **Lis NO hace tortas personalizadas** (corregido el 9-ago-2026). Sí hace
+> **tortas completas con decoración ESTÁNDAR** en tres sabores —red velvet,
+> chocolate y zanahoria—, bajo encargo y con precio y tiempo que confirma el
+> equipo.
+>
+> Hasta hoy el conocimiento decía que las personalizadas "se preparan por
+> encargo", y el agente le contestó a una clienta que **"¡las tortas
+> personalizadas son nuestra especialidad!"**. No se lo inventó: hizo lo que
+> decían sus datos. La lección se repite — *cuando el dato está mal, el agente
+> no falla: miente con seguridad*. Se corrigieron las **dos** entradas del
+> `kb_entry` y las `escalation_rules`, y se verificó contra el modelo real con
+> `/root/probar-tortas.py`, que además prueba la variante "quiero una torta con
+> foto" (nadie pregunta siempre con la misma palabra).
+
 **Respecto a su bot viejo pierde** el aviso al grupo de WhatsApp (Meta no deja
 escribir en grupos por la API) y los estados de pedido automáticos ("en
 preparación", "despachado"…). **Gana** que se acabaron los cortes de conexión

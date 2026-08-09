@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Check, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -175,6 +175,8 @@ function ServicesSection({
 }
 
 function ServiceRow({ service, onChanged }: { service: Service; onChanged: () => void }) {
+  const [editando, setEditando] = useState(false);
+
   async function archivar(archived: boolean) {
     await fetch(`/api/services/${service.id}`, {
       method: "PATCH",
@@ -182,6 +184,19 @@ function ServiceRow({ service, onChanged }: { service: Service; onChanged: () =>
       body: JSON.stringify({ archived }),
     }).catch(() => null);
     onChanged();
+  }
+
+  if (editando) {
+    return (
+      <ServiceEditor
+        service={service}
+        onCancelar={() => setEditando(false)}
+        onGuardado={() => {
+          setEditando(false);
+          onChanged();
+        }}
+      />
+    );
   }
 
   return (
@@ -195,21 +210,142 @@ function ServiceRow({ service, onChanged }: { service: Service; onChanged: () =>
           ${pesos(service.priceCents)} · {service.durationMin} min
         </p>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => void archivar(!service.archivedAt)}
-      >
-        {service.archivedAt ? (
-          <>
-            <RotateCcw className="h-3.5 w-3.5" /> Reactivar
-          </>
-        ) : (
-          <>
-            <Trash2 className="h-3.5 w-3.5" /> Archivar
-          </>
+      <div className="flex shrink-0 gap-1.5">
+        {!service.archivedAt && (
+          <Button size="sm" variant="outline" onClick={() => setEditando(true)}>
+            <Pencil className="h-3.5 w-3.5" /> Editar
+          </Button>
         )}
-      </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void archivar(!service.archivedAt)}
+        >
+          {service.archivedAt ? (
+            <>
+              <RotateCcw className="h-3.5 w-3.5" /> Reactivar
+            </>
+          ) : (
+            <>
+              <Trash2 className="h-3.5 w-3.5" /> Archivar
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editar un servicio en su sitio (9-ago-2026).
+ *
+ * El servidor ya sabía hacerlo — `PATCH /api/services/[id]` acepta nombre,
+ * categoría, precio y duración — pero la pantalla solo ofrecía archivar, así
+ * que subir un precio obligaba a archivar y recrear el servicio, o a entrar a
+ * la base de datos. Con un cliente se aguanta; con veinticinco negocios
+ * cambiando precios, cada cambio pasaba por la agencia.
+ */
+function ServiceEditor({
+  service,
+  onCancelar,
+  onGuardado,
+}: {
+  service: Service;
+  onCancelar: () => void;
+  onGuardado: () => void;
+}) {
+  const [name, setName] = useState(service.name);
+  const [category, setCategory] = useState(service.category ?? "");
+  const [price, setPrice] = useState(String(Math.round(service.priceCents / 100)));
+  const [duration, setDuration] = useState(String(service.durationMin));
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardar() {
+    const priceCents = Math.round(Number(price) * 100);
+    const durationMin = Number(duration);
+    if (!name.trim()) {
+      setError("El nombre es obligatorio.");
+      return;
+    }
+    if (!Number.isFinite(priceCents) || priceCents < 0) {
+      setError("El precio no es válido.");
+      return;
+    }
+    if (!Number.isInteger(durationMin) || durationMin < 5 || durationMin > 600) {
+      setError("La duración va de 5 a 600 minutos.");
+      return;
+    }
+    setError(null);
+    setGuardando(true);
+    const res = await fetch(`/api/services/${service.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: name.trim(),
+        category: category.trim() || null,
+        priceCents,
+        durationMin,
+      }),
+    }).catch(() => null);
+    setGuardando(false);
+    if (!res?.ok) {
+      setError("No se pudo guardar el cambio.");
+      return;
+    }
+    onGuardado();
+  }
+
+  const cambioDuracion = Number(duration) !== service.durationMin;
+
+  return (
+    <div className="space-y-2 rounded-md border border-primary/40 p-3 text-sm">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input
+          aria-label="Nombre del servicio"
+          placeholder="Nombre"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Input
+          aria-label="Categoría"
+          placeholder="Categoría (opcional)"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        />
+        <Input
+          aria-label="Precio en COP"
+          placeholder="Precio en COP"
+          inputMode="numeric"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+        <Input
+          aria-label="Duración en minutos"
+          placeholder="Duración en minutos"
+          inputMode="numeric"
+          value={duration}
+          onChange={(e) => setDuration(e.target.value)}
+        />
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        El precio nuevo es el que dirá el agente desde ya.{" "}
+        {cambioDuracion
+          ? "Al cambiar la duración, las citas ya agendadas conservan su hora: solo cambia lo que se agende de aquí en adelante."
+          : "Las citas ya agendadas no se mueven."}
+      </p>
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      <div className="flex gap-1.5">
+        <Button size="sm" disabled={guardando} onClick={() => void guardar()}>
+          <Check className="h-3.5 w-3.5" /> {guardando ? "Guardando…" : "Guardar"}
+        </Button>
+        <Button size="sm" variant="outline" disabled={guardando} onClick={onCancelar}>
+          <X className="h-3.5 w-3.5" /> Cancelar
+        </Button>
+      </div>
     </div>
   );
 }

@@ -127,6 +127,23 @@ export type YcloudEvent = {
       originalMessageId?: string;
       message?: { type?: string; text?: { body?: string } };
     };
+    /**
+     * A qué está respondiendo el cliente. Llega de dos formas y la diferencia
+     * importa (medido sobre 489 entrantes reales el 9-ago-2026: 40 de la
+     * primera, 6 de la segunda):
+     *
+     * - **Con `id`**: cita un mensaje concreto del chat. Ese `id` es un wamid
+     *   de los que ya guardamos en `message.wa_message_id`, así que el mensaje
+     *   citado se puede recuperar y ponérselo delante al agente.
+     * - **Sin `id`, solo `from`** (el número del propio negocio): responde a un
+     *   **Estado**. El contenido de la historia NO llega y no hay forma de
+     *   saber qué vio — solo que vio algo nuestro.
+     *
+     * Esto se descartaba entero. El agente recibía "Qué es eso tan ricón?" a
+     * secas y rellenaba el hueco con lo más probable del negocio: le dijo a una
+     * clienta que se refería a los cremosos cuando la historia era de un latte.
+     */
+    context?: { id?: string; from?: string };
   };
 };
 
@@ -145,6 +162,10 @@ export type ParsedInbound = {
   mediaUrl: string | null;
   mediaId: string | null;
   mimeType: string | null;
+  /** wamid del mensaje del chat que el cliente citó, si citó alguno. */
+  replyToWamid: string | null;
+  /** El cliente responde a un Estado del negocio (no llega qué había en él). */
+  respondeAEstado: boolean;
 };
 
 const stripPlus = (n: string) => n.replace(/^\+/, "");
@@ -220,5 +241,8 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
     mediaUrl: media?.link ?? null,
     mediaId: media?.id ?? null,
     mimeType: media?.mime_type ?? media?.mimeType ?? null,
+    replyToWamid: m.context?.id ?? null,
+    // Hay contexto pero sin mensaje que citar: es una respuesta a un Estado.
+    respondeAEstado: Boolean(m.context && !m.context.id),
   };
 }

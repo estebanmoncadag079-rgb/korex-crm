@@ -245,6 +245,10 @@ export async function ingestInboundMessage(
     mediaUrl?: string | null;
     mediaId?: string | null;
     mimeType?: string | null;
+    /** wamid del mensaje del chat que el cliente citó, si citó alguno. */
+    replyToWamid?: string | null;
+    /** Responde a un Estado del negocio: no se sabe qué vio. */
+    respondeAEstado?: boolean;
   },
   opts?: { triggerAgent?: boolean }
 ): Promise<void> {
@@ -276,7 +280,13 @@ export async function ingestInboundMessage(
    * entra en el aprendizaje y en los respaldos.
    */
   const texto = await mediaATexto(input, organizationId);
-  const textoFinal = textoDeMensaje(texto, input.mediaUrl, input.type);
+  const textoPlano = textoDeMensaje(texto, input.mediaUrl, input.type);
+  const textoFinal = conContextoDeRespuesta(textoPlano, {
+    citado: input.replyToWamid
+      ? await textoCitado(organizationId, input.replyToWamid)
+      : null,
+    respondeAEstado: input.respondeAEstado,
+  });
 
   // Idempotencia dura: mismo wa_message_id → sin efectos adicionales.
   const inserted = await db
@@ -382,6 +392,69 @@ export function textoDeMensaje(
   if (texto) return texto;
   if (mediaUrl) return null;
   return `[mensaje no compatible: tipo "${type}", revisa WhatsApp directamente]`;
+}
+
+/**
+ * El texto del mensaje que el cliente citó. Null si no lo tenemos guardado
+ * (una foto sin pie, o algo anterior a que este negocio entrara al CRM).
+ */
+async function textoCitado(
+  organizationId: string,
+  wamid: string
+): Promise<string | null> {
+  try {
+    const filas = await getDb()
+      .select({ text: schema.message.text })
+      .from(schema.message)
+      .where(
+        and(
+          eq(schema.message.organizationId, organizationId),
+          eq(schema.message.waMessageId, wamid)
+        )
+      )
+      .limit(1);
+    return filas[0]?.text ?? null;
+  } catch (err) {
+    console.error("[ingesta] no se pudo leer el mensaje citado:", err);
+    return null;
+  }
+}
+
+/** Recorta la cita para que no se coma el contexto del agente. */
+const LARGO_CITA = 160;
+
+/**
+ * Antepone al mensaje a QUÉ está respondiendo el cliente (9-ago-2026).
+ *
+ * Sigue el mismo patrón que las transcripciones de audio e imagen: el dato
+ * viaja dentro del propio texto, con una marca entre corchetes. Así lo ve el
+ * agente, lo ve quien atiende desde la bandeja, y entra en el aprendizaje y los
+ * respaldos sin tocar el esquema.
+ *
+ * Los dos casos son distintos a propósito:
+ *
+ * - **Citó un mensaje** → se le da el texto citado. Es lo más frecuente (40 de
+ *   489 entrantes medidos) y hasta ahora el agente respondía a ciegas a cosas
+ *   como "¿y este cuánto vale?".
+ * - **Respondió a un Estado** → NO se puede saber qué vio: el contenido de la
+ *   historia no llega en el webhook. Se marca como tal para que el agente
+ *   **no lo adivine**, que es justo lo que hacía: a "Qué es eso tan ricón?" le
+ *   contestó "te refieres a los cremosos, ¿verdad?" cuando la historia era de
+ *   un latte frío.
+ */
+export function conContextoDeRespuesta(
+  texto: string | null,
+  contexto: { citado?: string | null; respondeAEstado?: boolean }
+): string | null {
+  if (contexto.citado) {
+    const cita = contexto.citado.replace(/\s+/g, " ").trim().slice(0, LARGO_CITA);
+    const puntos = contexto.citado.trim().length > LARGO_CITA ? "…" : "";
+    return `[RESPONDE A ESTE MENSAJE TUYO: "${cita}${puntos}"]\n${texto ?? ""}`.trim();
+  }
+  if (contexto.respondeAEstado) {
+    return `[RESPONDE A UNA PUBLICACIÓN DEL NEGOCIO — no sabes qué contenía]\n${texto ?? ""}`.trim();
+  }
+  return texto;
 }
 
 /**

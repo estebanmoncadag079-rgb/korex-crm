@@ -50,6 +50,8 @@ function inbound(over: Partial<ParsedInbound> = {}): ParsedInbound {
     mediaUrl: null,
     mediaId: null,
     mimeType: null,
+    replyToWamid: null,
+    respondeAEstado: false,
     ...over,
   };
 }

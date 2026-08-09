@@ -103,6 +103,8 @@ export async function handleYcloudEvent(
       mediaUrl: msg.mediaUrl,
       mediaId: msg.mediaId,
       mimeType: msg.mimeType,
+      replyToWamid: msg.replyToWamid,
+      respondeAEstado: msg.respondeAEstado,
     },
     { triggerAgent: route.triggerAgent }
   );

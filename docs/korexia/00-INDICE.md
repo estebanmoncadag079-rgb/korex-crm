@@ -53,6 +53,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [38-GUARDARRAILES.md](38-GUARDARRAILES.md) | **Cuando el prompt no basta**: los tres guardarraíles del servidor, por qué existen, cómo se añade uno y cuándo NO conviene |
 | [39-BITACORA-9AGO-TARDE.md](39-BITACORA-9AGO-TARDE.md) | **Historial de la tarde del 9 de agosto**: si Lis sigue siendo rentable en octubre (sí, al 94 %), el costo por llamada en el panel, el chat dentro del Pipeline y el embudo de los que se enfrían |
 | [40-MARKETING-Y-CONTENIDO.md](40-MARKETING-Y-CONTENIDO.md) | **Cómo se promociona korex.ia**: qué se puede prometer y qué no, el guion base de video, los ganchos que salen de datos reales, cómo producirlo gratis y la regla de no mostrar conversaciones de clientes |
+| [41-BITACORA-10-11AGO.md](41-BITACORA-10-11AGO.md) | **Historial del 10 y 11 de agosto**: por qué se sigue con YCloud y no con Meta directo, las dos fechas que hay que anotar (v4 y los 13 días de la coexistencia), y qué pasa si un cliente olvida su contraseña |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -133,7 +134,10 @@ WhatsApp por la API oficial de Meta a través de YCloud. Todo corre en un VPS
 con EasyPanel.
 
 > 🔦 **Si el reporte es "el bot no responde"**, no investigues desde cero:
-> hay **13 causas ya confirmadas con evidencia real**. Las cuatro más
+> hay **13 causas ya confirmadas con evidencia real**, más una que todavía no ha
+> pasado pero está documentada: **la app de WhatsApp Business del cliente debe
+> abrirse una vez cada 13 días** o la coexistencia se cae
+> ([41-BITACORA-10-11AGO.md](41-BITACORA-10-11AGO.md)). Las cuatro más
 > recientes están en [27-VENTA-PERDIDA-JORGE.md](27-VENTA-PERDIDA-JORGE.md) y
 > [24-MENSAJES-UNSUPPORTED.md](24-MENSAJES-UNSUPPORTED.md), y el resumen de
 > todas, en la memoria del asistente. La que más veces ha vuelto, por caminos

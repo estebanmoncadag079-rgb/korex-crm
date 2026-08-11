@@ -457,6 +457,9 @@ function ClientCard({
                 setAccounts((prev) => (prev ? [...prev, account] : [account]));
                 onAccountCreated(cred);
               }}
+              // Un cambio de contraseña no crea cuenta: solo se enseñan las
+              // credenciales nuevas, sin tocar la lista.
+              onPasswordReset={onAccountCreated}
             />
           </>
         )}
@@ -791,11 +794,84 @@ function DeleteClient({
   );
 }
 
+/**
+ * Desbloquea a un cliente que perdió su contraseña.
+ *
+ * No hay recuperación por correo en esta instalación, así que sin este botón la
+ * única salida era entrar al servidor a reemplazar el hash a mano. La
+ * contraseña se genera aquí, se muestra una vez para dictársela, y no queda
+ * escrita en ningún sitio.
+ *
+ * Confirma en dos clics: cambiarla cierra las sesiones abiertas de esa persona,
+ * y si estaba trabajando se queda fuera a media conversación.
+ */
+function ResetPassword({
+  clientId,
+  clientName,
+  account,
+  onReset,
+}: {
+  clientId: string;
+  clientName: string;
+  account: Account;
+  onReset: (cred: { label: string; email: string; password: string }) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    const password = generatePassword();
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/admin/clients/${clientId}/accounts`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accountId: account.id, password }),
+    }).catch(() => null);
+    setSaving(false);
+    setConfirming(false);
+    if (!res?.ok) {
+      const data = (await res?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setError(data?.error?.message ?? "No se pudo cambiar la contraseña");
+      return;
+    }
+    onReset({
+      label: `Nueva contraseña · ${account.name} (${clientName})`,
+      email: account.email,
+      password,
+    });
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {error && <span className="text-xs text-destructive">{error}</span>}
+      <Button
+        variant={confirming ? "destructive" : "outline"}
+        size="sm"
+        disabled={saving}
+        onClick={() => (confirming ? void submit() : setConfirming(true))}
+        onBlur={() => setConfirming(false)}
+      >
+        <KeyRound className="h-3.5 w-3.5" />
+        {saving
+          ? "Cambiando…"
+          : confirming
+            ? "¿Seguro? Se cerrará su sesión"
+            : "Nueva contraseña"}
+      </Button>
+    </div>
+  );
+}
+
 function ClientAccounts({
   clientId,
   clientName,
   accounts,
   onCreated,
+  onPasswordReset,
 }: {
   clientId: string;
   clientName: string;
@@ -804,6 +880,11 @@ function ClientAccounts({
     cred: { label: string; email: string; password: string },
     account: Account
   ) => void;
+  onPasswordReset: (cred: {
+    label: string;
+    email: string;
+    password: string;
+  }) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -853,7 +934,7 @@ function ClientAccounts({
         </p>
       )}
       {accounts?.map((a) => (
-        <div key={a.id} className="flex items-center gap-2 text-sm">
+        <div key={a.id} className="flex flex-wrap items-center gap-2 text-sm">
           <span className="min-w-0 flex-1 truncate">
             {a.name}{" "}
             <span className="text-muted-foreground">· {a.email}</span>
@@ -868,6 +949,16 @@ function ClientAccounts({
                 ? "Propietario"
                 : "Equipo"}
           </Badge>
+          {/* Las cuentas de la agencia no se tocan desde aquí: el servidor
+              también lo rechaza, esto solo evita ofrecer lo que no se puede. */}
+          {!a.isPlatformAdmin && (
+            <ResetPassword
+              clientId={clientId}
+              clientName={clientName}
+              account={a}
+              onReset={onPasswordReset}
+            />
+          )}
         </div>
       ))}
 

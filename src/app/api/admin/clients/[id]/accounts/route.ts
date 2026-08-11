@@ -4,6 +4,7 @@ import { findOrganization, listClientAccounts } from "@/server/admin/clients";
 import {
   createAccountInOrganization,
   ProvisioningError,
+  resetAccountPassword,
 } from "@/server/auth/provisioning";
 
 export const dynamic = "force-dynamic";
@@ -65,4 +66,42 @@ export const POST = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) =
     }
     throw err;
   }
+});
+
+const resetSchema = z.object({
+  accountId: z.string().trim().min(1),
+  password: z.string().min(8).max(128),
+});
+
+/**
+ * Contraseña nueva para una cuenta que perdió la suya.
+ *
+ * La genera el navegador y se muestra una sola vez para dictársela al cliente:
+ * no se guarda en claro en ningún sitio, igual que al dar de alta la cuenta.
+ */
+export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) => {
+  const { id } = await ctx.params;
+  if (!(await findOrganization(id))) {
+    return apiError(404, "not_found", "Cliente no encontrado");
+  }
+  const body = await parseBody(req, resetSchema);
+  if (!body.ok) return body.response;
+
+  const result = await resetAccountPassword({
+    organizationId: id,
+    memberId: body.data.accountId,
+    password: body.data.password,
+  });
+
+  if (!result.ok) {
+    return result.reason === "not_found"
+      ? apiError(404, "not_found", "Esa cuenta no pertenece a este cliente")
+      : apiError(
+          403,
+          "forbidden",
+          "Las cuentas de la agencia no se cambian desde aquí"
+        );
+  }
+
+  return Response.json({ ok: true, email: result.email, name: result.name });
 });

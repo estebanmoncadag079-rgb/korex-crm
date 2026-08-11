@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { getAuth, runInternalSignup } from "@/lib/auth";
@@ -143,6 +143,70 @@ export async function createAccountInOrganization(input: {
     .onConflictDoNothing();
 
   return { userId };
+}
+
+export type ResetPasswordResult =
+  | { ok: true; email: string; name: string }
+  | { ok: false; reason: "not_found" | "is_platform_admin" };
+
+/**
+ * Le pone una contraseña nueva a la cuenta de un cliente que perdió la suya.
+ *
+ * Existe porque no hay ninguna otra salida: el login es correo y contraseña,
+ * **no hay pantalla de "olvidé mi contraseña" ni servidor de correo** en la
+ * instalación, así que hasta hoy un cliente bloqueado dependía de que alguien
+ * entrara al servidor a reemplazarle el hash a mano. Un sábado por la noche,
+ * eso es un negocio sin atender.
+ *
+ * Dos decisiones de seguridad:
+ *
+ * - **Solo cuentas de ese cliente.** El `memberId` se busca junto con su
+ *   `organization_id`: pasar el identificador de una cuenta de otro negocio no
+ *   encuentra nada, en vez de cambiarle la contraseña a un tercero.
+ * - **Nunca a una cuenta de la agencia.** Este botón sirve para desbloquear
+ *   clientes; si alguien llegara a robar una sesión de administrador, que no
+ *   pueda además apoderarse de las cuentas internas.
+ *
+ * Se cierran las sesiones abiertas de esa cuenta: si el motivo real no fue un
+ * olvido sino que alguien se metió, cambiar la clave sin echarlo lo dejaría
+ * dentro.
+ */
+export async function resetAccountPassword(input: {
+  organizationId: string;
+  memberId: string;
+  password: string;
+}): Promise<ResetPasswordResult> {
+  const db = getDb();
+
+  const rows = await db
+    .select({
+      userId: schema.member.userId,
+      email: schema.user.email,
+      name: schema.user.name,
+      platformRole: schema.user.platformRole,
+    })
+    .from(schema.member)
+    .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.member.id, input.memberId),
+        eq(schema.member.organizationId, input.organizationId)
+      )
+    )
+    .limit(1);
+
+  const account = rows[0];
+  if (!account) return { ok: false, reason: "not_found" };
+  if (account.platformRole === "superadmin") {
+    return { ok: false, reason: "is_platform_admin" };
+  }
+
+  const ctx = await getAuth().$context;
+  const hashed = await ctx.password.hash(input.password);
+  await ctx.internalAdapter.updatePassword(account.userId, hashed);
+  await ctx.internalAdapter.deleteUserSessions(account.userId);
+
+  return { ok: true, email: account.email, name: account.name };
 }
 
 /**

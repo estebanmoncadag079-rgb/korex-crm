@@ -30,7 +30,9 @@ export async function cargarConBaseDePruebas() {
   const cola = await import("@/server/ai/cola");
   const rateLimit = await import("@/lib/rate-limit");
   const leads = await import("@/server/inbox/lead-activity");
-  return { ...db, cola, rateLimit, leads };
+  const provisioning = await import("@/server/auth/provisioning");
+  const auth = await import("@/lib/auth");
+  return { ...db, cola, rateLimit, leads, provisioning, auth };
 }
 
 /** Organización + contacto + conversación mínimos para colgar trabajos. */

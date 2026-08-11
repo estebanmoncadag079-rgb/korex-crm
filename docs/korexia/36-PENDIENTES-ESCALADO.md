@@ -238,5 +238,9 @@ catálogo del KB.
   falta un interruptor por etapa, que es cambio de esquema. No autorizado.
 - **El agente no ve reacciones ni stickers** ([24](24-MENSAJES-UNSUPPORTED.md)).
 - **El avatar parte los emojis del nombre** ("Kathe 😜" → `K◆`). Cosmético.
+- **Recuperación de contraseña por correo.** Ya hay botón de "Nueva contraseña"
+  en `/admin` ([10-SEGURIDAD.md](10-SEGURIDAD.md)), pero el cliente sigue
+  dependiendo de avisar a la agencia para desbloquearse. Exige montar envío de
+  correo. Razonable a partir de ~10 clientes.
 - **Vigilar las caídas al modelo de respaldo**: dos llamadas a Sonnet costaron el
   22 % del mes de Lis. Si se vuelven frecuentes, el costo se nota ahí primero.

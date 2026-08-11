@@ -1,6 +1,6 @@
 # Seguridad: auditoría del 31-jul-2026 (con una ronda más el 3-ago-2026)
 
-> **Dentro:** Resumen · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
+> **Dentro:** Resumen · Contraseña olvidada · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
 
 Auditoría completa del código, el historial de git y las dependencias
 (gitleaks + osv-scanner), con cada hallazgo verificado a mano contra este
@@ -162,3 +162,49 @@ pasada (ver arriba).
   a uno que elija el modelo o el cliente. Lo peor que consigue un desconocido
   por WhatsApp es que el agente le cuente el conocimiento **de ese mismo
   negocio**.
+
+---
+
+## Contraseña olvidada: qué pasa y cómo se resuelve (10-ago-2026)
+
+**No hay recuperación por correo, y es una decisión, no un olvido**: el login es
+correo y contraseña, no existe pantalla de "olvidé mi contraseña" y **no hay
+ningún servidor de correo configurado** en toda la instalación (ni SMTP, ni
+Resend, ni nada). La contraseña temporal se entrega a mano al dar de alta la
+cuenta.
+
+Hasta hoy eso dejaba un agujero operativo: un cliente bloqueado dependía de que
+alguien **entrara al servidor a reemplazarle el hash a mano** — y no con un
+`UPDATE` simple, porque Better Auth guarda la contraseña con su propio cifrado.
+Un sábado por la noche, eso es un negocio sin atender.
+
+### La salida: "Nueva contraseña" en `/admin`
+
+En `/admin` → cliente → **Cuentas**, cada cuenta tiene un botón que le genera una
+contraseña nueva. Se muestra **una sola vez** para dictársela, igual que al crear
+la cuenta: no queda escrita en ningún sitio. Confirma en dos clics.
+
+Tres decisiones de seguridad, todas con prueba:
+
+| Regla | Por qué |
+|---|---|
+| Solo cuentas **de ese cliente** | El identificador viaja desde el navegador; se busca junto con su `organization_id`, así que uno ajeno no encuentra nada en vez de cambiarle la contraseña a otro negocio |
+| **Nunca** una cuenta de la agencia | El botón desbloquea clientes. Si alguien robara una sesión de administrador, que no pueda además apoderarse de las cuentas internas |
+| Se **cierran sus sesiones** abiertas | Si el motivo real no fue un olvido sino que alguien se metió, cambiar la clave sin echarlo lo dejaría dentro |
+
+Probado contra Postgres real en `tests/integration/reset-password.test.ts`: lo
+que se verifica no es el hash sino **que se entra con la contraseña nueva y ya no
+con la vieja**.
+
+> ⚠️ Esas pruebas **vacían `rate_limit_hit` antes de cada login**. El límite es
+> de 10 intentos por IP cada 10 minutos (FR-062) y las pruebas hacen muchos más
+> desde la misma máquina: sin eso se bloquean entre ellas y el fallo parece del
+> código cuando es de la prueba.
+
+### Lo que sigue faltando
+
+**Recuperación autónoma por correo.** Con este botón el cliente depende de poder
+avisar a la agencia; con recuperación por correo se desbloquearía solo. Exige
+montar envío de correo (Resend tiene plan gratis) y que el correo de cada cliente
+sea real y lo revise — hoy no está garantizado. Razonable a partir de ~10
+clientes.

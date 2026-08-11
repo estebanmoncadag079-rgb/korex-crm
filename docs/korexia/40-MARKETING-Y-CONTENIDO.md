@@ -2,7 +2,8 @@
 
 > **Dentro:** Por qué esto vive en el repo · ⚠️ Qué se puede prometer y qué no ·
 > El guion base de 45 segundos · Los ganchos que funcionan y por qué · Cómo se
-> produce gratis · La regla que no se salta nunca · El agente que escribe esto
+> produce gratis (los cuatro pasos y los prompts) · La regla que no se salta
+> nunca · El agente que escribe esto
 
 Empezado el **9-ago-2026**, a petición del dueño: *"el éxito también viene
 acompañado de un buen marketing"*.
@@ -76,18 +77,59 @@ pesa más que "más del 30 %".
 
 | Pieza | Herramienta | Plan gratis |
 |---|---|---|
-| Clips generados | **Kling** | 66 créditos diarios, sin marca de agua. Un clip de 5 s gasta 20-30 → 2-3 al día |
+| Clips generados | **Kling** → `https://kling.ai/es` | Créditos que se renuevan a diario. Un clip de 5 s gasta 20-30 |
 | Alternativas | Luma Dream Machine · Pika · Magic Hour | Magic Hour da 400 créditos que no caducan |
-| Voz en off | **ElevenLabs** | 10.000 caracteres/mes (el guion entero son ~700). **Voz latina, no peninsular** |
+| Voz en off | **ElevenLabs** | 10.000 caracteres/mes (el guion entero son ~700 → 14 intentos) |
 | Montaje | **CapCut** | Gratis, vertical, subtítulos automáticos, y su propio texto a voz |
 
-**El orden que ahorra tiempo**: grabar pantallas → generar la voz (así sabes la
-duración real) → pedir los clips con los créditos de cada día → montar al final.
+⚠️ **El dominio bueno es exactamente `kling.ai`** (`klingai.com` es el de China).
+Buscando "Kling" salen revendedores y clones — `kling3.me`, `creen.ai`,
+`easemate.ai`, `pollo.ai`— donde **no hay que meter correo ni tarjeta**.
 
-**No generes con IA lo que puedes grabar.** El chat y el tablero salen mejor con
-captura de pantalla real: es más creíble, no gasta créditos y enseña el producto
-de verdad. Deja la IA para lo que no se puede grabar (la noche, la dueña
-despertando).
+⚠️ **Sin confirmar: la marca de agua del plan gratis de Kling.** Las fuentes se
+contradicen. Comprobarlo con el PRIMER clip, antes de gastar créditos en todos.
+
+❌ **Artlist no sirve** (probado el 9-ago): su prueba gratuita se agota enseguida
+y luego exige suscripción para generar cualquier cosa.
+
+### Los cuatro pasos, en este orden
+
+**1. Grabar las pantallas** (gratis e ilimitado, se hace primero). Cuatro de las
+ocho escenas —el chat respondiendo, el pedido armándose, la nota de voz hecha
+texto, el tablero— salen **mejor con captura real que generadas**: es más
+creíble, no gasta créditos y enseña el producto de verdad.
+
+**2. Generar la voz en off**, y no al final: es lo que dice **cuánto dura el
+video de verdad** y por tanto cuántos clips hacen falta. Voz **latina**, nunca
+peninsular — para Colombia un acento de España resta cercanía.
+
+**3. Pedir los clips a Kling** con los créditos de cada día. Modo **Video**,
+formato **9:16**, 5 segundos. Solo lo que no se puede grabar: son 3, más el
+cierre, que es el logo y se hace en CapCut.
+
+**4. Montar en CapCut**: proyecto 9:16 → el audio primero → los clips encima
+según los tiempos → textos en pantalla → música al 15-20 % con corte seco en la
+escena 3 → exportar en 1080p.
+
+### Los prompts de Kling (en inglés, funcionan mucho mejor)
+
+```
+Dark bedroom at night. Close-up of a smartphone lying face-up on a wooden
+nightstand. The screen suddenly lights up with a message notification, casting
+a soft blue glow across the wall. No people visible. Static camera, shallow
+depth of field, moody cinematic lighting, vertical 9:16
+```
+```
+Warm morning light through a kitchen window. A Latina woman in her 30s picks up
+her phone, reads the screen, her smile fading into quiet frustration. Handheld
+camera, natural light, documentary style, vertical 9:16
+```
+```
+A Latina woman in her 30s working calmly behind the counter of a small bakery,
+arranging pastries in a display case, relaxed and smiling. Her phone rests
+untouched in her apron pocket. Warm inviting light, slow push-in camera,
+documentary style, vertical 9:16
+```
 
 ## 🔴 La regla que no se salta nunca
 

@@ -181,8 +181,25 @@ Un sábado por la noche, eso es un negocio sin atender.
 ### La salida: "Nueva contraseña" en `/admin`
 
 En `/admin` → cliente → **Cuentas**, cada cuenta tiene un botón que le genera una
-contraseña nueva. Se muestra **una sola vez** para dictársela, igual que al crear
-la cuenta: no queda escrita en ningún sitio. Confirma en dos clics.
+contraseña nueva. Sale **pegada a esa cuenta**, con botón de copiar, y se muestra
+**una sola vez**: no queda escrita en ningún sitio. Confirma en dos clics.
+
+> 🔴 **Fallo real el 11-ago-2026, a los tres minutos de estrenarlo.** La
+> contraseña se enseñaba en el recuadro de credenciales del **principio de la
+> página** —el mismo que se usa al crear un cliente—, y desde la lista de cuentas
+> eso queda a media página de distancia. Se le cambió la contraseña a una clienta
+> real de La Churra y **no se vio ninguna**: apareció fuera de la pantalla, no se
+> guarda en ninguna parte, y quedó bloqueada hasta repetir la operación.
+>
+> La lección se generaliza: **el resultado de una acción se enseña donde ocurrió
+> la acción**, y más si es irrecuperable. Se quitó además el `onBlur` que
+> cancelaba la confirmación, porque hacía que un doble clic rápido no enviara
+> nada.
+
+Los campos de contraseña de toda la aplicación llevan **el ojo para verlas**
+(login, cambio de contraseña, alta de cuentas, claves de API y secretos de
+webhook). No es cosmético: aquí las contraseñas se dictan por teléfono, y
+escribir a ciegas hace que una letra mal puesta parezca "no me deja entrar".
 
 Tres decisiones de seguridad, todas con prueba:
 

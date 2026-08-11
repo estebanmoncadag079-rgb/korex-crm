@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Building2,
   CalendarClock,
+  Copy,
   KeyRound,
   LogIn,
   MessageSquare,
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 type Client = {
   id: string;
@@ -457,9 +459,6 @@ function ClientCard({
                 setAccounts((prev) => (prev ? [...prev, account] : [account]));
                 onAccountCreated(cred);
               }}
-              // Un cambio de contraseña no crea cuenta: solo se enseñan las
-              // credenciales nuevas, sin tocar la lista.
-              onPasswordReset={onAccountCreated}
             />
           </>
         )}
@@ -669,18 +668,16 @@ function ClientNumber({
             aporta su cupo de número: no consume ninguno de los tuyos. Déjalo
             vacío para que salga por la cuenta de la agencia.
           </p>
-          <Input
+          <PasswordInput
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="API key del cliente"
-            type="password"
             aria-label="API key de YCloud del cliente"
           />
-          <Input
+          <PasswordInput
             value={webhookSecret}
             onChange={(e) => setWebhookSecret(e.target.value)}
             placeholder="Secreto del webhook (whsec_…)"
-            type="password"
             aria-label="Secreto del webhook de YCloud del cliente"
           />
           <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
@@ -807,18 +804,16 @@ function DeleteClient({
  */
 function ResetPassword({
   clientId,
-  clientName,
   account,
-  onReset,
 }: {
   clientId: string;
-  clientName: string;
   account: Account;
-  onReset: (cred: { label: string; email: string; password: string }) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nueva, setNueva] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
 
   async function submit() {
     const password = generatePassword();
@@ -838,11 +833,46 @@ function ResetPassword({
       setError(data?.error?.message ?? "No se pudo cambiar la contraseña");
       return;
     }
-    onReset({
-      label: `Nueva contraseña · ${account.name} (${clientName})`,
-      email: account.email,
-      password,
-    });
+    setNueva(password);
+    setCopiado(false);
+  }
+
+  async function copiar() {
+    if (!nueva) return;
+    await navigator.clipboard.writeText(nueva).catch(() => null);
+    setCopiado(true);
+  }
+
+  /*
+   * La contraseña se enseña AQUÍ, pegada a la cuenta que acaba de cambiar.
+   *
+   * Antes se mandaba al recuadro de credenciales del principio de la página, el
+   * mismo que se usa al crear un cliente. Ahí tiene sentido —se está mirando
+   * arriba—, pero desde la lista de cuentas queda a media página de distancia:
+   * el 11-ago-2026 se cambió la contraseña de una clienta real de La Churra y
+   * **no se vio ninguna**, porque apareció fuera de la pantalla. La clave no se
+   * guarda en ningún sitio, así que se perdió y hubo que repetirlo.
+   */
+  if (nueva) {
+    return (
+      <div className="flex w-full flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/[0.04] p-2">
+        <span className="text-xs text-muted-foreground">Contraseña nueva:</span>
+        <code className="select-all rounded bg-background px-2 py-1 font-mono text-sm font-semibold">
+          {nueva}
+        </code>
+        <Button variant="outline" size="sm" onClick={() => void copiar()}>
+          <Copy className="h-3.5 w-3.5" />
+          {copiado ? "Copiada" : "Copiar"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setNueva(null)}>
+          Ya la envié
+        </Button>
+        <span className="w-full text-[11px] text-muted-foreground">
+          Dictásela ahora: no queda guardada en ningún sitio y al cerrar esto
+          desaparece.
+        </span>
+      </div>
+    );
   }
 
   return (
@@ -853,7 +883,6 @@ function ResetPassword({
         size="sm"
         disabled={saving}
         onClick={() => (confirming ? void submit() : setConfirming(true))}
-        onBlur={() => setConfirming(false)}
       >
         <KeyRound className="h-3.5 w-3.5" />
         {saving
@@ -871,7 +900,6 @@ function ClientAccounts({
   clientName,
   accounts,
   onCreated,
-  onPasswordReset,
 }: {
   clientId: string;
   clientName: string;
@@ -880,11 +908,6 @@ function ClientAccounts({
     cred: { label: string; email: string; password: string },
     account: Account
   ) => void;
-  onPasswordReset: (cred: {
-    label: string;
-    email: string;
-    password: string;
-  }) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -952,12 +975,7 @@ function ClientAccounts({
           {/* Las cuentas de la agencia no se tocan desde aquí: el servidor
               también lo rechaza, esto solo evita ofrecer lo que no se puede. */}
           {!a.isPlatformAdmin && (
-            <ResetPassword
-              clientId={clientId}
-              clientName={clientName}
-              account={a}
-              onReset={onPasswordReset}
-            />
+            <ResetPassword clientId={clientId} account={a} />
           )}
         </div>
       ))}
@@ -977,7 +995,7 @@ function ClientAccounts({
           aria-label="Correo de la cuenta"
         />
         <div className="flex gap-2">
-          <Input
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Contraseña"

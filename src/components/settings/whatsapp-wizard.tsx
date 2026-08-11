@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 type Connection = {
   wabaId: string;
@@ -232,9 +233,8 @@ function ConnectForm({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="token">Token de acceso</Label>
-          <Input
+          <PasswordInput
             id="token"
-            type="password"
             placeholder={existing ? `Guardado (…${existing.tokenLast4}) — pega uno nuevo para cambiarlo` : "EAAG…"}
             value={token}
             autoComplete="new-password"

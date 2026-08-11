@@ -11,8 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 
 /**
  * Cambio de contraseña. Es el cierre del alta de cuentas: la agencia entrega
@@ -69,9 +69,8 @@ export function AccountClient({ email }: { email: string }) {
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="current-password">Contraseña actual</Label>
-            <Input
+            <PasswordInput
               id="current-password"
-              type="password"
               autoComplete="current-password"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
@@ -79,9 +78,8 @@ export function AccountClient({ email }: { email: string }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="new-password">Contraseña nueva</Label>
-            <Input
+            <PasswordInput
               id="new-password"
-              type="password"
               autoComplete="new-password"
               value={next}
               onChange={(e) => setNext(e.target.value)}
@@ -94,9 +92,8 @@ export function AccountClient({ email }: { email: string }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="repeat-password">Repite la nueva</Label>
-            <Input
+            <PasswordInput
               id="repeat-password"
-              type="password"
               autoComplete="new-password"
               value={repeat}
               onChange={(e) => setRepeat(e.target.value)}

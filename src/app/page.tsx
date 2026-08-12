@@ -1,8 +1,48 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import { KorexMark } from "@/components/korex-mark";
 import { FlowCanvas } from "@/components/landing/flow-canvas";
+
+/**
+ * Metadatos SEO propios de la portada.
+ *
+ * Se definen AQUÍ y no en el layout raíz a propósito: aquel lo comparten la
+ * landing y el CRM, y además saca el nombre de `getBranding()` —la marca
+ * white-label del cliente—, así que su título no es el de un sitio público.
+ *
+ * `canonical` es lo que resuelve el contenido duplicado: la misma aplicación
+ * responde en korexia.online y en crm.korexia.online, y sin esta línea Google
+ * ve dos sitios idénticos y reparte la autoridad entre los dos. Con ella, sabe
+ * que el bueno es korexia.online.
+ */
+export const metadata: Metadata = {
+  metadataBase: new URL("https://korexia.online"),
+  title: "korex.ia — Automatización con IA, webs y apps a medida",
+  description:
+    "Diseñamos automatizaciones con IA, sitios web y aplicaciones a medida " +
+    "para que tu negocio atienda al instante y venda más. Casos reales de " +
+    "empresas que ya automatizan con nosotros.",
+  alternates: { canonical: "https://korexia.online/" },
+  openGraph: {
+    type: "website",
+    url: "https://korexia.online/",
+    siteName: "korex.ia",
+    locale: "es_CO",
+    title: "korex.ia — Automatización con IA, webs y apps a medida",
+    description:
+      "Automatizaciones inteligentes, sitios web y aplicaciones que hacen " +
+      "crecer tu empresa.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "korex.ia — Automatización con IA, webs y apps a medida",
+    description:
+      "Automatizaciones inteligentes, sitios web y aplicaciones que hacen " +
+      "crecer tu empresa.",
+  },
+};
 
 /**
  * Landing pública de korex.ia (ruta `/`).

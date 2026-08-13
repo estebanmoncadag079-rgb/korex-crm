@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Loader2, PartyPopper } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, PartyPopper, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -127,6 +127,141 @@ function Lista({
       >
         + Agregar otro
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Subir la foto de la carta en vez de teclear producto a producto.
+ *
+ * El salón de lashes tiene más de 34 servicios: pedirle a alguien que los
+ * escriba uno a uno es la mejor forma de que abandone el alta.
+ *
+ * ⚠️ **Nada se carga sin revisar.** Lo leído aparece primero en una lista
+ * editable, con el aviso de comprobar los precios. Viene de un incidente real:
+ * el catálogo del salón se cargó a mano con 12 precios equivocados que nadie
+ * detectó hasta que llegó el PDF oficial.
+ */
+function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
+  const [leyendo, setLeyendo] = useState(false);
+  const [productos, setProductos] = useState<
+    { nombre: string; precio: number | null }[] | null
+  >(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function subir(archivo: File) {
+    setError(null);
+    setLeyendo(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const lector = new FileReader();
+        lector.onload = () =>
+          resolve(String(lector.result).split(",")[1] ?? "");
+        lector.onerror = () => reject(new Error("no se pudo leer el archivo"));
+        lector.readAsDataURL(archivo);
+      });
+      const res = await fetch("/api/onboarding/catalogo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ base64, mimeType: archivo.type }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        setError(d?.message ?? "No pudimos leer la foto.");
+        return;
+      }
+      setProductos(d.productos);
+    } catch {
+      setError("No pudimos leer la foto. Puedes escribir tus productos a mano.");
+    } finally {
+      setLeyendo(false);
+    }
+  }
+
+  if (productos) {
+    const sinPrecio = productos.filter((p) => p.precio === null).length;
+    return (
+      <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+        <p className="text-sm font-medium">
+          Encontramos {productos.length} productos. Revísalos antes de continuar
+          — sobre todo los precios.
+        </p>
+        {sinPrecio > 0 ? (
+          <p className="text-[13px] text-amber-800 dark:text-amber-400">
+            ⚠️ {sinPrecio} sin precio: no lo adivinamos, complétalos abajo.
+          </p>
+        ) : null}
+        <div className="max-h-56 overflow-y-auto rounded border bg-background">
+          {productos.map((p, i) => (
+            <div
+              key={i}
+              className="flex justify-between gap-3 border-b px-3 py-1.5 text-[13px] last:border-0"
+            >
+              <span className="truncate">{p.nombre}</span>
+              <span className={p.precio === null ? "text-destructive" : ""}>
+                {p.precio === null
+                  ? "sin precio"
+                  : `$${p.precio.toLocaleString("es-CO")}`}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              onLeido(
+                productos
+                  .map(
+                    (p) =>
+                      `${p.nombre} — ${p.precio === null ? "$ (falta el precio)" : `$${p.precio.toLocaleString("es-CO")}`}`
+                  )
+                  .join("\n")
+              );
+              setProductos(null);
+            }}
+          >
+            Usar esta lista
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setProductos(null)}
+          >
+            Descartar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-dashed p-4">
+      <p className="text-sm font-medium">¿Tienes tu carta en una foto?</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        Súbela y sacamos los productos por ti. Después la revisas y corriges lo
+        que haga falta.
+      </p>
+      <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm hover:bg-accent">
+        <Upload className="h-4 w-4" />
+        {leyendo ? "Leyendo la carta…" : "Subir foto de mi carta"}
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          disabled={leyendo}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void subir(f);
+            e.target.value = "";
+          }}
+        />
+      </label>
+      {error ? (
+        <p className="mt-2 text-[13px] text-destructive">{error}</p>
+      ) : null}
     </div>
   );
 }
@@ -288,9 +423,14 @@ export function OnboardingWizard() {
       subtitulo: "Con esto el asistente arma los pedidos y calcula los totales.",
       contenido: (
         <>
+          <LectorDeCarta
+            onLeido={(texto) =>
+              set({ catalogo: [ficha.catalogo, texto].filter(Boolean).join("\n") })
+            }
+          />
           <Campo
             titulo="Tus productos con su precio, uno por línea"
-            ayuda="Si tienes el menú en PDF o foto, mándanoslo y lo cargamos nosotros."
+            ayuda="Puedes escribirlos, o subir la foto de tu carta aquí arriba y revisar lo que salga."
             ejemplo="Torta de chocolate — $45.000"
           >
             <Textarea

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AprendizajeSection } from "@/components/agent/aprendizaje-section";
+import { EntrenamientoCard } from "@/components/agent/entrenamiento-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -118,6 +119,16 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
           </p>
         </div>
       )}
+
+      {/*
+        La entrada a la configuración inicial, arriba del todo.
+        Se considera "configurado" si ya tiene instrucciones: un negocio recién
+        creado las trae vacías, y ahí es cuando hay que invitarlo a empezar en
+        vez de dejarlo frente a campos técnicos que no le dicen nada.
+      */}
+      <div className="p-4 pb-0 md:p-6 md:pb-0">
+        <EntrenamientoCard configurado={Boolean(profile.instructions?.trim())} />
+      </div>
 
       <div className="grid gap-4 p-4 md:gap-6 md:p-6 lg:grid-cols-2">
         <ProfileSection profile={profile} onSave={saveProfile} />

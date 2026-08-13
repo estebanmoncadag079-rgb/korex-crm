@@ -60,6 +60,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [45-GENERADOR-DE-PROMPTS.md](45-GENERADOR-DE-PROMPTS.md) | 🔑 **El cambio que hace escalable el alta**: separa lo único de cada negocio (la ficha, del cuestionario) de las lecciones que valen para todos (la conducta). Un cliente nuevo **nace inmunizado sin copiar el prompt de nadie**, y un fallo nuevo se corrige una vez para toda la flota |
 | [46-CONFIGURACION-INICIAL.md](46-CONFIGURACION-INICIAL.md) | 🔑 **El cliente arma su propio agente**: 9 etapas en su cuenta, sin que nadie transcriba nada. Cierra "el techo real" del proyecto. Incluye **por qué el prompt lo genera código y no una IA**, y el lector de cartas por foto |
 | [47-FOTOS-DEL-AGENTE.md](47-FOTOS-DEL-AGENTE.md) | **El agente envía la foto del producto que le preguntan** (no álbumes): dónde viven las fotos y por qué en la base, las cuatro degradaciones para que una foto no cueste una conversación, y **los dos fallos que solo aparecieron probando contra el modelo real** |
+| [48-AFINAR-PROMPTS.md](48-AFINAR-PROMPTS.md) | 🔧 **Cómo tocar el prompt de un cliente que factura sin romperlo**: los cinco pasos (respaldar, cambiar, probar, comparar, restaurar) y **por qué La Churra NO se migró al generador** — con la comparación que lo demuestra |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

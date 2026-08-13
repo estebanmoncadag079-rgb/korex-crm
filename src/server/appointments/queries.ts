@@ -22,6 +22,19 @@ import {
 
 const CITAS_ACTIVAS = ["pendiente", "confirmada", "reagendada"] as const;
 
+/**
+ * ¿La base rechazó esto por chocar con otra cita?
+ *
+ * `23P01` es `exclusion_violation`: lo lanza `appointment_sin_solape`
+ * (migración 0018), la restricción que impide que una especialista tenga dos
+ * citas encima. Es la ÚNICA defensa real contra dos peticiones simultáneas —
+ * comprobar la disponibilidad antes de insertar no sirve cuando dos turnos
+ * consultan a la vez.
+ */
+function esSolape(e: unknown): boolean {
+  return typeof e === "object" && e !== null && "code" in e && e.code === "23P01";
+}
+
 export type { ServiceRow } from "./logic";
 export type StaffRow = { id: string; name: string };
 
@@ -476,19 +489,29 @@ export async function crearCita(input: {
   const endsAt = new Date(startsAt.getTime() + input.service.durationMin * 60000);
 
   const db = getDb();
-  const inserted = await db
-    .insert(schema.appointment)
-    .values({
-      id: newId("appointment"),
-      organizationId: input.organizationId,
-      contactId: input.contactId,
-      serviceId: input.service.id,
-      staffId,
-      startsAt,
-      endsAt,
-      status: "pendiente",
-    })
-    .returning();
+  let inserted;
+  try {
+    inserted = await db
+      .insert(schema.appointment)
+      .values({
+        id: newId("appointment"),
+        organizationId: input.organizationId,
+        contactId: input.contactId,
+        serviceId: input.service.id,
+        staffId,
+        startsAt,
+        endsAt,
+        status: "pendiente",
+      })
+      .returning();
+  } catch (e) {
+    // La comprobación de arriba puede quedarse vieja: dos clientas escribiendo
+    // a la vez consultan el mismo hueco libre antes de que ninguna inserte.
+    // Quien pierde la carrera se entera aquí, en la única capa que puede
+    // decidirlo de verdad — y para ella es un "sin cupo" normal y corriente.
+    if (esSolape(e)) return { ok: false, reason: "sin_cupo" };
+    throw e;
+  }
   const row = inserted[0];
   if (!row) throw new Error("No se pudo crear la cita");
 
@@ -573,16 +596,22 @@ export async function reprogramarCita(input: {
   const startsAt = bogotaAUtc(input.nuevaFecha, input.nuevaHora)!;
   const endsAt = new Date(startsAt.getTime() + input.service.durationMin * 60000);
   const db = getDb();
-  await db
-    .update(schema.appointment)
-    .set({ startsAt, endsAt, status: "reagendada", updatedAt: new Date() })
-    .where(
-      scoped(
-        schema.appointment.organizationId,
-        input.organizationId,
-        eq(schema.appointment.id, input.appointmentId)
-      )
-    );
+  try {
+    await db
+      .update(schema.appointment)
+      .set({ startsAt, endsAt, status: "reagendada", updatedAt: new Date() })
+      .where(
+        scoped(
+          schema.appointment.organizationId,
+          input.organizationId,
+          eq(schema.appointment.id, input.appointmentId)
+        )
+      );
+  } catch (e) {
+    // Mover una cita puede perder la misma carrera que crearla.
+    if (esSolape(e)) return { ok: false, reason: "sin_cupo" };
+    throw e;
+  }
   return { ok: true };
 }
 

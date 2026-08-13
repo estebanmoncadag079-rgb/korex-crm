@@ -1,11 +1,18 @@
 # Los guardarraíles del agente: cuando el prompt no basta
 
-> **Dentro:** Por qué existen · Los tres · Cómo se añade uno · Cuándo NO usar
+> **Dentro:** Por qué existen · Los cuatro · Cómo se añade uno · Cuándo NO usar
 > uno · Cómo se prueban
 
-Tres veces se ha intentado corregir una conducta del agente escribiéndola en el
-prompt, tres veces no ha bastado, y tres veces ha terminado comprobándose en el
-servidor. Este documento reúne el patrón para no volver a descubrirlo cada vez.
+Cuatro veces se ha intentado corregir una conducta del agente escribiéndola en
+el prompt, cuatro veces no ha bastado, y cuatro veces ha terminado
+comprobándose en el servidor. Este documento reúne el patrón para no volver a
+descubrirlo cada vez.
+
+> ⚠️ **El cuarto enseñó algo que los otros tres no**: antes de dar por perdido
+> el prompt, hay que **leer cómo está escrito**. Allí la regla estaba bien
+> redactada pero **mal colocada** —dos plantillas pegadas en la misma sección—,
+> y el modelo las concatenaba. Se arregló el prompt y el fallo desapareció; el
+> guardarraíl quedó de red, no de parche. Ver el punto 4.
 
 ## Por qué existen
 
@@ -23,13 +30,14 @@ Todos viven en `server/ai/anuncio-de-cierre.ts` (el nombre se quedó del
 primero) y se aplican en `runAgentTurn`, con la misma forma: detectar → rehacer
 el turno con la corrección delante → comprobar de nuevo.
 
-## Los tres
+## Los cuatro
 
 | Guardarraíl | Qué evita | Si insiste |
 |---|---|---|
 | `anunciaCierre` | Decir que el negocio cerró estando abierto | Lo atiende una persona |
 | `anunciaCitaAgendada` | Confirmar una cita que nadie agendó | Lo atiende una persona |
 | `productosOlvidados` | Que un producto ya pedido desaparezca | Sale como está, se registra |
+| `resumenMalArmado` | Cerrar el pedido antes de que confirmen, o anunciar un resumen vacío | Sale como está, se registra |
 
 **1. El cierre falso** (1-ago-2026). Con el historial real de producción, el
 modelo reprodujo el cierre falso **5 de cada 6 veces**, pese a que el prompt
@@ -49,6 +57,41 @@ Detecta por **medida** (7 oz, 16 oz, 500 ml…) y no por nombre de producto: es
 lo que distingue las variantes que se confunden entre sí y no depende del
 catálogo de cada negocio. Calla si el cliente anuncia un cambio ("mejor", "en
 vez de", "cámbialo"), porque ahí sustituir es lo correcto.
+
+**4. El resumen mal armado** (12-ago-2026). El único que se **midió antes de
+construirlo**, y el que más caro salía. Sobre los 24 resúmenes reales de Lis:
+
+| Fallo | Casos | % |
+|---|---|---|
+| Pide confirmar **y se despide** en el mismo mensaje | 19 | **79 %** |
+| Anuncia un resumen y no escribe ninguno | 3 | 12 % |
+| La Churra (otro prompt) | 0 de 12 | 0 % |
+
+El caro es el primero, por lo que desencadena: el agente da la conversación por
+cerrada antes de tiempo, así que al "confirmo" del cliente **no manda los datos
+de pago**. La dueña los escribe a mano desde el celular → eso activa el relevo
+humano → el relevo **silencia al agente 2 horas**. El bot falla el cierre, la
+dueña interviene, y su intervención apaga al bot. Medido: en 14 días el equipo
+de Lis escribió el **65,6 %** de las respuestas (La Churra, 47,6 %) y hubo
+relevo humano en **53 de 77** conversaciones.
+
+**La causa raíz era del prompt, y ahí se arregló.** Las dos plantillas —la de
+antes de confirmar y la de después— vivían pegadas dentro de la misma sección
+"Resumen y cierre", separadas solo por un párrafo. El modelo las leía como un
+bloque y las concatenaba, quedándose con los extremos y **saltándose el cuerpo,
+que es justo donde están los datos de pago**. Se partieron en `MOMENTO 1` y
+`MOMENTO 2` con un corte explícito ("🛑 AQUÍ TERMINA EL MENSAJE"), y se
+verificó contra el pipeline real que el resumen acaba donde debe y los datos de
+pago salen tras la confirmación.
+
+De paso se subió la visibilidad de la regla del domicilio: iba en `_cursiva_`,
+que WhatsApp pinta más tenue, justo en la línea que no puede pasar desapercibida.
+La dueña la reescribía a mano creyendo que faltaba — **sí se enviaba, no se
+veía**.
+
+El guardarraíl es la **red**: si el prompt cumple, no salta nunca. Se añadió
+igualmente porque el fallo llevaba dos semanas costando pedidos y la clienta ya
+había perdido la confianza en el agente.
 
 ## Cómo se añade uno
 

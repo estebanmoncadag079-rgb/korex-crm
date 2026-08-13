@@ -169,25 +169,79 @@ function Lista({
   );
 }
 
+/** Lo que devuelve el lector de cartas, tal cual: se revisa antes de usarse. */
+type ProductoLeido = {
+  nombre: string;
+  precio: number | null;
+  duracionMin?: number | null;
+  categoria?: string | null;
+};
+
 /**
- * Subir la foto de la carta en vez de teclear producto a producto.
+ * Subir el catálogo —PDF o foto— en vez de teclear producto a producto.
  *
  * El salón de lashes tiene más de 34 servicios: pedirle a alguien que los
  * escriba uno a uno es la mejor forma de que abandone el alta.
+ *
+ * El **PDF** es el caso real: el catálogo de un salón es un documento de diez
+ * páginas, no una foto. Se abre en el navegador (`lib/pdf-cliente.ts`) y solo
+ * viaja su texto — del PDF de 36 MB del salón, 2,9 KB. Decirle a un cliente
+ * *"tómale una foto a tu catálogo de diez páginas"* no era una respuesta.
  *
  * ⚠️ **Nada se carga sin revisar.** Lo leído aparece primero en una lista
  * editable, con el aviso de comprobar los precios. Viene de un incidente real:
  * el catálogo del salón se cargó a mano con 12 precios equivocados que nadie
  * detectó hasta que llegó el PDF oficial.
  */
-function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
+function LectorDeCarta({
+  onLeido,
+  pedirDuracion = false,
+}: {
+  onLeido: (texto: string) => void;
+  /** En citas la duración no es un adorno: de ella depende que no se crucen. */
+  pedirDuracion?: boolean;
+}) {
   const [leyendo, setLeyendo] = useState(false);
-  const [productos, setProductos] = useState<
-    { nombre: string; precio: number | null }[] | null
-  >(null);
+  const [lectura, setLectura] = useState<{
+    productos: ProductoLeido[];
+    texto: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function subir(archivo: File) {
+  const queEs = pedirDuracion ? "servicios" : "productos";
+
+  /**
+   * El PDF se lee aquí, en el navegador: primero su texto (exacto y gratis) y,
+   * si es un escaneo sin capa de texto, se rasteriza la primera página y se
+   * manda al lector de imágenes de siempre. El documento no sale del computador
+   * del cliente.
+   */
+  async function subirPdf(archivo: File) {
+    setError(null);
+    setLeyendo(true);
+    try {
+      const { textoDePdf, primeraPaginaComoPng } = await import("@/lib/pdf-cliente");
+      const leido = await textoDePdf(archivo);
+      if (leido.ok) {
+        await pedirLectura({ texto: leido.texto });
+        return;
+      }
+      const png = await primeraPaginaComoPng(archivo);
+      if (!png) {
+        setError(
+          `No pudimos leer ese PDF. Prueba con una foto, o escribe tus ${queEs} abajo.`
+        );
+        return;
+      }
+      await pedirLectura({ base64: png.base64, mimeType: "image/png" });
+    } catch {
+      setError(`No pudimos leer ese PDF. Puedes escribir tus ${queEs} a mano.`);
+    } finally {
+      setLeyendo(false);
+    }
+  }
+
+  async function subirFoto(archivo: File) {
     setError(null);
     setLeyendo(true);
     try {
@@ -198,35 +252,58 @@ function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
         lector.onerror = () => reject(new Error("no se pudo leer el archivo"));
         lector.readAsDataURL(archivo);
       });
-      const res = await fetch("/api/onboarding/catalogo", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ base64, mimeType: archivo.type }),
-      });
-      const d = await res.json();
-      if (!res.ok) {
-        setError(d?.message ?? "No pudimos leer la foto.");
-        return;
-      }
-      setProductos(d.productos);
+      await pedirLectura({ base64, mimeType: archivo.type });
     } catch {
-      setError("No pudimos leer la foto. Puedes escribir tus productos a mano.");
+      setError(`No pudimos leer la foto. Puedes escribir tus ${queEs} a mano.`);
     } finally {
       setLeyendo(false);
     }
   }
 
-  if (productos) {
+  async function pedirLectura(carga: Record<string, string>) {
+    const res = await fetch("/api/onboarding/catalogo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(carga),
+    });
+    const d = await res.json();
+    if (!res.ok) {
+      setError(d?.message ?? "No pudimos leer la carta.");
+      return;
+    }
+    const productos: ProductoLeido[] = d.productos ?? [];
+    if (!productos.length) {
+      setError(`No encontramos ${queEs} ahí. Puedes escribirlos abajo.`);
+      return;
+    }
+    /*
+     * El texto lo arma el servidor (`catalogoATexto`) y por eso conserva las
+     * categorías y los minutos de cada línea. Rehacerlo aquí como
+     * "nombre — precio" era justo lo que tiraba las duraciones leídas.
+     */
+    setLectura({ productos, texto: d.texto ?? "" });
+  }
+
+  if (lectura) {
+    const { productos } = lectura;
     const sinPrecio = productos.filter((p) => p.precio === null).length;
+    const sinDuracion = productos.filter((p) => !p.duracionMin).length;
     return (
       <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
         <p className="text-sm font-medium">
-          Encontramos {productos.length} productos. Revísalos antes de continuar
-          — sobre todo los precios.
+          Encontramos {productos.length} {queEs}. Revísalos antes de continuar —
+          sobre todo los precios.
         </p>
         {sinPrecio > 0 ? (
           <p className="text-[13px] text-amber-800 dark:text-amber-400">
             ⚠️ {sinPrecio} sin precio: no lo adivinamos, complétalos abajo.
+          </p>
+        ) : null}
+        {pedirDuracion && sinDuracion > 0 ? (
+          <p className="text-[13px] text-amber-800 dark:text-amber-400">
+            ⚠️ {sinDuracion} sin duración. Ponla en la línea (· 90 min) o toma
+            la duración típica de abajo: de ella depende que no se te crucen dos
+            clientas.
           </p>
         ) : null}
         <div className="max-h-56 overflow-y-auto rounded border bg-background">
@@ -235,11 +312,29 @@ function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
               key={i}
               className="flex justify-between gap-3 border-b px-3 py-1.5 text-[13px] last:border-0"
             >
-              <span className="truncate">{p.nombre}</span>
-              <span className={p.precio === null ? "text-destructive" : ""}>
-                {p.precio === null
-                  ? "sin precio"
-                  : `$${p.precio.toLocaleString("es-CO")}`}
+              <span className="truncate">
+                {p.nombre}
+                {p.categoria ? (
+                  <span className="text-muted-foreground"> · {p.categoria}</span>
+                ) : null}
+              </span>
+              <span className="shrink-0">
+                <span className={p.precio === null ? "text-destructive" : ""}>
+                  {p.precio === null
+                    ? "sin precio"
+                    : `$${p.precio.toLocaleString("es-CO")}`}
+                </span>
+                {pedirDuracion ? (
+                  <span
+                    className={
+                      p.duracionMin
+                        ? "text-muted-foreground"
+                        : "text-amber-700 dark:text-amber-400"
+                    }
+                  >
+                    {p.duracionMin ? ` · ${p.duracionMin} min` : " · sin duración"}
+                  </span>
+                ) : null}
               </span>
             </div>
           ))}
@@ -249,15 +344,8 @@ function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
             type="button"
             size="sm"
             onClick={() => {
-              onLeido(
-                productos
-                  .map(
-                    (p) =>
-                      `${p.nombre} — ${p.precio === null ? "$ (falta el precio)" : `$${p.precio.toLocaleString("es-CO")}`}`
-                  )
-                  .join("\n")
-              );
-              setProductos(null);
+              onLeido(lectura.texto);
+              setLectura(null);
             }}
           >
             Usar esta lista
@@ -266,7 +354,7 @@ function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => setProductos(null)}
+            onClick={() => setLectura(null)}
           >
             Descartar
           </Button>
@@ -277,22 +365,29 @@ function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
 
   return (
     <div className="rounded-md border border-dashed p-4">
-      <p className="text-sm font-medium">¿Tienes tu carta en una foto?</p>
+      <p className="text-sm font-medium">
+        ¿Tienes tu {pedirDuracion ? "catálogo" : "carta"} en un PDF o una foto?
+      </p>
       <p className="mt-1 text-[13px] text-muted-foreground">
-        Súbela y sacamos los productos por ti. Después la revisas y corriges lo
-        que haga falta.
+        Súbelo y sacamos los {queEs} por ti. Después los revisas y corriges lo
+        que haga falta. El archivo no sale de tu computador.
       </p>
       <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm hover:bg-accent">
         <Upload className="h-4 w-4" />
-        {leyendo ? "Leyendo la carta…" : "Subir foto de mi carta"}
+        {leyendo ? "Leyendo…" : "Subir mi PDF o foto"}
         <input
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf,.pdf"
           className="hidden"
           disabled={leyendo}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void subir(f);
+            if (f) {
+              const esPdf =
+                f.type === "application/pdf" ||
+                f.name.toLowerCase().endsWith(".pdf");
+              void (esPdf ? subirPdf(f) : subirFoto(f));
+            }
             e.target.value = "";
           }}
         />
@@ -636,7 +731,7 @@ export function OnboardingWizard() {
           />
           <Campo
             titulo="Tus productos con su precio, uno por línea"
-            ayuda="Puedes escribirlos, o subir la foto de tu carta aquí arriba y revisar lo que salga."
+            ayuda="Puedes escribirlos, o subir el PDF o la foto de tu carta aquí arriba y revisar lo que salga."
             ejemplo="Torta de chocolate — $45.000"
           >
             <Textarea
@@ -667,13 +762,14 @@ export function OnboardingWizard() {
       contenido: (
         <>
           <LectorDeCarta
+            pedirDuracion
             onLeido={(texto) =>
               set({ catalogo: [ficha.catalogo, texto].filter(Boolean).join("\n") })
             }
           />
           <Campo
             titulo="Tus servicios con su precio, uno por línea"
-            ayuda="Puedes escribirlos, o subir la foto de tu lista aquí arriba. Si agrupas con títulos (PESTAÑAS, CEJAS…), se guardan como categorías. Si sabes cuánto dura alguno, ponlo en la misma línea."
+            ayuda="Puedes escribirlos, o subir el PDF o la foto de tu catálogo aquí arriba. Si agrupas con títulos (PESTAÑAS, CEJAS…), se guardan como categorías. Si sabes cuánto dura alguno, ponlo en la misma línea."
             ejemplo="Volumen ruso — $150.000 · 180 min"
           >
             <Textarea

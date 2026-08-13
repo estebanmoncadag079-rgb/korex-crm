@@ -197,14 +197,38 @@ export async function extraerCatalogoDeTexto(
  * Los productos, en el formato de texto que espera la ficha ("Nombre — $12.000").
  *
  * Se separa de la extracción para poder probarla sin llamar a ningún modelo.
+ *
+ * Cuando la carta trae **categorías**, se escriben como título en MAYÚSCULAS
+ * sobre su grupo: es exactamente lo que `leerCatalogoPegado` vuelve a leer al
+ * aplicar la ficha, así que la agrupación del catálogo del salón (Pestañas pelo
+ * a pelo, Volumen tecnológico, Retoques…) sobrevive el viaje. Sin categorías la
+ * salida es la de siempre, una línea por producto.
  */
 export function catalogoATexto(productos: ProductoExtraido[]): string {
-  return productos
-    .map((p) => {
-      const precio =
-        p.precio === null ? "$ (falta el precio)" : `$${p.precio.toLocaleString("es-CO")}`;
-      const duracion = p.duracionMin ? ` · ${p.duracionMin} min` : "";
-      return `${p.nombre} — ${precio}${duracion}`;
+  const linea = (p: ProductoExtraido) => {
+    const precio =
+      p.precio === null ? "$ (falta el precio)" : `$${p.precio.toLocaleString("es-CO")}`;
+    const duracion = p.duracionMin ? ` · ${p.duracionMin} min` : "";
+    return `${p.nombre} — ${precio}${duracion}`;
+  };
+
+  if (!productos.some((p) => p.categoria?.trim())) {
+    return productos.map(linea).join("\n");
+  }
+
+  // `Map` y no un objeto: conserva el orden en que aparecen en la carta, que es
+  // el que el negocio eligió. Los que no traen categoría van al final, juntos.
+  const grupos = new Map<string, ProductoExtraido[]>();
+  for (const p of productos) {
+    const clave = p.categoria?.trim() || "";
+    grupos.set(clave, [...(grupos.get(clave) ?? []), p]);
+  }
+
+  return [...grupos.entries()]
+    .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : 0))
+    .map(([categoria, suyos]) => {
+      const cuerpo = suyos.map(linea).join("\n");
+      return categoria ? `${categoria.toUpperCase()}\n${cuerpo}` : cuerpo;
     })
-    .join("\n");
+    .join("\n\n");
 }

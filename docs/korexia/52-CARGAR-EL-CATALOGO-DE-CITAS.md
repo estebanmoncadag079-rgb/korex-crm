@@ -56,6 +56,30 @@ Está en **la pantalla de Servicios** (arriba y a todo lo ancho, porque es lo
 primero que necesita un salón nuevo) y en **el alta**: el asistente ya no oculta
 el paso, muestra "Tus servicios" y al aplicar la ficha los crea.
 
+### El alta se quedó atrás medio día
+
+La primera versión conectó el PDF **solo a la pantalla de Servicios**. En el
+alta, el lector seguía con `accept="image/*"`: al cliente que llegaba con su
+catálogo en PDF el selector de archivos ni se lo dejaba elegir, y la ayuda le
+decía *"sube la foto de tu lista"*. Se vio en cuanto alguien intentó dar de alta
+a Lashen Valen — que es exactamente el caso para el que se construyó todo esto.
+
+Peor que eso, y silencioso: al pulsar **"Usar esta lista"** el alta rehacía el
+texto como `nombre — $precio` y **tiraba los minutos y las categorías** que el
+modelo acababa de leer. Los servicios entraban todos con la duración típica; un
+volumen ruso de 180 minutos quedaba de 60 sin que nada lo avisara.
+
+Ahora el alta usa el `texto` que ya arma el servidor (`catalogoATexto`), que
+conserva ambas cosas: los minutos en la línea y la categoría como título en
+MAYÚSCULAS — que es justo lo que `leerCatalogoPegado` vuelve a leer al aplicar
+la ficha. El viaje completo (PDF → ficha → servicios creados) está cubierto por
+una prueba de ida y vuelta, porque el fallo no estaba en ninguna de las dos
+piezas sino en la costura entre ellas.
+
+Y en la etapa de citas la lista de revisión marca **cuántos vienen sin
+duración**, con el mismo criterio que en Servicios: en un negocio de citas la
+duración no es un adorno.
+
 ## El PDF, que era el caso real
 
 El catálogo de Lashen Valen es **un PDF de 36 MB y diez páginas**, y el

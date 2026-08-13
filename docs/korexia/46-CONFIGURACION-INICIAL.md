@@ -116,10 +116,42 @@ seguidos**:
   del mismo dato harían que el agente respondiera cosas distintas a la misma
   pregunta.
 
+## El menú: solo texto, decidido a propósito (12-ago-2026)
+
+Se planteó que el cliente subiera su menú en PDF o foto y que **el bot enviara
+la imagen** por WhatsApp. Se evaluó y **se decidió dejarlo en texto por ahora**.
+
+Lo que hay hoy, medido en el código:
+
+| | |
+|---|---|
+| Enviar texto y plantillas | ✅ `ycloudSendText`, `ycloudSendTemplate` |
+| Enviar imágenes o PDF | ❌ no existe |
+| Almacenamiento propio de archivos | ❌ no hay (los medios entrantes viven en YCloud y caducan a los 30 días) |
+
+Por eso Lis manda **un enlace** a su carta con fotos. Y un detalle que conviene
+recordar el día que se retome: su prompt ya tiene un *"PLAN B si el enlace no le
+abre"*, o sea que **ya se sabe que a algunos clientes no les abre**.
+
+**Qué haría falta para enviar imágenes**, si algún día se decide:
+
+1. `ycloudSendImage` en el cliente de YCloud (WhatsApp lo permite).
+2. **Dónde alojar el archivo**: Meta descarga la imagen desde una URL pública,
+   así que hay que servirla de algún sitio — el disco del VPS (simple, pero hay
+   que respaldarlo) o un almacenamiento tipo R2 (cuesta).
+3. Una acción del agente para decidir cuándo mandarla.
+
+**Recomendación anotada para entonces**: el valor no está en mandar el menú
+completo como foto —veinte productos en una imagen se leen peor que en una
+web— sino en la **foto de un producto concreto** cuando el cliente pregunta por
+él. Ahí la imagen sí le gana al enlace.
+
 ## Qué falta
 
 - **Enlazarlo desde el alta**: cuando se crea la cuenta de un cliente, mandarle
   el enlace directo. Hoy hay que decírselo.
+- **Campo para el enlace de la carta**: la ficha no lo tiene, y es lo que usa
+  Lis hoy. Es el paso barato antes de plantearse imágenes.
 - **El catálogo por archivo**: el cliente escribe sus productos a mano. Sigue
   pendiente el importador con verificación
   ([36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md)).

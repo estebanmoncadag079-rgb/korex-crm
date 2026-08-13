@@ -11,6 +11,11 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 20_000,
   },
+  // El JSX lo transpila esbuild, y por defecto usa el runtime clásico
+  // (`React.createElement`), que estos módulos no importan porque Next usa el
+  // automático. Sin esta línea, cualquier prueba que renderice un componente
+  // falla con "React is not defined" aunque el componente esté perfecto.
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

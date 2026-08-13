@@ -114,6 +114,23 @@ de un cliente.
 > Estando en modo impersonación el CRM **sigue pintándose** con el color del
 > cliente, y eso es lo correcto: es lo que ve él.
 
+### El panel de agencia, aparte
+
+Lo anterior dejaba un caso raro: `/admin` es la lista de **todos** los clientes,
+pero se vestía con el color de aquel en el que estuvieras dentro. Se resolvió
+con un `layout.tsx` propio del segmento que redefine los mismos tokens con la
+marca de korex.ia. Al ir después en el documento gana en la cascada —sin
+`!important` y sin JavaScript— y, como son variables heredadas, repinta la
+pantalla entera mientras se está ahí, barra lateral incluida.
+
+Verificado con una prueba que **renderiza el layout** y comprueba el CSS que
+emite (`tests/unit/marca-agencia.test.ts`), no grepeando el bundle. Para que
+corriera hizo falta añadir `esbuild: { jsx: "automatic" }` a `vitest.config.ts`:
+esbuild transpilaba el JSX con el runtime clásico (`React.createElement`), que
+estos módulos no importan porque Next usa el automático, y **cualquier** prueba
+que renderizara un componente moría con "React is not defined". Ya no: el repo
+puede probar componentes.
+
 ---
 
 ## Lo que se probó

@@ -10,11 +10,18 @@ export const dynamic = "force-dynamic";
  * menú, el horario y las reglas del negocio es su dueño. Antes esto era un Word
  * que alguien de la agencia transcribía a mano, y esa transcripción era el
  * cuello de botella que impedía crecer.
+ *
+ * ⚠️ **`h-full overflow-y-auto` no es decorativo**: el armazón de `(app)` es
+ * `overflow-hidden` y cada pantalla hace su propio scroll. Sin esto, el
+ * formulario se corta por abajo y **los botones de Atrás/Siguiente quedan fuera
+ * de la vista** — el cliente ve las preguntas y no puede avanzar. Pasó en la
+ * primera versión. `pb-10` deja aire bajo el último botón, que si no queda
+ * pegado al borde.
  */
 export default async function ConfiguracionInicialPage() {
   await requireSession();
   return (
-    <div className="p-6">
+    <div className="h-full overflow-y-auto p-4 pb-10 md:p-6 md:pb-12">
       <div className="mx-auto mb-6 max-w-2xl">
         <h1 className="text-2xl font-semibold tracking-tight">
           Cuéntanos sobre tu negocio

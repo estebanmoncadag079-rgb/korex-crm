@@ -17,6 +17,7 @@ const prefixes = {
   testRun: "run",
   testCase: "case",
   usage: "use",
+  mediaAsset: "med",
   learning: "lrn",
   service: "svc",
   staffMember: "stf",

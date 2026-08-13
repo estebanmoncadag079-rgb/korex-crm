@@ -6,7 +6,12 @@ import { getEnv, isAiConfigured } from "@/lib/env";
 import { chatJson, type ChatMessage } from "@/lib/ai";
 import { publish } from "@/server/events/bus";
 import { isWindowOpen } from "@/server/inbox/window";
-import { SendError, sendText } from "@/server/inbox/send";
+import { SendError, sendImage, sendText } from "@/server/inbox/send";
+import {
+  fotoPorEtiqueta,
+  fotosDeLaOrganizacion,
+  urlPublicaDeFoto,
+} from "@/server/ai/fotos";
 import { serializeMessage } from "@/server/inbox/ingest";
 import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
@@ -162,6 +167,9 @@ export function textosAlCliente(action: AgentActionType): string[] {
       return [action.text];
     case "update_lead":
     case "move_stage":
+    // El pie de foto es texto que lee el cliente, así que pasa por los
+    // guardarraíles igual que cualquier respuesta.
+    case "send_image":
       return action.reply ? [action.reply] : [];
     case "handoff":
       return action.farewell ? [action.farewell] : [];
@@ -455,6 +463,14 @@ export async function runAgentTurn(
     .where(eq(schema.contact.id, conversation.contactId))
     .limit(1);
 
+  /*
+   * Las fotos que este negocio tiene cargadas. La mayoría no tiene ninguna, y
+   * entonces no se escribe ni una línea sobre fotos en el prompt: cada token se
+   * paga en CADA mensaje, y un agente sin fotos no debe leer instrucciones
+   * sobre cómo mandarlas.
+   */
+  const fotos = await fotosDeLaOrganizacion(organizationId);
+
   // El estado se calcula UNA vez y sirve para dos cosas: curar el historial que
   // ve el agente y comprobar después lo que quiere responder.
   const hours: BusinessHours = {
@@ -483,6 +499,7 @@ export async function runAgentTurn(
         contact: contactRows[0],
         now: opts?.now,
         appointments: profile.appointmentsEnabled ? { catalog: services } : undefined,
+        fotos,
       }),
     },
     ...toChatHistory(history, estado),
@@ -757,6 +774,29 @@ export async function runAgentTurn(
     case "update_lead": {
       await appendLeadNote(organizationId, conversation.contactId, action.note);
       if (action.reply) await deliverReply(conversation, action.reply);
+      return action;
+    }
+    /*
+     * Mandar la foto que pidió el cliente.
+     *
+     * Se degrada a texto en TRES casos, y ninguno deja al cliente sin
+     * respuesta: si la foto no existe, si no se puede construir una URL
+     * pública (falta `PUBLIC_MEDIA_BASE_URL`), o si el envío falla. Una foto
+     * es un extra; quedarse mudo, no.
+     */
+    case "send_image": {
+      const foto = await fotoPorEtiqueta(organizationId, action.etiqueta);
+      const url = foto ? urlPublicaDeFoto(foto.id) : null;
+
+      if (!foto || !url) {
+        console.warn(
+          `[agente] no se pudo mandar la foto "${action.etiqueta}" (${!foto ? "no existe" : "sin URL pública"}); se responde con texto`
+        );
+        if (action.reply) await deliverReply(conversation, action.reply);
+        return action;
+      }
+
+      await deliverImage(conversation, url, action.reply);
       return action;
     }
     case "handoff": {
@@ -1092,6 +1132,37 @@ async function deliverReply(
       reason: "error",
       teamSummary: AVISO_EQUIPO_ENVIO_FALLIDO,
     });
+  }
+}
+
+/**
+ * Manda una foto con su pie. Si falla, cae a texto y sigue.
+ *
+ * A diferencia de `deliverReply`, un fallo aquí **no deriva a una persona**: la
+ * foto es un complemento, y sacar a un humano porque una imagen no salió sería
+ * peor remedio que la enfermedad. Se registra y el cliente recibe el texto.
+ */
+async function deliverImage(
+  conversation: Conversation,
+  url: string,
+  pie?: string
+): Promise<void> {
+  // En una conversación de prueba no se toca WhatsApp: queda el rastro escrito.
+  if (conversation.isTest) {
+    await persistTestOutbound(conversation, `[foto: ${url}]${pie ? `\n${pie}` : ""}`);
+    return;
+  }
+  try {
+    await sendImage({
+      conversationId: conversation.id,
+      organizationId: conversation.organizationId,
+      link: url,
+      caption: pie,
+      aiGenerated: true,
+    });
+  } catch (err) {
+    console.warn("[agente] falló el envío de la foto; se responde con texto:", err);
+    if (pie) await deliverReply(conversation, pie);
   }
 }
 

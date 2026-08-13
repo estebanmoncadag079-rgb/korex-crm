@@ -814,3 +814,54 @@ export const rateLimitHit = pgTable(
   },
   (t) => [index("rate_limit_key_at_idx").on(t.key, t.at)]
 );
+
+/**
+ * Fotos que el agente puede ENVIAR: la de un producto, la carta, el local.
+ *
+ * **Por qué en la base y no en disco**: el contenedor del CRM no tiene ningún
+ * volumen montado, así que todo lo que escriba dentro se borra en cada
+ * despliegue. Guardarlas aquí las hace sobrevivir y, sobre todo, **las mete en
+ * el respaldo de cada 6 h sin tocar nada** — a diferencia de un disco, que
+ * habría que respaldar aparte y nadie se acordaría hasta perderlo.
+ *
+ * Los `bytes` van en base64 y no en `bytea` porque es lo que hay que mandarle a
+ * WhatsApp y al modelo de visión: guardarlo ya en ese formato evita convertir
+ * en cada envío.
+ *
+ * **Escala**: una foto optimizada pesa ~200 KB; un salón con 46 servicios son
+ * ~9 MB, y la base entera pesa 16 MB. Con 100 clientes habría que mudarlas a un
+ * almacenamiento externo, pero la interfaz (`/api/media/[id]`) no cambiaría.
+ */
+export const mediaAsset = pgTable(
+  "media_asset",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    /**
+     * Para qué sirve la foto:
+     * `producto` — se manda cuando preguntan por ese artículo concreto.
+     * `carta`    — el menú completo, para quien pide "el menú".
+     * `otro`     — el local, el equipo, lo que el negocio quiera.
+     */
+    kind: text("kind", { enum: ["producto", "carta", "otro"] }).notNull(),
+    /**
+     * Con qué se relaciona, en palabras del negocio ("Volumen Ruso").
+     * Es lo que el agente compara para decidir qué foto mandar, así que se
+     * guarda tal como el cliente nombra sus productos.
+     */
+    etiqueta: text("etiqueta").notNull(),
+    mimeType: text("mime_type").notNull(),
+    /** La imagen en base64, sin el prefijo `data:`. */
+    datos: text("datos").notNull(),
+    /** Bytes reales del archivo, para poder medir sin descodificar. */
+    tamano: integer("tamano").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("media_org_idx").on(t.organizationId),
+    // Un negocio no debe tener dos fotos para lo mismo: subir otra reemplaza.
+    uniqueIndex("media_org_etiqueta_uq").on(t.organizationId, t.etiqueta),
+  ]
+);

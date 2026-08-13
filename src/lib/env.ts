@@ -17,6 +17,25 @@ const envSchema = z.object({
    * ser la URL interna y el usuario entra por el dominio.
    */
   APP_TRUSTED_ORIGINS: z.string().optional(),
+  /**
+   * URL pública desde la que se sirven las fotos que el agente envía.
+   *
+   * Existe aparte de `APP_BASE_URL` por un motivo concreto: en producción
+   * aquella apunta a la dirección INTERNA (`http://2.25.159.117:3987`), que le
+   * sirve a la app pero no a Meta — al enviar una imagen por WhatsApp no se
+   * manda el archivo, se manda una URL que **Meta descarga desde sus
+   * servidores**, y solo acepta `https` público.
+   *
+   * Se dejó como variable nueva en vez de corregir `APP_BASE_URL` para no
+   * tocar de paso el login: Better Auth la usa como `baseURL`, y un cambio ahí
+   * se paga con todos los clientes fuera de su cuenta.
+   *
+   * Si no se configura, el agente **no manda fotos y responde con texto**.
+   * Nunca rompe una conversación por esto.
+   *
+   * Valor esperado en producción: `https://crm.korexia.online`
+   */
+  PUBLIC_MEDIA_BASE_URL: z.string().url().optional(),
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(16),
   ENCRYPTION_KEY: z

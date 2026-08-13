@@ -33,6 +33,26 @@ export const AgentAction = z.discriminatedUnion("action", [
     farewell: z.string().optional(),
   }),
   /**
+   * Mandar una foto que el negocio tiene cargada: la de un producto, su carta,
+   * el local.
+   *
+   * Existe porque hay respuestas que el texto no da bien. Un catálogo de 30
+   * servicios escrito en un mensaje de WhatsApp no lo lee nadie, y a "¿cómo se
+   * ve el Volumen Ruso?" se responde con la foto del Volumen Ruso.
+   *
+   * `etiqueta` es como el negocio nombró esa foto al subirla. El servidor la
+   * busca entre las suyas y **si no existe degrada a `reply`**: el agente
+   * contesta con texto en vez de prometer una imagen que no puede mandar. Es
+   * el mismo criterio de los guardarraíles — comprobar el hecho, no confiar en
+   * la intención.
+   */
+  z.object({
+    action: z.literal("send_image"),
+    etiqueta: z.string().min(1),
+    /** El pie de foto. Va en la misma burbuja que la imagen, no aparte. */
+    reply: z.string().optional(),
+  }),
+  /**
    * Vertical de citas (solo orgs con agent_profile.appointmentsEnabled).
    *
    * `consult_availability` es una acción INTERNA: nunca llega al cliente. El

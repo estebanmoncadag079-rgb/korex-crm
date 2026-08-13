@@ -497,6 +497,33 @@ function recordatorioDelEstado(profile: AgentProfile, now: Date = new Date()): s
   return `RECORDATORIO FINAL — EL NEGOCIO AÚN NO ABRE HOY: abre a las ${horaApertura}, faltan ${faltan} minutos. Tienes PROHIBIDO decir "ya cerramos" o reagendar para mañana: eso espanta a un cliente que puede comer HOY. Dile a qué hora abren, tómale el pedido y confírmale que se lo preparan apenas abran.`;
 }
 
+/**
+ * Las fotos que el negocio tiene cargadas, para que el agente sepa qué puede
+ * mandar. Sin esta lista jamás usaría `send_image`: no puede adivinar qué hay.
+ *
+ * La instrucción pesa tanto como la lista. El objetivo NO es que empiece a
+ * mandar fotos, es que sea **preciso**: la del Volumen Ruso cuando preguntan
+ * por el Volumen Ruso. Un agente que contesta con tres imágenes a cada pregunta
+ * molesta más que uno que solo escribe.
+ */
+function fotosDisponibles(
+  fotos: { etiqueta: string; kind: string }[] | undefined
+): string | null {
+  if (!fotos || fotos.length === 0) return null;
+  return [
+    "FOTOS QUE PUEDES ENVIAR (acción `send_image`, con la etiqueta EXACTA):",
+    fotos.map((f) => `- "${f.etiqueta}" (${f.kind})`).join("\n"),
+    "",
+    "CUÁNDO: cuando el cliente pregunte por algo que tiene foto, o cuando",
+    "enseñarlo valga más que describirlo (un catálogo largo, cómo se ve un",
+    "producto). En `reply` va el pie, que se lee junto a la imagen.",
+    "",
+    "CUÁNDO NO: no mandes fotos porque sí, ni varias seguidas, ni una foto para",
+    "algo que se responde en una línea. Si la etiqueta que necesitas NO está en",
+    "esta lista, esa foto no existe: responde con texto y no la prometas.",
+  ].join("\n");
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
@@ -505,6 +532,8 @@ export function buildAgentSystemPrompt(input: {
   now?: Date;
   /** Presente = esta organización tiene el vertical de citas encendido. */
   appointments?: { catalog: CatalogEntry[] };
+  /** Fotos cargadas por el negocio. Vacío o ausente = no puede mandar ninguna. */
+  fotos?: { etiqueta: string; kind: string }[];
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -530,6 +559,7 @@ export function buildAgentSystemPrompt(input: {
         )
       : null,
     `Etapas del pipeline disponibles: ${stageNames}`,
+    fotosDisponibles(input.fotos),
     CONTRATO_DE_ACCIONES,
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { graphRequest, resolveRecipient } from "@/lib/meta/client";
-import { isYcloudEnabled, ycloudSendText } from "@/lib/ycloud/client";
+import { isYcloudEnabled, ycloudSendImage, ycloudSendText } from "@/lib/ycloud/client";
 import { publish } from "@/server/events/bus";
 import { registrarUsoWhatsapp } from "@/server/usage";
 import { getCredentialsByOrg, type Credentials } from "@/server/whatsapp/credentials";
@@ -221,4 +221,137 @@ export async function callGraphSend(
       (code, message) => new SendError(code, message)
     );
   }
+}
+
+/**
+ * Envía una FOTO con su pie de texto.
+ *
+ * Paralela a `sendText` y con sus mismas guardas (conversación de prueba,
+ * ventana de 24 h, credenciales, destinatario por teléfono o por BSUID). Se
+ * escribió aparte en vez de refactorizar `sendText` a propósito: aquella es la
+ * ruta por la que sale CADA respuesta a CADA cliente, y tocarla para añadir un
+ * caso nuevo es arriesgar lo que ya funciona por comodidad.
+ *
+ * **Solo por YCloud.** El camino de Meta directo (`callGraphSend`) no se
+ * implementa porque ningún cliente lo usa hoy; si alguno vuelve, saltará este
+ * error en vez de mandar algo a medias.
+ */
+export async function sendImage(input: {
+  conversationId: string;
+  organizationId: string;
+  /** URL pública https. Meta la descarga desde ahí. */
+  link: string;
+  caption?: string;
+  aiGenerated?: boolean;
+}): Promise<SendResult> {
+  const db = getDb();
+
+  const rows = await db
+    .select({ conversation: schema.conversation, contact: schema.contact })
+    .from(schema.conversation)
+    .innerJoin(schema.contact, eq(schema.conversation.contactId, schema.contact.id))
+    .where(eq(schema.conversation.id, input.conversationId))
+    .limit(1);
+  const row = rows[0];
+  if (!row || row.conversation.organizationId !== input.organizationId) {
+    throw new SendError("meta_error", "Conversación no encontrada");
+  }
+
+  // Misma aserción dura que en sendText (FR-031): una conversación del
+  // Laboratorio jamás llega a la API real.
+  if (row.conversation.isTest) {
+    throw new SendError(
+      "sandbox_violation",
+      "Conversación de prueba del Laboratorio: el envío real está prohibido"
+    );
+  }
+  if (!isWindowOpen(row.conversation.lastInboundAt)) {
+    throw new SendError(
+      "window_closed",
+      "La ventana de 24 horas está cerrada; usa una plantilla aprobada"
+    );
+  }
+
+  const credentials = await getCredentialsByOrg(input.organizationId);
+  if (!credentials) {
+    throw new SendError("not_connected", "No hay número de WhatsApp conectado");
+  }
+  if (credentials.status === "reconnect_required") {
+    throw new SendError(
+      "reconnect_required",
+      "El token de WhatsApp expiró: reconecta el número en Configuración"
+    );
+  }
+
+  const to = resolveRecipient(row.contact);
+  if (!to) {
+    throw new SendError(
+      "meta_error",
+      "El contacto no tiene teléfono ni identificador de WhatsApp"
+    );
+  }
+
+  const clientApiKey = ycloudApiKeyOf(credentials);
+  if (!clientApiKey && !isYcloudEnabled()) {
+    throw new SendError(
+      "meta_error",
+      "El envío de fotos solo está disponible por YCloud"
+    );
+  }
+
+  let waMessageId: string;
+  try {
+    waMessageId = await ycloudSendImage({
+      from: credentials.displayPhoneNumber ?? "",
+      to,
+      link: input.link,
+      caption: input.caption,
+      apiKey: clientApiKey,
+    });
+  } catch (err) {
+    throw new SendError(
+      "meta_error",
+      err instanceof Error ? err.message : "Error enviando la foto por YCloud"
+    );
+  }
+
+  const inserted = await db
+    .insert(schema.message)
+    .values({
+      id: newId("message"),
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      waMessageId,
+      direction: "out",
+      type: "image",
+      // El pie queda como texto del mensaje para que la bandeja muestre algo
+      // legible: una fila vacía con "image" no le dice nada a quien la lee.
+      text: input.caption ?? "[foto]",
+      mediaUrl: input.link,
+      status: "pending",
+      aiGenerated: input.aiGenerated ?? false,
+    })
+    .returning();
+  const message = inserted[0]!;
+
+  await registrarUsoWhatsapp({
+    organizationId: input.organizationId,
+    tipo: "image",
+    ref: waMessageId,
+  });
+
+  await db
+    .update(schema.conversation)
+    .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.conversation.id, input.conversationId));
+
+  publish(input.organizationId, {
+    type: "message.new",
+    data: {
+      conversationId: input.conversationId,
+      message: serializeMessage(message),
+    },
+  });
+
+  return { messageId: message.id };
 }

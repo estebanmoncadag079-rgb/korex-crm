@@ -96,6 +96,47 @@ export async function ycloudSendText(input: {
 }
 
 /**
+ * Envía una imagen: la foto de un producto, la carta, el local.
+ *
+ * **Se manda una URL, no el archivo**: Meta la descarga desde sus servidores,
+ * así que tiene que ser pública y accesible desde internet. Por eso las fotos
+ * se sirven en `/api/media/[id]` sin sesión — ver la nota de esa ruta.
+ *
+ * `caption` es el texto que va debajo de la imagen, en la misma burbuja. Se usa
+ * en vez de mandar un mensaje aparte: dos burbujas seguidas del negocio se leen
+ * como spam, y en WhatsApp una foto con su pie es un solo mensaje.
+ */
+export async function ycloudSendImage(input: {
+  from: string;
+  to: RecipientTarget;
+  /** URL pública de la imagen. Meta la descarga desde ahí. */
+  link: string;
+  caption?: string;
+  apiKey?: string | null;
+}): Promise<string> {
+  const key = resolveApiKey(input.apiKey);
+  if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
+  if (!/^https:\/\//i.test(input.link)) {
+    // Meta rechaza http y no descarga de localhost. Fallar aquí con un mensaje
+    // claro es mejor que un 400 opaco de YCloud a mitad de una conversación.
+    throw new Error(`La imagen debe estar en una URL https pública: ${input.link}`);
+  }
+
+  return sendDirectly(
+    {
+      from: input.from,
+      ...recipientField(input.to),
+      type: "image",
+      image: {
+        link: input.link,
+        ...(input.caption ? { caption: input.caption } : {}),
+      },
+    },
+    key
+  );
+}
+
+/**
  * Esperas entre reintentos de un fallo pasajero. Cortas a propósito: el
  * cliente está esperando la respuesta del negocio en WhatsApp, y un reintento
  * tardío se parece cada vez más a un mensaje duplicado.

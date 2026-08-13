@@ -1,107 +1,54 @@
 import { eq } from "drizzle-orm";
-import { apiError, withAuth } from "@/lib/api";
-import { getDb, schema } from "@/lib/db";
-import { scoped } from "@/lib/db/tenant";
-import { getYcloudApiKey } from "@/server/whatsapp/credentials";
-import { esOrigenPermitido } from "@/server/whatsapp/media-origen";
+import { getDb } from "@/lib/db";
+import * as schema from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-/** Tipos que el navegador puede mostrar en línea sin riesgo. */
-const INLINE_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "audio/mpeg",
-  "audio/ogg",
-  "audio/mp4",
-  "video/mp4",
-]);
-
 /**
- * Sirve el adjunto de un mensaje (el comprobante de pago, sobre todo).
+ * Sirve una foto guardada, para que WhatsApp pueda descargarla.
  *
- * El enlace del proveedor exige la API key de la cuenta, así que la descarga
- * ocurre AQUÍ: al navegador solo llega el archivo. El mensaje se busca con
- * `scoped`, de modo que un negocio jamás puede pedir el adjunto de otro
- * cambiando el id en la URL.
+ * ⚠️ **Esta ruta es PÚBLICA, y tiene que serlo**: al enviar una imagen por la
+ * API de WhatsApp no se manda el archivo, se manda una URL que **Meta descarga
+ * desde sus servidores**. Meta no tiene sesión ni cookies, así que cualquier
+ * protección por login dejaría al cliente sin ver la foto.
+ *
+ * Qué la protege entonces:
+ *
+ *  - **El id es un `nanoid` aleatorio**, no un número correlativo: no se puede
+ *    recorrer el catálogo de nadie probando `/api/media/1`, `/2`, `/3`.
+ *  - **Solo hay aquí lo que el negocio quiere enseñar**: fotos de sus productos
+ *    y su carta. Nada de comprobantes de pago ni de imágenes de clientes, que
+ *    siguen viviendo en YCloud y no pasan por esta tabla.
+ *
+ * Dicho de otro modo: es tan pública como la foto de un menú pegada en la
+ * puerta del local. Lo que NO debe entrar aquí nunca es nada privado.
  */
-export const GET = withAuth(async (session, _req: Request, ctx: Ctx) => {
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
   const { id } = await ctx.params;
   const db = getDb();
-  const rows = await db
+  const filas = await db
     .select({
-      mediaUrl: schema.message.mediaUrl,
-      mimeType: schema.message.mimeType,
+      mimeType: schema.mediaAsset.mimeType,
+      datos: schema.mediaAsset.datos,
     })
-    .from(schema.message)
-    .where(
-      scoped(
-        schema.message.organizationId,
-        session.organizationId,
-        eq(schema.message.id, id)
-      )
-    )
+    .from(schema.mediaAsset)
+    .where(eq(schema.mediaAsset.id, id))
     .limit(1);
 
-  const message = rows[0];
-  if (!message?.mediaUrl) {
-    return apiError(404, "not_found", "Ese mensaje no tiene archivo adjunto");
-  }
+  const foto = filas[0];
+  if (!foto) return new Response("No encontrada", { status: 404 });
 
-  if (!esOrigenPermitido(message.mediaUrl)) {
-    // Se registra: si esto salta, alguien está colando URLs en los eventos.
-    console.warn(
-      `[media] descarga BLOQUEADA a un origen no permitido (mensaje ${id})`
-    );
-    return apiError(
-      400,
-      "invalid",
-      "El archivo apunta a un origen no permitido"
-    );
-  }
-
-  // El adjunto vive en la cuenta de YCloud por la que entró el mensaje: la del
-  // propio cliente si trajo la suya, si no la de la agencia.
-  const apiKey = await getYcloudApiKey(session.organizationId);
-  let upstream: Response;
-  try {
-    upstream = await fetch(message.mediaUrl, {
-      headers: apiKey ? { "X-API-Key": apiKey } : undefined,
-    });
-  } catch {
-    return apiError(502, "unavailable", "No se pudo descargar el archivo");
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    // WhatsApp conserva los adjuntos un tiempo limitado; pasado ese plazo el
-    // enlace muere y no hay forma de recuperarlo.
-    return apiError(
-      upstream.status === 404 ? 410 : 502,
-      "unavailable",
-      upstream.status === 404
-        ? "El archivo ya no está disponible en WhatsApp (caducó)"
-        : "No se pudo descargar el archivo"
-    );
-  }
-
-  const contentType =
-    upstream.headers.get("content-type") ||
-    message.mimeType ||
-    "application/octet-stream";
-
-  return new Response(upstream.body, {
+  const bytes = Buffer.from(foto.datos, "base64");
+  return new Response(new Uint8Array(bytes), {
     headers: {
-      "content-type": contentType,
-      "content-disposition": INLINE_TYPES.has(contentType.split(";")[0]!.trim())
-        ? "inline"
-        : "attachment",
-      // Privado: es contenido de un cliente, jamás en cachés compartidas.
-      "cache-control": "private, max-age=3600",
+      "Content-Type": foto.mimeType,
+      "Content-Length": String(bytes.length),
+      // Un año: la foto de un producto no cambia, y si cambia se sube otra con
+      // id nuevo. Que Meta y los navegadores la cacheen ahorra descargas.
+      "Cache-Control": "public, max-age=31536000, immutable",
     },
   });
-});
+}

@@ -55,6 +55,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [40-MARKETING-Y-CONTENIDO.md](40-MARKETING-Y-CONTENIDO.md) | **Cómo se promociona korex.ia**: qué se puede prometer y qué no, el guion base de video, los ganchos que salen de datos reales, cómo producirlo gratis y la regla de no mostrar conversaciones de clientes |
 | [41-BITACORA-10-11AGO.md](41-BITACORA-10-11AGO.md) | **Historial del 10 y 11 de agosto**: por qué se sigue con YCloud y no con Meta directo, las dos fechas que hay que anotar (v4 y los 13 días de la coexistencia), y qué pasa si un cliente olvida su contraseña |
 | [42-DOMINIO-SUSPENDIDO.md](42-DOMINIO-SUSPENDIDO.md) | 🔴 **23 h sin que ningún bot respondiera, con todo el servidor sano**: Hostinger suspendió el dominio por la verificación de ICANN. Por qué el monitor no se enteró, y **el chequeo externo que se le añadió** (nameservers, DNS, HTTPS, certificado, vencimiento) |
+| [43-SEO-Y-GOOGLE.md](43-SEO-Y-GOOGLE.md) | **Que a korex.ia la encuentren en Google**: el `Disallow: /` que le prohibía entrar, el robots dinámico que abre la portada sin exponer el CRM, Search Console, el perfil de empresa y la cuenta de demostración "Studio Bella" |
+| [44-BITACORA-12AGO.md](44-BITACORA-12AGO.md) | **Historial del 12 de agosto**: el dominio suspendido, el SEO, y **la cadena que rompía el bot de Lis** (79 % de los pedidos sin datos de pago) — con la lección de que era el prompt y no el modelo |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
@@ -126,6 +128,16 @@ los mensajes en octubre —el costo que pesa es el fijo, no Meta—, el panel de
 consumo muestra ahora el **costo por llamada**, la conversación se abre **dentro
 del Pipeline** y las tarjetas que llevan **2 días sin respuesta bajan solas a
 "Por recuperar"** (49 se movieron al desplegar).
+
+El **12 de agosto** ([44-BITACORA-12AGO.md](44-BITACORA-12AGO.md)) hubo dos
+incidentes de fondo, y **ninguno estaba donde parecía**: el dominio suspendido
+por Hostinger dejó **23 h sin servicio** con todo el servidor sano (el fallo
+estaba *fuera* del servidor), y el bot de Lis llevaba dos semanas cerrando el
+**79 % de los pedidos sin mandar los datos de pago** — por dos plantillas
+pegadas en su prompt, no por el modelo. De ahí salieron el **chequeo externo
+del monitor**, el **cuarto guardarraíl** y la apertura del sitio a Google
+([43-SEO-Y-GOOGLE.md](43-SEO-Y-GOOGLE.md)), que hasta ese día le prohibía
+entrar con un `Disallow: /`.
 
 **Empieza por [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md)** si
 retomas el proyecto: reúne **todo lo pendiente ordenado por riesgo e impacto

@@ -12,11 +12,16 @@ import { DEFAULT_BRANDING } from "@/lib/branding";
  * esta pantalla —que es la lista de TODOS los clientes— se vestía con el color
  * del último negocio en el que se hubiera entrado.
  */
+/**
+ * `children` va como argumento de `createElement`, no como prop: la regla
+ * `react/no-children-prop` de eslint lo exige y aquí da igual, porque este
+ * layout solo envuelve lo que reciba.
+ */
+const render = () => renderToStaticMarkup(createElement(AdminLayout, null, null));
+
 describe("marca del panel de agencia", () => {
   it("redefine el acento con el de la agencia, no con el del cliente activo", () => {
-    const html = renderToStaticMarkup(
-      createElement(AdminLayout, { children: null })
-    );
+    const html = render();
 
     expect(html).toContain(`--accent:${DEFAULT_BRANDING.accent}`);
     // Los tokens derivados también, o los botones quedarían a medio pintar.
@@ -27,9 +32,7 @@ describe("marca del panel de agencia", () => {
   });
 
   it("no deja colarse el rosa de Lis, que es lo que se veía", () => {
-    const html = renderToStaticMarkup(
-      createElement(AdminLayout, { children: null })
-    );
+    const html = render();
 
     expect(html).not.toContain("#e91e8c");
   });

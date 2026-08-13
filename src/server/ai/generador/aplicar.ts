@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
+import { normalizarHora } from "@/lib/hora";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 import { generarPerfil } from "./generar";
 
@@ -117,10 +118,13 @@ export async function aplicarFicha(
         escalationRules: perfil.escalationRules,
         greeting: perfil.greeting,
         hoursDays: ficha.horario.dias.join(","),
-        hoursOpen: ficha.horario.abre,
-        hoursClose: ficha.horario.cierra,
-        hoursOpenSunday: ficha.horario.abreDomingo ?? null,
-        hoursCloseSunday: ficha.horario.cierraDomingo ?? null,
+        // Se guarda YA normalizado a "HH:MM": el cliente escribe "9 AM" y el
+        // motor de citas necesita "09:00". Guardar el texto crudo dejaba la
+        // agenda sin un solo hueco, en silencio (ver `lib/hora.ts`).
+        hoursOpen: normalizarHora(ficha.horario.abre) ?? ficha.horario.abre,
+        hoursClose: normalizarHora(ficha.horario.cierra) ?? ficha.horario.cierra,
+        hoursOpenSunday: normalizarHora(ficha.horario.abreDomingo) ?? null,
+        hoursCloseSunday: normalizarHora(ficha.horario.cierraDomingo) ?? null,
         // Vacío es una decisión válida y hay que poder expresarla: Lis pidió
         // expresamente que no se avisara a ningún número, ni al suyo.
         notifyPhones: (opciones?.telefonosDeAviso ?? []).join(",") || null,

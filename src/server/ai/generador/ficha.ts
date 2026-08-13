@@ -17,6 +17,8 @@
  * domicilios no debe tener ni una línea sobre domicilios.
  */
 
+import { normalizarHora } from "@/lib/hora";
+
 /** Cómo entrega el negocio lo que vende. */
 export type Entrega = {
   /** ¿Hace domicilios? Si es `false`, el resto de este bloque se ignora. */
@@ -158,7 +160,19 @@ export function faltantesDeLaFicha(ficha: Partial<FichaDelNegocio>): string[] {
   if (!ficha.queVende?.trim()) faltan.push("qué vende o qué servicio ofrece");
   if (!ficha.tono?.trim()) faltan.push("el tono con el que habla");
   if (!ficha.horario?.dias?.length) faltan.push("los días que atiende");
-  if (!ficha.horario?.abre || !ficha.horario?.cierra) faltan.push("el horario");
+  if (!ficha.horario?.abre || !ficha.horario?.cierra) {
+    faltan.push("el horario");
+  } else if (
+    // Una hora que el servidor no sabe leer es peor que no tenerla: con las
+    // citas encendidas, la agenda queda vacía de huecos y el agente rechaza
+    // clientes creyendo que está llena. Pasó con "9 AM" el 13-ago-2026.
+    !normalizarHora(ficha.horario.abre) ||
+    !normalizarHora(ficha.horario.cierra)
+  ) {
+    faltan.push(
+      `el horario en un formato legible (llegó "${ficha.horario.abre}" a "${ficha.horario.cierra}"; se espera "09:00", "9 AM" o similar)`
+    );
+  }
 
   if (ficha.vertical === "pedidos" && !ficha.catalogo?.trim()) {
     faltan.push("el catálogo con precios");

@@ -1,4 +1,11 @@
-import { CIERRE, ESTILO, meta, NO_ENCAJA, NUNCA } from "./conducta";
+import {
+  CIERRE,
+  CIERRE_CITAS,
+  ESTILO,
+  meta,
+  NO_ENCAJA,
+  NUNCA,
+} from "./conducta";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 
 /**
@@ -91,6 +98,10 @@ function comoRecibe(ficha: FichaDelNegocio): string | null {
 /** Cómo le pagan. */
 function comoPagan(ficha: FichaDelNegocio): string {
   const { pago } = ficha;
+  // Un salón no tiene "pedidos" que dejar en firme, tiene citas. El vocabulario
+  // de pedidos colándose en el vertical de citas ya se había visto en las
+  // pruebas del 7-ago-2026 ("gracias por tu compra" en un salón de belleza).
+  const loQueSeDejaEnFirme = ficha.vertical === "citas" ? "la cita" : "el pedido";
   return bloques(
     "## Cómo te pagan",
     `Formas de pago: ${pago.formas.trim()}`,
@@ -98,7 +109,7 @@ function comoPagan(ficha: FichaDelNegocio): string {
       ? `Datos para el pago (cópialos TAL CUAL, sin cambiar ni un dígito, y solo DESPUÉS de que confirme):\n${pago.datosDeCuenta.trim()}`
       : null,
     pago.compruebaUnaPersona
-      ? "Pídele la foto del comprobante para dejar el pedido en firme. **Tú nunca das un pago por bueno**: lo revisa una persona del equipo."
+      ? `Pídele la foto del comprobante para dejar ${loQueSeDejaEnFirme} en firme. **Tú nunca das un pago por bueno**: lo revisa una persona del equipo.`
       : null
   );
 }
@@ -119,13 +130,21 @@ export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
   }
 
   const instructions = bloques(
-    `Eres la voz de **${ficha.nombre}**${ficha.ubicacion?.trim() ? ` (${ficha.ubicacion.trim()})` : ""} en WhatsApp. ${ficha.queVende.trim()}`,
+    // `trim` en el nombre porque el del cuestionario suele venir con un espacio
+    // al final, y ahí se convierte en "**Lashen Valen **": el asterisco queda
+    // separado y WhatsApp deja de pintarlo en negrita.
+    `Eres la voz de **${ficha.nombre.trim()}**${ficha.ubicacion?.trim() ? ` (${ficha.ubicacion.trim()})` : ""} en WhatsApp. ${ficha.queVende.trim()}`,
     ESTILO,
     `**El tono de este negocio:** ${ficha.tono.trim()}`,
     meta(ficha.vertical),
-    "# Lo que ofreces y cómo se recibe",
+    ficha.vertical === "citas"
+      ? "# Lo que ofreces y cómo te pagan"
+      : "# Lo que ofreces y cómo se recibe",
     queOfrece(ficha),
-    comoRecibe(ficha),
+    // En un salón no hay nada que entregar: el bloque de domicilios acababa
+    // diciéndole "no hacemos domicilios, ofrécele recoger" a quien viene a que
+    // le hagan las pestañas.
+    ficha.vertical === "citas" ? null : comoRecibe(ficha),
     comoPagan(ficha),
     ficha.regalos?.trim()
       ? bloques(
@@ -140,7 +159,7 @@ export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
     vinetas(ficha.reglasPropias)
       ? `## Reglas propias de este negocio\n\n${vinetas(ficha.reglasPropias)}`
       : null,
-    CIERRE,
+    ficha.vertical === "citas" ? CIERRE_CITAS : CIERRE,
     NUNCA,
     NO_ENCAJA,
     // Lo propio del negocio se añade al final del bloque universal, no lo

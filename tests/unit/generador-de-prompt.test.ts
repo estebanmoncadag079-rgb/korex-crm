@@ -200,6 +200,40 @@ describe("se adapta al negocio sin dejar huecos", () => {
     expect(p.instructions).not.toContain("## Lo que vendes");
   });
 
+  /**
+   * 13-ago-2026. El salón nació con el ritual de PEDIDOS completo: hablaba de
+   * `notify_order`, de "en la cocina no se entera nadie", del "total con la
+   * cifra" y de domicilios — en un negocio donde solo hay que agendar.
+   * `meta(vertical)` distinguía los dos mundos; el cierre, no.
+   */
+  it("un negocio de citas no hereda el cierre de pedidos", () => {
+    const salon: FichaDelNegocio = {
+      ...LIS,
+      nombre: "Studio Bella",
+      vertical: "citas",
+      catalogo: undefined,
+      queVende: "Pestañas, cejas y uñas.",
+    };
+    const p = generarPerfil(salon);
+
+    expect(p.instructions).toMatch(/Cómo se cierra una cita/i);
+    expect(p.instructions).toMatch(/nunca la inventes/i);
+
+    expect(p.instructions).not.toContain("notify_order");
+    expect(p.instructions).not.toContain("en la cocina no se entera nadie");
+    expect(p.instructions).not.toMatch(/MOMENTO 2/);
+    // Ni domicilios ni "ofrécele recoger" a quien viene a que le hagan las uñas.
+    expect(p.instructions).not.toMatch(/domicilio/i);
+    expect(p.instructions).not.toMatch(/ofrécele recoger/i);
+  });
+
+  it("un negocio de pedidos conserva su cierre de siempre", () => {
+    const p = generarPerfil(LIS);
+    expect(p.instructions).toContain("notify_order");
+    expect(p.instructions).toMatch(/MOMENTO 1/);
+    expect(p.instructions).not.toMatch(/Cómo se cierra una cita/i);
+  });
+
   it("sin saludo propio, genera uno con el nombre del negocio", () => {
     const p = generarPerfil({ ...LIS, saludoInicial: undefined });
     expect(p.greeting).toContain("Lis Pastelería");

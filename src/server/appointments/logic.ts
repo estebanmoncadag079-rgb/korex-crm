@@ -10,6 +10,8 @@
  * que haga la aritmética de fechas él mismo (ver docs/korexia/04-AGENTE-IA.md).
  */
 
+import { horaAMinutos } from "@/lib/hora";
+
 const BUSINESS_TIMEZONE = "America/Bogota";
 
 export type ServiceRow = {
@@ -133,9 +135,14 @@ export function encontrarCitaActiva<T extends { id: string; serviceName: string 
 
 // ─── fechas y horas ──────────────────────────────────────────────────────
 
-export function horaAMin(hhmm: string): number {
-  const [h, m] = hhmm.split(":");
-  return Number(h ?? 0) * 60 + Number(m ?? 0);
+/**
+ * Minutos desde medianoche, o `null` si la hora no se entiende.
+ *
+ * Devolvía `NaN` en silencio para cualquier cosa que no fuera `HH:MM`, y un
+ * `NaN` aquí vacía la agenda entera sin que nada lo delate. Ver `lib/hora.ts`.
+ */
+export function horaAMin(hhmm: string): number | null {
+  return horaAMinutos(hhmm);
 }
 
 export function minAHora(min: number): string {
@@ -329,6 +336,16 @@ export function calcularDisponibilidad(input: {
   if (!input.hours.open || !input.hours.close) return {};
   const open = horaAMin(input.hours.open);
   const close = horaAMin(input.hours.close);
+  // Un horario que no se entiende no puede pasar por "sin huecos": es
+  // indistinguible de una agenda llena, y así se rechazaron citas durante dos
+  // días con el salón vacío. Sin huecos que ofrecer no hay nada que hacer, pero
+  // que quede dicho en el log en vez de fingir normalidad.
+  if (open === null || close === null) {
+    console.warn(
+      `[citas] horario ilegible (abre "${input.hours.open}", cierra "${input.hours.close}"): no se puede calcular disponibilidad`
+    );
+    return {};
+  }
   const corte = input.esHoy
     ? Math.ceil((input.minutosAhoraSiEsHoy ?? 0) / 30) * 30
     : 0;

@@ -179,6 +179,35 @@ describe("Bogotá ⇄ UTC (Bogotá es UTC-5 fijo, sin horario de verano)", () =>
 describe("calcularDisponibilidad", () => {
   const HOURS = { open: "09:00", close: "17:00", days: "1,2,3,4,5,6,7" };
 
+  /**
+   * 13-ago-2026: el salón tenía su horario escrito "9 AM"/"8 PM". `Number("9
+   * AM")` es NaN, la ventana del día salía NaN y no se generaba ni un hueco:
+   * durante dos días el agente rechazó todas las citas —"ese día está full"—
+   * con la agenda vacía, sin un solo error en ningún log.
+   */
+  it("entiende el horario escrito como lo escribe una persona", () => {
+    const disp = calcularDisponibilidad({
+      staffIds: ["laura"],
+      citas: [],
+      duracionMin: 60,
+      hours: { open: "9 AM", close: "5 PM", days: "1,2,3,4,5,6,7" },
+      esHoy: false,
+    });
+    expect(disp["09:00"]).toEqual(["laura"]);
+    expect(disp["16:00"]).toEqual(["laura"]);
+  });
+
+  it("con un horario ilegible no ofrece nada, pero tampoco revienta", () => {
+    const disp = calcularDisponibilidad({
+      staffIds: ["laura"],
+      citas: [],
+      duracionMin: 60,
+      hours: { open: "por la mañana", close: "tardecito", days: "1,2,3" },
+      esHoy: false,
+    });
+    expect(disp).toEqual({});
+  });
+
   it("sin citas, ofrece la grilla completa de 30 min que le cabe al servicio", () => {
     const disp = calcularDisponibilidad({
       staffIds: ["laura"],

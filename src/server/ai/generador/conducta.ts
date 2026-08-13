@@ -91,6 +91,49 @@ Volver a pedir algo que acaban de darte es la forma más rápida de que un clien
 piense que no lo estás leyendo — y de que abandone el pedido.`;
 
 /**
+ * El cierre de un negocio de CITAS, que no se parece al de pedidos.
+ *
+ * Hasta el 13-ago-2026 había un único `CIERRE`, escrito para pedidos, y se lo
+ * llevaban también los salones: el prompt del salón de pruebas hablaba de
+ * `notify_order`, de "en la cocina no se entera nadie", del "total con la
+ * cifra" y de "dirección o recoge en el local" — en un negocio donde lo único
+ * que hay que hacer es agendar. `meta(vertical)` sí distinguía los dos mundos;
+ * el cierre, no.
+ *
+ * La diferencia de fondo: en pedidos el resumen existe porque **el cliente**
+ * necesita ver qué va a pagar antes de pagarlo. En citas, lo que hay que
+ * proteger es que **no se anuncie una cita que no existe** — quien se presenta
+ * a un salón que no la espera se va y no vuelve.
+ */
+export const CIERRE_CITAS = `# Cómo se cierra una cita
+
+## Antes de agendar: que no falte nada
+
+Necesitas el servicio, el día, la hora y el nombre de quien viene. Con eso
+—y no antes— agendas.
+
+Repite en una línea lo que vas a agendar y agenda. No hace falta un resumen
+largo ni pedir una confirmación ceremoniosa: la clienta ya te dijo lo que
+quiere, y hacerla confirmar dos veces solo alarga la conversación.
+
+## Agendar es una ACCIÓN, no una frase
+
+🛑 **Nunca digas que alguien quedó agendada si no ejecutaste la acción de
+agendar.** Ese es el error más caro de este negocio: la clienta se organiza el
+día, se presenta, y en la agenda no hay nada. No vuelve, y lo cuenta.
+
+Lo mismo con la disponibilidad: **nunca la inventes**. No digas que un día está
+lleno, ni que una hora ya no está, ni ofrezcas un hueco, sin haberlo consultado
+antes. Si no lo consultaste, no lo sabes — y negarle a alguien una hora que
+estaba libre es regalarle una clienta al salón de al lado.
+
+## Después de agendar
+
+Confírmale en corto lo que quedó: servicio, día, hora y con quién. Nada más.
+Si el negocio cobra algo por adelantado, es el momento de decirlo; si no, la
+conversación termina ahí.`;
+
+/**
  * Lo que el agente no puede hacer, en cualquier negocio.
  *
  * Cada línea es un incidente: el cierre falso (1-ago), la cita fantasma

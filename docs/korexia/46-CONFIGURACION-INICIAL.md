@@ -116,7 +116,45 @@ seguidos**:
   del mismo dato harían que el agente respondiera cosas distintas a la misma
   pregunta.
 
-## El menú: solo texto, decidido a propósito (12-ago-2026)
+## Lo que se añadió el 13-ago
+
+**El lector de cartas.** En la etapa 3, el cliente sube una **foto de su carta**
+y se extraen los productos con sus precios, en vez de teclearlos uno a uno. Lo
+pidió el dueño con el caso que no admite discusión: el salón tiene **más de 34
+servicios**. Y ya había costado dinero — el catálogo del salón se cargó a mano
+con **12 precios equivocados** que nadie detectó hasta que llegó el PDF oficial
+([32-CATALOGO-SALON.md](32-CATALOGO-SALON.md)).
+
+No hizo falta infraestructura: **el modelo de producción ya lee imágenes** (es
+lo que hace con los comprobantes) y su propio prompt ya mencionaba "la carta con
+precios" como caso previsto. La imagen se procesa y **se descarta**: no se
+guarda nada.
+
+> ⚠️ **Nada entra al catálogo sin que un humano lo vea.** Lo extraído aparece en
+> una lista con el aviso de comprobar los precios y dos botones, *Usar* o
+> *Descartar*. Los que salgan sin precio se marcan en rojo: **nunca se inventa
+> uno**.
+
+Probado con la carta real del salón (10 páginas): reconoció la portada como
+portada (0 productos) y sacó los 6 servicios de las páginas 2 y 3 **con los seis
+precios exactos** del catálogo oficial. Un fallo real que conviene conocer:
+escribió "PESTANINA" sin la ñ — por eso la revisión no es opcional.
+
+**Límite conocido**: solo lee **imágenes**, no PDF — se rechaza con un mensaje
+que dice qué hacer ("tómale una foto"). Los dos clientes actuales tienen su
+carta en PDF, así que **aceptar PDF sigue pendiente**: se probó que `pdf.js`
+puede convertirlo en el navegador del cliente, sin tocar el servidor.
+
+**Las fotos de productos** (etapa 6, opcional): ver
+[47-FOTOS-DEL-AGENTE.md](47-FOTOS-DEL-AGENTE.md).
+
+## El menú: solo texto — decisión revisada al día siguiente
+
+> ⚠️ **Esta decisión se revirtió el 13-ago**: el agente **sí envía fotos**, y el
+> razonamiento del dueño fue el correcto — no se trata de mandar catálogos, sino
+> de ser preciso con lo que el cliente pide. Ver
+> [47-FOTOS-DEL-AGENTE.md](47-FOTOS-DEL-AGENTE.md). Lo de abajo se conserva
+> porque explica el estado del que se partía.
 
 Se planteó que el cliente subiera su menú en PDF o foto y que **el bot enviara
 la imagen** por WhatsApp. Se evaluó y **se decidió dejarlo en texto por ahora**.

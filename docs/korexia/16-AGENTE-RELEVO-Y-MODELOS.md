@@ -79,17 +79,38 @@ en el principal).
 
 El cambio a Gemini bajó el costo por pedido un **92 %** y además es más rápido.
 
-### El modelo de respaldo se retiró (31-jul-2026)
+### NO hay modelo de respaldo, y ya no puede volver por descuido
 
-Antes, si Gemini agotaba sus tres intentos, se gastaba una llamada en
-`anthropic/claude-sonnet-4.5` antes de rendirse. **Decisión del dueño: se
-quita.** El razonamiento es sensato — si el modelo principal no logra resolver
-una conversación, lo que necesita ese cliente no es otro modelo, es **una
-persona**.
+Si Gemini agota sus tres intentos, **la conversación pasa a una persona**. No se
+gasta una llamada en otro modelo. Decisión del dueño, y el razonamiento es
+sensato: si el modelo principal no logra resolver una conversación, lo que
+necesita ese cliente no es otro modelo, es **una persona**.
 
-Así que ahora, cuando el agente no puede resolver: **avisa al cliente y deriva
-a un asesor**. Se retiró la variable `OPENROUTER_FALLBACK_MODEL` del servicio;
-el código la sigue soportando, así que reactivarlo es volver a definirla.
+> 🔑 **Se tomó dos veces, y la primera no se cumplió.** El 31-jul-2026 se retiró
+> la variable `OPENROUTER_FALLBACK_MODEL`… **del `.env` de `/opt/korex-crm/`**,
+> dejándola puesta en las variables del servicio de EasyPanel. Como el código
+> seguía soportándola, `anthropic/claude-sonnet-4.5` **siguió entrando en las
+> conversaciones dos semanas** mientras este documento afirmaba que se había
+> quitado. Se descubrió el 13-ago probando el salón, al ver en el log
+> `[ia] google/gemini-2.5-flash no devolvió una respuesta usable; reintentando
+> con anthropic/claude-sonnet-4.5`.
+>
+> La lección no es sobre modelos: **retirar una variable no retira una
+> conducta**. Mientras el código la soporte, cualquiera puede reactivarla sin
+> saberlo, y el `.env` que uno mira no tiene por qué ser el que lee el
+> contenedor. Para ver qué hay de verdad:
+> `docker exec <contenedor> printenv | grep OPENROUTER`.
+
+El 13-ago-2026 se eliminó **el código del respaldo**, no solo la variable.
+Definir `OPENROUTER_FALLBACK_MODEL` ya no hace nada: `chatJson` llama a un único
+modelo y devuelve su resultado. (Conviene borrarla igualmente del servicio en
+EasyPanel, por no dejar mentiras a la vista.)
+
+**Efecto secundario, aceptado a sabiendas**: el juez del Laboratorio tampoco
+tiene red. Si no devuelve un veredicto legible, ese caso queda en `judge_failed`
+y el reporte lo muestra sin calificar. Es preferible un hueco visible a un
+veredicto emitido por otro modelo — y en el Laboratorio no hay ningún cliente
+esperando respuesta.
 
 > ⚠️ **Nunca cambiar de modelo sin probar una conversación completa hasta el
 > aviso al equipo.** Una prueba de un solo mensaje da 4/4 a casi cualquier

@@ -67,43 +67,25 @@ export async function chatJson<T>(
     };
   }
 
-  const intento = await intentarCon(model, schema, messages, opts?.timeoutMs);
-  if (intento.ok) return intento;
-
   /**
-   * Red de seguridad: el modelo de diario es barato, y si un día se atasca con
-   * el formato preferimos gastar una llamada en uno más capaz antes que dejar
-   * al cliente sin respuesta y el pedido en manos de una persona.
+   * UN SOLO MODELO, sin red debajo.
    *
-   * Cubre también al juez del Laboratorio. Antes lo dejaba fuera, y el precio
-   * se pagaba en confianza: cuando el juez no devolvía un veredicto legible el
-   * caso se quedaba SIN calificar y el reporte lo mostraba en blanco, sin que
-   * el dueño del negocio pudiera saber si su agente lo había hecho bien o mal.
-   * Solo cuesta cuando el barato ya agotó sus tres intentos.
+   * Hubo un modelo de respaldo: si Gemini agotaba sus tres intentos, se gastaba
+   * una llamada en `anthropic/claude-sonnet-4.5` antes de rendirse. **Se quitó
+   * a propósito** (13-ago-2026, decisión del dueño, ya tomada una vez el
+   * 31-jul): si el modelo no logra resolver una conversación, lo que necesita
+   * ese cliente no es otro modelo — es una PERSONA.
+   *
+   * El rescate, por tanto, es humano: agotados los intentos, `runAgentTurn`
+   * avisa al cliente y deriva la conversación con `handoff`.
+   *
+   * ⚠️ No se vuelve a añadir definiendo una variable de entorno: el respaldo ya
+   * no existe en el código. La vez anterior se retiró solo la variable, quedó
+   * puesta en el servicio de EasyPanel y Sonnet siguió entrando en las
+   * conversaciones durante semanas mientras la documentación decía lo
+   * contrario.
    */
-  const respaldo = getEnv().OPENROUTER_FALLBACK_MODEL?.trim();
-  if (respaldo && respaldo !== model && !opts?.model) {
-    console.warn(
-      `[ia] ${model} no devolvió una respuesta usable; reintentando con ${respaldo}`
-    );
-    const rescate = await intentarCon(respaldo, schema, messages, opts?.timeoutMs);
-    // El turno costó lo del modelo barato (que falló) MÁS lo del respaldo.
-    // Devolver solo lo segundo escondería el caso más caro del sistema.
-    return { ...rescate, usage: sumarUso(intento.usage, rescate.usage) };
-  }
-  return intento;
-}
-
-/** Une lo gastado en dos tandas; el modelo que se nombra es el último usado. */
-function sumarUso(a?: AiUsage, b?: AiUsage): AiUsage | undefined {
-  if (!a) return b;
-  if (!b) return a;
-  return {
-    model: b.model,
-    tokensIn: a.tokensIn + b.tokensIn,
-    tokensOut: a.tokensOut + b.tokensOut,
-    costUsd: a.costUsd + b.costUsd,
-  };
+  return intentarCon(model, schema, messages, opts?.timeoutMs);
 }
 
 /** Los MAX_ATTEMPTS intentos contra UN modelo. */

@@ -375,6 +375,15 @@ export const CONTRATO_DE_ACCIONES = [
   "- JAMÁS emitas notify_order con algo sin decidir. Si falta una elección del cliente (sabor, salsa, tamaño, variante, forma de entrega), PREGÚNTALA y espera: si no te contesta, vuelve a preguntarla, una cosa cada vez y en corto. Escribir 'POR CONFIRMAR', 'pendiente' o dejar un hueco NO es cerrar un pedido — es mandarle a la cocina algo que no se puede preparar, y alguien tendrá que llamar al cliente para terminar lo que era tu trabajo. Un pedido a medias es peor que un pedido lento.",
   "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
   /*
+   * 13-ago-2026, Laboratorio del salón. A una clienta que avisó de que era
+   * alérgica, el agente le recitó una composición entera —"fibra sintética
+   * hipoalergénica", "adhesivo de grado médico", "pigmentos orgánicos"— que no
+   * estaba en ninguna parte de su conocimiento. En otra corrida respondió
+   * "claro que no" a "¿me da alergia?". Aquí una respuesta inventada no cuesta
+   * una venta: le hace daño a alguien.
+   */
+  "- SALUD: alergias, reacciones, irritación, si algo es apto para piel sensible, embarazo o alguna condición médica, ingredientes, componentes, materiales y contraindicaciones → SIEMPRE lo responde una PERSONA. Contesta con calidez que prefieres que se lo confirme alguien del equipo y usa handoff. No lo respondas tú NUNCA: ni con lo que creas saber, ni deduciéndolo del conocimiento, ni con una frase tranquilizadora ('claro que no', 'no te preocupes', 'es hipoalergénico', 'no irrita'). Aunque tengas a mano una respuesta que parezca servir, si lo que te preguntan es si algo es seguro PARA ESA PERSONA, escalas.",
+  /*
    * 13-ago-2026 (Lis). Escribieron OFRECIENDO unos servicios al negocio y el
    * agente contestó "En este momento estamos enfocados en atender a nuestros
    * clientes": un portazo que nadie le había pedido. No había regla que lo

@@ -12,6 +12,10 @@ const config = [
       "scripts/**",
       "next-env.d.ts",
       ".tmp-seed-demo.mjs",
+      // Se sirve tal cual, sin pasar por el compilador. Ahí aterriza el worker
+      // de pdf.js que copia `prebuild`: 1,2 MB minificados que disparaban 1.576
+      // avisos sobre código que no es nuestro.
+      "public/**",
     ],
   },
   ...compat.extends("next/core-web-vitals", "next/typescript"),

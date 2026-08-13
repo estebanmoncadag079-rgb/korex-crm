@@ -39,3 +39,8 @@ Thumbs.db
 .claude/settings.local.json
 .playwright-mcp/
 .tmp-seed-demo.mjs
+
+# El worker de pdf.js lo copia `prebuild` desde node_modules en cada build
+# (scripts/copiar-worker-pdf.mjs): así su versión siempre coincide con la de la
+# librería y no se versiona un binario de 1 MB.
+public/pdf.worker.min.mjs

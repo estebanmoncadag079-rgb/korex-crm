@@ -63,6 +63,79 @@ export function ImportarCatalogo({ onImportado }: Props) {
     setDuracionParaTodas("");
   }
 
+  /**
+   * Un PDF se lee en el navegador: primero su texto (gratis y exacto) y, si es
+   * un escaneo sin texto, se rasteriza la primera página y se manda al lector
+   * de imágenes. El archivo nunca sale del computador del cliente.
+   */
+  async function leerPdf(archivo: File) {
+    setError(null);
+    setLeyendo(true);
+    try {
+      const { textoDePdf, primeraPaginaComoPng } = await import("@/lib/pdf-cliente");
+      const leido = await textoDePdf(archivo);
+
+      if (leido.ok) {
+        /*
+         * El texto del PDF NO se lee línea a línea: un catálogo de verdad viene
+         * maquetado, con el nombre, la descripción y el precio en renglones
+         * distintos. Probado con el del salón: leerlo como lista daba 108
+         * "servicios" sacados de las descripciones. Lo interpreta el modelo, a
+         * partir del texto exacto del PDF — sin OCR y sin subir los 36 MB.
+         */
+        await enviarTextoAlLector(leido.texto);
+        return;
+      }
+
+      const png = await primeraPaginaComoPng(archivo);
+      if (!png) {
+        setError("No pudimos leer ese PDF. Prueba a pegar la lista o a subir una foto.");
+        return;
+      }
+      await enviarAlLector(png.base64, "image/png");
+    } catch {
+      setError("No pudimos leer ese PDF. Prueba a pegar la lista.");
+    } finally {
+      setLeyendo(false);
+    }
+  }
+
+  /** Manda una imagen ya en base64 al lector de cartas y llena la tabla. */
+  async function enviarAlLector(base64: string, mimeType: string) {
+    return pedirLectura({ base64, mimeType });
+  }
+
+  /** Lo mismo, pero con el texto sacado de un PDF. */
+  async function enviarTextoAlLector(texto: string) {
+    return pedirLectura({ texto });
+  }
+
+  async function pedirLectura(carga: Record<string, string>) {
+    const res = await fetch("/api/onboarding/catalogo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(carga),
+    });
+    const d = await res.json();
+    if (!res.ok) {
+      setError(d?.message ?? "No pudimos leer la carta.");
+      return;
+    }
+    const leidas: FilaCatalogo[] = (d.productos ?? []).map(
+      (p: { nombre: string; precio: number | null; duracionMin?: number | null; categoria?: string | null }) => ({
+        nombre: p.nombre,
+        precio: p.precio,
+        duracionMin: p.duracionMin ?? null,
+        categoria: p.categoria ?? null,
+      })
+    );
+    if (!leidas.length) {
+      setError("No encontramos servicios ahí. Prueba a pegar la lista.");
+      return;
+    }
+    setFilas(leidas.map(aBorrador));
+  }
+
   async function leerFoto(archivo: File) {
     setError(null);
     setLeyendo(true);
@@ -73,29 +146,7 @@ export function ImportarCatalogo({ onImportado }: Props) {
         lector.onerror = () => reject(new Error("no se pudo leer el archivo"));
         lector.readAsDataURL(archivo);
       });
-      const res = await fetch("/api/onboarding/catalogo", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ base64, mimeType: archivo.type }),
-      });
-      const d = await res.json();
-      if (!res.ok) {
-        setError(d?.message ?? "No pudimos leer la foto.");
-        return;
-      }
-      const leidas: FilaCatalogo[] = (d.productos ?? []).map(
-        (p: { nombre: string; precio: number | null; duracionMin?: number | null; categoria?: string | null }) => ({
-          nombre: p.nombre,
-          precio: p.precio,
-          duracionMin: p.duracionMin ?? null,
-          categoria: p.categoria ?? null,
-        })
-      );
-      if (!leidas.length) {
-        setError("No encontramos servicios en esa foto. Prueba a pegar la lista.");
-        return;
-      }
-      setFilas(leidas.map(aBorrador));
+      await enviarAlLector(base64, archivo.type);
     } catch {
       setError("No pudimos leer la foto. Puedes pegar tu lista escrita.");
     } finally {
@@ -216,15 +267,20 @@ export function ImportarCatalogo({ onImportado }: Props) {
                 ) : (
                   <Camera className="h-4 w-4" />
                 )}
-                {leyendo ? "Leyendo…" : "Subir foto de la carta"}
+                {leyendo ? "Leyendo…" : "Subir PDF o foto de la carta"}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf,.pdf"
                   className="hidden"
                   disabled={leyendo}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) void leerFoto(f);
+                    if (f) {
+                      const esPdf =
+                        f.type === "application/pdf" ||
+                        f.name.toLowerCase().endsWith(".pdf");
+                      void (esPdf ? leerPdf(f) : leerFoto(f));
+                    }
                     e.target.value = "";
                   }}
                 />

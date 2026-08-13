@@ -11,6 +11,8 @@
   },
   "scripts": {
     "dev": "next dev",
+    "predev": "node scripts/copiar-worker-pdf.mjs",
+    "prebuild": "node scripts/copiar-worker-pdf.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
@@ -33,6 +35,7 @@
     "lucide-react": "^0.469.0",
     "nanoid": "^5.0.9",
     "next": "^15.5.22",
+    "pdfjs-dist": "^6.2.108",
     "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

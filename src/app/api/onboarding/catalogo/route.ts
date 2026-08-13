@@ -3,6 +3,7 @@ import { apiError, parseBody, withAuth } from "@/lib/api";
 import {
   catalogoATexto,
   extraerCatalogoDeImagen,
+  extraerCatalogoDeTexto,
 } from "@/server/ai/generador/extraer-catalogo";
 
 export const dynamic = "force-dynamic";
@@ -25,11 +26,23 @@ export const dynamic = "force-dynamic";
  */
 const MAX_BASE64 = 6_000_000;
 
-const cuerpo = z.object({
-  /** La imagen en base64, sin el prefijo `data:`. */
-  base64: z.string().min(1).max(MAX_BASE64),
-  mimeType: z.string().min(1),
-});
+/**
+ * Dos entradas, un mismo resultado: una FOTO de la carta, o el TEXTO ya sacado
+ * de un PDF.
+ *
+ * El PDF se abre en el navegador del cliente (`lib/pdf-cliente.ts`): el del
+ * salón pesa 36 MB y subirlo entero para leer diez páginas de texto no tiene
+ * sentido — aquí llegan solo los KB del texto. Antes se rechazaban los PDF
+ * diciéndole al cliente que le tomara una foto a su catálogo de diez páginas.
+ */
+const cuerpo = z.union([
+  z.object({
+    /** La imagen en base64, sin el prefijo `data:`. */
+    base64: z.string().min(1).max(MAX_BASE64),
+    mimeType: z.string().min(1),
+  }),
+  z.object({ texto: z.string().min(1).max(200_000) }),
+]);
 
 const TIPOS = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
@@ -37,34 +50,35 @@ export const POST = withAuth(async (_session, req: Request) => {
   const body = await parseBody(req, cuerpo);
   if (!body.ok) return body.response;
 
-  const mime = body.data.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!TIPOS.includes(mime)) {
-    // El PDF se rechaza a propósito y con un mensaje que dice qué hacer: el
-    // modelo de visión no lee PDFs, y fallar en silencio dejaría al cliente
-    // pensando que su carta "no sirve".
-    return apiError(
-      415,
-      "tipo_no_soportado",
-      "Por ahora solo podemos leer fotos (JPG, PNG o HEIC). Si tu carta está en PDF, tómale una foto o una captura de pantalla."
-    );
+  let resultado;
+  if ("texto" in body.data) {
+    resultado = await extraerCatalogoDeTexto(body.data.texto);
+  } else {
+    const mime = body.data.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
+    if (!TIPOS.includes(mime)) {
+      return apiError(
+        415,
+        "tipo_no_soportado",
+        "Podemos leer fotos (JPG, PNG o HEIC) y PDFs. Ese formato no lo reconocemos."
+      );
+    }
+    resultado = await extraerCatalogoDeImagen({
+      base64: body.data.base64,
+      mimeType: mime,
+    });
   }
-
-  const resultado = await extraerCatalogoDeImagen({
-    base64: body.data.base64,
-    mimeType: mime,
-  });
 
   if (!resultado.ok) {
     const mensajes: Record<string, string> = {
       sin_ia: "La lectura automática no está disponible ahora mismo.",
-      sin_texto: "No pudimos leer nada en esa imagen.",
-      formato: "No pudimos entender la carta de esa foto.",
-      error: "No pudimos leer la foto.",
+      sin_texto: "No pudimos leer nada ahí.",
+      formato: "No pudimos entender esa carta.",
+      error: "No pudimos leerla.",
     };
     return apiError(
       422,
       resultado.motivo,
-      `${mensajes[resultado.motivo] ?? "No pudimos leer la foto."} Puedes escribir tus productos a mano y seguir sin problema.`
+      `${mensajes[resultado.motivo] ?? "No pudimos leerla."} Puedes escribir tus productos a mano y seguir sin problema.`
     );
   }
 

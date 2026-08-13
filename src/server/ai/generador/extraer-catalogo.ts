@@ -79,6 +79,23 @@ export async function extraerCatalogoDeImagen(input: {
   const mime = input.mimeType.split(";")[0]?.trim() || "image/jpeg";
   const dataUrl = `data:${mime};base64,${input.base64}`;
 
+  return pedirCatalogo(modelo, [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: INSTRUCCION },
+        { type: "image_url", image_url: { url: dataUrl } },
+      ],
+    },
+  ]);
+}
+
+/** La llamada al modelo y el parseo de su respuesta, común a foto y a texto. */
+async function pedirCatalogo(
+  modelo: string,
+  messages: unknown[]
+): Promise<ResultadoExtraccion> {
+  const env = getEnv();
   try {
     const res = await fetch(`${env.OPENROUTER_BASE_URL}/v1/chat/completions`, {
       method: "POST",
@@ -88,15 +105,7 @@ export async function extraerCatalogoDeImagen(input: {
       },
       body: JSON.stringify({
         model: modelo,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: INSTRUCCION },
-              { type: "image_url", image_url: { url: dataUrl } },
-            ],
-          },
-        ],
+        messages,
         // Temperatura 0: aquí no se quiere creatividad, se quiere el precio que
         // pone en la carta. Es el mismo criterio que en el resto del proyecto
         // para lo que se lee de un documento.
@@ -140,6 +149,48 @@ export async function extraerCatalogoDeImagen(input: {
     console.warn("[catalogo] no se pudo leer la carta:", err);
     return { ok: false, motivo: "error" };
   }
+}
+
+/**
+ * Lo mismo, pero a partir del TEXTO de un catálogo (el de un PDF).
+ *
+ * Existe porque un catálogo de verdad viene maquetado, no en lista. En el del
+ * salón, el nombre del servicio, sus tres líneas de descripción y su precio
+ * están en renglones distintos:
+ *
+ *     EFECTO NATURAL
+ *     Realza tu mirada con un
+ *     acabado suave, ligero y elegante.
+ *     95.000$
+ *
+ * Leer eso línea a línea da 108 servicios inventados a partir de las
+ * descripciones. El texto sale exacto del PDF —no hay OCR de por medio—, así
+ * que lo único que falta es que alguien entienda la maquetación: eso lo hace el
+ * modelo, y sale mucho más barato que mirar la imagen.
+ */
+export async function extraerCatalogoDeTexto(
+  texto: string
+): Promise<ResultadoExtraccion> {
+  if (!isAiConfigured()) return { ok: false, motivo: "sin_ia" };
+  const env = getEnv();
+  const modelo = env.OPENROUTER_MODEL;
+  if (!modelo) return { ok: false, motivo: "sin_ia" };
+  if (!texto.trim()) return { ok: false, motivo: "sin_texto" };
+
+  const instruccion = [
+    "Este es el texto de la carta, el menú o la lista de precios de un negocio, extraído de un PDF.",
+    "Viene maquetado: el nombre de cada producto, su descripción y su precio pueden estar en líneas distintas.",
+    "",
+    INSTRUCCION.split("\n").slice(2).join("\n"),
+    "",
+    "- La DESCRIPCIÓN de un producto no es un producto: no la conviertas en una fila.",
+    "- Ignora encabezados, teléfonos, direcciones, redes sociales y textos de portada.",
+    "",
+    "TEXTO:",
+    texto.slice(0, 20_000),
+  ].join("\n");
+
+  return pedirCatalogo(modelo, [{ role: "user", content: instruccion }]);
 }
 
 /**

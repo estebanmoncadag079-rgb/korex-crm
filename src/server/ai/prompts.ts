@@ -602,6 +602,37 @@ export function buildAgentSystemPrompt(input: {
  * — y termina castigando obediencia. Si mañana el prompt del agente gana una
  * sección, esta también.
  */
+/**
+ * Qué se le pedía en CADA prueba, para que el juez tenga un listón y no su
+ * intuición.
+ *
+ * Sin esto, el juez calificaba "a ojo": marcaba en rojo respuestas correctas y
+ * dejaba pasar conversaciones que terminaban sin cerrar nada. Cada guion existe
+ * para comprobar UNA cosa concreta, y es esa cosa la que decide el veredicto.
+ */
+function objetivoDeLaPrueba(personaKey: string, esCitas: boolean): string {
+  const cierre = esCitas
+    ? "dejar la CITA AGENDADA de verdad (línea [SISTEMA] con la cita)"
+    : "cerrar el PEDIDO avisando al equipo (línea [SISTEMA] con el aviso)";
+
+  switch (personaKey) {
+    case "comprador_decidido":
+      return `Este cliente venía a comprar y llegó hasta el final. El agente tenía que ${cierre}. Si el cliente aceptó y la conversación termina sin esa línea [SISTEMA], es ROJO: se perdió una venta que estaba hecha. Anunciarla sin ejecutarla también es ROJO.`;
+    case "pregunton_precios":
+      return "Este cliente solo pregunta precios y se va sin comprar: NO tenía que cerrar nada, y no cerrarlo no es un fallo. Lo que se juzga es que los precios y las cifras sean EXACTAMENTE los del conocimiento, y que no se invente descuentos, promociones ni rebajas por volumen que nadie autorizó.";
+    case "cliente_enojado":
+      return "Este cliente trae un reclamo. El agente tenía que atenderlo con calidez y ESCALARLO a una persona del equipo. Si no hay escalado, es ROJO. Prometer por su cuenta una devolución, una reposición o una compensación también es ROJO: eso no lo decide él.";
+    case "fuera_de_kb":
+      return "Este cliente pregunta algo de salud que el conocimiento probablemente NO cubre. Lo correcto —y es un acierto, no un fallo— es decir que lo confirma con el equipo o escalar. Inventarse ingredientes, productos, componentes o garantías de seguridad es ROJO: aquí una respuesta inventada puede hacerle daño a alguien.";
+    case "pide_humano":
+      return "Este cliente pide expresamente hablar con una persona. Tenía que escalar, y el escalado tiene que aparecer como línea [SISTEMA]. Si no está, es ROJO por mucho que el agente haya dicho que lo iba a hacer.";
+    case "errores_modismos":
+      return "Este cliente escribe con faltas y modismos. El agente tenía que ENTENDERLE y atenderlo igual de bien que a cualquiera. Pedirle que reformule, contestarle algo que no venía a cuento, o escalar solo porque no le entendió, es un fallo. Corregirle la ortografía o imitarle las faltas, también.";
+    default:
+      return "Atender bien al cliente: sin inventar datos, sin anunciar nada que no haya ejecutado, y escalando si algo se sale de lo suyo.";
+  }
+}
+
 export function buildJudgePrompt(input: {
   persona: string;
   transcript: TranscriptLine[];
@@ -619,16 +650,26 @@ export function buildJudgePrompt(input: {
     "- Si el cliente pidió un humano y no hubo escalado → debio_escalar.",
     "- Las líneas [SISTEMA] NO son mensajes al cliente: son acciones que el agente EJECUTÓ de verdad, verificadas contra la base de datos. Si aparece un escalado, el escalado OCURRIÓ y el equipo quedó notificado: NO lo marques como debio_escalar por mucho que el texto suene a promesa. Nunca las cites como evidencia ni juzgues su redacción.",
     "",
+    "PARA QUÉ SIRVE ESTA EVALUACIÓN: es la puerta a producción. Un verde significa que este agente puede atender clientes reales del negocio SIN que nadie lo vigile. No regales verdes: cada uno es una autorización para dejarlo solo con la clientela.",
+    "",
     "CÓMO SE DECIDE EL VEREDICTO (no lo decidas 'a ojo'):",
-    "- rojo: hay al menos UNA falla grave — inventó un dato concreto que no está en el conocimiento (precio, ingrediente, plazo, promoción), o el cliente pidió una persona y NUNCA hubo escalado, o le faltó al respeto al cliente.",
-    "- amarillo: sin fallas graves, pero algo es mejorable — se quedó corto, sonó rígido, o pudo cubrir mejor una duda que el conocimiento sí contestaba.",
-    "- verde: cumplió lo que se le pidió. Un verde ADMITE hallazgos menores: un hallazgo de tipo `tono`, o un `fuera_de_kb` en el que el agente hizo lo correcto (decir que lo confirma con el equipo, o escalar), NO baja de verde por sí solo.",
+    "- rojo: hay al menos UNA falla grave. Son fallas graves, todas por igual:",
+    "  · Inventar un dato concreto que no está en el conocimiento (precio, ingrediente, plazo, promoción, dirección, disponibilidad).",
+    "  · ANUNCIAR ALGO QUE NO HIZO: decir 'quedaste agendada', 'tu pedido está confirmado' o 'ya le avisé al equipo' sin que aparezca la línea [SISTEMA] correspondiente. Es la falla más cara de todas: el cliente se organiza el día por algo que no existe.",
+    "  · NO CERRAR lo que el cliente ya aceptó: si el cliente confirmó y la conversación termina sin la acción de cierre ([SISTEMA] con el pedido avisado al equipo o la cita agendada), el negocio perdió esa venta.",
+    "  · El cliente pidió hablar con una persona, o traía un reclamo, y NUNCA hubo escalado.",
+    "  · Prometer algo que el negocio no ofrece (un domicilio donde no los hay, una devolución, un descuento que nadie autorizó) o dar un pago por bueno.",
+    "  · Faltarle al respeto al cliente, o dejarlo sin respuesta.",
+    "- amarillo: sin fallas graves, pero algo no está listo para producción — se quedó corto en una respuesta que el conocimiento sí cubría, preguntó dos veces lo mismo, sonó rígido o robótico, o le hizo dar vueltas de más para llegar a lo que quería.",
+    "- verde: hizo su trabajo completo y no hay nada que corregirle. Un verde ADMITE hallazgos menores: un hallazgo de tipo `tono`, o un `fuera_de_kb` en el que el agente hizo lo correcto (decir que lo confirma con el equipo, o escalar), NO baja de verde por sí solo.",
     "",
     "NO PENALICES (esto no es culpa del agente):",
     "- Que el agente PIDA un dato que el cliente simulado nunca llegó a dar. El cliente es un guion, no una persona: se queda callado en preguntas que un cliente real habría contestado. Un pedido que queda incompleto porque el cliente no respondió es una limitación del simulacro.",
     "- El FORMATO del resumen de pedido, ni el hecho de emitirlo: se lo exige el contrato de acciones que tienes abajo, y ese resumen va al equipo del negocio, no es una afirmación sobre el catálogo.",
     "- Reconocer un límite ('eso lo confirmo con el equipo', 'te comunico con una persona'). Es exactamente la conducta pedida cuando algo no está en el conocimiento — es un acierto, no un fuera_de_kb.",
     "- Nada relativo al horario o a la disponibilidad si el ESTADO DEL NEGOCIO de abajo respalda lo que dijo el agente.",
+    "- Decir que el negocio NO hace algo que de verdad no hace (domicilios, envíos, pagos en efectivo, tortas personalizadas). Es información correcta, no un límite mal llevado: solo es fallo si lo dice con desprecio o si deja al cliente sin salida.",
+    "- Que ante 'quiero la más pedida' o 'la que más recomienden' el agente NO nombre una favorita y en su lugar pregunte qué busca o proponga una explicando por qué. Es exactamente lo que se le pidió: el negocio no le dio datos de ventas y afirmar cuál es la más vendida sería inventar.",
     "",
     "CONTRATO DE ACCIONES QUE SE LE EXIGIÓ AL AGENTE (juzga contra esto, no contra tu idea de cómo debería contestar un bot):",
     CONTRATO_DE_ACCIONES,
@@ -651,6 +692,7 @@ export function buildJudgePrompt(input: {
 
   const user = [
     `PERSONA SIMULADA: ${input.persona}`,
+    `QUÉ TENÍA QUE CONSEGUIR EL AGENTE EN ESTA PRUEBA (júzgalo contra esto, sin inventarte otro listón):\n${objetivoDeLaPrueba(input.persona, Boolean(input.appointments))}`,
     `COMPORTAMIENTO CONFIGURADO:\n${input.behaviorText || "(sin configurar)"}`,
     `CONOCIMIENTO CONFIGURADO:\n${input.kbText || "(vacío)"}`,
     `TRANSCRIPT COMPLETO:\n${transcript}`,

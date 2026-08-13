@@ -15,7 +15,7 @@ import { catalogoParaPrompt } from "@/server/appointments/queries";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import {
   elegirRespuesta,
-  PERSONAS,
+  personasPara,
   reglasDe,
   type Persona,
 } from "@/server/lab/personas";
@@ -36,6 +36,21 @@ const RUN_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class RunConflictError extends Error {}
 
+/**
+ * Qué clase de negocio es, para elegir los guiones.
+ *
+ * Es el mismo interruptor que enciende las acciones de citas en el agente: si
+ * puede agendar, se le prueba agendando.
+ */
+async function verticalDe(organizationId: string): Promise<"pedidos" | "citas"> {
+  const rows = await getDb()
+    .select({ citas: schema.agentProfile.appointmentsEnabled })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  return rows[0]?.citas ? "citas" : "pedidos";
+}
+
 export async function startRun(organizationId: string): Promise<string> {
   const db = getDb();
   let runId: string;
@@ -54,7 +69,7 @@ export async function startRun(organizationId: string): Promise<string> {
   }
 
   await db.insert(schema.agentTestCase).values(
-    PERSONAS.map((p) => ({
+    personasPara(await verticalDe(organizationId)).map((p) => ({
       id: newId("testCase"),
       organizationId,
       runId,
@@ -153,7 +168,11 @@ async function runAllCases(
   publishProgress(organizationId, runId, "running", done, total);
 
   for (const testCase of cases) {
-    const persona = PERSONAS.find((p) => p.key === testCase.persona);
+    // Los guiones son los del vertical del negocio: un salón se prueba
+    // agendando, no pidiendo domicilios.
+    const persona = personasPara(
+      profile?.appointmentsEnabled ? "citas" : "pedidos"
+    ).find((p) => p.key === testCase.persona);
     if (!persona) continue;
 
     await db
@@ -433,7 +452,9 @@ async function failRun(
     .update(schema.agentTestRun)
     .set({ status: "failed", error, finishedAt: new Date() })
     .where(eq(schema.agentTestRun.id, runId));
-  publishProgress(organizationId, runId, "failed", 0, PERSONAS.length);
+  // Los dos verticales tienen el mismo número de guiones: para el total de una
+  // corrida fallida da igual cuál sea.
+  publishProgress(organizationId, runId, "failed", 0, personasPara("pedidos").length);
 }
 
 function publishProgress(

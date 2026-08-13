@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Loader2, PartyPopper, Upload } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Loader2,
+  PartyPopper,
+  Save,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -67,6 +75,34 @@ const DIAS = [
   { n: 6, nombre: "Sáb" },
   { n: 7, nombre: "Dom" },
 ];
+
+/**
+ * Aviso cuando la respuesta se queda corta.
+ *
+ * Verificado contra el modelo real (13-ago-2026) con la ficha más pobre
+ * posible: a `queVende: "vendo churros"` y `tono: "normal"`, el agente **sí**
+ * elabora —contestó *"Vendemos deliciosos churros, cada uno cuesta $5000,
+ * ¿cuántos te gustaría?"*, nunca suelta la frase tal cual— pero se queda sin
+ * qué decir en cuanto le preguntan algo que no le contaron: a *"¿qué sabores
+ * tienen?"* respondió *"son churros tradicionales"* y esquivó.
+ *
+ * O sea: **el estilo lo pone el modelo, la información no se inventa.** Por eso
+ * esto avisa en vez de bloquear. Quien quiera responder en dos palabras está en
+ * su derecho, pero debe saber lo que se está dejando — si no, acaba diciendo
+ * "este bot no sirve" cuando lo que pasa es que nadie le contó nada.
+ */
+function AvisoCorto({ valor, minimo, que }: { valor?: string; minimo: number; que: string }) {
+  const v = (valor ?? "").trim();
+  // Vacío no se avisa: eso ya lo cubre "faltantesDeLaFicha" al terminar.
+  if (v.length === 0 || v.length >= minimo) return null;
+  return (
+    <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+      💡 Con esto tu asistente ya puede atender, pero si {que} va a vender bastante
+      mejor. No te preocupes por escribir bonito: cuéntalo como se lo dirías a un
+      cliente.
+    </p>
+  );
+}
 
 /** Una pregunta con su explicación y su ejemplo, como en el cuestionario. */
 function Campo({
@@ -434,6 +470,7 @@ export function OnboardingWizard() {
   const [cargado, setCargado] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [terminado, setTerminado] = useState(false);
+  const [avisoGuardado, setAvisoGuardado] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -482,6 +519,11 @@ export function OnboardingWizard() {
               rows={2}
               value={ficha.queVende ?? ""}
               onChange={(e) => set({ queVende: e.target.value })}
+            />
+            <AvisoCorto
+              valor={ficha.queVende}
+              minimo={30}
+              que="cuentas un poco más de lo que vendes"
             />
           </Campo>
           <Campo titulo="¿En qué ciudad y barrio estás?" ejemplo="Cali, barrio Granada">
@@ -796,6 +838,17 @@ export function OnboardingWizard() {
               value={ficha.tono ?? ""}
               onChange={(e) => set({ tono: e.target.value })}
             />
+            {/*
+              El tono es el campo que MÁS cambia el resultado. Probado: con
+              "normal" el agente contesta correcto pero sin personalidad; con
+              un tono descrito de verdad sale el "¡Hola Churr@! 💛" de Lis.
+              Misma tecnología, resultado incomparable.
+            */}
+            <AvisoCorto
+              valor={ficha.tono}
+              minimo={25}
+              que="describes cómo hablas tú con tus clientes"
+            />
           </Campo>
           <Campo
             titulo="¿Se puede pedir como regalo? ¿Manejas tarjetas o dedicatorias?"
@@ -995,7 +1048,7 @@ export function OnboardingWizard() {
         </p>
       ) : null}
 
-      <div className="flex justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Button
           type="button"
           variant="outline"
@@ -1003,6 +1056,34 @@ export function OnboardingWizard() {
           onClick={() => setEtapa((e) => e - 1)}
         >
           <ArrowLeft className="h-4 w-4" /> Atrás
+        </Button>
+
+        {/*
+          Botón de guardar EXPLÍCITO, aunque el avance ya guarda solo.
+          Lo pidió el dueño y tiene razón: nadie se fía de un guardado que no
+          ve. Alguien que va a cerrar la pestaña en la etapa 4 necesita pulsar
+          algo y leer "guardado" para irse tranquilo — si no, o se queda
+          rellenando de más, o cierra creyendo que lo pierde todo.
+        */}
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={guardando}
+          onClick={async () => {
+            await guardar(ficha);
+            setAvisoGuardado(true);
+            setTimeout(() => setAvisoGuardado(false), 2500);
+          }}
+        >
+          {avisoGuardado ? (
+            <>
+              <Check className="h-4 w-4 text-emerald-600" /> Guardado
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" /> Guardar y seguir después
+            </>
+          )}
         </Button>
         {ultima ? (
           <Button type="button" onClick={() => void terminar()} disabled={guardando}>

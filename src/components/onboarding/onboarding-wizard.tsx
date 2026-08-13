@@ -266,6 +266,168 @@ function LectorDeCarta({ onLeido }: { onLeido: (texto: string) => void }) {
   );
 }
 
+/**
+ * Las fotos que el agente podrá enviar, subidas por el propio cliente.
+ *
+ * Idea del dueño, y la correcta: nadie conoce mejor sus productos que quien los
+ * vende, y así la agencia no tiene que recortar y etiquetar fotos ajenas. Es
+ * **opcional**: el negocio que no quiera fotos salta el paso y su agente
+ * responde solo con texto, como hasta ahora.
+ *
+ * La foto se **comprime aquí, en el navegador**, antes de subirla. Una foto de
+ * móvil pesa 3-5 MB y se pasaría del límite; además viajaría entera por la red
+ * del cliente, que en un celular con datos es lo que hace abandonar el paso.
+ */
+function FotosDeProductos() {
+  const [fotos, setFotos] = useState<{ id: string; etiqueta: string }[]>([]);
+  const [etiqueta, setEtiqueta] = useState("");
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const recargar = useCallback(async () => {
+    const d = await fetch("/api/media")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    if (d?.fotos) setFotos(d.fotos);
+  }, []);
+
+  useEffect(() => {
+    void recargar();
+  }, [recargar]);
+
+  /** Reduce la foto a 1280 px de lado mayor y la pasa a JPEG. */
+  async function comprimir(archivo: File): Promise<string> {
+    const url = URL.createObjectURL(archivo);
+    try {
+      const img = await new Promise<HTMLImageElement>((ok, fail) => {
+        const i = new Image();
+        i.onload = () => ok(i);
+        i.onerror = () => fail(new Error("imagen ilegible"));
+        i.src = url;
+      });
+      const max = 1280;
+      const escala = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * escala);
+      c.height = Math.round(img.height * escala);
+      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+      return c.toDataURL("image/jpeg", 0.82).split(",")[1] ?? "";
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function subir(archivo: File) {
+    if (!etiqueta.trim()) {
+      setError("Primero escribe de qué es la foto.");
+      return;
+    }
+    setError(null);
+    setSubiendo(true);
+    try {
+      const base64 = await comprimir(archivo);
+      const res = await fetch("/api/media", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          etiqueta: etiqueta.trim(),
+          kind: "producto",
+          base64,
+          mimeType: "image/jpeg",
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        setError(d?.message ?? "No pudimos subir la foto.");
+        return;
+      }
+      setEtiqueta("");
+      await recargar();
+    } catch {
+      setError("No pudimos leer esa foto. Prueba con otra.");
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  async function borrar(id: string) {
+    await fetch(`/api/media?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(
+      () => null
+    );
+    await recargar();
+  }
+
+  return (
+    <div className="space-y-4">
+      {fotos.length > 0 ? (
+        <div className="space-y-2">
+          {fotos.map((f) => (
+            <div
+              key={f.id}
+              className="flex items-center gap-3 rounded-md border p-2"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/media/${f.id}`}
+                alt={f.etiqueta}
+                className="h-12 w-12 rounded object-cover"
+              />
+              <span className="flex-1 truncate text-sm">{f.etiqueta}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void borrar(f.id)}
+              >
+                Quitar
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-2 rounded-md border border-dashed p-4">
+        <Label className="text-[15px] font-medium">¿De qué es la foto?</Label>
+        <p className="text-[13px] text-muted-foreground">
+          Escribe el nombre tal como lo llamas tú. Es lo que el asistente busca
+          cuando un cliente pregunta por ese producto.
+        </p>
+        <Input
+          placeholder="Ej: Volumen Ruso"
+          value={etiqueta}
+          onChange={(e) => setEtiqueta(e.target.value)}
+        />
+        <label
+          className={`mt-1 inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm ${
+            etiqueta.trim() && !subiendo
+              ? "cursor-pointer hover:bg-accent"
+              : "cursor-not-allowed opacity-50"
+          }`}
+        >
+          <Upload className="h-4 w-4" />
+          {subiendo ? "Subiendo…" : "Elegir la foto"}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={!etiqueta.trim() || subiendo}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void subir(f);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <p className="text-[13px] text-emerald-700 dark:text-emerald-500">
+          Ejemplo: subes la foto de tu producto estrella y la llamas como en tu
+          carta. Cuando alguien pregunte por él, el asistente le manda esa foto.
+        </p>
+      </div>
+      {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
 export function OnboardingWizard() {
   const [ficha, setFicha] = useState<Ficha>({});
   const [etapa, setEtapa] = useState(0);
@@ -596,6 +758,26 @@ export function OnboardingWizard() {
             <strong>nunca da un pago por bueno</strong>: eso lo revisa siempre una
             persona de tu equipo, para que nadie te pase un comprobante falso.
           </p>
+        </>
+      ),
+    },
+    {
+      titulo: "Fotos de tus productos",
+      subtitulo:
+        "Opcional. Si las subes, el asistente puede enseñarlas cuando alguien pregunte.",
+      contenido: (
+        <>
+          <p className="rounded-md border bg-muted/40 p-3 text-[13px] text-muted-foreground">
+            Hay cosas que se explican mejor con una foto que con veinte líneas
+            de texto. Si un cliente pregunta &ldquo;¿cómo se ve?&rdquo;, el
+            asistente le manda la imagen de ese producto — solo la de lo que
+            preguntó, no un álbum entero.
+            <br />
+            <br />
+            <strong>Si no quieres fotos, salta este paso.</strong> Tu asistente
+            funciona igual, respondiendo con texto.
+          </p>
+          <FotosDeProductos />
         </>
       ),
     },

@@ -58,6 +58,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [43-SEO-Y-GOOGLE.md](43-SEO-Y-GOOGLE.md) | **Que a korex.ia la encuentren en Google**: el `Disallow: /` que le prohibía entrar, el robots dinámico que abre la portada sin exponer el CRM, Search Console, el perfil de empresa y la cuenta de demostración "Studio Bella" |
 | [44-BITACORA-12AGO.md](44-BITACORA-12AGO.md) | **Historial del 12 de agosto**: el dominio suspendido, el SEO, y **la cadena que rompía el bot de Lis** (79 % de los pedidos sin datos de pago) — con la lección de que era el prompt y no el modelo |
 | [45-GENERADOR-DE-PROMPTS.md](45-GENERADOR-DE-PROMPTS.md) | 🔑 **El cambio que hace escalable el alta**: separa lo único de cada negocio (la ficha, del cuestionario) de las lecciones que valen para todos (la conducta). Un cliente nuevo **nace inmunizado sin copiar el prompt de nadie**, y un fallo nuevo se corrige una vez para toda la flota |
+| [46-CONFIGURACION-INICIAL.md](46-CONFIGURACION-INICIAL.md) | 🔑 **El cliente arma su propio agente**: 8 etapas en su cuenta, sin que nadie transcriba nada. Cierra "el techo real" del proyecto. Incluye **por qué el prompt lo genera código y no una IA** |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.

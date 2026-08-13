@@ -785,12 +785,16 @@ export async function runAgentTurn(
      * es un extra; quedarse mudo, no.
      */
     case "send_image": {
-      const foto = await fotoPorEtiqueta(organizationId, action.etiqueta);
+      // El modelo escribe `label` tanto como `etiqueta` (ver la nota del
+      // esquema): se acepta cualquiera de los dos y, si no viene ninguno, se
+      // trata como una foto que no existe — es decir, se responde con texto.
+      const pedida = action.etiqueta ?? action.label ?? "";
+      const foto = pedida ? await fotoPorEtiqueta(organizationId, pedida) : null;
       const url = foto ? urlPublicaDeFoto(foto.id) : null;
 
       if (!foto || !url) {
         console.warn(
-          `[agente] no se pudo mandar la foto "${action.etiqueta}" (${!foto ? "no existe" : "sin URL pública"}); se responde con texto`
+          `[agente] no se pudo mandar la foto "${pedida}" (${!foto ? "no existe" : "sin URL pública"}); se responde con texto`
         );
         if (action.reply) await deliverReply(conversation, action.reply);
         return action;

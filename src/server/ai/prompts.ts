@@ -362,6 +362,14 @@ export const CONTRATO_DE_ACCIONES = [
   '- {"action":"move_stage","stage":"<nombre exacto de etapa>","reply":"..."} — mover el lead (reply opcional).',
   '- {"action":"handoff","reason":"...","farewell":"..."} — escalar a un humano (farewell opcional para despedirte).',
   '- {"action":"notify_order","summary":"...","farewell":"..."} — el cliente CONFIRMÓ un pedido: en summary va el pedido completo (cliente, teléfono, qué pidió, dirección, pago y total) porque se le envía tal cual al equipo por WhatsApp; farewell es tu mensaje de cierre al cliente.',
+  /*
+   * `send_image` va en el contrato aunque el negocio no tenga fotos: es una
+   * línea, y sin ella el modelo improvisa el formato. Verificado el 13-ago-2026
+   * contra el pipeline real — al no estar aquí, primero escribió `"label"` en
+   * vez de `"etiqueta"` y después mandó la acción SIN ninguna de las dos. Las
+   * fotos concretas sí van aparte y solo si existen (ver `fotosDisponibles`).
+   */
+  '- {"action":"send_image","etiqueta":"<etiqueta EXACTA de la lista de fotos>","reply":"..."} — enviar una foto que el negocio tiene cargada. El campo se llama "etiqueta" y es OBLIGATORIO: sin él la foto no se envía. Solo puedes usar esta acción si arriba hay una lista de FOTOS QUE PUEDES ENVIAR, y solo con una etiqueta de esa lista, copiada tal cual.',
   "Reglas duras:",
   "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
   "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",

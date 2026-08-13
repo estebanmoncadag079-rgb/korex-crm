@@ -48,7 +48,23 @@ export const AgentAction = z.discriminatedUnion("action", [
    */
   z.object({
     action: z.literal("send_image"),
-    etiqueta: z.string().min(1),
+    etiqueta: z.string().min(1).optional(),
+    /**
+     * El mismo dato en inglés, porque **el modelo lo escribe así**.
+     *
+     * Verificado contra el pipeline real (13-ago-2026): a "¿cómo se ve el
+     * volumen ruso?" el agente eligió bien la acción pero mandó `"label"` en
+     * vez de `"etiqueta"`. El esquema la rechazó, se agotaron los reintentos y
+     * la conversación acabó derivada a una persona — con la foto cargada y
+     * lista para enviar.
+     *
+     * Y su error es razonable: todo el resto del contrato está en inglés
+     * (`action`, `reply`, `text`, `summary`, `farewell`) y la acción se llama
+     * `send_image`. El único campo en español era justo el que había que
+     * adivinar. Se aceptan los dos en vez de confiar en que acierte — mismo
+     * criterio que los guardarraíles: comprobar el hecho, no la intención.
+     */
+    label: z.string().min(1).optional(),
     /** El pie de foto. Va en la misma burbuja que la imagen, no aparte. */
     reply: z.string().optional(),
   }),

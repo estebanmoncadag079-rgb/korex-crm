@@ -47,6 +47,9 @@ const borradorSchema = z
     }),
     vertical: z.enum(["pedidos", "citas"]),
     catalogo: z.string(),
+    // Solo citas. Sin declararla aquí, zod la descarta en silencio y todos los
+    // servicios nacerían con la duración por defecto.
+    duracionTipicaMin: z.number().int().min(5).max(600).optional(),
     variantes: z.string(),
     entrega: z.object({
       haceDomicilios: z.boolean(),

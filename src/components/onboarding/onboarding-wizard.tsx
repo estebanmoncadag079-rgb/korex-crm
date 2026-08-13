@@ -48,6 +48,8 @@ type Ficha = {
     cierraDomingo?: string;
   };
   catalogo?: string;
+  /** Solo citas: duración por defecto de los servicios que no traigan la suya. */
+  duracionTipicaMin?: number;
   variantes?: string;
   entrega?: {
     haceDomicilios: boolean;
@@ -659,6 +661,52 @@ export function OnboardingWizard() {
       ),
     },
     {
+      titulo: "Tus servicios",
+      subtitulo:
+        "Con esto tu asistente sabe qué ofreces, a qué precio y cuánto ocupa cada cita.",
+      contenido: (
+        <>
+          <LectorDeCarta
+            onLeido={(texto) =>
+              set({ catalogo: [ficha.catalogo, texto].filter(Boolean).join("\n") })
+            }
+          />
+          <Campo
+            titulo="Tus servicios con su precio, uno por línea"
+            ayuda="Puedes escribirlos, o subir la foto de tu lista aquí arriba. Si agrupas con títulos (PESTAÑAS, CEJAS…), se guardan como categorías. Si sabes cuánto dura alguno, ponlo en la misma línea."
+            ejemplo="Volumen ruso — $150.000 · 180 min"
+          >
+            <Textarea
+              rows={8}
+              placeholder={
+                "PESTAÑAS\nVolumen ruso — $150.000 · 180 min\nLifting de pestañas — $80.000 · 60 min\n\nCEJAS\nCejas en henna — $30.000 · 45 min"
+              }
+              value={ficha.catalogo ?? ""}
+              onChange={(e) => set({ catalogo: e.target.value })}
+            />
+          </Campo>
+          <Campo
+            titulo="¿Cuánto dura una cita normal?"
+            ayuda="En minutos. Es lo que evita que se te crucen dos clientas a la misma hora. Se usa para los servicios a los que no les pusiste duración arriba; después puedes ajustar cada uno en la pantalla de Servicios."
+            ejemplo="60"
+          >
+            <Input
+              inputMode="numeric"
+              className="w-32"
+              placeholder="60"
+              value={ficha.duracionTipicaMin ?? ""}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                set({
+                  duracionTipicaMin: Number.isFinite(n) && n > 0 ? n : undefined,
+                });
+              }}
+            />
+          </Campo>
+        </>
+      ),
+    },
+    {
       titulo: "Cómo reciben lo que piden",
       subtitulo: "Aquí está el dato que más problemas evita: quién paga el domicilio.",
       contenido: (
@@ -964,11 +1012,21 @@ export function OnboardingWizard() {
     },
   ];
 
-  // El catálogo escrito a mano no aplica al vertical de citas: ahí los
-  // servicios se cargan con sus duraciones desde la pantalla de Servicios.
-  const visibles = etapas.filter(
-    (e) => !(ficha.vertical === "citas" && e.titulo === "Lo que vendes")
-  );
+  /*
+   * Cada vertical ve SU etapa de catálogo.
+   *
+   * Antes, a un negocio de citas se le ocultaba "Lo que vendes" entera y no se
+   * le ofrecía nada a cambio: terminaba el alta sin un solo servicio y sin que
+   * nada se lo advirtiera. Su agente no sabía qué ofrecía ni a qué precio, y
+   * cargarlo significaba ir a otra pantalla a teclear 46 servicios de uno en
+   * uno. Ahora ve "Tus servicios", que pide lo mismo más la duración — de la
+   * que depende que no se le crucen dos citas.
+   */
+  const etapaSobra = (titulo: string) =>
+    ficha.vertical === "citas"
+      ? titulo === "Lo que vendes"
+      : titulo === "Tus servicios";
+  const visibles = etapas.filter((e) => !etapaSobra(e.titulo));
   // `visibles` nunca está vacío (las etapas son literales), pero TypeScript no
   // puede saberlo: el fallback evita un `actual` posiblemente indefinido sin
   // ensuciar el JSX con interrogaciones.

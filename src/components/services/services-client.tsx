@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ImportarCatalogo } from "@/components/services/importar-catalogo";
 
 type Service = {
   id: string;
@@ -70,6 +71,12 @@ export function ServicesClient() {
           cuánto duran y quién los atiende.
         </p>
       </header>
+      {/* Cargar el catálogo entero va ARRIBA y a todo lo ancho: es lo primero
+          que necesita un salón recién entrado, y mientras el alta de uno en uno
+          fue la única puerta, el catálogo sencillamente no se cargaba. */}
+      <div className="px-4 pt-4 md:px-6 md:pt-6">
+        <ImportarCatalogo onImportado={() => void refetch()} />
+      </div>
       <div className="grid gap-4 p-4 md:gap-6 md:p-6 lg:grid-cols-2">
         <ServicesSection services={services} onChanged={() => void refetch()} />
         <StaffSection

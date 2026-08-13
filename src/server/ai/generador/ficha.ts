@@ -96,10 +96,21 @@ export type FichaDelNegocio = {
   /**
    * Productos o servicios con precio, uno por línea.
    *
-   * En el vertical de `citas` esto se deja vacío: el catálogo vive en la tabla
-   * `service` y el prompt lo recibe aparte, ya formateado y con duraciones.
+   * En `citas` NO entra en el prompt —el catálogo vive en la tabla `service` y
+   * llega aparte, con sus duraciones—, pero sí se recoge en el alta: es la
+   * lista que se convierte en servicios al aplicar la ficha. Antes se omitía, y
+   * un salón terminaba su alta sin catálogo y sin que nadie se lo dijera.
    */
   catalogo?: string;
+  /**
+   * Cuánto dura un servicio típico, en minutos. Solo `citas`.
+   *
+   * Se pide en el alta para poder crear el catálogo de una vez: sin duración un
+   * servicio no se puede guardar, porque de ella depende que la agenda no
+   * solape dos citas. Las líneas que traigan la suya ("180 min") mandan sobre
+   * esta; el resto nace con ella y se ajusta después en Servicios.
+   */
+  duracionTipicaMin?: number;
   /** Variantes que el cliente elige y cuántas puede escoger de cada una. */
   variantes?: string;
 

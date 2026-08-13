@@ -34,6 +34,8 @@ const fichaSchema = z.object({
   horario,
   vertical: z.enum(["pedidos", "citas"]),
   catalogo: z.string().optional(),
+  /** Solo citas: duración de los servicios que no traigan la suya en la lista. */
+  duracionTipicaMin: z.number().int().min(5).max(600).optional(),
   variantes: z.string().optional(),
   entrega: z.object({
     haceDomicilios: z.boolean(),

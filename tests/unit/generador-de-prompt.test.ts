@@ -112,9 +112,28 @@ describe("el prompt generado lleva las lecciones de todos", () => {
   it("separa los dos momentos del cierre — la lección del 12-ago", () => {
     expect(p.instructions).toContain("MOMENTO 1");
     expect(p.instructions).toContain("MOMENTO 2");
-    expect(p.instructions).toContain("AQUÍ TERMINA EL MENSAJE");
+    // Sin el "AQUÍ"/"AHÍ" inicial: lo que importa es que el corte esté, no
+    // cómo empiece la frase. Esta prueba se rompió sola al reescribir el
+    // bloque, avisando de un cambio que no tenía nada de malo.
+    expect(p.instructions).toMatch(/TERMINA EL MENSAJE/);
     // Lo que se perdía: los datos de pago tras el "confirmo".
     expect(p.instructions).toMatch(/Solo DESPUÉS de que confirme/i);
+  });
+
+  /**
+   * Los tres fallos que aparecieron al probar un pedido completo de La Churra
+   * (13-ago): el agente saltaba el resumen, cerraba con `reply` en vez de
+   * `notify_order` —así que el pedido no existía para la cocina— y volvía a
+   * preguntar la forma de entrega que el cliente acababa de darle.
+   */
+  it("exige el resumen y manda usar notify_order al confirmar", () => {
+    expect(p.instructions).toMatch(/resumen es OBLIGATORIO/i);
+    expect(p.instructions).toContain("notify_order");
+    expect(p.instructions).toMatch(/en la cocina no se entera nadie/i);
+  });
+
+  it("prohíbe volver a preguntar lo que el cliente ya dijo", () => {
+    expect(p.instructions).toMatch(/NO se vuelve a preguntar/i);
   });
 
   it("prohíbe anunciar lo que no se hizo — cierre falso y cita fantasma", () => {
@@ -143,6 +162,27 @@ describe("se adapta al negocio sin dejar huecos", () => {
     const p = generarPerfil(soloLocal);
     expect(p.instructions).toContain("No hay domicilios");
     expect(p.instructions).not.toContain("🛵");
+  });
+
+  /**
+   * El orden de las preguntas, que faltaba y lo detectó el dueño: "el agente
+   * queda muy suelto con esto". Sin orden explícito pedía la dirección antes
+   * que el producto, o los datos de a poquitos.
+   */
+  it("dice el ORDEN en que preguntar, no solo qué necesita", () => {
+    const p = generarPerfil(LIS).instructions;
+    expect(p).toContain("El orden en que preguntas");
+    // El orden importa: el pago va al final, después de confirmar.
+    expect(p.indexOf("Qué quiere y cuántos")).toBeLessThan(
+      p.indexOf("Su nombre y su celular")
+    );
+    expect(p.indexOf("Su nombre y su celular")).toBeLessThan(
+      p.indexOf("Los datos de pago")
+    );
+  });
+
+  it("manda agrupar las preguntas en vez de ir de una en una", () => {
+    expect(generarPerfil(LIS).instructions).toMatch(/en el MISMO mensaje/i);
   });
 
   it("el vertical de citas cambia la meta y no repite el catálogo", () => {

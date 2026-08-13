@@ -42,6 +42,8 @@ import {
   CORRECCION_DE_CITA_FANTASMA,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   productosOlvidados,
+  correccionDeResumen,
+  resumenMalArmado,
   MENSAJE_RETIRADO,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
@@ -682,6 +684,49 @@ export async function runAgentTurn(
     } else {
       console.error(
         `[agente] el pedido sigue sin ${olvidados.join(", ")} tras la corrección; sale como está`
+      );
+    }
+  }
+
+  /*
+   * Cuarto guardarraíl: el resumen mal armado (12-ago-2026).
+   *
+   * Dos fallos del mismo momento, medidos en Lis Pastelería sobre 24 resúmenes
+   * reales: 19 pedían confirmar Y se despedían en el mismo mensaje (79 %), y 3
+   * anunciaban un resumen que no existía (12 %).
+   *
+   * El caro es el primero: el agente da la conversación por cerrada antes de
+   * que el cliente confirme, así que cuando este dice "confirmo" NO manda los
+   * datos de pago. La dueña los escribe a mano desde el celular, eso activa el
+   * relevo humano, y el relevo silencia al agente 2 horas. El bot falla el
+   * cierre → la dueña interviene → su intervención apaga al bot.
+   *
+   * La causa raíz era del prompt (las dos plantillas pegadas en una sección) y
+   * se corrigió allí primero. Esto es la red: si el prompt cumple, no salta.
+   *
+   * Como `productosOlvidados`, NO deriva a una persona si insiste.
+   */
+  const falloDeResumen = resumenMalArmado(textosAlCliente(action).join(" "));
+  if (falloDeResumen) {
+    console.warn(`[agente] resumen mal armado (${falloDeResumen}); rehaciendo el turno`);
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: correccionDeResumen(falloDeResumen) },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/resumen-${falloDeResumen}`
+    );
+    if (
+      reintento.ok &&
+      resumenMalArmado(textosAlCliente(reintento.data).join(" ")) === null
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        `[agente] el resumen sigue mal (${falloDeResumen}) tras la corrección; sale como está`
       );
     }
   }

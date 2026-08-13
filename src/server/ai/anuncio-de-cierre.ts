@@ -181,3 +181,109 @@ export function productosOlvidados(input: {
 /** La corrección cuando se dejó caer un producto que el cliente ya había pedido. */
 export const CORRECCION_DE_PRODUCTO_OLVIDADO =
   "ALTO. El cliente ya había pedido un producto y en tu respuesta desapareció: solo hablas del último que nombró. No lo sustituyas por tu cuenta. Si el cliente lo está SUMANDO, lleva los DOS y pide lo que falte de cada uno. Si no está claro si lo suma o lo cambia, pregúntaselo en UNA línea ('¿te lo agrego al de antes o lo cambiamos?') sin descartar nada todavía. Responde ÚNICAMENTE el objeto JSON.";
+
+/* ============================================================
+ * El resumen mal armado (12-ago-2026)
+ * ============================================================ */
+
+/**
+ * El resumen del pedido sale roto, de dos maneras que son la misma:
+ *
+ * **A · `cierre-prematuro`** — el agente pide confirmar el pedido y en el MISMO
+ * mensaje se despide, como si el cliente ya hubiera dicho que sí. Para él la
+ * conversación terminó ahí: cuando el cliente contesta "confirmo", **nunca
+ * manda los datos de pago**. Alguien del equipo tiene que escribirlos a mano —
+ * y al escribir desde el celular activa el relevo humano, que silencia al
+ * agente 2 horas. De ahí el círculo: el bot falla el cierre, la dueña
+ * interviene, y su intervención apaga al bot.
+ *
+ * **B · `sin-contenido`** — anuncia "aquí está el resumen de tu pedido" y no
+ * escribe ningún resumen: sin productos, sin total, sin la regla del domicilio.
+ * El cliente confirma a ciegas algo que no vio.
+ *
+ * **Medido en producción (Lis Pastelería, 31-jul a 12-ago)**: de 24 resúmenes,
+ * **19 con cierre prematuro (79 %)** y **3 sin contenido (12 %)**. La Churra,
+ * con otra estructura de prompt: 0 de 12.
+ *
+ * **La causa raíz era del prompt y se corrigió allí primero** (12-ago): las dos
+ * plantillas —la de antes de confirmar y la de después— vivían pegadas en la
+ * misma sección, así que el modelo las leía como un bloque y las concatenaba.
+ * Se partieron en "MOMENTO 1" y "MOMENTO 2" con un corte explícito, y se
+ * verificó contra el pipeline real que el flujo completo salía bien.
+ *
+ * Este guardarraíl es la RED, no el arreglo: existe porque el fallo llevaba
+ * dos semanas costando pedidos y la dueña ya había perdido la confianza en el
+ * agente. Si el prompt cumple, no salta nunca y no cuesta nada.
+ *
+ * Como `productosOlvidados`, **no deriva a una persona** si insiste: se
+ * registra y sale como está. Sacar a un humano en cada pedido sería peor.
+ */
+
+/** Marcas de que el mensaje está pidiendo confirmar el pedido. */
+const PIDE_CONFIRMAR: RegExp[] = [
+  /confirma\s+tu\s+pedido/i,
+  /¿\s*est[áa]\s+todo\s+correcto\s*\?/i,
+];
+
+/** Marcas de que anuncia un resumen. */
+const ANUNCIA_RESUMEN: RegExp[] = [
+  /resumen\s+de\s+tu\s+pedido/i,
+  /aqu[íi]\s+(?:est[áa]|tienes)\s+(?:el\s+)?resumen/i,
+];
+
+/**
+ * Un total con cifra. Es lo que distingue un resumen de verdad de un anuncio
+ * vacío: puede faltar cualquier viñeta, pero un resumen sin total no es nada.
+ */
+const TIENE_TOTAL = /total\s*:?\s*\*?\s*\$\s*[\d][\d.,]*/i;
+
+/**
+ * Marcas INEQUÍVOCAS del mensaje de despedida (el que va DESPUÉS de confirmar).
+ *
+ * Se eligen a propósito frases que solo existen en esa plantilla. "Gracias por
+ * elegirnos" quedó fuera aunque aparece en la despedida: también abre resúmenes
+ * legítimos ("¡Gracias por elegirnos, Leidy! Aquí está el resumen…"), y un
+ * guardarraíl que salta de más molesta en las conversaciones sanas.
+ */
+const MARCAS_DE_DESPEDIDA: RegExp[] = [
+  /marca\s*0\s*para\s+volver\s+a\s+empezar/i,
+  // "todo" opcional a propósito: el caso real de Leidy decía "ya lo estamos
+  // preparando con mucho amor para ti", sin esa palabra. Dar el pedido por
+  // puesto en marcha ANTES de que el cliente confirme es el fallo, lleve o no
+  // la palabra exacta de la plantilla.
+  /estamos\s+preparando\s+(?:todo\s+)?con\s+mucho\s+amor/i,
+  /para\s+el\s+pago\s*:/i,
+  /\bllave\s*:?\s*\*?\s*\d{6,}/i,
+];
+
+export type FalloDeResumen = "cierre-prematuro" | "sin-contenido" | null;
+
+/** Qué le pasa al resumen que el agente va a mandar. `null` = está bien. */
+export function resumenMalArmado(
+  texto: string | null | undefined
+): FalloDeResumen {
+  if (!texto) return null;
+
+  const pideConfirmar = PIDE_CONFIRMAR.some((re) => re.test(texto));
+  const anunciaResumen = ANUNCIA_RESUMEN.some((re) => re.test(texto));
+  if (!pideConfirmar && !anunciaResumen) return null;
+
+  // A: pide confirmar y ya se despide (o suelta los datos de pago) en el mismo
+  // mensaje. Es el fallo caro: deja al cliente sin saber a dónde transferir.
+  if (pideConfirmar && MARCAS_DE_DESPEDIDA.some((re) => re.test(texto))) {
+    return "cierre-prematuro";
+  }
+
+  // B: anuncia el resumen y no hay resumen.
+  if (anunciaResumen && !TIENE_TOTAL.test(texto)) return "sin-contenido";
+
+  return null;
+}
+
+/** La corrección cuando el resumen sale mal armado. */
+export function correccionDeResumen(fallo: FalloDeResumen): string {
+  if (fallo === "cierre-prematuro") {
+    return "ALTO. En el MISMO mensaje le pides al cliente que confirme su pedido y ya te despides (o le das los datos de pago). Son DOS momentos distintos: el cliente todavía NO ha confirmado. Tu mensaje debe TERMINAR justo después de preguntar si está todo correcto — sin despedida, sin 'marca 0', sin datos de pago, sin decir que ya lo estás preparando. Esos textos van en el mensaje SIGUIENTE, cuando el cliente diga que sí. Reescribe SOLO el resumen y la petición de confirmación. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Responde ÚNICAMENTE el objeto JSON.";
+}

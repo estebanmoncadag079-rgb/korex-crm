@@ -50,21 +50,13 @@ abierto tras cargar el catálogo oficial:
 
 ## 3. 🟡 Automatizar el alta de clientes (fase 3) — el techo real
 
-> ✅ **Muy avanzado el 12-ago-2026.** El prompt, el horario y el conocimiento ya
-> no se hacen a mano: **los llena el propio cliente** en `/configuracion-inicial`
-> (8 etapas, entra desde la pestaña Agente) y el sistema genera todo solo.
-> Detalle en [46-CONFIGURACION-INICIAL.md](46-CONFIGURACION-INICIAL.md) y
-> [45-GENERADOR-DE-PROMPTS.md](45-GENERADOR-DE-PROMPTS.md).
->
-> **Lo que de verdad se resolvió** no fue teclear más rápido: era que el prompt
-> se copiaba de otro cliente, así que los errores y los arreglos viajaban por
-> copia. Ahora las lecciones viven en `conducta.ts`, escritas una vez, y **un
-> cliente nuevo nace inmunizado sin copiar el prompt de nadie**.
->
-> **Sigue pendiente de este punto**: la **marca** (logo y color, aún por SQL),
-> el **importador de catálogo/KB** por archivo, enlazar el wizard desde el alta,
-> y **migrar a Lis y La Churra**, que conservan su prompt escrito a mano — La
-> Churra con el defecto estructural latente que rompió a Lis.
+> ✅ **Muy avanzado el 12-ago-2026**: el prompt, el horario y el conocimiento
+> los llena ahora **el propio cliente** en `/configuracion-inicial`, y las
+> lecciones viven escritas una vez en `conducta.ts` — un cliente nuevo nace
+> inmunizado **sin copiar el prompt de nadie**, que era el problema de fondo.
+> Ver [46-CONFIGURACION-INICIAL.md](46-CONFIGURACION-INICIAL.md).
+> **Falta**: la marca (SQL), el importador de catálogo, y **migrar a Lis y La
+> Churra** — La Churra con el defecto estructural que rompió a Lis.
 
 De los 9 pasos del alta ([05-CLIENTES.md](05-CLIENTES.md)), el **horario** y la
 **marca** solo se ponen por SQL, el **KB** se carga a mano y el **prompt** se

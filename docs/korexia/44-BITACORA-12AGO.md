@@ -126,6 +126,41 @@ Cambiar de modelo no habría arreglado nada —**el prompt roto lo hereda
 cualquier modelo**— y habría multiplicado el costo por seis. Se decidió no
 tocarlo. Regla que queda: **el modelo es lo último que se toca, no lo primero.**
 
+## 4. Y la pregunta que cambió el día
+
+Con el bot de Lis ya arreglado, el dueño hizo la pregunta correcta:
+
+> *"¿Todo esto es para que el bot no falle solo con Lis o con todos? Porque si
+> entra un cliente nuevo y vamos a arreglar error por error como con Lis, korex
+> no será escalable — será imposible con 10 clientes, todos enojados por cosas
+> que ya sabíamos que iban a fallar."*
+
+**Tenía razón, y el riesgo era real, no teórico**: La Churra **todavía arrastra**
+la misma sección `## Resumen y cierre` con las dos plantillas pegadas. No ha
+fallado (0 de 12), pero está expuesta — porque su prompt se escribió copiando y
+adaptando, que era el método.
+
+De ahí salieron dos cosas, ambas desplegadas el mismo día:
+
+- **El generador de prompts** ([45](45-GENERADOR-DE-PROMPTS.md)): separa lo
+  único de cada negocio (la ficha) de las lecciones que valen para todos (la
+  conducta, escrita **una sola vez**). Un cliente nuevo nace inmunizado sin
+  copiar el prompt de nadie, y un fallo nuevo se corrige en un sitio para toda
+  la flota.
+- **La configuración inicial** ([46](46-CONFIGURACION-INICIAL.md)): idea del
+  dueño, y mejor que la primera propuesta. **La llena el propio cliente** en 8
+  etapas dentro de su cuenta, así que **nadie transcribe nada** — y la
+  transcripción era el cuello de botella de verdad.
+
+Con eso, el punto 3 de [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md)
+—*"el techo real"*— baja de 🔴 a 🟡.
+
+> 🔑 **Y una respuesta que conviene tener a mano**: el prompt **no lo genera una
+> IA**. Es código que coloca las respuestas del cliente en un esqueleto fijo.
+> Costo cero, repetible, y sobre todo **imposible que invente** un precio o una
+> promesa que nadie dijo — un prompt inventado se convierte en la ley que el bot
+> repite a los clientes durante meses.
+
 ## Lo que queda
 
 - 🔴 **Cambiar la contraseña del superadmin.** Sigue siendo el pendiente más

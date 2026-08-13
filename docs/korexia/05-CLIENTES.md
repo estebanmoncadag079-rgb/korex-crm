@@ -19,6 +19,16 @@ para uno mejora a los demás el mismo día.
 
 ## Dar de alta un cliente
 
+> ✅ **Desde el 12-ago-2026 hay una vía corta.** Se crea el cliente (paso 1), se
+> le da su cuenta y **él mismo llena la configuración inicial** en
+> `/configuracion-inicial` — entra desde la pestaña Agente, donde le espera
+> *"Empecemos a entrenar tu asistente"*. Con eso quedan hechos los pasos **3, 4,
+> 5 y 6** (conocimiento, prompt, horario y avisos) **sin tocar la base de
+> datos**. Detalle en [46-CONFIGURACION-INICIAL.md](46-CONFIGURACION-INICIAL.md).
+>
+> Los pasos de abajo describen **la vía manual**, que sigue sirviendo para
+> ajustar algo suelto y es como se dieron de alta La Churra y Lis.
+
 ### 1. Crear el cliente
 
 En `/admin` → **Nuevo cliente**: nombre del negocio, nombre y correo del dueño,
@@ -38,9 +48,14 @@ Menú, precios, horario, ubicación, domicilios y formas de pago, en `kb_entry`.
 
 ### 4. El prompt del agente
 
-Se parte del de otro cliente y se adapta. Regla importante: **no repetir en el
-prompt los datos que ya están en el conocimiento** — se pagan dos veces en cada
-mensaje.
+> ⚠️ **Ya NO se parte del de otro cliente.** Copiar y adaptar era lo que hacía
+> viajar los errores de un negocio a otro: La Churra todavía arrastra el defecto
+> estructural que tuvo a Lis dos semanas cerrando pedidos sin mandar los datos
+> de pago. Ahora lo genera el sistema desde la ficha del propio negocio, con las
+> lecciones ya puestas ([45-GENERADOR-DE-PROMPTS.md](45-GENERADOR-DE-PROMPTS.md)).
+
+Regla importante que sigue valiendo: **no repetir en el prompt los datos que ya
+están en el conocimiento** — se pagan dos veces en cada mensaje.
 
 > ⚠️ **Con una excepción**: lo que el bot debe **recitar textualmente** (el menú
 > con sus cifras, la lista de opciones) tiene que estar **en el prompt**, aunque

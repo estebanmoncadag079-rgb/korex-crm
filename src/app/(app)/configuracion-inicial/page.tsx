@@ -1,0 +1,31 @@
+import { OnboardingWizard } from "@/components/onboarding/onboarding-wizard";
+import { requireSession } from "@/lib/auth/session";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * La configuración inicial del negocio, que contesta el propio cliente.
+ *
+ * Vive dentro de su cuenta y no en `/admin` a propósito: quien mejor conoce el
+ * menú, el horario y las reglas del negocio es su dueño. Antes esto era un Word
+ * que alguien de la agencia transcribía a mano, y esa transcripción era el
+ * cuello de botella que impedía crecer.
+ */
+export default async function ConfiguracionInicialPage() {
+  await requireSession();
+  return (
+    <div className="p-6">
+      <div className="mx-auto mb-6 max-w-2xl">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Cuéntanos sobre tu negocio
+        </h1>
+        <p className="mt-1 text-muted-foreground">
+          Con esto configuramos tu asistente de WhatsApp. No hace falta que sepas
+          de tecnología: responde con tus palabras y lo que no sepas lo hablamos
+          después. Puedes salir y seguir en otro momento.
+        </p>
+      </div>
+      <OnboardingWizard />
+    </div>
+  );
+}

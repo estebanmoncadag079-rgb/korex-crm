@@ -1,4 +1,4 @@
-import { CIERRE, ESTILO, meta, NUNCA } from "./conducta";
+import { CIERRE, ESTILO, meta, NO_ENCAJA, NUNCA } from "./conducta";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 
 /**
@@ -142,6 +142,7 @@ export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
       : null,
     CIERRE,
     NUNCA,
+    NO_ENCAJA,
     // Lo propio del negocio se añade al final del bloque universal, no lo
     // sustituye: son prohibiciones suyas que se suman a las de siempre.
     vinetas(ficha.nuncaPrometer)

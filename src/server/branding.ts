@@ -20,21 +20,26 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
   }
 }
 
+/**
+ * Sin organización (portada pública, login) la marca es la de la AGENCIA,
+ * nunca la de un cliente.
+ *
+ * Antes esto hacía `select ... from organization limit 1` dando por hecho que
+ * la instancia tenía una sola organización. Al pasar a multi-cliente esa
+ * consulta —sin `order by`— empezó a devolver una cualquiera, y como el acento
+ * se inyecta en el layout raíz, el color de ese cliente se pintaba en TODA la
+ * aplicación: la portada, el login y el CRM de los demás clientes.
+ */
 export async function getBranding(
   organizationId?: string | null
 ): Promise<Branding> {
+  if (!organizationId) return DEFAULT_BRANDING;
   const db = getDb();
-  const rows = organizationId
-    ? await db
-        .select({ metadata: schema.organization.metadata })
-        .from(schema.organization)
-        .where(eq(schema.organization.id, organizationId))
-        .limit(1)
-    : // Sin sesión (login, layout raíz): la única organización de la instancia.
-      await db
-        .select({ metadata: schema.organization.metadata })
-        .from(schema.organization)
-        .limit(1);
+  const rows = await db
+    .select({ metadata: schema.organization.metadata })
+    .from(schema.organization)
+    .where(eq(schema.organization.id, organizationId))
+    .limit(1);
   if (!rows[0]) return DEFAULT_BRANDING;
   const meta = parseMetadata(rows[0].metadata);
   return normalizeBranding(

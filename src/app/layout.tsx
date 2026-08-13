@@ -1,6 +1,12 @@
+import { cache } from "react";
 import type { Metadata } from "next";
 import { Geist, Manrope, Sora } from "next/font/google";
-import { accentCssVariables, DEFAULT_BRANDING } from "@/lib/branding";
+import {
+  accentCssVariables,
+  DEFAULT_BRANDING,
+  type Branding,
+} from "@/lib/branding";
+import { getSessionOrNull } from "@/lib/auth/session";
 import { getBranding } from "@/server/branding";
 import "./globals.css";
 
@@ -27,8 +33,22 @@ const sora = Sora({
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Marca de ESTA petición: la del tenant activo si hay sesión, la de la agencia
+ * si no la hay. El acento se inyecta aquí y solo aquí, así que de esta
+ * resolución depende el color de toda la aplicación: si no mira la sesión,
+ * todos los clientes acaban viendo el mismo color.
+ *
+ * `cache` la resuelve una sola vez por petición, aunque la pidan el layout y
+ * los metadatos.
+ */
+const brandingForRequest = cache(async (): Promise<Branding> => {
+  const session = await getSessionOrNull();
+  return getBranding(session?.organizationId).catch(() => DEFAULT_BRANDING);
+});
+
 export async function generateMetadata(): Promise<Metadata> {
-  const branding = await getBranding().catch(() => DEFAULT_BRANDING);
+  const branding = await brandingForRequest();
   return {
     title: `${branding.name} — CRM de WhatsApp`,
     description: "CRM de WhatsApp con agente de IA y Laboratorio de auto-evaluación",
@@ -38,7 +58,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const branding = await getBranding().catch(() => DEFAULT_BRANDING);
+  const branding = await brandingForRequest();
   return (
     <html
       lang="es"

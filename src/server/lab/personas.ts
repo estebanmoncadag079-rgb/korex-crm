@@ -277,6 +277,23 @@ export const PERSONAS_CITAS: Persona[] = [
         cuando: /(confirm|est[aá] (todo )?correcto|as[ií] queda|procedo|te (agendo|dejo)|de acuerdo|te sirve)/i,
         responde: "Sí, perfecto. Confirmo la cita",
       },
+      /*
+       * Acepta la primera propuesta que le hagan.
+       *
+       * Sin esto, un agente que insiste en "¿cuál de nuestros servicios?" se
+       * queda dando vueltas: la respuesta común de "el que ustedes recomienden"
+       * se gasta una sola vez, el cliente nunca elige y la cita no se agenda
+       * jamás. Un cliente real, después de pedir una recomendación, dice "ese".
+       * Con esta línea el escenario SE PUEDE cerrar, que es la condición para
+       * que no cerrarlo cuente como fallo del agente.
+       */
+      {
+        // Apunta a la INSISTENCIA, no a la primera pregunta: cuando el agente
+        // ya nombró opciones y vuelve a pedir que elija. La primera vez la
+        // atiende la respuesta común ("el que ustedes me recomienden").
+        cuando: /(cu[aá]l de (estos|estas|ellos|ellas|nuestros|las opciones)|alguno de (estos|estas)|te gustar[ií]a (probar|reservar|agendar)|prefieres (otro|alguno|que te)|o quiz[aá]s otro)/i,
+        responde: "El primero que me nombraste está bien, agéndame ese",
+      },
     ],
   },
   {

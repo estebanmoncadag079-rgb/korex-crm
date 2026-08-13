@@ -170,6 +170,28 @@ describe("la clienta decidida puede llegar a dejar la cita agendada", () => {
     expect(elegida?.texto.toLowerCase()).toMatch(/confirmo|perfecto/);
   });
 
+  it("acepta una propuesta si el agente insiste en que elija", () => {
+    /*
+     * Corrida real del 13-ago-2026: el agente preguntó CUATRO veces "¿cuál de
+     * nuestros servicios?", la clienta ya había gastado su "el que ustedes
+     * recomienden" y nunca eligió. La cita no se agendó jamás — pero es que el
+     * escenario tampoco se PODÍA cerrar, y un rojo así habría sido injusto.
+     */
+    const reglas = reglasDe(decidida);
+    const usadas = new Set<number>();
+
+    const primera = elegirRespuesta(reglas, usadas, "¿Qué servicio te interesa?");
+    expect(primera?.texto).toMatch(/recomienden/i);
+    usadas.add(primera!.indice);
+
+    const insiste = elegirRespuesta(
+      reglas,
+      usadas,
+      "¿Te gustaría probar alguno de estos o te doy más opciones?"
+    );
+    expect(insiste?.texto).toMatch(/ag[eé]ndame ese/i);
+  });
+
   it("no se le pregunta por dirección ni por pagos", () => {
     // Sus respuestas comunes son las de citas: si se colaran las de pedidos,
     // el salón acabaría hablando de domicilios otra vez.

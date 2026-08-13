@@ -1,0 +1,164 @@
+import { CIERRE, ESTILO, meta, NUNCA } from "./conducta";
+import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
+
+/**
+ * De la ficha del cliente al prompt completo.
+ *
+ * El prompt de cada negocio se arma **desde cero con sus datos**: no se copia
+ * de otro cliente ni se adapta el de nadie. Lo único que se repite entre
+ * clientes son las lecciones de conducta (`conducta.ts`), que no dependen del
+ * negocio y por eso no tienen por qué reescribirse en cada alta.
+ *
+ * Lo que esto resuelve, y era el techo del proyecto: el alta pasa de horas a
+ * minutos, deja de depender de que quien la haga recuerde todas las lecciones,
+ * y el día que aparezca un fallo nuevo se corrige aquí una vez y **lo heredan
+ * todos los clientes**, en vez de ir cazándolo negocio por negocio con el
+ * dueño enfadado al teléfono.
+ */
+
+/** Lo que se guarda en `agent_profile`, ya listo para insertar. */
+export type PerfilGenerado = {
+  instructions: string;
+  escalationRules: string;
+  greeting: string;
+};
+
+/** Une trozos saltándose los vacíos, para no dejar huecos ni títulos huérfanos. */
+function bloques(...partes: (string | null | undefined)[]): string {
+  return partes
+    .map((p) => p?.trim())
+    .filter((p): p is string => Boolean(p))
+    .join("\n\n");
+}
+
+/** Lista en viñetas. Vacía = no se escribe la sección entera. */
+function vinetas(items: string[] | undefined): string | null {
+  const limpios = (items ?? []).map((i) => i.trim()).filter(Boolean);
+  if (limpios.length === 0) return null;
+  return limpios.map((i) => `- ${i}`).join("\n");
+}
+
+/** Lo que el negocio vende y a qué precio. */
+function queOfrece(ficha: FichaDelNegocio): string | null {
+  // En el vertical de citas el catálogo llega aparte, desde la tabla `service`,
+  // ya con precios y duraciones: repetirlo aquí sería una fuente de verdad
+  // duplicada y la primera en quedarse vieja.
+  if (ficha.vertical === "citas") return null;
+  if (!ficha.catalogo?.trim()) return null;
+  return bloques(
+    "## Lo que vendes",
+    ficha.catalogo.trim(),
+    ficha.variantes?.trim()
+      ? `**Opciones que elige el cliente:**\n${ficha.variantes.trim()}`
+      : null
+  );
+}
+
+/** Cómo recibe el cliente lo que pidió. */
+function comoRecibe(ficha: FichaDelNegocio): string | null {
+  const { entrega } = ficha;
+  const partes: string[] = [];
+
+  if (entrega.haceDomicilios) {
+    const detalle: string[] = [];
+    if (entrega.como?.trim()) detalle.push(entrega.como.trim());
+    if (entrega.restricciones?.trim()) detalle.push(entrega.restricciones.trim());
+    partes.push(
+      bloques(
+        "**Domicilio.**",
+        detalle.join(" ") || null,
+        // El dato que más caro sale si se omite: el cliente cree que el total
+        // lo incluye y acaba discutiendo con el repartidor. En NEGRITA y con el
+        // hecho por delante, porque en cursiva WhatsApp lo pinta tenue y pasa
+        // desapercibido — se aprendió con Lis el 12-ago-2026.
+        entrega.quienPagaElDomicilio?.trim()
+          ? `⚠️ Esta línea va SIEMPRE en el resumen del pedido, en negrita y con el hecho primero — nunca la resumas con tus propias palabras ni la des solo de palabra en mitad de la charla:\n"🛵 *${entrega.quienPagaElDomicilio.trim()}*"`
+          : null
+      )
+    );
+  } else {
+    partes.push("**No hay domicilios.** Si alguien lo pide, dilo con naturalidad y ofrécele recoger.");
+  }
+
+  if (entrega.recogerEnLocal?.trim()) {
+    partes.push(
+      `**Recoger en el local.** ${entrega.recogerEnLocal.trim()}\nSi el cliente recoge, NO le pidas dirección y no le prometas tiempos de entrega.`
+    );
+  }
+  return bloques("## Cómo lo recibe", ...partes);
+}
+
+/** Cómo le pagan. */
+function comoPagan(ficha: FichaDelNegocio): string {
+  const { pago } = ficha;
+  return bloques(
+    "## Cómo te pagan",
+    `Formas de pago: ${pago.formas.trim()}`,
+    pago.datosDeCuenta?.trim()
+      ? `Datos para el pago (cópialos TAL CUAL, sin cambiar ni un dígito, y solo DESPUÉS de que confirme):\n${pago.datosDeCuenta.trim()}`
+      : null,
+    pago.compruebaUnaPersona
+      ? "Pídele la foto del comprobante para dejar el pedido en firme. **Tú nunca das un pago por bueno**: lo revisa una persona del equipo."
+      : null
+  );
+}
+
+/**
+ * Arma el prompt del negocio.
+ *
+ * Lanza si faltan datos sin los que el agente no puede trabajar: es mejor
+ * frenar el alta que dejar en producción un agente que cierra pedidos y no
+ * sabe cobrarlos.
+ */
+export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
+  const faltan = faltantesDeLaFicha(ficha);
+  if (faltan.length > 0) {
+    throw new Error(
+      `No se puede generar el prompt, falta en la ficha: ${faltan.join(", ")}.`
+    );
+  }
+
+  const instructions = bloques(
+    `Eres la voz de **${ficha.nombre}**${ficha.ubicacion?.trim() ? ` (${ficha.ubicacion.trim()})` : ""} en WhatsApp. ${ficha.queVende.trim()}`,
+    ESTILO,
+    `**El tono de este negocio:** ${ficha.tono.trim()}`,
+    meta(ficha.vertical),
+    "# Lo que ofreces y cómo se recibe",
+    queOfrece(ficha),
+    comoRecibe(ficha),
+    comoPagan(ficha),
+    ficha.regalos?.trim()
+      ? bloques(
+          "## Regalos",
+          ficha.regalos.trim(),
+          "Si es un regalo, los datos de entrega son los de QUIEN RECIBE, no los de quien compra."
+        )
+      : null,
+    // Las reglas propias van ANTES del cierre y de las prohibiciones
+    // universales: son del día a día de este negocio y el modelo las necesita
+    // mientras atiende, no al final entre las advertencias.
+    vinetas(ficha.reglasPropias)
+      ? `## Reglas propias de este negocio\n\n${vinetas(ficha.reglasPropias)}`
+      : null,
+    CIERRE,
+    NUNCA,
+    // Lo propio del negocio se añade al final del bloque universal, no lo
+    // sustituye: son prohibiciones suyas que se suman a las de siempre.
+    vinetas(ficha.nuncaPrometer)
+      ? `## Además, en este negocio nunca:\n${vinetas(ficha.nuncaPrometer)}`
+      : null
+  );
+
+  const escalationRules = bloques(
+    "Pasa la conversación a una persona del equipo en estos casos:",
+    vinetas(ficha.escalarSiempre),
+    "- Si el cliente pide hablar con alguien del equipo.\n- Si te pide algo que no sabes resolver y no está en tu conocimiento.",
+    "Cuando escales, dilo en UNA línea y sin prometer tiempos ('te comunico con alguien del equipo 😊'). No te quedes callado: un cliente esperando sin respuesta es lo peor que puede pasar."
+  );
+
+  const greeting =
+    ficha.saludoInicial?.trim() ||
+    `¡Hola! 👋 Soy el asistente de ${ficha.nombre}. ¿En qué te puedo ayudar?`;
+
+  return { instructions, escalationRules, greeting };
+}

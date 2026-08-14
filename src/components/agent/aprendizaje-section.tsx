@@ -41,12 +41,19 @@ export function AprendizajeSection({ onAprendido }: { onAprendido: () => void })
     void cargar();
   }, [cargar]);
 
-  async function buscar() {
+  /**
+   * `historial` mira también los chats que trajo la coexistencia al conectar el
+   * número (hasta 6 meses). Es un botón aparte y no el de siempre porque cuesta
+   * y tarda más: se usa UNA vez, cuando entra un cliente que ya venía
+   * atendiendo por WhatsApp.
+   */
+  async function buscar(historial = false) {
     setBuscando(true);
     setAviso(null);
-    const res = await fetch("/api/agent/aprendizaje", { method: "POST" }).catch(
-      () => null
-    );
+    const res = await fetch(
+      `/api/agent/aprendizaje${historial ? "?historial=1" : ""}`,
+      { method: "POST" }
+    ).catch(() => null);
     setBuscando(false);
     if (!res?.ok) {
       setAviso("No se pudo analizar. Inténtalo de nuevo en un momento.");
@@ -90,12 +97,26 @@ export function AprendizajeSection({ onAprendido }: { onAprendido: () => void })
               agente aún no sabe responder — sobre todo lo que tuvo que
               contestar una persona. Lo que apruebes entra en el conocimiento y
               lo usará en el siguiente mensaje.
+              <br />
+              <strong>Aprender del historial</strong> mira además los chats que
+              el negocio ya tenía en su WhatsApp antes de conectarlo (hasta 6
+              meses). Úsalo una vez, al entrar un cliente nuevo.
             </CardDescription>
           </div>
-          <Button onClick={() => void buscar()} disabled={buscando}>
-            <Sparkles className="mr-1.5 h-4 w-4" strokeWidth={1.7} />
-            {buscando ? "Analizando…" : "Buscar aprendizajes"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void buscar()} disabled={buscando}>
+              <Sparkles className="mr-1.5 h-4 w-4" strokeWidth={1.7} />
+              {buscando ? "Analizando…" : "Buscar aprendizajes"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void buscar(true)}
+              disabled={buscando}
+              title="Incluye los chats que ya existían en el WhatsApp del negocio antes de conectarlo"
+            >
+              Aprender del historial
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

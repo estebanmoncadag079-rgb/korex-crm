@@ -246,3 +246,88 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
     respondeAEstado: Boolean(m.context && !m.context.id),
   };
 }
+
+/* ============================================================
+ * Historial de la coexistencia (14-ago-2026)
+ * ============================================================ */
+
+/**
+ * Un mensaje del historial que WhatsApp sincroniza al conectar el número.
+ *
+ * Al activar la coexistencia, Meta manda **hasta 6 meses de chats anteriores**
+ * y YCloud los reenvía como `whatsapp.smb.history`. Hasta ahora se ignoraban
+ * (`[ycloud webhook] evento ignorado`), así que la conversación que el negocio
+ * ya había tenido con sus clientas se perdía: ni el equipo la veía en la
+ * bandeja, ni el aprendizaje podía sacar conocimiento de ella.
+ *
+ * Un mismo evento trae UNO de los dos lados: `whatsappInboundMessage` (lo que
+ * escribió la clienta) o `whatsappMessage` (lo que respondió el negocio desde
+ * su celular).
+ */
+export type ParsedHistory = {
+  direction: "in" | "out";
+  waMessageId: string;
+  wabaId: string;
+  businessPhone: string;
+  customerPhone: string | null;
+  customerWaUserId: string | null;
+  profileName: string | null;
+  type: string;
+  text: string | null;
+  unixTs: string;
+};
+
+export function parseYcloudHistory(event: YcloudEvent): ParsedHistory | null {
+  const entrante = event.whatsappInboundMessage;
+  const saliente = event.whatsappMessage;
+
+  if (entrante) {
+    const waMessageId = entrante.id;
+    if (!waMessageId || (!entrante.from && !entrante.fromUserId)) return null;
+    const media = entrante.image ?? entrante.document ?? entrante.video ?? entrante.audio ?? null;
+    const text =
+      typeof entrante.text === "string"
+        ? entrante.text
+        : (entrante.text?.body ?? media?.caption ?? null);
+    const iso = entrante.sendTime;
+    const ms = iso ? Date.parse(iso) : NaN;
+    return {
+      direction: "in",
+      waMessageId,
+      wabaId: entrante.wabaId ?? "",
+      businessPhone: stripPlus(entrante.to ?? ""),
+      customerPhone: entrante.from ? stripPlus(entrante.from) : null,
+      customerWaUserId: entrante.fromUserId ?? null,
+      profileName: entrante.customerProfile?.name ?? null,
+      type: entrante.type ?? "text",
+      text,
+      unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
+    };
+  }
+
+  if (saliente) {
+    const waMessageId = saliente.wamid ?? saliente.id;
+    if (!waMessageId || (!saliente.to && !saliente.toUserId)) return null;
+    const media = saliente.image ?? saliente.document ?? saliente.video ?? saliente.audio ?? null;
+    const text =
+      typeof saliente.text === "string"
+        ? saliente.text
+        : (saliente.text?.body ?? media?.caption ?? null);
+    const iso = saliente.sendTime ?? saliente.createTime;
+    const ms = iso ? Date.parse(iso) : NaN;
+    return {
+      direction: "out",
+      waMessageId,
+      wabaId: saliente.wabaId ?? "",
+      businessPhone: stripPlus(saliente.from ?? ""),
+      customerPhone: saliente.to ? stripPlus(saliente.to) : null,
+      customerWaUserId: saliente.toUserId ?? null,
+      profileName: null,
+      type: saliente.type ?? "text",
+      text,
+      unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
+    };
+  }
+
+  return null;
+}

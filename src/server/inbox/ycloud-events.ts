@@ -1,10 +1,15 @@
 import {
   parseYcloudEcho,
+  parseYcloudHistory,
   parseYcloudInbound,
   type YcloudEvent,
 } from "@/server/inbox/ycloud-webhook";
 import { resolveInboundRoute, resolveRoute } from "@/server/inbox/ycloud-routing";
-import { ingestInboundMessage, ingestOutboundEcho } from "@/server/inbox/ingest";
+import {
+  ingestHistoryMessage,
+  ingestInboundMessage,
+  ingestOutboundEcho,
+} from "@/server/inbox/ingest";
 import { notifyTeam } from "@/server/ai/notify-team";
 
 /**
@@ -21,6 +26,16 @@ export async function handleYcloudEvent(
 ): Promise<{ organizationId: string | null }> {
   if (event.type === "whatsapp.smb.message.echoes") {
     return handleEcho(event, opts);
+  }
+  /*
+   * El historial que sincroniza la coexistencia: hasta 6 MESES de chats
+   * anteriores a conectar el número. Hasta el 14-ago-2026 caía en el
+   * "evento ignorado" de abajo y se perdía — con él, la conversación que el
+   * negocio ya había tenido con sus clientas, que es de donde sale el
+   * conocimiento que el agente todavía no tiene.
+   */
+  if (event.type === "whatsapp.smb.history") {
+    return handleHistory(event, opts);
   }
   /*
    * Todo descarte deja rastro, y esto no es celo de registro: el 31-jul-2026
@@ -115,6 +130,59 @@ export async function handleYcloudEvent(
  * El negocio respondió desde la app de WhatsApp de su celular: se registra en
  * el hilo (para que el historial no tenga huecos) y el agente cede el turno.
  */
+/**
+ * Un mensaje del historial de la coexistencia.
+ *
+ * Mismo enrutado que el eco —el número del negocio decide de quién es—, pero
+ * lo que hace con él es muy distinto: `ingestHistoryMessage` solo lo guarda.
+ * Ni agente, ni relevo humano, ni ventana de 24 h (ver allí el porqué de cada
+ * uno).
+ */
+async function handleHistory(
+  event: YcloudEvent,
+  opts?: { expectOrganizationId?: string }
+): Promise<{ organizationId: string | null }> {
+  const msg = parseYcloudHistory(event);
+  if (!msg) {
+    console.warn(
+      "[ycloud webhook] HISTORIAL DESCARTADO: el evento no trae los datos mínimos"
+    );
+    return { organizationId: null };
+  }
+
+  const route = await resolveRoute(msg.businessPhone, msg.wabaId);
+  if (!route) {
+    console.warn(
+      `[ycloud webhook] historial de un número sin cliente (${msg.businessPhone})`
+    );
+    return { organizationId: null };
+  }
+  if (!belongsTo(route.organizationId, opts)) {
+    console.warn(
+      `[ycloud webhook] HISTORIAL DESCARTADO por aislamiento (${msg.businessPhone})`
+    );
+    return { organizationId: route.organizationId };
+  }
+
+  const { guardado } = await ingestHistoryMessage({
+    organizationId: route.organizationId,
+    direction: msg.direction,
+    customerPhone: msg.customerPhone,
+    customerWaUserId: msg.customerWaUserId,
+    profileName: msg.profileName,
+    waMessageId: msg.waMessageId,
+    type: msg.type,
+    text: msg.text,
+    timestamp: msg.unixTs,
+  });
+  // Se registra en info y no en warn: llegan cientos de golpe y los repetidos
+  // son normales (la sincronización reenvía).
+  if (!guardado) {
+    console.info(`[ycloud webhook] historial repetido (${msg.waMessageId})`);
+  }
+  return { organizationId: route.organizationId };
+}
+
 async function handleEcho(
   event: YcloudEvent,
   opts?: { expectOrganizationId?: string }

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { chatJson } from "@/lib/ai";
 import { getDb, schema } from "@/lib/db";
@@ -20,6 +20,20 @@ import { registrarUsoIa } from "@/server/usage";
 
 /** Días de conversación que se revisan. Una semana cubre el ciclo del negocio. */
 const DIAS_A_REVISAR = 7;
+
+/**
+ * Tope de mensajes cuando se revisa el HISTORIAL de la coexistencia.
+ *
+ * Al conectar un número, WhatsApp sincroniza hasta 6 meses de chats: son miles
+ * de mensajes, no cuatrocientos. Ahí está lo que el negocio ya le contestó a
+ * sus clientas durante meses — el mejor material que va a haber para el
+ * conocimiento.
+ *
+ * ⚠️ La ventana de días NO hacía falta tocarla, aunque lo parezca: el filtro
+ * es por `createdAt` (cuándo se guardó la fila), y el historial se guarda el
+ * día que se importa. Lo que sí falla con el volumen es el tope y el ORDEN.
+ */
+const MAX_MENSAJES_HISTORIAL = 1200;
 
 /** Tope de mensajes por análisis: acota el costo y el tiempo de espera. */
 const MAX_MENSAJES = 400;
@@ -53,10 +67,20 @@ export type PropuestaAprendizaje = {
  * solo ocurre cuando alguien aprueba una propuesta.
  */
 export async function buscarAprendizajes(
-  organizationId: string
+  organizationId: string,
+  opts?: {
+    /**
+     * Mirar también el historial que trajo la coexistencia (hasta 6 meses),
+     * no solo la última semana. Se pide a mano: son muchos más mensajes, así
+     * que cuesta más y tarda más — tiene sentido una vez, al conectar un
+     * cliente nuevo, no cada semana.
+     */
+    incluirHistorial?: boolean;
+  }
 ): Promise<{ propuestas: PropuestaAprendizaje[]; mensajesRevisados: number }> {
   const db = getDb();
   const desde = new Date(Date.now() - DIAS_A_REVISAR * 24 * 60 * 60 * 1000);
+  const tope = opts?.incluirHistorial ? MAX_MENSAJES_HISTORIAL : MAX_MENSAJES;
 
   const mensajes = await db
     .select({
@@ -80,8 +104,16 @@ export async function buscarAprendizajes(
         eq(schema.conversation.isTest, false)
       )
     )
-    .orderBy(desc(schema.message.createdAt))
-    .limit(MAX_MENSAJES);
+    /*
+     * Por la fecha REAL del mensaje, no por cuándo se guardó la fila.
+     *
+     * El historial de la coexistencia entra en un solo lote: todas sus filas
+     * tienen prácticamente el mismo `createdAt`, así que ordenar por ahí
+     * mezclaba conversaciones de meses distintos y el modelo leía diálogos
+     * descosidos. `waTimestamp` es cuándo se dijo de verdad.
+     */
+    .orderBy(desc(sql`coalesce(${schema.message.waTimestamp}, ${schema.message.createdAt})`))
+    .limit(tope);
 
   if (mensajes.length === 0) {
     return { propuestas: [], mensajesRevisados: 0 };

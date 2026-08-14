@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
@@ -649,4 +649,97 @@ export function serializeMessage(m: typeof schema.message.$inferSelect) {
     mimeType: m.mimeType,
     createdAt: (m.waTimestamp ?? m.createdAt).toISOString(),
   };
+}
+
+/**
+ * Un mensaje del HISTORIAL que sincroniza la coexistencia.
+ *
+ * Se guarda y nada más. Es deliberado y es lo que hace que esta función exista
+ * aparte en vez de reusar las otras dos:
+ *
+ * - **No dispara al agente.** Son conversaciones de hace semanas o meses; si
+ *   entraran por el camino normal, el agente contestaría a decenas de clientas
+ *   a la vez sobre pedidos que ya se resolvieron.
+ * - **No toca `lastInboundAt`.** Esa marca decide la ventana de 24 h de
+ *   WhatsApp: rellenarla con fechas viejas no abre ninguna ventana, pero
+ *   pisarla con una vieja sí puede cerrar la de una conversación viva.
+ * - **No marca relevo humano** ni mueve el embudo: que el negocio respondiera
+ *   en mayo no significa que hoy esté atendiendo a mano esa conversación.
+ * - **No transcribe audios ni fotos.** Serían cientos de llamadas al modelo por
+ *   material viejo, y los enlaces de medios de WhatsApp caducan.
+ *
+ * Lo que sí hace: dejar la conversación completa en la bandeja —para que el
+ * equipo tenga el contexto— y, sobre todo, ponerla a disposición del
+ * aprendizaje, que es de donde sale el conocimiento del negocio.
+ */
+export async function ingestHistoryMessage(input: {
+  organizationId: string;
+  direction: "in" | "out";
+  customerPhone: string | null;
+  customerWaUserId?: string | null;
+  profileName?: string | null;
+  waMessageId: string;
+  type: string;
+  text: string | null;
+  timestamp: string;
+}): Promise<{ guardado: boolean }> {
+  const db = getDb();
+  const { organizationId } = input;
+
+  const { contact } = await getOrCreateContact(organizationId, {
+    phone: input.customerPhone,
+    waUserId: input.customerWaUserId ?? null,
+  });
+  const conversation = await getOrCreateConversation(organizationId, contact.id);
+  const waTimestamp = toDate(input.timestamp);
+
+  /*
+   * El nombre del perfil solo se rellena si el contacto no tenía: el historial
+   * trae el nombre de entonces, y pisar el actual con uno de hace seis meses
+   * sería cambiar hacia atrás lo que el equipo ya ve bien.
+   */
+  if (input.profileName && !contact.name) {
+    await db
+      .update(schema.contact)
+      .set({ name: input.profileName })
+      .where(eq(schema.contact.id, contact.id));
+  }
+
+  const inserted = await db
+    .insert(schema.message)
+    .values({
+      id: newId("message"),
+      organizationId,
+      conversationId: conversation.id,
+      waMessageId: input.waMessageId,
+      direction: input.direction,
+      type: input.type,
+      text: input.text,
+      status: input.direction === "out" ? "sent" : "delivered",
+      // Lo escribió una PERSONA del negocio desde su celular, no el agente.
+      // Importa para el aprendizaje: lo que contestó un humano es justo donde
+      // el conocimiento tiene un hueco.
+      aiGenerated: input.direction === "out" ? false : undefined,
+      waTimestamp,
+    })
+    .onConflictDoNothing({ target: [schema.message.waMessageId] })
+    .returning();
+
+  if (!inserted[0]) return { guardado: false }; // ya estaba: la sincronización repite
+
+  /*
+   * `lastMessageAt` sí se pone al día, pero solo hacia atrás: es lo que ordena
+   * la bandeja. Si la conversación ya tiene actividad más reciente, se respeta.
+   */
+  await db
+    .update(schema.conversation)
+    .set({ updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.conversation.id, conversation.id),
+        isNull(schema.conversation.lastMessageAt)
+      )
+    );
+
+  return { guardado: true };
 }

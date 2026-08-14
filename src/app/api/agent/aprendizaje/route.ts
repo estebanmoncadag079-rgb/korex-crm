@@ -25,13 +25,22 @@ export const GET = withPlatformAdmin(async (session) => {
   });
 });
 
-/** Lanza el análisis de las conversaciones recientes de este cliente. */
-export const POST = withPlatformAdmin(async (session) => {
+/**
+ * Lanza el análisis de las conversaciones de este cliente.
+ *
+ * Con `?historial=1` mira también los chats que trajo la coexistencia al
+ * conectar el número (hasta 6 meses, tope de 1.200 mensajes en vez de 400).
+ * Se pide a mano porque cuesta y tarda más: tiene sentido UNA vez, al entrar un
+ * cliente nuevo con historial, no cada semana.
+ */
+export const POST = withPlatformAdmin(async (session, req: Request) => {
   if (!isAiConfigured()) {
     return apiError(422, "not_configured", "La IA no está configurada");
   }
+  const incluirHistorial = new URL(req.url).searchParams.get("historial") === "1";
   const { propuestas, mensajesRevisados } = await buscarAprendizajes(
-    session.organizationId
+    session.organizationId,
+    { incluirHistorial }
   );
-  return Response.json({ propuestas, mensajesRevisados });
+  return Response.json({ propuestas, mensajesRevisados, incluirHistorial });
 });

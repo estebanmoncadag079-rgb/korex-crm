@@ -77,6 +77,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [58-EL-CATALOGO-VIVE-EN-SERVICIOS.md](58-EL-CATALOGO-VIVE-EN-SERVICIOS.md) | **En citas el catálogo se pide UNA vez, en Servicios**: se estaba cargando dos veces y una copia empezaba a quedarse vieja el mismo día. La comparación con la lista del cliente (nuevos, precios distintos, los que ya no están), el reparto entre especialistas desde la misma pantalla, y las dos trampas — un hueco NO es un cambio, y la duración típica solo vale para los nuevos |
 
+| [59-APRENDER-DEL-HISTORIAL.md](59-APRENDER-DEL-HISTORIAL.md) | 🔑 **Los 6 meses de chats que trae la coexistencia**: se estaban ignorando en el webhook. Ahora se guardan (sin despertar al agente ni tocar la ventana de 24 h) y el botón *Aprender del historial* saca conocimiento de lo que el negocio ya le había contestado a sus clientas |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

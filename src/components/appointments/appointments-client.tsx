@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { CalendarioDia } from "./calendario-dia";
 import { CascadaAgenda } from "./cascada-agenda";
 
@@ -92,6 +93,47 @@ export function AppointmentsClient() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ status }),
     }).catch(() => null);
+    refrescarTodo();
+  }
+
+  /**
+   * Mover una cita de hora, desde el panel.
+   *
+   * Antes solo podía hacerlo el agente por WhatsApp: al equipo le tocaba
+   * cancelar y crear otra, perdiendo el historial de esa cita — y dejando a la
+   * clienta con la hora vieja si el recordatorio ya había salido.
+   */
+  const [moviendo, setMoviendo] = useState<string | null>(null);
+  const [nuevaFecha, setNuevaFecha] = useState("");
+  const [nuevaHora, setNuevaHora] = useState("");
+  const [errorMover, setErrorMover] = useState<string | null>(null);
+
+  function abrirMover(a: Appointment) {
+    const d = new Date(a.startsAt);
+    // Se precarga con la hora que ya tiene: casi siempre se mueve poco (media
+    // hora, una hora), así que teclear la fecha entera sobra.
+    const enBogota = new Date(d.getTime() - 5 * 60 * 60 * 1000);
+    setNuevaFecha(enBogota.toISOString().slice(0, 10));
+    setNuevaHora(enBogota.toISOString().slice(11, 16));
+    setErrorMover(null);
+    setMoviendo(a.id);
+  }
+
+  async function mover(id: string) {
+    setErrorMover(null);
+    const res = await fetch(`/api/appointments/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ fecha: nuevaFecha, hora: nuevaHora }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      const data = (await res?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setErrorMover(data?.error?.message ?? "No se pudo mover la cita.");
+      return;
+    }
+    setMoviendo(null);
     refrescarTodo();
   }
 
@@ -214,6 +256,16 @@ export function AppointmentsClient() {
                         <Bell className="h-3.5 w-3.5" />
                         {recordando.has(a.id) ? "Enviando…" : "Recordar"}
                       </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          moviendo === a.id ? setMoviendo(null) : abrirMover(a)
+                        }
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        Cambiar hora
+                      </Button>
                       {a.remindedAt && !erroresRecordatorio[a.id] && (
                         <span className="text-xs text-muted-foreground">
                           Recordatorio enviado: {formatearFechaHora(a.remindedAt)}
@@ -222,6 +274,49 @@ export function AppointmentsClient() {
                       {erroresRecordatorio[a.id] && (
                         <span className="text-xs text-destructive">{erroresRecordatorio[a.id]}</span>
                       )}
+                    </div>
+                  )}
+
+                  {moviendo === a.id && (
+                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground" htmlFor={`f-${a.id}`}>
+                            Nueva fecha
+                          </label>
+                          <Input
+                            id={`f-${a.id}`}
+                            type="date"
+                            className="h-8 w-40"
+                            value={nuevaFecha}
+                            onChange={(e) => setNuevaFecha(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-muted-foreground" htmlFor={`h-${a.id}`}>
+                            Nueva hora
+                          </label>
+                          <Input
+                            id={`h-${a.id}`}
+                            type="time"
+                            step={900}
+                            className="h-8 w-28"
+                            value={nuevaHora}
+                            onChange={(e) => setNuevaHora(e.target.value)}
+                          />
+                        </div>
+                        <Button size="sm" onClick={() => void mover(a.id)}>
+                          Mover cita
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setMoviendo(null)}>
+                          Cancelar
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Se comprueba que {a.staffName} esté libre y que el servicio
+                        termine antes de cerrar. La clienta no recibe aviso: díselo tú.
+                      </p>
+                      {errorMover && <p className="text-xs text-destructive">{errorMover}</p>}
                     </div>
                   )}
                 </CardContent>

@@ -1182,3 +1182,77 @@ export async function citasDelDia(
     )
     .orderBy(asc(schema.appointment.startsAt));
 }
+
+/**
+ * Mover una cita desde el PANEL, sabiendo solo su id y la hora nueva.
+ *
+ * El agente ya sabía reprogramar por WhatsApp (`reprogramarCita`), pero el
+ * equipo no tenía cómo: desde el panel solo podía confirmar, cancelar o marcar
+ * la cita, así que "muévela media hora" obligaba a cancelar y crear otra —
+ * perdiendo el historial y dejando a la clienta con la hora vieja si el
+ * recordatorio ya había salido.
+ *
+ * Reutiliza el mismo camino del agente a propósito: hereda la comprobación de
+ * solapes, el recálculo del final según la duración del servicio y la
+ * liberación del hueco anterior. Aquí solo se buscan los datos que el panel no
+ * manda (el servicio, la especialista y el horario del negocio).
+ */
+export async function moverCita(input: {
+  organizationId: string;
+  appointmentId: string;
+  nuevaFecha: string;
+  nuevaHora: string;
+  now?: Date;
+}): Promise<
+  | { ok: true }
+  | { ok: false; reason: "no_existe" | "sin_horario" | "sin_cupo" | "fuera_de_horario" }
+> {
+  const db = getDb();
+  const filas = await db
+    .select({
+      staffId: schema.appointment.staffId,
+      serviceId: schema.appointment.serviceId,
+      status: schema.appointment.status,
+    })
+    .from(schema.appointment)
+    .where(
+      scoped(
+        schema.appointment.organizationId,
+        input.organizationId,
+        eq(schema.appointment.id, input.appointmentId)
+      )
+    )
+    .limit(1);
+  const cita = filas[0];
+  if (!cita) return { ok: false, reason: "no_existe" };
+
+  const servicios = await db
+    .select()
+    .from(schema.service)
+    .where(
+      scoped(
+        schema.service.organizationId,
+        input.organizationId,
+        eq(schema.service.id, cita.serviceId)
+      )
+    )
+    .limit(1);
+  const service = servicios[0];
+  if (!service) return { ok: false, reason: "no_existe" };
+
+  const hours = await horarioDeLaOrganizacion(input.organizationId);
+  // Sin horario no se puede saber si la hora nueva cae dentro: mejor decirlo
+  // que agendar a ciegas (es lo que dejó una agenda entera sin huecos el 12-ago).
+  if (!hours?.open || !hours.close) return { ok: false, reason: "sin_horario" };
+
+  return reprogramarCita({
+    organizationId: input.organizationId,
+    appointmentId: input.appointmentId,
+    service,
+    staffId: cita.staffId,
+    nuevaFecha: input.nuevaFecha,
+    nuevaHora: input.nuevaHora,
+    hours,
+    now: input.now,
+  });
+}

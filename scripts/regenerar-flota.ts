@@ -113,6 +113,7 @@ for (const p of perfiles) {
   await db
     .update(schema.agentProfile)
     .set({
+      name: `Asistente de ${ficha.nombre}`,
       instructions: perfil.instructions,
       escalationRules: perfil.escalationRules,
       greeting: perfil.greeting,

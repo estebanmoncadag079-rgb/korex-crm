@@ -50,6 +50,8 @@ Thumbs.db
 .tmp-lab.mjs
 .tmp-pedidos.mjs
 .tmp-escenarios.mjs
+.tmp-historial.mjs
+.tmp-ycloud.mjs
 escenarios-reporte.json
 
 # El worker de pdf.js lo copia `prebuild` desde node_modules en cada build

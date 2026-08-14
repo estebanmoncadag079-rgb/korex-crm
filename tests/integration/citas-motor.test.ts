@@ -385,4 +385,79 @@ d("motor de citas (Postgres real)", () => {
     console.log("carreras:", resultados);
     expect(resultados.every((r) => r.aceptadas === 1 && r.filas === 1)).toBe(true);
   });
+
+
+  /**
+   * Mover una cita desde el PANEL (`moverCita`).
+   *
+   * El equipo solo podía confirmar, cancelar o marcar: para "muévela media hora"
+   * había que cancelar y crear otra, perdiendo el historial de la cita. Ahora
+   * pasa por el mismo camino que el agente, y esto comprueba que hereda de
+   * verdad sus defensas — no basta con que exista el botón.
+   */
+  describe("mover una cita desde el panel", () => {
+    const FECHA_PANEL = fechaHabilFutura(9);
+
+    async function crear(serviceId: string, hora: string, staffId: string, contactId = F.contacto) {
+      return mod.crearCita({
+        organizationId: ORG,
+        contactId,
+        service: servicios[serviceId]!,
+        fecha: FECHA_PANEL,
+        hora,
+        staffIdPreferido: staffId,
+        hours: HOURS,
+      });
+    }
+
+    it("la mueve y recalcula el final con la duración de su servicio", async () => {
+      const { eq } = await import("drizzle-orm");
+      await db.delete(schema.appointment).where(eq(schema.appointment.organizationId, ORG));
+      const creada = await crear(F.ruso, "09:00", F.hilary);
+      if (!creada.ok) throw new Error("no se pudo preparar la prueba");
+
+      const r = await mod.moverCita({
+        organizationId: ORG,
+        appointmentId: creada.appointment.id,
+        nuevaFecha: FECHA_PANEL,
+        nuevaHora: "15:00",
+      });
+      expect(r.ok).toBe(true);
+
+      const filas = await db
+        .select()
+        .from(schema.appointment)
+        .where(eq(schema.appointment.id, creada.appointment.id));
+      const cita = filas[0]!;
+      expect((cita.endsAt.getTime() - cita.startsAt.getTime()) / 60000).toBe(150);
+    });
+
+    it("NO la deja encima de otra cita de la misma especialista", async () => {
+      const { eq } = await import("drizzle-orm");
+      await db.delete(schema.appointment).where(eq(schema.appointment.organizationId, ORG));
+      const primera = await crear(F.ruso, "09:00", F.hilary);
+      await crear(F.natural, "13:00", F.hilary, F.contacto2);
+      if (!primera.ok) throw new Error("no se pudo preparar la prueba");
+
+      const r = await mod.moverCita({
+        organizationId: ORG,
+        appointmentId: primera.appointment.id,
+        nuevaFecha: FECHA_PANEL,
+        nuevaHora: "13:30",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe("sin_cupo");
+    });
+
+    it("una cita que no existe no revienta: lo dice", async () => {
+      const r = await mod.moverCita({
+        organizationId: ORG,
+        appointmentId: "apt_no_existe",
+        nuevaFecha: FECHA_PANEL,
+        nuevaHora: "10:00",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe("no_existe");
+    });
+  });
 });

@@ -153,7 +153,7 @@ const CHURRA: FichaDelNegocio = {
  * que tenía escrito, repartido en los campos.
  */
 const SALON: FichaDelNegocio = {
-  nombre: "Lashen Valen studio",
+  nombre: "Lashes Valen",
   queVende:
     "Ofrecemos servicio de arreglo de cejas, pestañas y labios, y también uñas.",
   ubicacion: "Jamundí, Valle del Cauca",
@@ -405,6 +405,10 @@ for (const g of generados) {
   await db
     .update(schema.agentProfile)
     .set({
+      // También el nombre interno: `aplicarFicha` lo escribe y este script no
+      // lo hacía, así que al renombrar un negocio quedaba el viejo colgando
+      // ("Asistente de Lashen Valen studio" con la cuenta ya renombrada).
+      name: `Asistente de ${g.ficha.nombre}`,
       instructions: g.perfil.instructions,
       escalationRules: g.perfil.escalationRules,
       greeting: g.perfil.greeting,

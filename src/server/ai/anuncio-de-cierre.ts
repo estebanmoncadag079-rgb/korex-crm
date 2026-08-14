@@ -235,7 +235,13 @@ const ANUNCIA_RESUMEN: RegExp[] = [
  * Un total con cifra. Es lo que distingue un resumen de verdad de un anuncio
  * vacío: puede faltar cualquier viñeta, pero un resumen sin total no es nada.
  */
-const TIENE_TOTAL = /total\s*:?\s*\*?\s*\$\s*[\d][\d.,]*/i;
+/**
+ * Un resumen de verdad lleva su total con la cifra.
+ *
+ * Se exporta porque el pipeline lo usa para saber si el cliente llegó a VER un
+ * resumen antes de que el agente cerrara el pedido (guardarraíl del 14-ago).
+ */
+export const TIENE_TOTAL = /total\s*:?\s*\*?\s*\$\s*[\d][\d.,]*/i;
 
 /**
  * Marcas INEQUÍVOCAS del mensaje de despedida (el que va DESPUÉS de confirmar).
@@ -287,3 +293,7 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
   }
   return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Responde ÚNICAMENTE el objeto JSON.";
 }
+
+/** La corrección cuando el agente cierra un pedido que el cliente nunca vio. */
+export const CORRECCION_SIN_RESUMEN =
+  "ALTO. Vas a dar el pedido por cerrado y el cliente NUNCA ha visto un resumen: en esta conversación no le has enseñado qué pidió ni cuánto suma. Que él escriba \"confirmo\" no confirma nada si no hay nada que confirmar — y el equipo recibiría un pedido sin producto, sin datos y sin total. Antes de cerrar, muéstrale el resumen completo con lo que lleva, sus opciones, los datos de entrega y el total con la cifra, y pídele que confirme. Si todavía te falta algún dato, pídeselo en vez del resumen. Responde ÚNICAMENTE el objeto JSON.";

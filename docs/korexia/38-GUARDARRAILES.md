@@ -195,3 +195,36 @@ confirmar se sigue vigilando igual.
 > Y la prueba se verificó **al revés**: con el arreglo revertido falla
 > (`expected 1 call, got 2`). Una prueba que pasa con y sin el arreglo no
 > prueba nada.
+
+## Quinto guardarraíl: cerrar un pedido que el cliente nunca vio (14-ago)
+
+Apareció al migrar Lis al generador. El Laboratorio, conversación entera:
+
+```
+CLIENTE  Hola, buenas
+AGENTE   ¡Hola! Bienvenid@ a Lis Pastelería 🍰
+CLIENTE  ¿Qué opciones tienen para pedir?
+AGENTE   Tenemos cremosos, polvorosos… te dejo el menú
+CLIENTE  Sí, así está perfecto. Confirmo el pedido
+AGENTE   ¡Tu pedido ha sido confirmado! 🎉 Para el pago: llave 0089174299…
+```
+
+El equipo recibió un pedido **sin producto, sin toppings, sin nombre y sin
+dirección**, y el cliente ya tenía los datos de pago en la mano.
+
+El prompt lo prohíbe —*"el resumen es OBLIGATORIO"*— pero un "confirmo"
+entusiasta basta para que el modelo crea que hay algo que confirmar. Así que se
+comprueba **el hecho**: que exista un resumen con su total entre lo que el
+agente ya le enseñó en esa conversación (`TIENE_TOTAL` sobre el historial).
+
+- Si no lo hay → se rehace el turno con `CORRECCION_SIN_RESUMEN`. En la prueba
+  real, el agente pasó a preguntar *"¿QUÉ TE GUSTARÍA PEDIR?"*, que es lo que
+  el cliente estaba esperando.
+- Si **insiste** en cerrar → lo toma una persona, con un aviso al equipo que
+  explica qué pasó ("intentó cerrar sin mostrar el resumen, NO se registró
+  nada"). Es de los pocos que escalan: un pedido en falso ya le dio al cliente
+  los datos de pago.
+
+> ⚠️ Este fallo **no era de la migración**: el prompt viejo también lo permitía,
+> solo que aquella corrida no lo destapó. El guardarraíl protege a toda la flota
+> lleve el prompt que lleve.

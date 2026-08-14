@@ -46,9 +46,11 @@ import {
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
+  CORRECCION_SIN_RESUMEN,
   productosOlvidados,
   correccionDeResumen,
   resumenMalArmado,
+  TIENE_TOTAL,
   MENSAJE_RETIRADO,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
@@ -744,6 +746,60 @@ export async function runAgentTurn(
    * despedirse y dar los datos de pago no es prematuro, es exactamente lo que
    * hay que hacer. Y el `summary` ni siquiera lo lee el cliente — va al equipo.
    */
+  /*
+   * Quinto guardarraíl: cerrar un pedido que el cliente nunca vio (14-ago-2026).
+   *
+   * Medido en el Laboratorio de Lis: el cliente simulado dijo "Sí, así está
+   * perfecto. Confirmo el pedido" cuando lo único que había pasado era que el
+   * agente le mandó el enlace del menú. El agente ejecutó `notify_order` — y el
+   * equipo recibió un pedido SIN producto, sin toppings, sin nombre y sin
+   * dirección, con los datos de pago ya enviados al cliente.
+   *
+   * El prompt lo prohíbe ("el resumen es OBLIGATORIO"), pero una confirmación
+   * entusiasta del cliente basta para que el modelo se salte el paso: cree que
+   * confirma algo. Por eso se comprueba el HECHO — que exista un resumen con su
+   * total entre lo que el agente ya le enseñó — en vez de confiar en la orden.
+   *
+   * No deriva a una persona: se rehace el turno para que muestre el resumen, que
+   * es lo que el cliente estaba esperando de todos modos.
+   */
+  if (action.action === "notify_order") {
+    const yaHuboResumen = history.some(
+      (m) => m.direction === "out" && m.text && TIENE_TOTAL.test(m.text)
+    );
+    if (!yaHuboResumen) {
+      console.warn(
+        `[agente] notify_order sin resumen previo en ${conversationId}; rehaciendo el turno`
+      );
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: CORRECCION_SIN_RESUMEN },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/cierre-sin-resumen`
+      );
+      if (reintento.ok && reintento.data.action !== "notify_order") {
+        action = reintento.data;
+      } else {
+        // Si insiste, se manda a una persona: un pedido cerrado en falso llega
+        // a la cocina como algo que nadie puede preparar, y el cliente ya tiene
+        // los datos de pago en la mano.
+        console.error(
+          `[agente] insiste en cerrar sin resumen en ${conversationId}; lo toma una persona`
+        );
+        await derivarAUnaPersona(conversation, {
+          reason: "modelo",
+          teamSummary:
+            "El asistente intentó cerrar un pedido sin haberle mostrado el resumen al cliente, así que NO se registró nada. Revisa la conversación: puede que el cliente crea que ya pidió.",
+        });
+        return { action: "handoff", reason: "cierre sin resumen" };
+      }
+    }
+  }
+
   const falloDeResumen =
     action.action === "notify_order"
       ? null

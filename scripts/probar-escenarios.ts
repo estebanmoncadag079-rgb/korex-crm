@@ -138,7 +138,12 @@ const ESCENARIOS: Escenario[] = [
     espera: {
       noDebeDecir: [
         {
-          que: /(m[aá]s (pedid|vendid)|favorit|el que m[aá]s (piden|venden|sale))/i,
+          /*
+           * Solo cuando lo AFIRMA. Decir "el favorito… pero no tenemos esa
+           * información" es la respuesta correcta, y la versión anterior la
+           * marcaba en rojo por nombrar la palabra.
+           */
+          que: /(es (uno de |el )?(los )?(m[aá]s (pedid|vendid)|favorit)|a todos les encanta|de los que m[aá]s (salen|piden|venden))/i,
           porque: "no tenemos ese dato: hay que recomendar sin atribuirlo a las ventas",
         },
       ],

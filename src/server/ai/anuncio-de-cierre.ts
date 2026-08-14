@@ -280,8 +280,16 @@ export function resumenMalArmado(
     return "cierre-prematuro";
   }
 
-  // B: anuncia el resumen y no hay resumen.
-  if (anunciaResumen && !TIENE_TOTAL.test(texto)) return "sin-contenido";
+  /*
+   * B: anuncia un resumen —o pide que lo confirmen— y no hay total.
+   *
+   * Lo de pedir confirmación cuenta igual desde el 14-ago: el agente repasó el
+   * pedido y remató con "¿Está todo correcto?" SIN la cifra. El cliente estaba
+   * confirmando un precio que nadie le dijo.
+   */
+  if ((anunciaResumen || pideConfirmar) && !TIENE_TOTAL.test(texto)) {
+    return "sin-contenido";
+  }
 
   return null;
 }
@@ -298,8 +306,16 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
 const PIDE_EL_TOTAL =
   /(cu[aá]nto (es|ser[ií]a|me sale|sale|vale|queda|cuesta)( el| en)? (total|todo)|cu[aá]l (es|ser[ií]a) el total|el total\s*\?|cu[aá]nto es en total|cu[aá]nto te debo)/i;
 
-/** Cualquier cifra de dinero: "$18.000", "18.000", "$ 31000". */
-const HAY_CIFRA = /\$\s*\d|(?<!\d)\d{1,3}\.\d{3}(?!\d)/;
+/**
+ * La SUMA, anunciada como tal. No vale enumerar los precios sueltos.
+ *
+ * Caso real: preguntaron el total de dos productos y el agente contestó "un
+ * Polvoroso cuesta $19.000 y un Cremoso $12.000" — los datos estaban, la
+ * respuesta no. Quien pregunta el total quiere una cifra, no una lista para
+ * sumar de cabeza.
+ */
+const HAY_TOTAL =
+  /(total|suma|son|ser[ií]an?|en total)[^.\n]{0,25}\$\s*\d|\$\s*[\d.,]+[^.\n]{0,15}(en total|de total)/i;
 
 /**
  * ¿Le preguntaron el total y contestó sin darlo?
@@ -317,16 +333,27 @@ const HAY_CIFRA = /\$\s*\d|(?<!\d)\d{1,3}\.\d{3}(?!\d)/;
 export function noDioElTotal(input: {
   mensajesDelCliente: string[];
   respuesta: string;
-  yaHabloDePrecios: boolean;
 }): boolean {
-  if (!input.yaHabloDePrecios) return false;
   if (!input.mensajesDelCliente.some((m) => PIDE_EL_TOTAL.test(m))) return false;
-  return !HAY_CIFRA.test(input.respuesta);
+  return !HAY_TOTAL.test(input.respuesta);
 }
 
-/** La corrección cuando le piden el total y no lo da. */
+/**
+ * La corrección cuando le piden el total y no lo da.
+ *
+ * Contempla los dos casos a propósito. La primera versión solo saltaba si el
+ * agente ya había escrito precios, y se le escapó el caso real: el cliente pidió
+ * *"un polvoroso de 12 y un cremoso de 7"* —los dos en su catálogo— y el agente
+ * respondió pidiendo el topping sin haber nombrado una sola cifra antes. Podía
+ * sumar perfectamente: los precios están en su conocimiento, no hacía falta que
+ * los hubiera escrito.
+ *
+ * Ahora salta siempre que pidan el total sin recibirlo, y es la corrección la
+ * que distingue: si de verdad no hay nada pedido, que pregunte qué quiere. Así
+ * no se le empuja nunca a inventarse una cifra.
+ */
 export const CORRECCION_SIN_TOTAL =
-  "ALTO. El cliente te preguntó CUÁNTO ES EL TOTAL y no se lo diste. Es la pregunta que te hizo: suma lo que ya tiene pedido y dale la cifra, aunque falten detalles que no cambian el precio (el topping, el sabor, el color). Si de verdad falta algo que SÍ cambia el precio, dale el total de lo que hay y di qué falta por sumar. Responde ÚNICAMENTE el objeto JSON.";
+  "ALTO. El cliente te preguntó CUÁNTO ES EL TOTAL y no se lo diste. Si ya te dijo qué quiere, suma lo que tiene pedido con los precios de tu conocimiento y dale la cifra AHORA, aunque falten detalles que no cambian el precio (el topping, el sabor, si es regalo). Si falta algo que SÍ cambia el precio, dale el total de lo que hay y di qué falta por sumar. Solo si todavía no ha pedido nada, pregúntale qué desea — pero nunca te inventes una cifra. Responde ÚNICAMENTE el objeto JSON.";
 
 /** La corrección cuando el agente cierra un pedido que el cliente nunca vio. */
 export const CORRECCION_SIN_RESUMEN =

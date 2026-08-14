@@ -825,14 +825,10 @@ export async function runAgentTurn(
    * catálogo, no de una suma.
    */
   if (!profile.appointmentsEnabled) {
-    const yaHabloDePrecios = history.some(
-      (m) => m.direction === "out" && m.text && /\$\s*\d/.test(m.text)
-    );
     if (
       noDioElTotal({
         mensajesDelCliente: pendientesDelCliente,
         respuesta: textosAlCliente(action).join(" "),
-        yaHabloDePrecios,
       })
     ) {
       console.warn(`[agente] le pidieron el total y no lo dio en ${conversationId}`);
@@ -853,7 +849,6 @@ export async function runAgentTurn(
         !noDioElTotal({
           mensajesDelCliente: pendientesDelCliente,
           respuesta: textosAlCliente(reintento.data).join(" "),
-          yaHabloDePrecios,
         })
       ) {
         action = reintento.data;

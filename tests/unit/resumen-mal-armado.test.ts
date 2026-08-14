@@ -188,7 +188,7 @@ describe("el cierre legítimo, que no se puede confundir con el prematuro", () =
  * cambia el precio. Su prompt YA lo prohibía; por eso esto vive en el código.
  */
 describe("noDioElTotal", () => {
-  const base = { yaHabloDePrecios: true };
+  const base = {};
 
   it("lo marca cuando pide más datos en vez de dar la cifra", () => {
     expect(
@@ -225,17 +225,21 @@ describe("noDioElTotal", () => {
   });
 
   /*
-   * Si preguntan el total antes de pedir nada, lo correcto es preguntar qué
-   * quiere. Sin esta condición, el guardarraíl empujaría al agente a inventarse
-   * una cifra de la nada — que es peor que no darla.
+   * El caso que se escapó: el cliente pidió dos productos del catálogo y el
+   * agente contestó pidiendo el topping SIN haber escrito una cifra antes.
+   * Exigir que ya hubiera hablado de precios dejaba fuera justo esto — podía
+   * sumar, los precios están en su conocimiento. Ahora salta igual, y es la
+   * corrección la que le dice que pregunte si de verdad no hay nada pedido.
    */
-  it("no aplica si el agente todavía no ha hablado de precios", () => {
+  it("salta aunque el agente todavía no haya escrito ningún precio", () => {
     expect(
       noDioElTotal({
-        mensajesDelCliente: ["cuánto es el total?"],
-        respuesta: "¿Qué te gustaría pedir? 💗",
-        yaHabloDePrecios: false,
+        mensajesDelCliente: [
+          "hola, quiero un polvoroso de 12 y un cremoso de 7",
+          "cuánto es el total?",
+        ],
+        respuesta: "Dime los toppings para tu cremoso de 7 oz y si es para regalo 💗",
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 });

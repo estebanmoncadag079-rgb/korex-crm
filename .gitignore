@@ -44,6 +44,11 @@ Thumbs.db
 .tmp-seed-demo.mjs
 .tmp-probar-citas.mjs
 .tmp-probar-agente.mjs
+.tmp-fichas.mjs
+.tmp-regenerar.mjs
+.tmp-migrar-churra.mjs
+.tmp-lab.mjs
+.tmp-pedidos.mjs
 
 # El worker de pdf.js lo copia `prebuild` desde node_modules en cada build
 # (scripts/copiar-worker-pdf.mjs): así su versión siempre coincide con la de la

@@ -166,6 +166,26 @@ export const PERSONAS_PEDIDOS: Persona[] = [
         cuando: /(confirm|est[aá] (todo )?correcto|as[ií] queda|procedo|te lo (dejo|mando)|de acuerdo)/i,
         responde: "Sí, así está perfecto. Confirmo el pedido",
       },
+      /*
+       * El negocio que manda su carta por ENLACE (Lis) dejaba al cliente sin
+       * ver un solo nombre: le pedía elegir algo que nunca había leído, y el
+       * pedido no se cerraba jamás. Un cliente real diría justo esto — y de
+       * paso se ejercita el plan B del menú escrito, que es una regla suya.
+       */
+      {
+        cuando: /https?:\/\//i,
+        responde: "No me abre el link, ¿me lo escribes por aquí?",
+      },
+      /*
+       * Y cuando el agente insiste en que elija: elige. Antes se quedaba dando
+       * vueltas —"¿cuál te llamó la atención?" contra un guion que seguía a lo
+       * suyo— y el escenario NO SE PODÍA cerrar, así que el rojo era del banco
+       * de pruebas, no del agente. Mismo arreglo que ya llevaban los salones.
+       */
+      {
+        cuando: /(cu[aá]l de (los|las|estos|estas|nuestros)|qu[eé] (producto|delicia|se te antoja|te gustar[ií]a (pedir|probar))|m[aá]s te llam|te animas por|eliges|escoges)/i,
+        responde: "El primero que me nombraste, ese quiero",
+      },
     ],
   },
   {

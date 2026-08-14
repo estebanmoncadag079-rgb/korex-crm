@@ -193,3 +193,46 @@ describe("runAgentTurn: no cierra un pedido que el cliente nunca vio", () => {
     expect(chatJson).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Un guardarraíl de pedidos no se le aplica a un salón.
+ *
+ * `resumenMalArmado` nació midiendo resúmenes de pedidos y busca un total en
+ * pesos. En citas no hay total que enseñar —`CIERRE_CITAS` dice justo lo
+ * contrario: "no hace falta un resumen largo ni una confirmación
+ * ceremoniosa"—, así que un "aquí está el resumen de tu cita" lo daba por
+ * vacío y rehacía el turno sin motivo.
+ */
+describe("los guardarraíles de pedidos no se aplican a un negocio de citas", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
+    chatJson.mockReset();
+    notifyTeam.mockReset().mockResolvedValue({ sent: 1, failed: 0, detail: "ok" });
+    contactPhoneOf.mockReset().mockResolvedValue(null);
+    selectQueue.length = 0;
+  });
+
+  it("un salón puede decir 'aquí está el resumen' sin total y no se rehace el turno", async () => {
+    const salon = { ...PROFILE, appointmentsEnabled: true };
+    selectQueue.push(
+      [CONVERSATION],
+      [salon],
+      [{ id: "m1", direction: "in", text: "¿me confirmas mi cita?", createdAt: new Date() }],
+      [],
+      [],
+      []
+    );
+    const respuesta = {
+      action: "reply",
+      text: "¡Claro! Aquí está el resumen de tu cita: Volumen Ruso el viernes a las 10:30 AM con Carolina 💗",
+    };
+    chatJson.mockResolvedValue({ ok: true, data: respuesta, raw: JSON.stringify(respuesta) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_pedidos");
+
+    // Una sola llamada: sin el arreglo eran dos (la corrección "te falta el
+    // total", que en una cita no tiene sentido).
+    expect(chatJson).toHaveBeenCalledTimes(1);
+  });
+});

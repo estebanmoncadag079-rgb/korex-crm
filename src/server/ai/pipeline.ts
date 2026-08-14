@@ -800,8 +800,18 @@ export async function runAgentTurn(
     }
   }
 
+  /*
+   * Solo en PEDIDOS. Este detector nació midiendo resúmenes de pedidos y busca
+   * un total en pesos; en un salón, un "aquí está el resumen de tu cita" sin
+   * cifra lo daría por vacío y rehacía el turno sin motivo. Y es que en citas
+   * el resumen ni siquiera es obligatorio: `CIERRE_CITAS` dice lo contrario —
+   * *"no hace falta un resumen largo ni una confirmación ceremoniosa"*.
+   *
+   * La regla general, que vale para los cinco guardarraíles: uno escrito para
+   * un vertical no se aplica al otro solo porque el texto se le parezca.
+   */
   const falloDeResumen =
-    action.action === "notify_order"
+    action.action === "notify_order" || profile.appointmentsEnabled
       ? null
       : resumenMalArmado(textosAlCliente(action).join(" "));
   if (falloDeResumen) {

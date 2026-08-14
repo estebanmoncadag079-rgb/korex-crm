@@ -122,3 +122,53 @@ Queda un fallo real, y es suyo: le preguntan **cuánto es el total** y responde
 pidiendo antes las salsas y el recubierto. Su propia regla dice lo contrario
 ("si te pregunta cuánto es el total, dale el total"), y el total no depende de
 las salsas: depende de la presentación. Pendiente de afinar.
+
+## La conducta no es una sola: hay tres niveles
+
+Lo planteó el dueño: *"las conductas de cada negocio son diferentes junto con
+los flujos, por ejemplo la peluquería y Lis"*. Tiene razón, y por eso la
+conducta universal no es un cajón único:
+
+| Nivel | Ejemplo | Quién lo hereda |
+|---|---|---|
+| Universal | "no inventes datos duros", "nunca des un pago por bueno" | Todos |
+| **Por vertical** | `CIERRE` (resumen + total) vs `CIERRE_CITAS` (*"no la hagas confirmar dos veces"*); `FUERA_DE_HORARIO` solo en pedidos | Solo su tipo |
+| Propia del negocio | El enlace de la carta de Lis, las salsas de La Churra, "los festivos no trabajamos" | Solo él |
+
+Y el aviso destapó una fuga real: **`resumenMalArmado` se aplicaba también a los
+salones**. Ese detector busca un total en pesos, así que un *"aquí está el
+resumen de tu cita"* lo daba por vacío y rehacía el turno — cuando en citas el
+resumen ni siquiera es obligatorio. Ya solo corre en pedidos.
+
+> 🔑 **Regla**: un guardarraíl escrito para un vertical no se aplica al otro
+> solo porque el texto se le parezca.
+
+## Lis: la ficha está hecha, pero NO activa
+
+Se reconstruyó su ficha entera (domicilios por Yango con su excepción de
+regalo, la entrega en portería, solo transferencia, el enlace de la carta con su
+plan B, los toppings por producto, el trato dulce…) y de paso apareció que **su
+horario estaba solo en el conocimiento y no en su configuración**, así que el
+sistema nunca podía saber si estaba abierta.
+
+Pero al probarla, su Laboratorio quedó por debajo del prompt de siempre y las
+corridas **oscilaron entre 83 y 75 sin cambios de fondo**, mientras el original
+había dado 92. Eso no alcanza para demostrar que no empeora al cliente que más
+factura, así que:
+
+- Su prompt en producción **sigue siendo el de siempre** (17.058 caracteres).
+- Su `ficha` quedó en `null` a propósito: `regenerar:flota` la salta y la lista
+  como pendiente, en vez de pisarle el prompt en la próxima corrida.
+- La ficha escrita se conserva en `scripts/fichas-de-clientes.ts` para
+  terminarla con calma.
+
+De ese intento salieron dos arreglos que **sí** se quedaron, y que valen para
+todos:
+
+1. **El guardarraíl del cierre sin resumen** ([38-GUARDARRAILES.md](38-GUARDARRAILES.md)).
+2. **"La más pedida" es una petición de consejo, no un dato.** El prompt viejo
+   de Lis tenía la prohibición *y* qué hacer en su lugar ("te recomiendo el de
+   12 oz: lleva 2 toppings y rinde bastante"); la conducta universal solo tenía
+   la prohibición, y el agente se quedaba devolviendo la pregunta. Ahora lleva
+   las dos mitades — y La Churra y el salón la heredaron con un comando, que es
+   justo de lo que trata este documento.

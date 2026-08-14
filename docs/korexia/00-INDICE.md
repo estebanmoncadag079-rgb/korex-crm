@@ -67,6 +67,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [52-CARGAR-EL-CATALOGO-DE-CITAS.md](52-CARGAR-EL-CATALOGO-DE-CITAS.md) | **Un salón no tenía dónde subir sus servicios**: el alta le ocultaba el paso y la única puerta era teclearlos de uno en uno (son 46). Pegar la lista, **el PDF leído en el navegador** (36 MB → 2,9 KB de texto) o la foto, con tabla de revisión, y **por qué la duración de cada servicio no puede quedar vacía** |
 | [53-DOS-CITAS-A-LA-MISMA-HORA.md](53-DOS-CITAS-A-LA-MISMA-HORA.md) | 🔑 **Dos clientas podían reservar a la misma especialista a la misma hora**: el hueco entre consultar la disponibilidad y escribir la cita, reproducido 4 de 4 contra Postgres real. La restricción `EXCLUDE` que lo cierra, **el rango semiabierto que no se puede tocar** y las 13 pruebas del motor (crear, encadenar, correr, cancelar, carrera) |
 
+| [54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md](54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md) | 🔑 **La regla de la casa: un arreglo tiene que servirle a todos los clientes.** El prompt quedaba materializado y la ficha se perdía, así que una lección nueva solo la heredaba el cliente SIGUIENTE. La ficha se guarda, `pnpm regenerar:flota` rehace la flota entera, y la regla de pedidos fuera de horario que el sistema pedía y nadie había escrito |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

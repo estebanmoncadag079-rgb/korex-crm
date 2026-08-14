@@ -2,6 +2,7 @@ import {
   CIERRE,
   CIERRE_CITAS,
   ESTILO,
+  FUERA_DE_HORARIO,
   meta,
   NO_ENCAJA,
   NUNCA,
@@ -160,6 +161,9 @@ export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
       ? `## Reglas propias de este negocio\n\n${vinetas(ficha.reglasPropias)}`
       : null,
     ficha.vertical === "citas" ? CIERRE_CITAS : CIERRE,
+    // Solo en pedidos: una cita fuera de hora no se "reagenda sola", se pide
+    // para un día que el propio catálogo de horarios ya limita.
+    ficha.vertical === "citas" ? null : FUERA_DE_HORARIO,
     NUNCA,
     NO_ENCAJA,
     // Lo propio del negocio se añade al final del bloque universal, no lo

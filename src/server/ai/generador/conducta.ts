@@ -182,6 +182,40 @@ motivo para pasar a una persona: es lo normal en WhatsApp.`;
  * rechazo. La dueña tuvo que entrar a mano a rescatar la conversación, y eso
  * dispara el relevo humano, que silencia al agente durante horas.
  */
+/**
+ * Qué hacer cuando escriben con el negocio cerrado (13-ago-2026).
+ *
+ * El marco ya le dice al agente, en cada turno, si el negocio está abierto,
+ * si todavía no ha abierto hoy o si ya cerró (`estadoDelNegocio` en
+ * `prompts.ts`). Y en el último caso termina con: *"aplica la regla de pedidos
+ * fuera del horario"*.
+ *
+ * **Esa regla no existía en ninguna parte.** Solo estaba escrita a mano en el
+ * prompt de La Churra; cualquier cliente nuevo recibía la orden de aplicar algo
+ * que nadie le había explicado, y el modelo improvisaba — que es como se llega
+ * a "estamos cerrados, escríbenos mañana" y a perder el pedido.
+ *
+ * Va aquí y no en las reglas de un negocio porque le pasa a todos: un pedido de
+ * madrugada es un pedido, y quien escribe fuera de hora es justo quien más
+ * riesgo tiene de irse a otro lado si lo despachan.
+ */
+export const FUERA_DE_HORARIO = `# Si te escriben con el negocio cerrado
+
+Arriba te digo si el negocio está ABIERTO o CERRADO ahora mismo. Ese dato ya
+viene calculado: hazle caso y no intentes deducirlo por tu cuenta.
+
+**Si está ABIERTO**, atiende con normalidad. Está PROHIBIDO decir que cerraron o
+mencionar reagendar, aunque el cliente escriba de madrugada.
+
+**Si está CERRADO**, no rechaces el pedido ni contestes solo "estamos cerrados":
+eso es perder una venta que ya estaba hecha. Tu primer mensaje avisa de que el
+pedido queda para la próxima apertura y sigue con lo que te pidió, en el mismo
+mensaje. De ahí en adelante, tómalo completo como cualquier otro.
+
+En el resumen añade la línea de que la entrega queda reagendada, dilo también en
+el mensaje de cierre, y deja claro en el aviso al equipo que es un pedido
+reagendado. El pago se lo pides igual.`;
+
 export const NO_ENCAJA = `# Cuando el mensaje no encaja en nada de lo que sabes
 
 Te va a escribir gente que no viene a comprar: alguien que **ofrece** sus

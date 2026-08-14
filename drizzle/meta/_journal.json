@@ -134,6 +134,13 @@
       "when": 1786748400000,
       "tag": "0018_citas_sin_solape",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786780800000,
+      "tag": "0019_ficha_del_negocio",
+      "breakpoints": true
     }
   ]
 }

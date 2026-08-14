@@ -22,6 +22,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "seed:demo": "esbuild scripts/seed/demo.ts --bundle --platform=node --format=esm --outfile=.tmp-seed-demo.mjs --alias:@=./src --packages=external && node .tmp-seed-demo.mjs",
+    "fichas:clientes": "esbuild scripts/fichas-de-clientes.ts --bundle --platform=node --format=esm --outfile=.tmp-fichas.mjs --alias:@=./src --packages=external && node .tmp-fichas.mjs",
+    "regenerar:flota": "esbuild scripts/regenerar-flota.ts --bundle --platform=node --format=esm --outfile=.tmp-regenerar.mjs --alias:@=./src --packages=external && node .tmp-regenerar.mjs",
     "probar:citas": "esbuild scripts/probar-citas.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-citas.mjs --alias:@=./src --packages=external && node .tmp-probar-citas.mjs",
     "probar:agente": "esbuild scripts/probar-agente.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-agente.mjs --alias:@=./src --packages=external && node .tmp-probar-agente.mjs"
   },

@@ -369,6 +369,19 @@ export const agentProfile = pgTable(
      * podría, en teoría, necesitar ambos — pero hoy ningún cliente lo pide.
      */
     appointmentsEnabled: boolean("appointments_enabled").notNull().default(false),
+    /**
+     * La ficha del negocio con la que se generó este prompt (JSON).
+     *
+     * Sin ella, una lección nueva en `conducta.ts` solo llegaba a los clientes
+     * dados de alta **después**: el prompt queda materializado en `instructions`
+     * y la ficha se perdía al terminar el alta, así que rehacerlo obligaba a
+     * escribirla entera otra vez a mano. Guardándola, `regenerar-flota` vuelve a
+     * ensamblar el prompt de todos con la conducta al día — que es lo que hace
+     * que un arreglo valga para los diez clientes y no solo para el siguiente.
+     *
+     * Nulo en los prompts escritos a mano que aún no se han migrado.
+     */
+    ficha: text("ficha"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

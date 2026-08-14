@@ -130,6 +130,15 @@ export async function aplicarFicha(
         notifyPhones: (opciones?.telefonosDeAviso ?? []).join(",") || null,
         appointmentsEnabled: ficha.vertical === "citas",
         enabled: false,
+        /*
+         * La ficha se guarda para poder REGENERAR el prompt.
+         *
+         * Antes se perdía al terminar el alta, y con ella la posibilidad de que
+         * una lección nueva llegara a los clientes que ya existían: `conducta.ts`
+         * mejoraba y solo lo heredaba el siguiente. Con la ficha guardada,
+         * `pnpm regenerar:flota` vuelve a ensamblar el prompt de todos.
+         */
+        ficha: JSON.stringify(ficha),
         updatedAt: new Date(),
       })
       .where(eq(schema.agentProfile.organizationId, organizationId));

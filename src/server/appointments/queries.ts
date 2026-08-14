@@ -194,6 +194,71 @@ export async function updateService(
   return row ?? null;
 }
 
+/**
+ * El mismo filtro, para los ids de personal: quién atiende un servicio no
+ * puede acabar apuntando a la especialista de otro cliente.
+ */
+async function staffIdsDeLaOrg(
+  organizationId: string,
+  staffIds: string[]
+): Promise<string[]> {
+  if (!staffIds.length) return [];
+  const db = getDb();
+  const rows = await db
+    .select({ id: schema.staffMember.id })
+    .from(schema.staffMember)
+    .where(
+      scoped(
+        schema.staffMember.organizationId,
+        organizationId,
+        inArray(schema.staffMember.id, staffIds)
+      )
+    );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Quiénes atienden UN servicio (reemplaza la lista entera).
+ *
+ * El inverso de `updateStaff`, que asigna servicios a una persona. Hace falta
+ * porque un servicio recién creado **nace sin nadie**, y un servicio que nadie
+ * atiende existe en el catálogo pero no se puede agendar: el agente responde
+ * "ese servicio no está disponible para agendar por ahora". Sin esto había que
+ * ir persona por persona buscando la casilla.
+ */
+export async function setEspecialistasDeServicio(
+  organizationId: string,
+  serviceId: string,
+  staffIds: string[]
+): Promise<void> {
+  const [validService] = await serviceIdsDeLaOrg(organizationId, [serviceId]);
+  if (!validService) return;
+  const validStaff = await staffIdsDeLaOrg(organizationId, staffIds);
+
+  const db = getDb();
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.staffService)
+      .where(
+        scoped(
+          schema.staffService.organizationId,
+          organizationId,
+          eq(schema.staffService.serviceId, validService)
+        )
+      );
+    if (validStaff.length) {
+      await tx.insert(schema.staffService).values(
+        validStaff.map((staffId) => ({
+          id: newId("staffService"),
+          organizationId,
+          staffId,
+          serviceId: validService,
+        }))
+      );
+    }
+  });
+}
+
 export async function createStaff(
   organizationId: string,
   input: { name: string; serviceIds: string[] }

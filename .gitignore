@@ -38,7 +38,12 @@ Thumbs.db
 # proyecto compartida con el equipo). La config local de la sesión, no:
 .claude/settings.local.json
 .playwright-mcp/
+# Los bundles que dejan los scripts de prueba (`probar:citas`, `probar:agente`).
+# Sin esto, correr una prueba deja un fichero de 150 KB que el lint intenta
+# revisar y llena la salida de errores de código que no es nuestro.
 .tmp-seed-demo.mjs
+.tmp-probar-citas.mjs
+.tmp-probar-agente.mjs
 
 # El worker de pdf.js lo copia `prebuild` desde node_modules en cada build
 # (scripts/copiar-worker-pdf.mjs): así su versión siempre coincide con la de la

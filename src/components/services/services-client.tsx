@@ -74,8 +74,9 @@ export function ServicesClient() {
       {/* Cargar el catálogo entero va ARRIBA y a todo lo ancho: es lo primero
           que necesita un salón recién entrado, y mientras el alta de uno en uno
           fue la única puerta, el catálogo sencillamente no se cargaba. */}
-      <div className="px-4 pt-4 md:px-6 md:pt-6">
+      <div className="space-y-3 px-4 pt-4 md:px-6 md:pt-6">
         <ImportarCatalogo onImportado={() => void refetch()} />
+        <SinEspecialista services={services} staff={staff} />
       </div>
       <div className="grid gap-4 p-4 md:gap-6 md:p-6 lg:grid-cols-2">
         <ServicesSection services={services} onChanged={() => void refetch()} />
@@ -85,6 +86,52 @@ export function ServicesClient() {
           onChanged={() => void refetch()}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Los servicios que no atiende nadie.
+ *
+ * Existen en el catálogo, tienen precio y el agente puede mencionarlos, pero
+ * **no se pueden agendar**: ante uno de estos responde "ese servicio no está
+ * disponible para agendar por ahora". Un servicio recién creado nace así —
+ * `createService` no marca ninguna casilla—, y nada lo advertía: el hueco solo
+ * aparecía cuando una clienta pedía justo ese servicio.
+ *
+ * Se calcula aquí y no en el servidor porque los servicios y el personal ya
+ * viajan a esta pantalla: pedirlo aparte sería una consulta de más para un dato
+ * que ya está en la mano.
+ */
+function SinEspecialista({
+  services,
+  staff,
+}: {
+  services: Service[];
+  staff: Staff[];
+}) {
+  const cubiertos = new Set(
+    staff.filter((p) => !p.archivedAt).flatMap((p) => p.serviceIds)
+  );
+  const huerfanos = services.filter((s) => !s.archivedAt && !cubiertos.has(s.id));
+  if (huerfanos.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+      <p className="text-sm font-medium">
+        ⚠️ {huerfanos.length}{" "}
+        {huerfanos.length === 1
+          ? "servicio no lo atiende nadie"
+          : "servicios no los atiende nadie"}
+        : no se {huerfanos.length === 1 ? "puede" : "pueden"} agendar.
+      </p>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        Márcalos en la ficha de cada especialista, abajo, en &ldquo;Servicios que
+        atiende&rdquo;.
+      </p>
+      <p className="mt-2 text-[13px]">
+        {huerfanos.map((s) => s.name).join(" · ")}
+      </p>
     </div>
   );
 }

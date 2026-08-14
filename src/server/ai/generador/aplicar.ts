@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
-import { leerCatalogoPegado } from "@/lib/catalogo-texto";
 import { normalizarHora } from "@/lib/hora";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 import { generarPerfil } from "./generar";
@@ -26,8 +25,6 @@ export type ResultadoDelAlta = {
   largoDelPrompt: number;
   /** Cuántas preguntas frecuentes se cargaron al conocimiento. */
   entradasDeConocimiento: number;
-  /** Servicios creados en el catálogo (solo en el vertical de citas). */
-  serviciosCreados: number;
 };
 
 /**
@@ -110,7 +107,6 @@ export async function aplicarFicha(
 
   const perfil = generarPerfil(ficha);
   const db = getDb();
-  let serviciosCreados = 0;
 
   await db.transaction(async (tx) => {
     await tx
@@ -161,45 +157,18 @@ export async function aplicarFicha(
     }
 
     /*
-     * Los servicios de un negocio de citas nacen aquí.
+     * Aquí NO se crean servicios.
      *
-     * Antes el alta los ignoraba —el catálogo de citas vive en `service`, no en
-     * el prompt— y el salón terminaba su configuración sin un solo servicio,
-     * sin que nada se lo advirtiera: su agente no sabía qué ofrecía ni a qué
-     * precio. Cargarlos de uno en uno era la única puerta, y con 46 no la cruza
-     * nadie.
+     * El catálogo de un negocio de citas vive en la tabla `service` —con su
+     * duración y con quién atiende cada uno— y se carga entero en la pantalla
+     * de Servicios: PDF, foto o lista pegada, con su tabla de revisión y el
+     * reparto entre especialistas. El alta llegó a pedirlo también, y eso
+     * significaba cargarlo dos veces y que una de las dos copias empezara a
+     * quedarse vieja el mismo día.
      *
-     * Solo se crean si NO tiene ya catálogo: aplicar la ficha dos veces no
-     * puede duplicarle los 46 servicios. Corregirlos, ampliarlos o borrarlos se
-     * hace en la pantalla de Servicios, que es donde se ven con sus duraciones.
+     * `generar.ts` ya excluye el catálogo del prompt en este vertical por la
+     * misma razón: una sola fuente de verdad.
      */
-    if (ficha.vertical === "citas" && ficha.catalogo?.trim()) {
-      const yaTiene = await tx
-        .select({ id: schema.service.id })
-        .from(schema.service)
-        .where(eq(schema.service.organizationId, organizationId))
-        .limit(1);
-
-      if (!yaTiene[0]) {
-        const tipica = ficha.duracionTipicaMin ?? 60;
-        const filas = leerCatalogoPegado(ficha.catalogo).filter((f) => f.nombre);
-        if (filas.length > 0) {
-          await tx.insert(schema.service).values(
-            filas.map((f) => ({
-              id: newId("service"),
-              organizationId,
-              name: f.nombre.slice(0, 120),
-              category: f.categoria?.slice(0, 60) ?? null,
-              priceCents: Math.round((f.precio ?? 0) * 100),
-              // La duración de la línea manda; si no la trae, la típica que dio
-              // el cliente. Nunca queda sin duración: sin ella no hay agenda.
-              durationMin: f.duracionMin ?? tipica,
-            }))
-          );
-          serviciosCreados = filas.length;
-        }
-      }
-    }
   });
 
   return {
@@ -208,6 +177,5 @@ export async function aplicarFicha(
     entradasDeConocimiento: ficha.preguntasFrecuentes.filter(
       (p) => p.pregunta.trim() && p.respuesta.trim()
     ).length,
-    serviciosCreados,
   };
 }

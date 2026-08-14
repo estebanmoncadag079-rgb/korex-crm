@@ -756,53 +756,6 @@ export function OnboardingWizard() {
       ),
     },
     {
-      titulo: "Tus servicios",
-      subtitulo:
-        "Con esto tu asistente sabe qué ofreces, a qué precio y cuánto ocupa cada cita.",
-      contenido: (
-        <>
-          <LectorDeCarta
-            pedirDuracion
-            onLeido={(texto) =>
-              set({ catalogo: [ficha.catalogo, texto].filter(Boolean).join("\n") })
-            }
-          />
-          <Campo
-            titulo="Tus servicios con su precio, uno por línea"
-            ayuda="Puedes escribirlos, o subir el PDF o la foto de tu catálogo aquí arriba. Si agrupas con títulos (PESTAÑAS, CEJAS…), se guardan como categorías. Si sabes cuánto dura alguno, ponlo en la misma línea."
-            ejemplo="Volumen ruso — $150.000 · 180 min"
-          >
-            <Textarea
-              rows={8}
-              placeholder={
-                "PESTAÑAS\nVolumen ruso — $150.000 · 180 min\nLifting de pestañas — $80.000 · 60 min\n\nCEJAS\nCejas en henna — $30.000 · 45 min"
-              }
-              value={ficha.catalogo ?? ""}
-              onChange={(e) => set({ catalogo: e.target.value })}
-            />
-          </Campo>
-          <Campo
-            titulo="¿Cuánto dura una cita normal?"
-            ayuda="En minutos. Es lo que evita que se te crucen dos clientas a la misma hora. Se usa para los servicios a los que no les pusiste duración arriba; después puedes ajustar cada uno en la pantalla de Servicios."
-            ejemplo="60"
-          >
-            <Input
-              inputMode="numeric"
-              className="w-32"
-              placeholder="60"
-              value={ficha.duracionTipicaMin ?? ""}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                set({
-                  duracionTipicaMin: Number.isFinite(n) && n > 0 ? n : undefined,
-                });
-              }}
-            />
-          </Campo>
-        </>
-      ),
-    },
-    {
       titulo: "Cómo reciben lo que piden",
       subtitulo: "Aquí está el dato que más problemas evita: quién paga el domicilio.",
       contenido: (
@@ -1109,19 +1062,20 @@ export function OnboardingWizard() {
   ];
 
   /*
-   * Cada vertical ve SU etapa de catálogo.
+   * En un negocio de CITAS el catálogo no se pide aquí.
    *
-   * Antes, a un negocio de citas se le ocultaba "Lo que vendes" entera y no se
-   * le ofrecía nada a cambio: terminaba el alta sin un solo servicio y sin que
-   * nada se lo advirtiera. Su agente no sabía qué ofrecía ni a qué precio, y
-   * cargarlo significaba ir a otra pantalla a teclear 46 servicios de uno en
-   * uno. Ahora ve "Tus servicios", que pide lo mismo más la duración — de la
-   * que depende que no se le crucen dos citas.
+   * Sus servicios no viven en el prompt sino en la tabla `service`, con su
+   * duración y con quién atiende cada uno (`generar.ts` lo excluye del texto a
+   * propósito, para no tener dos fuentes de verdad). Pedirlos también en el
+   * alta significaba cargarlos dos veces y que la copia del alta empezara a
+   * quedarse vieja el mismo día.
+   *
+   * Se cargan enteros —PDF, foto o lista pegada— en **Servicios**, que es
+   * donde además se reparte quién los hace y donde se avisa de los que no
+   * atiende nadie. El aviso del final del alta lleva allí.
    */
   const etapaSobra = (titulo: string) =>
-    ficha.vertical === "citas"
-      ? titulo === "Lo que vendes"
-      : titulo === "Tus servicios";
+    ficha.vertical === "citas" ? titulo === "Lo que vendes" : false;
   const visibles = etapas.filter((e) => !etapaSobra(e.titulo));
   // `visibles` nunca está vacío (las etapas son literales), pero TypeScript no
   // puede saberlo: el fallback evita un `actual` posiblemente indefinido sin
@@ -1166,6 +1120,23 @@ export function OnboardingWizard() {
             hable con tus clientes antes de que tú lo veas funcionando.
           </CardDescription>
         </CardHeader>
+        {/* El alta de un negocio de citas NO pide el catálogo: sus servicios
+            viven en la pantalla de Servicios, con duración y con quién los
+            atiende. Decirlo aquí es lo que evita que alguien termine el alta
+            creyendo que ya está todo — que fue el fallo original, silencioso. */}
+        {ficha.vertical === "citas" ? (
+          <CardContent>
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[13px] dark:border-amber-800 dark:bg-amber-950/30">
+              <p className="font-medium">Falta un paso: tus servicios.</p>
+              <p className="mt-1 text-muted-foreground">
+                Se cargan en la pantalla <strong>Servicios</strong> — de una vez,
+                subiendo tu catálogo en PDF, una foto o pegando la lista. Ahí se
+                les pone cuánto dura cada uno y quién lo atiende, que es lo que
+                evita que se crucen dos citas.
+              </p>
+            </div>
+          </CardContent>
+        ) : null}
       </Card>
     );
   }

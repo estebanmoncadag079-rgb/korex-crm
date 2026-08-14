@@ -40,7 +40,7 @@ for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
   if (v && !process.env[n]) process.env[n] = v;
 }
 
-const CLIENTES: { organizationId: string; ficha: FichaDelNegocio }[] = [];
+const CLIENTES: { organizationId: string; ficha: FichaDelNegocio; pausado?: boolean }[] = [];
 
 const CHURRA: FichaDelNegocio = {
   nombre: "La Churra Churrería",
@@ -178,7 +178,19 @@ const SALON: FichaDelNegocio = {
 
   preguntasFrecuentes: [],
 
-  escalarSiempre: [],
+  /*
+   * La salud, explícita y la primera.
+   *
+   * 14-ago: su conocimiento tenía UNA entrada —"¿me irrita los ojos?" → "claro
+   * que no, lo hacemos con mucho amor"— y su lista de escalado estaba vacía. En
+   * un salón de pestañas esa es LA pregunta que más se hace antes de agendar, y
+   * el agente la estaba respondiendo con una promesa que nadie puede hacer.
+   */
+  escalarSiempre: [
+    "Cualquier pregunta sobre irritación, alergias, reacciones, piel sensible, embarazo o contraindicaciones: la contesta una persona del equipo, siempre.",
+    "Reclamos por un trabajo que quedó mal o no duró.",
+    "Devoluciones y cobros por citas que no se cumplieron.",
+  ],
 
   nuncaPrometer: ["Devolución del dinero por separación de citas."],
 };
@@ -331,15 +343,37 @@ const LIS: FichaDelNegocio = {
   ],
 };
 
+/*
+ * ⚠️ Lis va con `pausado: true` A PROPÓSITO.
+ *
+ * Su ficha está escrita y probada, pero su Laboratorio quedó entre 83 y 75
+ * frente a los 92 de su prompt de siempre, y eso no alcanza para tocarle el
+ * prompt al cliente que más factura ([54](../docs/korexia/54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md)).
+ *
+ * El flag existe porque ya pasó: corriendo este script para arreglar el
+ * ESCALADO DEL SALÓN se le reescribió a Lis el prompt de paso, sin querer. Un
+ * script que toca a todos los clientes a la vez necesita una forma de decir
+ * "este no".
+ *
+ * Para aplicarle la suya cuando esté lista: `--incluir-pausados`.
+ */
 CLIENTES.push(
   { organizationId: "org_lo5gdlt6k43z9fg1ling", ficha: CHURRA },
   { organizationId: "org_novxv78s08h12arzatr2", ficha: SALON },
-  { organizationId: "org_lispasteleria0001", ficha: LIS }
+  { organizationId: "org_lispasteleria0001", ficha: LIS, pausado: true }
 );
 
 const aplicar = process.argv.includes("--aplicar");
 
-const generados = CLIENTES.map((c) => ({ ...c, perfil: generarPerfil(c.ficha) }));
+const incluirPausados = process.argv.includes("--incluir-pausados");
+const pausados = CLIENTES.filter((c) => c.pausado && !incluirPausados);
+for (const p of pausados) {
+  console.log(`[fichas] ${p.ficha.nombre}: PAUSADO, no se toca (usa --incluir-pausados)`);
+}
+const generados = CLIENTES.filter((c) => !c.pausado || incluirPausados).map((c) => ({
+  ...c,
+  perfil: generarPerfil(c.ficha),
+}));
 for (const g of generados) {
   console.log(
     `[fichas] ${g.ficha.nombre}: prompt ${g.perfil.instructions.length} caracteres · escalado ${g.perfil.escalationRules.length}`

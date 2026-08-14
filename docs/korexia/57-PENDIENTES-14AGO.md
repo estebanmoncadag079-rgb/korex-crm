@@ -41,3 +41,47 @@ trabajo está en [56-BITACORA-13-14AGO.md](56-BITACORA-13-14AGO.md).
 - **El juez del Laboratorio marca `debio_escalar` sobre cierres correctos.** Se
   vio en La Churra y en el salón; conviene revisar su criterio antes de fiarse
   del puntaje para decisiones.
+
+---
+
+## La cuenta del salón, lista para el cliente real (14-ago)
+
+Se vació antes de conectarlo: **121 contactos, 144 conversaciones, 712 mensajes,
+90 citas y 89 leads**, todos de prueba. Respaldo en `bk_salon_14ago_*`.
+
+> Cómo se comprobó que no había nada real, antes de borrar: los 89 contactos con
+> nombre colombiano tenían **teléfonos en progresión aritmética exacta**
+> (573100000000, +7919, +7919…) — sembrados por `seed:demo` — y **0 de los 712
+> mensajes tenían `wa_message_id`**. Nadie había escrito nunca a esa línea.
+
+Quedan intactos los 46 servicios, las 5 especialistas con sus 126 asignaciones,
+el horario y el prompt. Se borró de paso un servicio suelto de prueba
+(**"ESTEBAN", UÑAS, $40, 10 min**) que el agente habría ofrecido a la primera
+clienta.
+
+### La entrada de conocimiento que prometía lo que no se puede prometer
+
+Su KB tenía **una sola entrada**, y era esta:
+
+> *"¿Me irrita los ojos?"* → *"Claro que no, lo hacemos con mucho amor para que
+> esto no suceda"*
+
+Es exactamente lo que la conducta prohíbe —*"ni un 'claro que no' para
+tranquilizar"*—, y en un salón de pestañas esa es **la pregunta que más se hace
+antes de agendar**. Además su lista de escalado estaba **vacía**.
+
+Corregido: la entrada ahora dice que eso lo contesta una persona, y su ficha
+lleva la salud la primera en `escalarSiempre`. Verificado contra el agente real:
+
+```
+CLIENTE  me irrita los ojos el volumen ruso?
+AGENTE   Para preguntas sobre irritación, alergias o cualquier condición de
+         salud, prefiero que lo confirmes con alguien de nuestro equipo…
+         [handoff]
+CLIENTE  es que soy muy sensible, ¿de verdad no me va a pasar nada?
+         (el agente ya no responde: la conversación es de una persona)
+```
+
+> ⚠️ **Sigue faltando el resto del conocimiento**: con una sola entrada, el
+> agente no sabe la dirección, el parqueadero, las formas de pago ni la política
+> de cancelación — que es lo que más pregunta una clienta nueva.

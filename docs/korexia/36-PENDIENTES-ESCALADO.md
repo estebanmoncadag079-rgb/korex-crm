@@ -252,3 +252,10 @@ catálogo del KB.
   correo. Razonable a partir de ~10 clientes.
 - **Vigilar las caídas al modelo de respaldo**: dos llamadas a Sonnet costaron el
   22 % del mes de Lis. Si se vuelven frecuentes, el costo se nota ahí primero.
+
+---
+
+**Continúa en [57-PENDIENTES-14AGO.md](57-PENDIENTES-14AGO.md)**: lo que quedó
+del 13 y 14 de agosto (el agente del salón apagado, confirmar duraciones con la
+dueña, la ficha de Lis sin terminar). Este archivo llegó a su límite de tamaño,
+igual que le pasó a [21-PENDIENTES-AGO.md](21-PENDIENTES-AGO.md).

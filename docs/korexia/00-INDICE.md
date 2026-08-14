@@ -71,6 +71,12 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [55-VEINTICUATRO-CLIENTES.md](55-VEINTICUATRO-CLIENTES.md) | 🔑 **24 clientes distintos contra el agente real, con comprobaciones objetivas** (no un juez): efectivo, datos de pago antes de tiempo, alergias, reclamos, el total a mitad, modismos, el proveedor que ofrece sus servicios. Encontró dos fallos reales —y dos falsos positivos del propio banco, que también se arreglaron— |
 
+| [56-BITACORA-13-14AGO.md](56-BITACORA-13-14AGO.md) | **Historial del 13 y 14 de agosto**: los cuatro fallos que estaban vivos y no daban error en ningún log (las duraciones que se tiraban, dos citas a la misma hora, la clienta que confirmaba tres veces, los pedidos vacíos), el catálogo que se pedía dos veces, la flota que ahora hereda, y **lo que NO se hizo y por qué** |
+
+| [57-PENDIENTES-14AGO.md](57-PENDIENTES-14AGO.md) | 🔴 **Lo que queda tras el 14-ago**: el agente del salón sigue apagado, las duraciones y la matriz de especialistas están sin confirmar con la dueña, y la ficha de Lis quedó escrita pero sin activar (mientras tanto recibe los guardarraíles, pero no la conducta nueva) |
+
+| [58-EL-CATALOGO-VIVE-EN-SERVICIOS.md](58-EL-CATALOGO-VIVE-EN-SERVICIOS.md) | **En citas el catálogo se pide UNA vez, en Servicios**: se estaba cargando dos veces y una copia empezaba a quedarse vieja el mismo día. La comparación con la lista del cliente (nuevos, precios distintos, los que ya no están), el reparto entre especialistas desde la misma pantalla, y las dos trampas — un hueco NO es un cambio, y la duración típica solo vale para los nuevos |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

@@ -30,7 +30,10 @@ Todos viven en `server/ai/anuncio-de-cierre.ts` (el nombre se quedó del
 primero) y se aplican en `runAgentTurn`, con la misma forma: detectar → rehacer
 el turno con la corrección delante → comprobar de nuevo.
 
-## Los cuatro
+## Los cuatro primeros
+
+> Hoy son **seis**: los dos últimos (cerrar sin resumen y no dar el total)
+> están al final de este documento, con la fecha y el caso que los provocó.
 
 | Guardarraíl | Qué evita | Si insiste |
 |---|---|---|
@@ -228,3 +231,41 @@ agente ya le enseñó en esa conversación (`TIENE_TOTAL` sobre el historial).
 > ⚠️ Este fallo **no era de la migración**: el prompt viejo también lo permitía,
 > solo que aquella corrida no lo destapó. El guardarraíl protege a toda la flota
 > lleve el prompt que lleve.
+
+## Sexto guardarraíl: le piden el total y no lo da (14-ago)
+
+Salió de los 24 escenarios ([55-VEINTICUATRO-CLIENTES.md](55-VEINTICUATRO-CLIENTES.md)),
+dos veces el mismo día:
+
+> **CLIENTE** — ¿cuánto es el total?
+> **AGENTE** — Con gusto, solo necesito que me confirmes el topping 😊
+
+El topping no cambia el precio. Su prompt **ya se lo prohibía** —*"si te
+pregunta cuánto es el total, dale el total"*— y lo hizo igual: es de esas
+órdenes que el modelo incumple porque le parece más ordenado completar el pedido
+primero.
+
+Y por eso está en el código y no solo en el prompt: **los guardarraíles llegan a
+todos los clientes, también a los que aún no se han migrado al generador.** La
+conducta, no.
+
+Dos afinados que costaron una ronda cada uno:
+
+- **No exige que el agente hubiera escrito precios antes.** La primera versión
+  sí, y se le escapó el caso real: el cliente pidió dos productos del catálogo y
+  el agente contestó pidiendo el topping sin haber nombrado una cifra en toda la
+  conversación. Podía sumar — los precios están en su conocimiento. Ahora salta
+  siempre y es la **corrección** la que distingue: si de verdad no hay nada
+  pedido, que pregunte qué quiere. Nunca se le empuja a inventar una cifra.
+- **El total es la SUMA, anunciada como tal.** No vale enumerar: *"un Polvoroso
+  cuesta $19.000 y un Cremoso $12.000"* tiene los datos pero no la respuesta.
+  Quien pregunta el total quiere una cifra, no una lista para sumar de cabeza.
+
+Solo corre en **pedidos**: en un salón el precio de un servicio es fijo y sale
+del catálogo, no de una suma.
+
+> ⚠️ Es el único de los seis que **no cierra el caso del todo**: si el reintento
+> tampoco da la suma, sale la respuesta original. Entre 23 y 24 de 24 según la
+> ronda. Se decidió así — un segundo reintento encarecería todos los turnos de
+> todos los clientes por un caso menor, en el que además el cliente ya tiene los
+> precios.

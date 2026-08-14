@@ -1,7 +1,8 @@
 # Cargar el catálogo de un negocio de citas
 
 > **Dentro:** El hueco · Por qué nadie lo vio · Las tres puertas · El PDF, que
-> era el caso real · La duración manda en la agenda · Qué se puede pegar
+> era el caso real · Dónde vive el catálogo · La duración manda en la agenda ·
+> Qué se puede pegar
 
 13-ago-2026. *"¿Por qué en el salón no está la opción de subir el catálogo?"*
 La respuesta corta: porque no existía.
@@ -52,9 +53,13 @@ avisos de cuántos vienen **sin precio** y cuántos **sin duración**, y un
 > incidente de los **12 precios equivocados** que nadie detectó durante meses.
 > Ni la foto ni la lista pegada escriben una fila por su cuenta.
 
-Está en **la pantalla de Servicios** (arriba y a todo lo ancho, porque es lo
-primero que necesita un salón nuevo) y en **el alta**: el asistente ya no oculta
-el paso, muestra "Tus servicios" y al aplicar la ficha los crea.
+Está en **la pantalla de Servicios**, arriba y a todo lo ancho, porque es lo
+primero que necesita un salón nuevo.
+
+> ⚠️ Durante unas horas también estuvo en el alta, y se quitó el mismo día: en
+> citas el catálogo se pide **una sola vez**, y es aquí
+> ([58](58-EL-CATALOGO-VIVE-EN-SERVICIOS.md)). Lo de abajo cuenta cómo llegó a
+> estar en los dos sitios, porque el fallo que destapó sigue siendo útil.
 
 ### El alta se quedó atrás medio día
 
@@ -76,9 +81,12 @@ la ficha. El viaje completo (PDF → ficha → servicios creados) está cubierto
 una prueba de ida y vuelta, porque el fallo no estaba en ninguna de las dos
 piezas sino en la costura entre ellas.
 
-Y en la etapa de citas la lista de revisión marca **cuántos vienen sin
-duración**, con el mismo criterio que en Servicios: en un negocio de citas la
-duración no es un adorno.
+La lista de revisión marca **cuántos vienen sin duración**: en un negocio de
+citas la duración no es un adorno.
+
+> Esa etapa del alta ya no existe —el catálogo de un salón se carga solo en
+> Servicios—, pero el fallo que dejó vale para cualquier costura parecida: **lo
+> que se pierde al copiar de un formato a otro no da error en ninguna parte**.
 
 ## El PDF, que era el caso real
 
@@ -125,75 +133,14 @@ rasteriza su primera página y se manda al lector de imágenes de siempre.
 - `public/**` se excluyó de eslint: el worker minificado disparaba 1.576 avisos
   sobre código que no es nuestro.
 
-## Decisión: en citas, el catálogo vive SOLO en Servicios
+## Dónde vive el catálogo, y cómo se pone al día
 
-13-ago, al final del día. *"En el salón quitamos el apartado del catálogo del
-alta y lo dejamos solo en Servicios: lo estamos subiendo dos veces."*
+Lo decidió el dueño el mismo día: en un negocio de **citas** el catálogo vive
+**solo en la pantalla de Servicios**, no en el alta. Y desde ahí se compara con
+la lista del cliente, se reparte quién atiende cada servicio y se avisa de los
+que no atiende nadie.
 
-Es la decisión correcta, y el código ya apuntaba a ella: `generar.ts:53`
-**excluye a propósito** el catálogo del prompt en el vertical de citas, porque
-sus servicios viven en la tabla `service` con su duración y con quién atiende
-cada uno. Pedirlos también en el alta creaba una segunda copia que empezaba a
-quedarse vieja el mismo día.
-
-Qué cambia:
-
-- El alta de un negocio de **citas** ya no muestra la etapa "Tus servicios"
-  (los de **pedidos** siguen con "Lo que vendes", donde el catálogo SÍ va en el
-  prompt).
-- `aplicarFicha` ya no crea servicios. Se fue con ella el `serviciosCreados`
-  del resultado.
-- Al terminar el alta, un negocio de citas ve un aviso en ámbar: **falta cargar
-  tus servicios, y se hace en la pantalla de Servicios**. Sin ese aviso
-  volveríamos al fallo original —terminar la configuración creyendo que ya está
-  todo—, que era silencioso y por eso duró tanto.
-
-Lo de abajo (la comparación, el reparto entre especialistas, el aviso de los
-que no atiende nadie) sigue igual: es justo lo que hace que Servicios se baste
-solo.
-
-## Las dos mitades que no se hablaban
-
-13-ago, más tarde. *"¿De qué sirve que la clienta elimine un servicio o lo
-agregue y no aparezca en estas casillas?"*
-
-La lista de servicios se escribe en un sitio —el alta, el generador de
-prompts— y se usa en otro: la pantalla de Servicios, donde se marca **quién
-atiende cada cosa**. No se hablaban:
-
-- Añadir un servicio a la lista **no creaba nada** si el negocio ya tenía
-  catálogo (la protección contra duplicar los 46 lo bloqueaba todo, no solo lo
-  repetido). No aparecía en las casillas de las especialistas, y lo que nadie
-  atiende **no se puede agendar**.
-- Quitarlo de la lista no lo retiraba: se seguía ofreciendo.
-
-La lista parecía la fuente de verdad y no lo era. Ahora:
-
-| Dónde | Qué hace |
-|---|---|
-| **Aplicar la ficha** (alta/generador) | Crea **lo que falta**, compara por nombre normalizado. No duplica, no pisa precios afinados a mano, y **nunca archiva** |
-| **Servicios → Cargar catálogo** | Compara y muestra el diff: nuevos, cambios de precio/duración, y los que ya no están |
-
-En el diff, cada servicio nuevo trae **las casillas de las especialistas ahí
-mismo** —marcar quién lo atiende sin ir persona por persona— y avisa en ámbar
-si queda sin nadie, porque entonces existirá en el catálogo pero no se podrá
-agendar.
-
-> 🛑 **Añadir es automático; quitar y cambiar precios, no.** Retirar un servicio
-> afecta a citas ya agendadas, y un precio distinto es dinero: se marcan a mano
-> y se archivan (nunca se borran, para que el historial siga teniendo sentido).
-
-Dos trampas que costaron sangre y quedaron cubiertas con pruebas:
-
-- **Un hueco no es un cambio.** Si la línea no trae precio o no trae minutos, se
-  conserva lo guardado. Interpretar "no lo escribió" como "vale 0" pondría el
-  catálogo entero a cero, y el agente lo repetiría a cada clienta.
-- **La duración típica es solo para los nuevos.** Rellenarla antes de comparar
-  convertía "esta línea no dice cuánto dura" en "ahora dura 60 minutos": un
-  Volumen Ruso de 150 pasaba a 60 sin que nadie lo pidiera.
-- La pantalla manda **las filas ya revisadas**, no un texto reconstruido. La
-  primera versión metía la categoría en el nombre (`Volumen Ruso [Pestañas]`),
-  que no casa con nada guardado: habría duplicado el catálogo entero.
+Está en [58-EL-CATALOGO-VIVE-EN-SERVICIOS.md](58-EL-CATALOGO-VIVE-EN-SERVICIOS.md).
 
 ## La duración manda en la agenda
 

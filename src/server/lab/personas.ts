@@ -3,14 +3,27 @@
  * usa LLM: son secuencias fijas — determinismo total del lado del cliente.
  * El agente que responde es el REAL (mismo pipeline de US3).
  *
- * REGLA DE ORO AL EDITAR: los guiones NO nombran productos concretos.
+ * REGLA DE ORO AL EDITAR: un guion no puede nombrar algo INVENTADO.
  *
  * El Laboratorio lo corre cada cliente contra SU propio conocimiento, y un
- * guión que pida "una Besties con tres salsas" haría fallar a la pastelería por
+ * guion que pida "una Besties con tres salsas" haría fallar a la pastelería por
  * no tener algo que nunca vendió — el juez lo marcaría rojo y el reporte
- * mentiría. Por eso se piden INTENCIONES ("¿qué opciones tienen?", "quiero la
- * más pedida") y es el agente quien recita su propio catálogo. Así el mismo
- * guión sirve para una churrería, una pastelería o un restaurante.
+ * mentiría.
+ *
+ * En **pedidos** eso se resuelve pidiendo intenciones ("¿qué opciones tienen?")
+ * y dejando que el agente recite su carta.
+ *
+ * En **citas** no vale: nadie entra a un salón diciendo "deme lo más pedido".
+ * Se va por algo concreto — las uñas, las pestañas, las cejas—, casi siempre
+ * con el nombre puesto y a veces con la técnica. Un banco de pruebas donde la
+ * clienta nunca dice qué quiere no prueba lo que pasa de verdad: el agente
+ * jamás tiene que reconocer un servicio en una frase, ni distinguir dos que se
+ * parecen, ni ver que quien lo hace no es cualquiera.
+ *
+ * Por eso los guiones de citas llevan marcadores —`{SERVICIO}`,
+ * `{SERVICIO_BARATO}`, `{CATEGORIA}`— que se sustituyen al arrancar la corrida
+ * por servicios REALES del catálogo de ESE salón (`concretarPersona`). Siguen
+ * sirviendo para cualquiera, y la clienta pide lo que pediría una de verdad.
  */
 
 /**
@@ -106,7 +119,10 @@ export const RESPUESTAS_COMUNES: RespuestaReactiva[] = [
 export const RESPUESTAS_COMUNES_CITAS: RespuestaReactiva[] = [
   {
     cuando: /(qu[eé] servicio|cu[aá]l.*(servicio|te (gustar[ií]a|interesa))|qu[eé] te (gustar[ií]a|interesa)|en qu[eé].*(ayudar|consentir))/i,
-    responde: "El que ustedes me recomienden, confío en lo que más les piden",
+    // Una clienta que ya dijo a qué viene no cambia de idea ni pide que le
+    // recomienden: repite lo que quiere. Y si el agente pregunta lo que ya le
+    // dijeron, eso es justo lo que el juez tiene que ver.
+    responde: "{SERVICIO}, eso es lo que quiero",
   },
   {
     cuando: /(qu[eé] d[ií]a|cu[aá]ndo|fecha|a qu[eé] hora|horario.*(prefer|sirve|queda)|te sirve|te queda mejor)/i,
@@ -265,10 +281,10 @@ export const PERSONAS_CITAS: Persona[] = [
     contactName: "[Prueba] Comprador decidido",
     script: [
       "Hola, buenas",
-      "¿Qué servicios tienen?",
-      "Listo, quiero agendar una cita",
-      "¿Qué horarios tienen disponibles?",
-      "Perfecto, soy Andrés",
+      "Quiero agendar {SERVICIO}",
+      "¿Cuánto me sale y cuánto se demora?",
+      "¿Qué horarios tienen esta semana?",
+      "Perfecto, soy Andrea",
     ],
     respuestas: [
       // El único que cierra: sin esta línea el agente espera un "sí" que el
@@ -290,9 +306,9 @@ export const PERSONAS_CITAS: Persona[] = [
       {
         // Apunta a la INSISTENCIA, no a la primera pregunta: cuando el agente
         // ya nombró opciones y vuelve a pedir que elija. La primera vez la
-        // atiende la respuesta común ("el que ustedes me recomienden").
+        // atiende la respuesta común (repetir el servicio que pidió).
         cuando: /(cu[aá]l de (estos|estas|ellos|ellas|nuestros|las opciones)|alguno de (estos|estas)|te gustar[ií]a (probar|reservar|agendar)|prefieres (otro|alguno|que te)|o quiz[aá]s otro)/i,
-        responde: "El primero que me nombraste está bien, agéndame ese",
+        responde: "{SERVICIO}, ese mismo. Agéndamelo por favor",
       },
     ],
   },
@@ -304,11 +320,11 @@ export const PERSONAS_CITAS: Persona[] = [
     phone: "5210000000002",
     contactName: "[Prueba] Preguntón de precios",
     script: [
-      "Buenas, ¿cuánto vale lo más económico que tienen?",
-      "¿Y el servicio más completo?",
-      "¿Cuánto se demora eso?",
-      "¿Hacen precio especial si me hago varios?",
-      "Ah bueno, después les escribo",
+      "Buenas, ¿cuánto vale {SERVICIO}?",
+      "¿Y {SERVICIO_BARATO}?",
+      "¿Cuánto se demora {SERVICIO}?",
+      "¿Hacen precio especial si me hago las dos cosas el mismo día?",
+      "Ah bueno, lo pienso y después les escribo",
     ],
   },
   {
@@ -320,7 +336,7 @@ export const PERSONAS_CITAS: Persona[] = [
     contactName: "[Prueba] Cliente enojado",
     script: [
       "Buenas, tengo un reclamo",
-      "Me atendieron ayer y el trabajo quedó mal hecho",
+      "Me hice {SERVICIO} el fin de semana y quedó mal hecho",
       "A los dos días ya se me estaba dañando. ¿Así trabajan?",
       "Quiero que me devuelvan la plata o me lo repitan sin cobrar",
     ],
@@ -334,10 +350,10 @@ export const PERSONAS_CITAS: Persona[] = [
     phone: "5210000000004",
     contactName: "[Prueba] Fuera del conocimiento",
     script: [
-      "Hola, una consulta",
-      "¿Los productos que usan sirven para piel sensible o dan alergia?",
+      "Hola, una consulta antes de agendar",
+      "¿{SERVICIO} se puede hacer en piel sensible o da alergia?",
       "Es que soy alérgica y necesito estar segura",
-      "¿Me pueden confirmar exactamente qué productos usan?",
+      "¿Me pueden confirmar exactamente qué producto usan para eso?",
     ],
   },
   {
@@ -349,8 +365,8 @@ export const PERSONAS_CITAS: Persona[] = [
     contactName: "[Prueba] Pide humano",
     script: [
       "Hola",
-      "Necesito cotizar varios servicios para un evento el fin de semana",
-      "Prefiero hablar con una persona del equipo, ¿me pueden comunicar?",
+      "Somos cuatro para un matrimonio el sábado y queremos {CATEGORIA}",
+      "Prefiero hablar con una persona del equipo para cuadrarlo, ¿me pueden comunicar?",
       "Gracias",
     ],
   },
@@ -362,19 +378,19 @@ export const PERSONAS_CITAS: Persona[] = [
     phone: "5210000000006",
     contactName: "[Prueba] Errores y modismos",
     script: [
-      "buenas seño q servicios tienen",
-      "cuanto sale lo mas barato parce",
+      "buenas seño cuanto sale {SERVICIO}",
       "y pa cuando hay campo",
-      "listo mano ahi le aviso",
+      "ah listo y quien me lo hace",
+      "listo seño ahi le aviso",
     ],
     respuestas: [
       {
         cuando: /(qu[eé] servicio|cu[aá]l.*(servicio|te (gustar[ií]a|interesa))|prefer)/i,
-        responde: "el q ustedes vean parce",
+        responde: "{SERVICIO} seño, eso q le dije",
       },
       {
         cuando: /(tu nombre|su nombre|c[oó]mo te llamas|a nombre de qui[eé]n)/i,
-        responde: "andres",
+        responde: "andrea",
       },
       {
         cuando: /(qu[eé] d[ií]a|cu[aá]ndo|a qu[eé] hora|te sirve|te queda mejor)/i,
@@ -402,10 +418,83 @@ export const PERSONA_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 /** Las reglas de una persona, con las comunes de SU vertical detrás. */
-export function reglasDe(persona: Persona): RespuestaReactiva[] {
+export function reglasDe(
+  persona: Persona,
+  catalogo?: ServicioDelCatalogo[]
+): RespuestaReactiva[] {
   const comunes =
     persona.vertical === "citas" ? RESPUESTAS_COMUNES_CITAS : RESPUESTAS_COMUNES;
-  return [...(persona.respuestas ?? []), ...comunes];
+  const ctx = persona.vertical === "citas" ? contextoDeCitas(catalogo ?? []) : null;
+  const concretar = (r: RespuestaReactiva): RespuestaReactiva =>
+    ctx ? { ...r, responde: sustituir(r.responde, ctx) } : r;
+  return [...(persona.respuestas ?? []), ...comunes].map(concretar);
+}
+
+/** Lo que hace falta de cada servicio para escribir una frase de clienta. */
+export type ServicioDelCatalogo = {
+  name: string;
+  category: string | null;
+  priceCents: number;
+};
+
+type ContextoDeCitas = {
+  SERVICIO: string;
+  SERVICIO_BARATO: string;
+  CATEGORIA: string;
+};
+
+/**
+ * Qué servicios concretos va a pedir la clienta simulada.
+ *
+ * El más caro hace de servicio estrella (es el que un salón pone en su
+ * portada) y el más barato sirve para el que compara precios. El orden se
+ * desempata por nombre para que **la misma corrida dé siempre lo mismo**: el
+ * Laboratorio no puede cambiar de resultado porque dos servicios cuesten igual.
+ *
+ * Sin catálogo cargado se cae a frases genéricas: un salón recién dado de alta
+ * también tiene derecho a que su banco de pruebas corra.
+ */
+export function contextoDeCitas(catalogo: ServicioDelCatalogo[]): ContextoDeCitas {
+  const ordenados = [...catalogo].sort(
+    (a, b) => b.priceCents - a.priceCents || a.name.localeCompare(b.name, "es")
+  );
+  const caro = ordenados[0];
+  const barato = ordenados[ordenados.length - 1];
+  return {
+    SERVICIO: caro?.name ?? "una cita",
+    // Con un solo servicio en el catálogo, el caro y el barato son el mismo:
+    // se prefiere repetirlo antes que inventarse un segundo que no existe.
+    SERVICIO_BARATO: barato?.name ?? "lo más económico que tengan",
+    CATEGORIA: caro?.category?.toLowerCase() ?? "sus servicios",
+  };
+}
+
+function sustituir(texto: string, ctx: ContextoDeCitas): string {
+  return texto.replace(/\{(SERVICIO_BARATO|SERVICIO|CATEGORIA)\}/g, (_, clave) =>
+    ctx[clave as keyof ContextoDeCitas]
+  );
+}
+
+/**
+ * La persona con su guion ya concretado contra el catálogo de ESTE negocio.
+ *
+ * En pedidos no toca nada: allí el guion pide intenciones a propósito, y es el
+ * agente quien recita su carta.
+ */
+export function concretarPersona(
+  persona: Persona,
+  catalogo: ServicioDelCatalogo[]
+): Persona {
+  if (persona.vertical !== "citas") return persona;
+  const ctx = contextoDeCitas(catalogo);
+  return {
+    ...persona,
+    script: persona.script.map((l) => sustituir(l, ctx)),
+    respuestas: persona.respuestas?.map((r) => ({
+      ...r,
+      responde: sustituir(r.responde, ctx),
+    })),
+  };
 }
 
 /**

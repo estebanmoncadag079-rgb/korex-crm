@@ -152,13 +152,25 @@ describe("el comprador decidido puede llegar a cerrar el pedido", () => {
 describe("la clienta decidida puede llegar a dejar la cita agendada", () => {
   const decidida = PERSONAS_CITAS.find((p) => p.key === "comprador_decidido")!;
 
+  /** El catálogo de un salón cualquiera: la clienta pide algo de ahí. */
+  const CATALOGO = [
+    { name: "Volumen Ruso", category: "Pestañas", priceCents: 13500000 },
+    { name: "Cejas en Henna", category: "Cejas", priceCents: 3000000 },
+  ];
+
   it("da lo que hace falta para agendar: servicio, día y nombre", () => {
-    const reglas = reglasDe(decidida);
+    const reglas = reglasDe(decidida, CATALOGO);
     const dia = elegirRespuesta(reglas, new Set(), "¿Qué día te queda mejor?");
     expect(dia?.texto).toMatch(/ma[ñn]ana/i);
 
+    /*
+     * Repite el servicio que ya pidió en vez de delegar en el agente. Antes
+     * contestaba "el que ustedes me recomienden", que no es lo que hace una
+     * clienta de salón: entra por las pestañas o por las uñas, y lo dice. Así,
+     * además, el juez ve si el agente pregunta algo que ya le habían dicho.
+     */
     const servicio = elegirRespuesta(reglas, new Set(), "¿Qué servicio te interesa?");
-    expect(servicio?.texto).toMatch(/recomienden/i);
+    expect(servicio?.texto).toContain("Volumen Ruso");
   });
 
   it("contesta cuando el agente le pide confirmar la cita", () => {
@@ -170,18 +182,18 @@ describe("la clienta decidida puede llegar a dejar la cita agendada", () => {
     expect(elegida?.texto.toLowerCase()).toMatch(/confirmo|perfecto/);
   });
 
-  it("acepta una propuesta si el agente insiste en que elija", () => {
+  it("insiste con el mismo servicio si el agente le pide elegir otra vez", () => {
     /*
      * Corrida real del 13-ago-2026: el agente preguntó CUATRO veces "¿cuál de
-     * nuestros servicios?", la clienta ya había gastado su "el que ustedes
-     * recomienden" y nunca eligió. La cita no se agendó jamás — pero es que el
-     * escenario tampoco se PODÍA cerrar, y un rojo así habría sido injusto.
+     * nuestros servicios?", la clienta ya había gastado su única respuesta y
+     * nunca eligió. La cita no se agendó jamás — pero es que el escenario
+     * tampoco se PODÍA cerrar, y un rojo así habría sido injusto.
      */
-    const reglas = reglasDe(decidida);
+    const reglas = reglasDe(decidida, CATALOGO);
     const usadas = new Set<number>();
 
     const primera = elegirRespuesta(reglas, usadas, "¿Qué servicio te interesa?");
-    expect(primera?.texto).toMatch(/recomienden/i);
+    expect(primera?.texto).toContain("Volumen Ruso");
     usadas.add(primera!.indice);
 
     const insiste = elegirRespuesta(
@@ -189,7 +201,8 @@ describe("la clienta decidida puede llegar a dejar la cita agendada", () => {
       usadas,
       "¿Te gustaría probar alguno de estos o te doy más opciones?"
     );
-    expect(insiste?.texto).toMatch(/ag[eé]ndame ese/i);
+    expect(insiste?.texto).toMatch(/ag[eé]ndamelo/i);
+    expect(insiste?.texto).toContain("Volumen Ruso");
   });
 
   it("no se le pregunta por dirección ni por pagos", () => {

@@ -140,3 +140,49 @@ npx esbuild scripts/<guion>.ts --bundle --platform=node --format=esm \
 
 ⚠️ El bundle **hay que generarlo desde la raíz del repo**: con el `.ts` fuera del
 árbol, esbuild no resuelve `node_modules` y falla sin decir por qué.
+
+## La clienta que no decía a qué venía (13-ago, tarde)
+
+*"Alguien que va a un salón no dice 'dame lo más pedido', eso no es humano. Las
+personas van por algo específico: uñas, pestañas."*
+
+Tenía razón, y el fallo era del banco de pruebas, no del agente. Los seis
+guiones se escribieron con una regla de oro: **nunca nombrar un producto
+concreto**, porque el mismo guion lo corre una churrería y una pastelería, y
+pedir "una Besties" haría fallar a quien no la vende.
+
+En pedidos esa regla es correcta. En citas producía una clienta que no existe:
+entraba preguntando "¿qué servicios tienen?" y, cuando le preguntaban qué
+quería, respondía *"el que ustedes me recomienden"*. Así, **el agente nunca
+tenía que reconocer un servicio dentro de una frase** — que es la mitad de su
+trabajo. No se probaba distinguir dos técnicas parecidas, ni que quien atiende
+unas uñas no es quien hace las pestañas.
+
+Ahora los guiones de citas llevan marcadores que se sustituyen al arrancar la
+corrida por servicios **reales del catálogo de ese salón**:
+
+| Marcador | De dónde sale |
+|---|---|
+| `{SERVICIO}` | El más caro — el que un salón pone en su portada |
+| `{SERVICIO_BARATO}` | El más económico, para quien compara precios |
+| `{CATEGORIA}` | La categoría del primero ("pestañas", "uñas") |
+
+> *"Quiero agendar Volumen Ruso"* · *"Me hice Volumen Ruso el fin de semana y
+> quedó mal"* · *"buenas seño cuanto sale Volumen Ruso"*
+
+La regla de oro no se rompe —sigue sin nombrarse nada inventado—, pero la
+clienta pide lo que pediría una de verdad. Y si el agente le vuelve a preguntar
+qué quiere, ella **repite el mismo servicio** en vez de delegar: que insista con
+algo que ya le dijeron es justo lo que el juez tiene que ver.
+
+Detalles que sostienen esto:
+
+- **Determinismo.** Con dos servicios al mismo precio, el desempate es por
+  nombre: la misma corrida da siempre la misma clienta.
+- **Sin catálogo cargado** el guion sigue siendo legible ("Quiero agendar una
+  cita"): un salón recién dado de alta también tiene derecho a correr su banco
+  de pruebas.
+- Una prueba recorre **los seis guiones** y falla si sobrevive un `{SERVICIO}`
+  sin sustituir. Una clienta escribiendo "{SERVICIO}" en el chat sería un fallo
+  del banco leído como fallo del agente — el error que este archivo entero
+  existe para no repetir.

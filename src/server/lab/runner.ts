@@ -14,10 +14,12 @@ import {
 import { catalogoParaPrompt } from "@/server/appointments/queries";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import {
+  concretarPersona,
   elegirRespuesta,
   personasPara,
   reglasDe,
   type Persona,
+  type ServicioDelCatalogo,
 } from "@/server/lab/personas";
 import type { TranscriptLine } from "@/lib/types";
 
@@ -170,10 +172,24 @@ async function runAllCases(
   for (const testCase of cases) {
     // Los guiones son los del vertical del negocio: un salón se prueba
     // agendando, no pidiendo domicilios.
-    const persona = personasPara(
+    const guion = personasPara(
       profile?.appointmentsEnabled ? "citas" : "pedidos"
     ).find((p) => p.key === testCase.persona);
-    if (!persona) continue;
+    if (!guion) continue;
+
+    /*
+     * La clienta pide un servicio REAL de este salón, por su nombre.
+     *
+     * Nadie entra a un salón diciendo "deme lo más pedido": va por las uñas o
+     * por las pestañas, y lo dice. Con guiones genéricos el agente nunca tenía
+     * que reconocer un servicio en una frase — que es la mitad de su trabajo.
+     */
+    const servicios: ServicioDelCatalogo[] = catalog.map((c) => ({
+      name: c.name,
+      category: c.category,
+      priceCents: c.priceCents,
+    }));
+    const persona = concretarPersona(guion, servicios);
 
     await db
       .update(schema.agentTestCase)
@@ -183,7 +199,8 @@ async function runAllCases(
     const { transcript, conversationId } = await runConversation(
       organizationId,
       persona,
-      labNow
+      labNow,
+      servicios
     );
 
     const outcome = await judgeCase({
@@ -283,7 +300,9 @@ export const MAX_RESPUESTAS_REACTIVAS = 3;
 async function runConversation(
   organizationId: string,
   persona: Persona,
-  labNow: Date
+  labNow: Date,
+  /** El catálogo del negocio: las respuestas reactivas también nombran servicios. */
+  catalogo: ServicioDelCatalogo[]
 ): Promise<{
   transcript: TranscriptLine[];
   conversationId: string;
@@ -305,7 +324,7 @@ async function runConversation(
   // Acciones ejecutadas, con el punto del transcript donde ocurrieron.
   const acciones: { trasMensajes: number; texto: string }[] = [];
 
-  const reglas = reglasDe(persona);
+  const reglas = reglasDe(persona, catalogo);
   const usadas = new Set<number>();
   let siguienteLinea = 0;
   let reactivas = 0;

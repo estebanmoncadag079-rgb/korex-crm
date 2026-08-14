@@ -102,3 +102,23 @@ salsas por presentación, lo de los dos teléfonos, el efectivo solo si pregunta
 3. `pnpm regenerar:flota` sin `--aplicar` para ver a quién cambia el prompt.
 4. Laboratorio del cliente más expuesto, antes y después.
 5. `--aplicar`, y el respaldo queda por si acaso.
+
+## La verificación de la migración
+
+El Laboratorio de La Churra, antes y después de migrarla, con el mismo guion y
+el modelo real:
+
+| | Antes (prompt a mano) | Después (generado) |
+|---|---|---|
+| Puntaje | 75 | 75 |
+| Cliente decidido | 🔴 con **dos** hallazgos | 🔴 con **uno** |
+| *"La más pedida por lejos es nuestra Besties"* | apareció | **desapareció** |
+
+La alucinación se fue sola: la conducta universal lleva *"nunca digas cuál es el
+más pedido si nadie te dio ese dato"*, y La Churra no la tenía escrita. Es
+exactamente lo que se compra al migrar — una lección que se pagó en otro cliente.
+
+Queda un fallo real, y es suyo: le preguntan **cuánto es el total** y responde
+pidiendo antes las salsas y el recubierto. Su propia regla dice lo contrario
+("si te pregunta cuánto es el total, dale el total"), y el total no depende de
+las salsas: depende de la presentación. Pendiente de afinar.

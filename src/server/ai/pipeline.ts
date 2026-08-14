@@ -723,7 +723,31 @@ export async function runAgentTurn(
    *
    * Como `productosOlvidados`, NO deriva a una persona si insiste.
    */
-  const falloDeResumen = resumenMalArmado(textosAlCliente(action).join(" "));
+  /*
+   * ⚠️ `notify_order` queda FUERA de este guardarraíl, y no es una excepción
+   * cómoda: es la corrección de un fallo medido.
+   *
+   * 13-ago-2026, Natalia: escribió "Confirmo", el agente le devolvió el mismo
+   * resumen pidiéndole confirmar. Escribió "Correcto" y volvió a recibirlo.
+   * Escribió "Si" y otra vez. Tres veces, hasta que una persona entró a mano.
+   *
+   * Lo que pasaba: `textosAlCliente` junta el `summary` y el `farewell` de la
+   * acción en un solo texto, y ahí el detector veía la petición de confirmar
+   * (que el modelo copia dentro del summary) JUNTO a la despedida y los datos
+   * de pago (que van en el farewell). Por separado cada parte está limpia;
+   * pegadas parecen el fallo del 12-ago. Entonces rehacía el turno con "no te
+   * despidas todavía, reescribe el resumen y pide confirmación" — y el modelo
+   * obedecía, pidiéndole a la clienta que confirmara lo que acababa de
+   * confirmar.
+   *
+   * `notify_order` solo ocurre DESPUÉS de que el cliente dijo que sí: ahí
+   * despedirse y dar los datos de pago no es prematuro, es exactamente lo que
+   * hay que hacer. Y el `summary` ni siquiera lo lee el cliente — va al equipo.
+   */
+  const falloDeResumen =
+    action.action === "notify_order"
+      ? null
+      : resumenMalArmado(textosAlCliente(action).join(" "));
   if (falloDeResumen) {
     console.warn(`[agente] resumen mal armado (${falloDeResumen}); rehaciendo el turno`);
     const reintento = await chatJson(AgentAction, [

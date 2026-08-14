@@ -132,3 +132,49 @@ describe("correccionDeResumen: le dice al modelo qué hacer", () => {
     expect(c).toMatch(/Responde ÚNICAMENTE el objeto JSON\.$/);
   });
 });
+
+/**
+ * El día que el guardarraíl rompió el cierre que venía a proteger.
+ *
+ * 13-ago-2026. Natalia escribió "Confirmo" y el agente le devolvió el mismo
+ * resumen pidiéndole confirmar. Escribió "Correcto": otra vez. Escribió "Si":
+ * otra vez. Tres, hasta que una persona entró a mano.
+ *
+ * `notify_order` lleva dos textos con DOS destinatarios distintos: el `summary`
+ * va al equipo (y el modelo copia dentro la petición de confirmar del resumen
+ * que ya enseñó) y el `farewell` va al cliente, con la despedida y los datos de
+ * pago. Pegados parecen exactamente el fallo del 12-ago; separados, los dos
+ * están bien.
+ *
+ * De ahí que el pipeline no le pase `notify_order` a este detector: esa acción
+ * solo existe DESPUÉS de que el cliente dijo que sí.
+ */
+describe("el cierre legítimo, que no se puede confundir con el prematuro", () => {
+  const SUMMARY_AL_EQUIPO = [
+    "Resumen de tu pedido:",
+    "• 1 Cremoso 12 oz — $18.000 (MILO, AREQUIPE)",
+    "• Natalia Becerra · 3113840785 · Carrera 53 #3 oeste 22",
+    "💰 *Total: $18.000 (sin incluir domicilio)*",
+    "👉 *POR FAVOR, CONFIRMA TU PEDIDO* 👈",
+  ].join("\n");
+
+  const FAREWELL_AL_CLIENTE =
+    "¡Listo! Ya estamos preparando todo con mucho amor para ti 🥣 Para el pago: llave 0089174299";
+
+  it("cada parte, por su cuenta, está bien armada", () => {
+    expect(resumenMalArmado(SUMMARY_AL_EQUIPO)).toBeNull();
+    expect(resumenMalArmado(FAREWELL_AL_CLIENTE)).toBeNull();
+  });
+
+  /*
+   * Esta prueba fija el porqué: pegadas SÍ disparan el detector. Por eso el
+   * arreglo no está aquí sino en quién lo llama — si algún día se le pasa un
+   * `notify_order`, volvería a pedirle a la clienta que confirme lo que acaba
+   * de confirmar.
+   */
+  it("pegadas dispararían el detector: por eso notify_order no pasa por él", () => {
+    expect(resumenMalArmado(`${SUMMARY_AL_EQUIPO} ${FAREWELL_AL_CLIENTE}`)).toBe(
+      "cierre-prematuro"
+    );
+  });
+});

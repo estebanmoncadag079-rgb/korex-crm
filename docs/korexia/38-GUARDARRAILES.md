@@ -147,3 +147,51 @@ y fallaba en el pipeline real**. Cuando salta, el log lo dice:
 > validando un prompt que no era el de producción. Para probar dentro del
 > contenedor, la receta de bundle está en
 > [30-SALON-PRUEBAS.md](30-SALON-PRUEBAS.md).
+
+## Cuando el guardarraíl rompió lo que venía a proteger (13-ago, noche)
+
+Natalia escribió **"Confirmo"** y el agente le devolvió el mismo resumen
+pidiéndole confirmar. Escribió **"Correcto"**: otra vez. Escribió **"Si"**: otra
+vez. Tres, hasta que una persona entró a mano a las 22:52. El pedido nunca llegó
+al equipo por la vía normal.
+
+```
+22:43:15  agente   RESUMEN + "POR FAVOR, CONFIRMA TU PEDIDO"
+22:43:26  Natalia  Confirmo
+22:43:37  agente   RESUMEN otra vez        ←
+22:43:48  Natalia  Correcto
+22:43:59  agente   RESUMEN otra vez        ←
+22:44:14  Natalia  Si
+22:44:25  agente   RESUMEN otra vez        ←
+```
+
+**No fue el modelo.** Fue el guardarraíl del resumen (12-ago), el que impide
+despedirse antes de que el cliente confirme.
+
+`notify_order` lleva dos textos con **dos destinatarios distintos**: el
+`summary` va al equipo —y el modelo copia ahí el mismo bloque que ya enseñó,
+petición de confirmar incluida— y el `farewell` va al cliente, con la despedida
+y los datos de pago. `textosAlCliente` los devuelve juntos, y el detector los
+evaluaba **pegados**:
+
+| Texto evaluado | Veredicto |
+|---|---|
+| Solo el `summary` | limpio |
+| Solo el `farewell` | limpio |
+| **Los dos pegados** | **cierre-prematuro** |
+
+Con ese veredicto el pipeline rehacía el turno ordenando *"no te despidas
+todavía, reescribe el resumen y pide confirmación"*. Y el modelo obedecía.
+
+**El arreglo**: `notify_order` no pasa por ese detector. Esa acción solo existe
+DESPUÉS de que el cliente dijo que sí — ahí despedirse y dar los datos de pago
+es lo correcto, no un cierre prematuro. El resumen que el cliente ve ANTES de
+confirmar se sigue vigilando igual.
+
+> 🔑 **La lección, que vale para los cinco guardarraíles**: un detector escrito
+> para un texto que lee el cliente no puede aplicarse a ciegas sobre textos que
+> van a otro destinatario. Al juntarlos aparecen firmas que ninguno tiene.
+>
+> Y la prueba se verificó **al revés**: con el arreglo revertido falla
+> (`expected 1 call, got 2`). Una prueba que pasa con y sin el arreglo no
+> prueba nada.

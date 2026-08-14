@@ -69,6 +69,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md](54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md) | 🔑 **La regla de la casa: un arreglo tiene que servirle a todos los clientes.** El prompt quedaba materializado y la ficha se perdía, así que una lección nueva solo la heredaba el cliente SIGUIENTE. La ficha se guarda, `pnpm regenerar:flota` rehace la flota entera, y la regla de pedidos fuera de horario que el sistema pedía y nadie había escrito |
 
+| [55-VEINTICUATRO-CLIENTES.md](55-VEINTICUATRO-CLIENTES.md) | 🔑 **24 clientes distintos contra el agente real, con comprobaciones objetivas** (no un juez): efectivo, datos de pago antes de tiempo, alergias, reclamos, el total a mitad, modismos, el proveedor que ofrece sus servicios. Encontró dos fallos reales —y dos falsos positivos del propio banco, que también se arreglaron— |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

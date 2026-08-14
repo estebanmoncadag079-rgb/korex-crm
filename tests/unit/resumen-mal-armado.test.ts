@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   correccionDeResumen,
+  noDioElTotal,
   resumenMalArmado,
 } from "@/server/ai/anuncio-de-cierre";
 
@@ -176,5 +177,65 @@ describe("el cierre legítimo, que no se puede confundir con el prematuro", () =
     expect(resumenMalArmado(`${SUMMARY_AL_EQUIPO} ${FAREWELL_AL_CLIENTE}`)).toBe(
       "cierre-prematuro"
     );
+  });
+});
+
+/**
+ * "¿Cuánto es el total?" es la pregunta, no un trámite.
+ *
+ * 14-ago-2026, dos escenarios de Lis el mismo día: preguntaron el total y el
+ * agente contestó "solo necesito que me confirmes el topping". El topping no
+ * cambia el precio. Su prompt YA lo prohibía; por eso esto vive en el código.
+ */
+describe("noDioElTotal", () => {
+  const base = { yaHabloDePrecios: true };
+
+  it("lo marca cuando pide más datos en vez de dar la cifra", () => {
+    expect(
+      noDioElTotal({
+        ...base,
+        mensajesDelCliente: ["cuánto es el total?"],
+        respuesta: "Con gusto, solo necesito que me confirmes el topping 😊",
+      })
+    ).toBe(true);
+  });
+
+  it("no lo marca si dio la cifra", () => {
+    expect(
+      noDioElTotal({
+        ...base,
+        mensajesDelCliente: ["cuánto es el total?"],
+        respuesta: "El total es $31.000 (sin incluir domicilio)",
+      })
+    ).toBe(false);
+  });
+
+  it("reconoce las formas en que se pregunta de verdad", () => {
+    for (const pregunta of [
+      "cuánto sería el total",
+      "cuanto me sale todo",
+      "cuál es el total?",
+      "cuánto te debo",
+    ]) {
+      expect(
+        noDioElTotal({ ...base, mensajesDelCliente: [pregunta], respuesta: "ya te digo" }),
+        pregunta
+      ).toBe(true);
+    }
+  });
+
+  /*
+   * Si preguntan el total antes de pedir nada, lo correcto es preguntar qué
+   * quiere. Sin esta condición, el guardarraíl empujaría al agente a inventarse
+   * una cifra de la nada — que es peor que no darla.
+   */
+  it("no aplica si el agente todavía no ha hablado de precios", () => {
+    expect(
+      noDioElTotal({
+        mensajesDelCliente: ["cuánto es el total?"],
+        respuesta: "¿Qué te gustaría pedir? 💗",
+        yaHabloDePrecios: false,
+      })
+    ).toBe(false);
   });
 });

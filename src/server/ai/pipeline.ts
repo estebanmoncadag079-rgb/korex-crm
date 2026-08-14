@@ -47,6 +47,8 @@ import {
   CORRECCION_DE_CITA_FANTASMA,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   CORRECCION_SIN_RESUMEN,
+  CORRECCION_SIN_TOTAL,
+  noDioElTotal,
   productosOlvidados,
   correccionDeResumen,
   resumenMalArmado,
@@ -810,6 +812,55 @@ export async function runAgentTurn(
    * La regla general, que vale para los cinco guardarraíles: uno escrito para
    * un vertical no se aplica al otro solo porque el texto se le parezca.
    */
+  /*
+   * Sexto guardarraíl: le preguntan el total y no lo da (14-ago-2026).
+   *
+   * Dos escenarios de Lis, el mismo día: "¿cuánto es el total?" y el agente
+   * contestó "solo necesito que me confirmes el topping". El topping no cambia
+   * el precio. Su prompt ya lo prohibía y lo hizo igual — por eso está aquí y
+   * no solo allí: los guardarraíles llegan a TODOS los clientes, también a los
+   * que aún no se han migrado al generador.
+   *
+   * Solo en pedidos: en un salón el precio de un servicio es fijo y sale del
+   * catálogo, no de una suma.
+   */
+  if (!profile.appointmentsEnabled) {
+    const yaHabloDePrecios = history.some(
+      (m) => m.direction === "out" && m.text && /\$\s*\d/.test(m.text)
+    );
+    if (
+      noDioElTotal({
+        mensajesDelCliente: pendientesDelCliente,
+        respuesta: textosAlCliente(action).join(" "),
+        yaHabloDePrecios,
+      })
+    ) {
+      console.warn(`[agente] le pidieron el total y no lo dio en ${conversationId}`);
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: CORRECCION_SIN_TOTAL },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/sin-total`
+      );
+      // Si el reintento tampoco lo da, sale como está: quedarse dando vueltas
+      // es peor que una respuesta incompleta.
+      if (
+        reintento.ok &&
+        !noDioElTotal({
+          mensajesDelCliente: pendientesDelCliente,
+          respuesta: textosAlCliente(reintento.data).join(" "),
+          yaHabloDePrecios,
+        })
+      ) {
+        action = reintento.data;
+      }
+    }
+  }
+
   const falloDeResumen =
     action.action === "notify_order" || profile.appointmentsEnabled
       ? null

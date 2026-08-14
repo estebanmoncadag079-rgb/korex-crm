@@ -294,6 +294,40 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
   return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Responde ÚNICAMENTE el objeto JSON.";
 }
 
+/** "¿cuánto es el total?" en las formas en que la gente lo pregunta de verdad. */
+const PIDE_EL_TOTAL =
+  /(cu[aá]nto (es|ser[ií]a|me sale|sale|vale|queda|cuesta)( el| en)? (total|todo)|cu[aá]l (es|ser[ií]a) el total|el total\s*\?|cu[aá]nto es en total|cu[aá]nto te debo)/i;
+
+/** Cualquier cifra de dinero: "$18.000", "18.000", "$ 31000". */
+const HAY_CIFRA = /\$\s*\d|(?<!\d)\d{1,3}\.\d{3}(?!\d)/;
+
+/**
+ * ¿Le preguntaron el total y contestó sin darlo?
+ *
+ * Medido el 14-ago en Lis, en dos escenarios distintos: *"¿cuánto es el
+ * total?"* y el agente respondió *"solo necesito que me confirmes el topping"*.
+ * El topping no cambia el precio. Su prompt ya se lo prohibía —"si te pregunta
+ * cuánto es el total, dale el total"— y lo hizo igual: es de esas órdenes que el
+ * modelo incumple porque le parece más ordenado terminar el pedido primero.
+ *
+ * Solo cuenta si el agente **ya había nombrado algún precio**: si preguntan el
+ * total antes de pedir nada, lo correcto es preguntar qué quiere, no inventar
+ * una cifra.
+ */
+export function noDioElTotal(input: {
+  mensajesDelCliente: string[];
+  respuesta: string;
+  yaHabloDePrecios: boolean;
+}): boolean {
+  if (!input.yaHabloDePrecios) return false;
+  if (!input.mensajesDelCliente.some((m) => PIDE_EL_TOTAL.test(m))) return false;
+  return !HAY_CIFRA.test(input.respuesta);
+}
+
+/** La corrección cuando le piden el total y no lo da. */
+export const CORRECCION_SIN_TOTAL =
+  "ALTO. El cliente te preguntó CUÁNTO ES EL TOTAL y no se lo diste. Es la pregunta que te hizo: suma lo que ya tiene pedido y dale la cifra, aunque falten detalles que no cambian el precio (el topping, el sabor, el color). Si de verdad falta algo que SÍ cambia el precio, dale el total de lo que hay y di qué falta por sumar. Responde ÚNICAMENTE el objeto JSON.";
+
 /** La corrección cuando el agente cierra un pedido que el cliente nunca vio. */
 export const CORRECCION_SIN_RESUMEN =
   "ALTO. Vas a dar el pedido por cerrado y el cliente NUNCA ha visto un resumen: en esta conversación no le has enseñado qué pidió ni cuánto suma. Que él escriba \"confirmo\" no confirma nada si no hay nada que confirmar — y el equipo recibiría un pedido sin producto, sin datos y sin total. Antes de cerrar, muéstrale el resumen completo con lo que lleva, sus opciones, los datos de entrega y el total con la cifra, y pídele que confirme. Si todavía te falta algún dato, pídeselo en vez del resumen. Responde ÚNICAMENTE el objeto JSON.";

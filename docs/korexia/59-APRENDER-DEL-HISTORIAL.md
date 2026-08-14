@@ -67,5 +67,34 @@ apruebe** ([11-APRENDIZAJE.md](11-APRENDIZAJE.md)).
    conocimiento a un negocio que ya venía atendiendo por WhatsApp.
 
 > ⚠️ Si el número se conecta **antes** de desplegar esto, el historial llega, se
-> ignora y **no se reintenta**: WhatsApp no lo vuelve a mandar. En ese caso queda
-> el camino manual (exportar los chats desde el teléfono) o vivir sin él.
+> ignora y **no se reintenta**: WhatsApp no lo vuelve a mandar.
+
+## Lo que NO sirve para rescatarlo: la API de YCloud
+
+Le pasó a Lashes Valen el 14-ago: su cuenta de YCloud se creó antes que el
+endpoint del webhook, así que si hubo sincronización, se perdió. Se escribió
+`scripts/importar-historial.ts` para bajarlo por API… y **no hay de dónde**:
+
+```
+[historial] leídos de YCloud: 6
+[historial] el más antiguo: 2026-08-01
+[historial] sin texto (audio, sticker, foto): 5
+```
+
+Seis mensajes, todos posteriores a la creación de su cuenta, cinco sin texto.
+Y hay dos límites de la API que conviene tener escritos para no volver a
+intentarlo:
+
+- `/v2/whatsapp/messages` devuelve **solo los SALIENTES** (los que envió el
+  negocio).
+- `/v2/whatsapp/inboundMessages` responde **`404 · No message available`**: los
+  entrantes no se exponen.
+
+**YCloud no archiva el historial de la coexistencia**: lo entrega por webhook
+cuando ocurre y ya. El script se conserva porque funciona y sirve para volcar lo
+que YCloud sí tenga, pero no es una red para el historial.
+
+**Lo único que lo recupera** es exportar los chats desde el teléfono (WhatsApp →
+chat → *Exportar chat* → *Sin archivos multimedia*), que además trae **las dos
+partes** de la conversación. Requiere un importador de `.txt` que aún no
+existe.

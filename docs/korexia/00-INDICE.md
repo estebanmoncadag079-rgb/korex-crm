@@ -79,6 +79,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [59-APRENDER-DEL-HISTORIAL.md](59-APRENDER-DEL-HISTORIAL.md) | 🔑 **Los 6 meses de chats que trae la coexistencia**: se estaban ignorando en el webhook. Ahora se guardan (sin despertar al agente ni tocar la ventana de 24 h) y el botón *Aprender del historial* saca conocimiento de lo que el negocio ya le había contestado a sus clientas |
 
+| [60-CONECTAR-UN-CLIENTE-CON-SU-YCLOUD.md](60-CONECTAR-UN-CLIENTE-CON-SU-YCLOUD.md) | 🔑 **La receta de conectar un cliente que trae su propia cuenta de YCloud**: el orden que evita perder mensajes, los dos muros de Meta (los "eventos automáticos" y el sitio web), cómo verificar sin adivinar con tres comandos, y **por qué el cuestionario pisa lo que se ajusta a mano** |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

@@ -125,3 +125,32 @@ que es superusuario — `CREATE EXTENSION btree_gist` no dará problema.
 >  and a.status in ('pendiente','confirmada','reagendada')
 >  and b.status in ('pendiente','confirmada','reagendada');
 > ```
+
+
+## Mover una cita desde el panel (14-ago-2026)
+
+*"¿En qué parte se corren las citas de los clientes? Si la quiero mover media
+hora más tarde."*
+
+No se podía. El panel dejaba **confirmar, cancelar, completar y marcar "no
+llegó"**, y mover el día entero de una especialista — pero no cambiarle la hora
+a UNA cita. Reprogramar solo sabía hacerlo el agente, por WhatsApp.
+
+El apaño que quedaba era cancelar y crear otra: se pierde el historial de esa
+cita y, si el recordatorio ya salió, la clienta se queda con la hora vieja.
+
+Ahora cada cita activa tiene **"Cambiar hora"**, con la fecha y la hora
+precargadas con las suyas (casi siempre se mueve poco).
+
+> 🔑 **Pasa por el mismo camino que el agente** (`reprogramarCita`), y esa es la
+> decisión de diseño: hereda gratis lo que ya estaba probado — no deja solapar
+> con otra cita de esa especialista, recalcula el final según la duración del
+> servicio y libera el hueco anterior. Lo único que añade `moverCita` es buscar
+> lo que el panel no manda: el servicio, la especialista y el horario.
+
+Los errores se dicen en el idioma del negocio, no en el del sistema: *"a esa
+hora la especialista ya tiene otra cita (o el servicio no termina antes de
+cerrar)"*.
+
+⚠️ **A la clienta no se le avisa.** El aviso sigue siendo del equipo — el
+recordatorio manual está justo al lado.

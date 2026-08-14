@@ -85,3 +85,34 @@ CLIENTE  es que soy muy sensible, ¿de verdad no me va a pasar nada?
 > ⚠️ **Sigue faltando el resto del conocimiento**: con una sola entrada, el
 > agente no sabe la dirección, el parqueadero, las formas de pago ni la política
 > de cancelación — que es lo que más pregunta una clienta nueva.
+
+---
+
+## Estado de Lashes Valen al cerrar el 14-ago
+
+| | |
+|---|---|
+| Número conectado (cuenta propia de YCloud) | ✅ verificado: entran mensajes |
+| Nombre, catálogo (46), especialistas (5), asignaciones (126) | ✅ |
+| Conocimiento | ✅ 7 entradas · la de salud deriva a una persona |
+| Datos de pago | ✅ NEQUI 3185940645 · Valentina Vargas |
+| Cuestionario de alta | ⏳ por el paso 6 de 8 |
+| **Agente** | ❌ **apagado** |
+
+**Lo que falta, en orden:**
+
+1. **Terminar el cuestionario** — y al llegar al saludo, escribirlo sin erratas
+   (*"consertirte"*, *"queires"*): ese texto sale **tal cual** a cada clienta
+   nueva.
+2. 🔴 **Confirmar el horario con la dueña.** El cuestionario trae **9:30–18:30**
+   y lo configurado es **9:00–20:00**. De ahí salen los huecos que ofrece el
+   agente: hora y media de diferencia, todos los días.
+3. **Completar el conocimiento**: dirección exacta, parqueadero, política de
+   cancelación y abonos, retardos, cuidados previos. Son cuatro preguntas.
+4. **Encender el agente** — el último paso, porque en cuanto se enciende
+   contesta a todo el que escriba.
+5. Borrar las conversaciones y citas de prueba antes del día 1.
+
+**Anotado, sin urgencia:** un importador de chats exportados (`.txt`) desde el
+teléfono, que es lo único que recupera el historial de verdad
+([59](59-APRENDER-DEL-HISTORIAL.md)).

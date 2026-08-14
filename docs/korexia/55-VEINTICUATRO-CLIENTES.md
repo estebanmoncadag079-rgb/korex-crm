@@ -77,3 +77,32 @@ poder releer exactamente qué se dijo.
 > el guion del cliente y, si hace falta, qué debe y qué no debe decir el agente.
 > **Cada queja que llegue de un cliente debería acabar aquí como escenario**, que
 > es la única forma de que no vuelva.
+
+## Lo que queda intermitente (y por qué no se persigue más)
+
+Tras cuatro rondas con todo desplegado, el resultado se mueve entre **23 y 24 de
+24**. Lo que oscila es siempre lo mismo: **dar la cifra final**.
+
+Caso típico de la ronda que no sale limpia:
+
+> CLIENTE — ¿cuánto es el total?
+> AGENTE — El Polvoroso de 12 oz cuesta $19.000 y el Cremoso de 7 oz $12.000.
+
+El guardarraíl **sí actúa** —en el log queda `[agente] le pidieron el total y no
+lo dio`— y rehace el turno; lo que pasa es que a veces el modelo insiste en
+enumerar en vez de sumar, y entonces sale la respuesta original. Se decidió
+dejarlo así:
+
+- El cliente **tiene la información** (los dos precios), solo le falta la suma.
+- Un segundo reintento encarecería y ralentizaría **todos** los turnos de
+  **todos** los clientes para arreglar un caso menor e intermitente.
+
+Queda anotado como candidato: si alguna vez se reporta de verdad desde un
+cliente, la respuesta es un segundo reintento acotado a este guardarraíl.
+
+## Un hallazgo de propina
+
+Midiendo otra cosa apareció esto: la clienta escribió *"soy Sofía"* y el agente
+respondió con *"**¿CUÁL ES TU NOMBRE?**"*. Su prompt ya lo prohíbe —"lo que ya
+te dijeron no se vuelve a preguntar"— y aun así pasó. Ahora es un escenario con
+su comprobación: si vuelve a ocurrir, se verá aquí y no en una queja.

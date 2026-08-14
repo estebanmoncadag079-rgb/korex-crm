@@ -263,10 +263,25 @@ const ESCENARIOS: Escenario[] = [
       "mejor que sea de 16 oz",
       "con fresa, mora y limón",
       "es para mí, soy Sofía 3145556677, recojo en el local",
+      // Un turno más que antes: con cuatro, el resumen caía justo fuera del
+      // guion y el escenario marcaba en rojo algo que aún no había pasado.
+      "sí, confirmo",
     ],
     espera: {
       debeDecir: [{ que: /22\.?000/, porque: "el precio del Cremoso 16 oz" }],
-      noDebeDecir: [{ que: /12\.?000/, porque: "ya no quiere el de 7 oz" }],
+      noDebeDecir: [
+        { que: /12\.?000/, porque: "ya no quiere el de 7 oz" },
+        {
+          /*
+           * Salió midiendo otra cosa: la clienta escribió "soy Sofía" y el
+           * agente le contestó "*¿CUÁL ES TU NOMBRE?*". Volver a pedir un dato
+           * que acaban de darte es la forma más rápida de que alguien abandone
+           * un pedido, y su prompt ya lo prohíbe.
+           */
+          que: /(cu[aá]l es tu nombre|tu nombre completo|c[oó]mo te llamas)/i,
+          porque: "ya dijo su nombre: no se vuelve a preguntar",
+        },
+      ],
     },
   },
   {

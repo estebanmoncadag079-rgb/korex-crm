@@ -70,6 +70,28 @@ function precioACents(texto: string): number | null {
  *   `SALSAS: 🍯 AREQUIPE · 🍫 CHOCOLATE`
  *   `ADICIONES (opcionales…): 🍫 Salsa $2.000 · 💧 Agua $2.000`
  */
+
+/**
+ * Deja el nombre de una opción limpio: sin emoji, sin precio y sin la frase que
+ * a veces viene pegada al último elemento de la línea.
+ *
+ * El texto real de La Churra acaba así:
+ *
+ *   `… · 🤍 CHOCOLATE BLANCO. Cada presentación incluye un número de salsas: …`
+ *
+ * Sin cortar por ahí, la última salsa se llamaría "CHOCOLATE BLANCO. Cada
+ * presentación incluye…" y el agente se la ofrecería al cliente tal cual.
+ */
+function limpiarOpcion(crudo: string): string {
+  return crudo
+    // La frase explicativa que sigue a un punto y espacio.
+    .split(/\.\s+\p{L}/u)[0]!
+    .replace(/\$?\s*\d[\d.,]*/g, "") // precio
+    .replace(/^[^\p{L}\d]+/u, "") // emojis y viñetas del principio
+    .replace(/[.,;]+$/, "") // el punto final de la línea
+    .trim();
+}
+
 export function leerCatalogoDeTexto(
   catalogo: string,
   variantes?: string
@@ -164,24 +186,45 @@ export function leerCatalogoDeTexto(
       .replace(/\([^)]*\)/g, "")
       .replace(/[^\p{L}\s]/gu, "")
       .trim();
-    const opciones = m[2]!
+    /*
+     * Se corta la frase explicativa ANTES de partir por separadores.
+     *
+     * La línea real de La Churra es:
+     *   `SALSAS: … · 🤍 CHOCOLATE BLANCO. Cada presentación incluye un número
+     *    de salsas: la Churrita 1, la Besties 2, el Family Box 3 y el Mega Box 5.`
+     *
+     * Esa frase lleva COMAS, así que si se corta después del split ya se ha
+     * convertido en tres salsas fantasma ("la Churrita 1", "la Besties 2"…).
+     * El punto final de la línea no parte nada porque no lleva letra detrás.
+     */
+    const lista = m[2]!.split(/\.\s+\p{L}/u)[0]!;
+    const opciones = lista
       .split(/·|\||,(?![^(]*\))/)
       .map((o) => o.trim())
       .filter(Boolean)
       .map((o) => ({
-        nombre: o
-          .replace(/\$?\s*\d[\d.,]*/g, "")
-          .replace(/^[^\p{L}\d]+/u, "")
-          .trim(),
+        nombre: limpiarOpcion(o),
         precioExtraCents: precioACents(o) ?? 0,
       }))
       .filter((o) => o.nombre);
 
     if (opciones.length) {
+      /*
+       * CUÁNTAS puede elegir el cliente, que no siempre es "todas".
+       *
+       * El recubierto es UNO: azúcar-canela o azúcar sola o ninguna, no las
+       * cuatro a la vez. Las adiciones son opcionales y puede llevarse las que
+       * quiera. Antes, `maximo` era siempre el número de opciones, así que un
+       * recubierto habría aceptado los cuatro — y el agente habría ofrecido
+       * "elige 4 recubiertos".
+       */
+      const esRecubierto = /recubiert|azucar|azúcar|cobertura/i.test(nombre);
+      const esAdicion = opcional || /adicion|adición|extra/i.test(nombre);
+
       grupos.push({
         nombre,
-        minimo: opcional ? 0 : 1,
-        maximo: opciones.length,
+        minimo: esAdicion ? 0 : 1,
+        maximo: esRecubierto ? 1 : opciones.length,
         opciones,
         producto: null, // formato "SALSAS: a · b · c" = aplica a todo
       });

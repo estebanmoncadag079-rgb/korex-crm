@@ -559,6 +559,16 @@ export function buildAgentSystemPrompt(input: {
   now?: Date;
   /** Presente = esta organización tiene el vertical de citas encendido. */
   appointments?: { catalog: CatalogEntry[] };
+  /**
+   * El catálogo de pedidos ya renderizado, cuando esta organización lo tiene en
+   * tablas (`agent_profile.catalog_source = 'tabla'`). Ausente = sigue embebido
+   * en `instructions`, como siempre.
+   *
+   * Llega ya en texto y no como filas: el prompt no debe saber cómo está
+   * guardado el catálogo, solo qué vende el negocio (ver la frontera de
+   * capacidades en `docs/korexia/62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md`).
+   */
+  catalogoDePedidos?: string;
   /** Fotos cargadas por el negocio. Vacío o ausente = no puede mandar ninguna. */
   fotos?: { etiqueta: string; kind: string }[];
 }): string {
@@ -577,6 +587,11 @@ export function buildAgentSystemPrompt(input: {
     `CONOCIMIENTO DEL NEGOCIO (tu única fuente de verdad; si algo no está aquí, NO lo inventes — di que lo confirmarás con el equipo o escala):\n${renderKb(input.kb)}`,
     input.appointments
       ? `CATÁLOGO DE SERVICIOS (citas):\n${renderCatalogo(input.appointments.catalog)}`
+      : null,
+    // Va junto al de citas y con el mismo rótulo de "fuente de verdad": es el
+    // mismo papel en el otro vertical.
+    input.catalogoDePedidos
+      ? `CATÁLOGO DEL NEGOCIO (precios y opciones; es la fuente de verdad, no inventes nada que no esté aquí):\n${input.catalogoDePedidos}`
       : null,
     // Solo donde hace falta contar días: los clientes de pedidos no agendan.
     input.appointments

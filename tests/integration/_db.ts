@@ -33,7 +33,21 @@ export async function cargarConBaseDePruebas() {
   const provisioning = await import("@/server/auth/provisioning");
   const auth = await import("@/lib/auth");
   const generador = await import("@/server/ai/generador/aplicar");
-  return { ...db, cola, rateLimit, leads, provisioning, auth, generador };
+  const catalogo = await import("@/server/catalog/sembrar");
+  const catalogoQueries = await import("@/server/catalog/queries");
+  const catalogoRender = await import("@/server/catalog/render");
+  return {
+    ...db,
+    cola,
+    rateLimit,
+    leads,
+    provisioning,
+    auth,
+    generador,
+    catalogo,
+    catalogoQueries,
+    catalogoRender,
+  };
 }
 
 /** Organización + contacto + conversación mínimos para colgar trabajos. */

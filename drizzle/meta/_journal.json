@@ -141,6 +141,13 @@
       "when": 1786780800000,
       "tag": "0019_ficha_del_negocio",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786796676151,
+      "tag": "0020_catalogo_de_pedidos",
+      "breakpoints": true
     }
   ]
 }

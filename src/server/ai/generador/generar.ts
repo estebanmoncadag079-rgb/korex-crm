@@ -47,11 +47,18 @@ function vinetas(items: string[] | undefined): string | null {
 }
 
 /** Lo que el negocio vende y a qué precio. */
-function queOfrece(ficha: FichaDelNegocio): string | null {
+function queOfrece(
+  ficha: FichaDelNegocio,
+  opciones?: { catalogoEnTabla?: boolean }
+): string | null {
   // En el vertical de citas el catálogo llega aparte, desde la tabla `service`,
   // ya con precios y duraciones: repetirlo aquí sería una fuente de verdad
   // duplicada y la primera en quedarse vieja.
   if (ficha.vertical === "citas") return null;
+  // Y desde el 15-ago-2026, lo mismo en pedidos para quien ya tiene su catálogo
+  // en `product`: el pipeline lo renderiza fresco en cada turno. Dejarlo también
+  // aquí es exactamente la doble fuente que este cambio viene a quitar.
+  if (opciones?.catalogoEnTabla) return null;
   if (!ficha.catalogo?.trim()) return null;
   return bloques(
     "## Lo que vendes",
@@ -122,7 +129,15 @@ function comoPagan(ficha: FichaDelNegocio): string {
  * frenar el alta que dejar en producción un agente que cierra pedidos y no
  * sabe cobrarlos.
  */
-export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
+export function generarPerfil(
+  ficha: FichaDelNegocio,
+  /**
+   * `catalogoEnTabla: true` = este negocio ya tiene su menú en `product` y el
+   * pipeline se lo inyecta fresco en cada turno, así que el prompt NO debe
+   * llevarlo. Lo decide `agent_profile.catalog_source`, no la ficha.
+   */
+  opciones?: { catalogoEnTabla?: boolean }
+): PerfilGenerado {
   const faltan = faltantesDeLaFicha(ficha);
   if (faltan.length > 0) {
     throw new Error(
@@ -141,7 +156,7 @@ export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
     ficha.vertical === "citas"
       ? "# Lo que ofreces y cómo te pagan"
       : "# Lo que ofreces y cómo se recibe",
-    queOfrece(ficha),
+    queOfrece(ficha, opciones),
     // En un salón no hay nada que entregar: el bloque de domicilios acababa
     // diciéndole "no hacemos domicilios, ofrécele recoger" a quien viene a que
     // le hagan las pestañas.

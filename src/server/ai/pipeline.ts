@@ -40,6 +40,8 @@ import {
   reprogramarCita,
   resolverEspecialista,
 } from "@/server/appointments/queries";
+import { catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
+import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
   anunciaCierre,
   anunciaCitaAgendada,
@@ -493,6 +495,30 @@ export async function runAgentTurn(
     ? await catalogoParaPrompt(organizationId)
     : [];
 
+  /*
+   * El catálogo de pedidos, cuando ese negocio ya lo tiene en tablas.
+   *
+   * La bandera es por organización y nace apagada, así que este `if` es todo el
+   * rollback de la Fase 1: con `catalog_source = 'prompt'` no se consulta nada
+   * y el turno corre exactamente como antes, con el menú dentro de
+   * `instructions`.
+   *
+   * Y si la bandera dice 'tabla' pero el catálogo está vacío, se cae al
+   * comportamiento viejo en lugar de dejar al agente vendiendo una carta en
+   * blanco: una migración a medias no puede tumbar a un cliente.
+   */
+  let catalogoDePedidos: string | undefined;
+  if (!profile.appointmentsEnabled && profile.catalogSource === "tabla") {
+    const productos = await catalogoDePedidosQuery(organizationId);
+    if (productos.length > 0) {
+      catalogoDePedidos = renderCatalogoDePedidos(productos);
+    } else {
+      console.warn(
+        `[catalogo] ${organizationId}: catalog_source='tabla' pero sin productos; se usa el del prompt`
+      );
+    }
+  }
+
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -503,6 +529,7 @@ export async function runAgentTurn(
         contact: contactRows[0],
         now: opts?.now,
         appointments: profile.appointmentsEnabled ? { catalog: services } : undefined,
+        catalogoDePedidos,
         fotos,
       }),
     },

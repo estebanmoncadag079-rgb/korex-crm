@@ -361,7 +361,65 @@ Nada de lo demás empieza sin esto:
 
 Esfuerzo: **1-2 días**. Riesgo: nulo. Y puede ahorrar semanas.
 
-### Fase 1 — El catálogo de pedidos sale del prompt a una tabla
+### ✅ Fase 1 — HECHA en La Churra (15-ago-2026)
+
+**Estado: en producción, con La Churra en `catalog_source = 'tabla'` y el resto
+de la flota intacta en `'prompt'`.**
+
+Lo que se construyó:
+
+| Pieza | Dónde |
+|---|---|
+| Tablas `product` · `product_option_group` · `product_option` | `schema.ts`, migración `0020_catalogo_de_pedidos.sql` |
+| La bandera por cliente | `agent_profile.catalog_source`, por defecto `'prompt'` |
+| Lectura del catálogo (3 consultas planas, sin N+1) | `server/catalog/queries.ts` |
+| Render para el prompt | `server/catalog/render.ts` |
+| Lector del texto + escritura con revisión | `server/catalog/sembrar.ts` |
+| Herramienta de migración y rollback | `pnpm migrar:catalogo <org> [--aplicar\|--encender\|--apagar]` |
+| Pruebas contra Postgres real | `tests/integration/catalogo-de-pedidos.test.ts` (6) |
+
+**El rollback es un comando**: `pnpm migrar:catalogo <org> --apagar` devuelve el
+catálogo al prompt sin desplegar y sin perder nada, porque el texto original
+sigue en la ficha.
+
+#### Cuatro cosas que salieron mal y lo que enseñaron
+
+1. **La migración generada quería volver a crear la columna `ficha`.** La 0019 se
+   escribió a mano y no quedó en el snapshot, así que el diff la repetía; habría
+   fallado a media migración con *"column already exists"*. Corregido a mano y
+   anotado en el propio archivo SQL.
+2. **Las FK compuestas se creaban antes que sus índices únicos**, y Postgres las
+   rechaza (*"there is no unique constraint matching given keys"*). drizzle-kit
+   pone los índices al final; hubo que reordenarlos.
+3. **El formato real de la ficha no era el que esperaba el lector.** El catálogo
+   de La Churra dice `CHURRITA — $10.000-1 salsa a eleccion entre …`, con **una
+   cantidad distinta de salsas por presentación** (1, 2, 3 y 5). El primer lector
+   creaba un grupo global y se perdía ese número — que es la diferencia entre
+   tomar bien un pedido y ofrecerle 5 salsas a una Churrita. La revisión previa
+   lo cazó **antes** de escribir nada: para eso existe.
+4. **El render se comía el "elige N"** al deduplicar grupos iguales. Ahora la
+   cantidad va pegada a cada producto (`CHURRITA — $10.000 (elige 1 salsa)`) y
+   la lista de salsas va una sola vez.
+
+#### 🔴 Y un hallazgo mayor, ajeno a la Fase 1
+
+**El prompt de La Churra se sobrescribió solo el 15-ago a las 12:59 UTC y perdió
+todas las reglas de flujo** que se le habían puesto la noche anterior: ni la de
+los cinco mensajes, ni el saludo con la carta. Pasó de 18.053 a 11.889
+caracteres.
+
+Por eso *"el flujo no funcionó"* al probarlo: **no es que las reglas no
+sirvieran, es que ya no estaban.**
+
+La causa es la misma que [61-UNA-SOLA-PUERTA.md](61-UNA-SOLA-PUERTA.md) cerró
+para el conocimiento, pero **en el prompt**: hay dos escritores de
+`agent_profile.ficha` —`scripts/fichas-de-clientes.ts` y el cuestionario del
+cliente— y el último gana, sin avisar. Queda **abierto**: es el mismo patrón, en
+otro sitio.
+
+---
+
+### Fase 1 — el plan original, para referencia
 
 El paso con mejor relación impacto/riesgo, y con precedente literal
 ([58-EL-CATALOGO-VIVE-EN-SERVICIOS.md](58-EL-CATALOGO-VIVE-EN-SERVICIOS.md)).
@@ -648,7 +706,7 @@ básicas.
 | Urgente antes de nada | Contraseña del superadmin (el salón **no** se enciende aún) |
 | Frontera | El backend expone **capacidades**, no tablas. El modelo nunca ve el esquema |
 | Gobierno | **Ninguna fase cambia el objetivo.** Idea nueva → documentar, justificar, decidir roadmap |
-| Fase 1 (catálogo a tablas) | **Aprobada**. Beneficio claro y reduce contradicciones |
+| Fase 1 (catálogo a tablas) | ✅ **HECHA y en producción** en La Churra (15-ago) |
 | Fase 2 (estado estructurado) | **En espera de un piloto que la justifique**, con bandera por cliente y rollback |
 | Laboratorio | **La Churra**, en condiciones reales. Lis la última y ya validada |
 | Cambio de modelo | **Descartado** por calidad (Gemini 0 fallas contra 2) |

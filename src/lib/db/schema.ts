@@ -1,5 +1,6 @@
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -370,6 +371,20 @@ export const agentProfile = pgTable(
      */
     appointmentsEnabled: boolean("appointments_enabled").notNull().default(false),
     /**
+     * De dónde sale el catálogo de un negocio de PEDIDOS: `'prompt'` (el texto
+     * de siempre, dentro de `instructions`) o `'tabla'` (las filas de
+     * `product`, renderizadas frescas en cada turno).
+     *
+     * Es el interruptor de la Fase 1 y **el rollback**: si el catálogo
+     * estructurado sale mal, se vuelve a `'prompt'` con un UPDATE de una fila,
+     * sin desplegar y sin perder datos — porque el texto original no se borra
+     * al migrar. Por defecto `'prompt'`: apagado hasta que su catálogo esté
+     * revisado, igual que `appointments_enabled` nace en false.
+     *
+     * En el vertical de citas no aplica: ahí el catálogo ya vive en `service`.
+     */
+    catalogSource: text("catalog_source").notNull().default("prompt"),
+    /**
      * La ficha del negocio con la que se generó este prompt (JSON).
      *
      * Sin ella, una lección nueva en `conducta.ts` solo llegaba a los clientes
@@ -403,6 +418,117 @@ export const kbEntry = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [index("kb_org_idx").on(t.organizationId)]
+);
+
+/* ============================================================
+ * Catálogo de PEDIDOS (churrería, pastelería, restaurante…)
+ *
+ * El equivalente de `service` para el otro vertical. Existe desde el
+ * 15-ago-2026 para sacar el menú del prompt: hasta entonces vivía como TEXTO
+ * dentro de `agent_profile.instructions`, así que cambiar un precio obligaba a
+ * regenerar el prompt, y el mismo dato podía estar en dos sitios a la vez.
+ *
+ * Es el patrón que citas ya usa desde el 13-ago (`docs/korexia/58-EL-CATALOGO-VIVE-EN-SERVICIOS.md`).
+ *
+ * ⚠️ Tabla propia y NO `service`, a propósito: `service.durationMin` es NOT NULL
+ * y no significa nada para un churro, y arrastra el acoplamiento con la
+ * restricción de solape de citas y con `staff_service`. Además los productos
+ * necesitan opciones con precio (salsas, tamaños, adiciones), que los servicios
+ * no tienen.
+ * ============================================================ */
+
+export const product = pgTable(
+  "product",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Libre, no un enum: cada negocio arma sus propias categorías. */
+    category: text("category"),
+    /**
+     * NULLABLE a propósito, al revés que `service.priceCents`.
+     *
+     * "No lo escribió" NO es "vale 0": si la carta del negocio no trae el
+     * precio, el agente tiene que pedirlo, no regalarlo. Es la lección de
+     * `docs/korexia/58-EL-CATALOGO-VIVE-EN-SERVICIOS.md`.
+     */
+    priceCents: integer("price_cents"),
+    description: text("description"),
+    /** "Hoy no hay fresa": su sitio es este, no una entrada del conocimiento. */
+    available: boolean("available").notNull().default(true),
+    /** Conserva el orden en que el negocio presenta su carta. */
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("product_org_idx").on(t.organizationId),
+    // Habilita las FK compuestas de los hijos: sin esto, un grupo de opciones
+    // podría colgar de un producto de OTRA organización.
+    uniqueIndex("product_org_id_uq").on(t.organizationId, t.id),
+  ]
+);
+
+/** "Salsa", "Tamaño", "Adiciones": lo que el cliente elige de un producto. */
+export const productOptionGroup = pgTable(
+  "product_option_group",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    productId: text("product_id").notNull(),
+    name: text("name").notNull(),
+    /** >=1 lo vuelve obligatorio: "tienes que elegir una salsa". */
+    minSelect: integer("min_select").notNull().default(0),
+    /** "elige hasta 2 toppings". */
+    maxSelect: integer("max_select").notNull().default(1),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("product_option_group_org_idx").on(t.organizationId),
+    uniqueIndex("product_option_group_org_id_uq").on(t.organizationId, t.id),
+    // Aislamiento estructural, no por disciplina: el motor impide cruzar
+    // organizaciones. Ya hubo una fuga entre clientes por un WHERE sin
+    // organization_id (docs/korexia/10-SEGURIDAD.md).
+    foreignKey({
+      columns: [t.organizationId, t.productId],
+      foreignColumns: [product.organizationId, product.id],
+      name: "product_option_group_product_fk",
+    }).onDelete("cascade"),
+  ]
+);
+
+export const productOption = pgTable(
+  "product_option",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    groupId: text("group_id").notNull(),
+    name: text("name").notNull(),
+    /**
+     * Un solo mecanismo para dos cosas: una salsa incluida va a 0, un "queso
+     * extra" a +2.000, y un tamaño mayor a +8.000 sobre el precio base.
+     */
+    priceDeltaCents: integer("price_delta_cents").notNull().default(0),
+    available: boolean("available").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("product_option_org_idx").on(t.organizationId),
+    foreignKey({
+      columns: [t.organizationId, t.groupId],
+      foreignColumns: [productOptionGroup.organizationId, productOptionGroup.id],
+      name: "product_option_group_fk",
+    }).onDelete("cascade"),
+  ]
 );
 
 /* ============================================================

@@ -58,3 +58,4 @@ escenarios-reporte.json
 # (scripts/copiar-worker-pdf.mjs): así su versión siempre coincide con la de la
 # librería y no se versiona un binario de 1 MB.
 public/pdf.worker.min.mjs
+.tmp-catalogo.mjs

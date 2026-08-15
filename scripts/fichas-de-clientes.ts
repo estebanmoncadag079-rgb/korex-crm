@@ -414,9 +414,32 @@ const pausados = CLIENTES.filter((c) => c.pausado && !incluirPausados);
 for (const p of pausados) {
   console.log(`[fichas] ${p.ficha.nombre}: PAUSADO, no se toca (usa --incluir-pausados)`);
 }
+/**
+ * Los clientes que ya tienen el catálogo en tablas (Fase 1) NO deben llevarlo
+ * también en el prompt: sería el mismo dato en dos sitios, y el del prompt es el
+ * que se queda viejo. Se consulta `catalog_source` en vez de asumirlo, porque la
+ * bandera se enciende por cliente y desde otro script.
+ */
+const catalogSourcePorOrg = new Map<string, string>();
+{
+  const sqlTmp = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
+  const dbTmp = drizzle(sqlTmp, { schema });
+  for (const fila of await dbTmp
+    .select({
+      organizationId: schema.agentProfile.organizationId,
+      catalogSource: schema.agentProfile.catalogSource,
+    })
+    .from(schema.agentProfile)) {
+    catalogSourcePorOrg.set(fila.organizationId, fila.catalogSource);
+  }
+  await sqlTmp.end();
+}
+
 const generados = CLIENTES.filter((c) => !c.pausado || incluirPausados).map((c) => ({
   ...c,
-  perfil: generarPerfil(c.ficha),
+  perfil: generarPerfil(c.ficha, {
+    catalogoEnTabla: catalogSourcePorOrg.get(c.organizationId) === "tabla",
+  }),
 }));
 for (const g of generados) {
   console.log(

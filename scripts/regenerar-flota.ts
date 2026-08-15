@@ -54,6 +54,9 @@ const perfiles = await db
     nombre: schema.organization.name,
     ficha: schema.agentProfile.ficha,
     instructions: schema.agentProfile.instructions,
+    // Quien ya tiene su catálogo en tablas NO debe llevarlo también en el
+    // prompt: serían dos fuentes del mismo dato y la primera en quedarse vieja.
+    catalogSource: schema.agentProfile.catalogSource,
   })
   .from(schema.agentProfile)
   .innerJoin(
@@ -94,7 +97,9 @@ for (const p of perfiles) {
 
   let perfil;
   try {
-    perfil = generarPerfil(ficha);
+    perfil = generarPerfil(ficha, {
+      catalogoEnTabla: p.catalogSource === "tabla",
+    });
   } catch (err) {
     // `faltantesDeLaFicha` frena antes de romper: mejor dejar el prompt viejo
     // que escribir uno al que le falta lo esencial.

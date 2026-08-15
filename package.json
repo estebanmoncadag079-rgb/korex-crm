@@ -27,7 +27,8 @@
     "probar:escenarios": "esbuild scripts/probar-escenarios.ts --bundle --platform=node --format=esm --outfile=.tmp-escenarios.mjs --alias:@=./src --packages=external && node .tmp-escenarios.mjs",
     "regenerar:flota": "esbuild scripts/regenerar-flota.ts --bundle --platform=node --format=esm --outfile=.tmp-regenerar.mjs --alias:@=./src --packages=external && node .tmp-regenerar.mjs",
     "probar:citas": "esbuild scripts/probar-citas.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-citas.mjs --alias:@=./src --packages=external && node .tmp-probar-citas.mjs",
-    "probar:agente": "esbuild scripts/probar-agente.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-agente.mjs --alias:@=./src --packages=external && node .tmp-probar-agente.mjs"
+    "probar:agente": "esbuild scripts/probar-agente.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-agente.mjs --alias:@=./src --packages=external && node .tmp-probar-agente.mjs",
+    "migrar:catalogo": "esbuild scripts/migrar-catalogo.ts --bundle --platform=node --format=esm --outfile=.tmp-catalogo.mjs --alias:@=./src --packages=external && node .tmp-catalogo.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

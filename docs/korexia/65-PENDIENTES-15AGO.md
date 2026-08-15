@@ -61,6 +61,7 @@ y la entrada de salud que deriva a una persona.
 |---|---|
 | **El banco de escenarios solo sirve para Lis** | Da 14 falsos negativos contra La Churra (*"Lis NO acepta efectivo"*). Si La Churra es el laboratorio de las fases siguientes, **necesita su propio banco** |
 | **No hay pantalla para el catálogo** | La Fase 1 se opera por línea de comandos. Un cliente no puede cambiar su propio precio, que es medio sentido de haberlo sacado del prompt |
+| **Los precios del saludo siguen escritos a mano** | El primer mensaje de La Churra enumera las cuatro presentaciones con sus precios, como texto libre en su ficha. Ningún regenerado lo toca, así que un precio vive en dos sitios: la fila de `product` y ese saludo. **La mejora**: que el saludo se arme con el catálogo en vez de repetirlo, para que todo precio viva en una sola fila. Ver [63](63-CATALOGO-DE-PEDIDOS-EN-TABLAS.md) |
 | **Las cuentas nacen todas como Propietario** | La interfaz manda `role: "owner"` fijo aunque el servidor acepte `member` |
 | **Sin RLS** | El aislamiento depende de `scoped()` en cada consulta. Las tablas nuevas ya están preparadas, pero la política no existe |
 | **Lis fuera del generador** | Su prompt es manual: no hereda ninguna lección de `conducta.ts` |
@@ -77,7 +78,7 @@ mensajes.**
 | Fase | Estado |
 |---|---|
 | 0 — Medir | ✅ Hecha. Descartó el cambio de modelo y bajó la urgencia del refactor |
-| 1 — Catálogo a tablas | ✅ **En producción en La Churra**. Falta pantalla |
+| 1 — Catálogo a tablas | ✅ **En producción en La Churra**, verificado dentro del contenedor el 15-ago a las 13:52 UTC. Falta pantalla |
 | 2 — Estado estructurado | ⏸️ **En espera de un piloto que lo justifique**. Tres objeciones abiertas |
 | 3 — Motor de capacidades | ⏸️ Diferida: con 2 verticales no paga |
 

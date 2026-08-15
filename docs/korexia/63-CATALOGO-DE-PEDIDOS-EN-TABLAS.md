@@ -143,6 +143,49 @@ prompt es manual, a propósito), así que el script se niega y lo dice:
 Para ella habrá que cargar los productos por otra vía cuando le llegue el turno
 —que es el último, y solo con la fase ya validada.
 
+## Verificado dentro del contenedor (15-ago, 13:52 UTC)
+
+Hasta este despliegue la Fase 1 estaba en la base y en la carpeta de EasyPanel,
+pero **no en el contenedor en ejecución**: el que corría se había construido a
+las 04:57 UTC, horas antes del commit. La base decía `catalog_source = 'tabla'`
+y el código vivo no sabía leerlo. No se notó porque el prompt seguía llevando la
+carta escrita a mano — el fallo era invisible desde fuera.
+
+Lo comprobado tras pulsar Desplegar:
+
+| Qué | Cómo se comprobó |
+|---|---|
+| El código está **dentro** | `catalog_source` y `product_option_group` aparecen en los chunks de `/app/.next` |
+| La 0020 no se reaplicó | El registro sigue en id 22, sin una 23. Drizzle decide por *timestamp* (`folderMillis` vs `created_at`), no por hash — por eso el CRLF que `git archive` mete en Windows es inofensivo, y hay precedente: la 0019 lleva desde su despliegue un hash en disco distinto del registrado |
+| El agente recibe la carta | Se llamó a `catalogoDePedidos()` + `renderCatalogoDePedidos()` contra los datos reales: 4 productos, precios correctos y el "elige N" distinto por presentación |
+| Nada se rompió | Arranque sin errores, sin el aviso de catálogo vacío, `korexia.online` en 200 |
+
+> 🔑 **La lección, otra vez**: un contenedor `healthy` no prueba que lleve el
+> cambio, y una bandera encendida en la base tampoco. Lo único que lo prueba es
+> mirar dentro.
+
+## Dónde quedan los precios hoy (y la duplicación que sí existe)
+
+Tras el despliegue se sospechó que la carta quedaba **duplicada** —una vez en el
+prompt y otra desde las tablas—, y se planteó regenerar los prompts para
+quitarla. **El ensayo lo desmintió**: `generarPerfil` devuelve exactamente el
+mismo texto que ya está guardado, así que regenerar no escribiría nada. La
+sección `## Lo que vendes` **ya había salido** del prompt al encender la bandera.
+
+Lo que sí queda escrito a mano son los precios **dentro del primer mensaje**,
+que vive en las *Reglas propias de este negocio* de la ficha:
+
+```
+🥨 Churrita — $10.000 (6 churros · 1 salsa)
+🥨 Besties — $20.000 (14 churros · 2 salsas)
+```
+
+Es texto libre del negocio, no lo emite el generador, y por eso **ningún
+regenerado lo toca**. Hoy un precio vive en dos sitios: la fila de `product` y
+ese saludo. Quitarlo de ahí —que el saludo se arme con el catálogo en vez de
+repetirlo— es lo que dejaría **todo precio en una sola fila**. Queda anotado
+como mejora, en [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md).
+
 ## Lo que NO cubre todavía
 
 - **No hay pantalla.** Se migra por línea de comandos. Un cliente no puede

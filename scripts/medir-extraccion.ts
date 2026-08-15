@@ -28,7 +28,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { z } from "zod";
-import { chatJson, type ChatMessage } from "@/lib/ai";
+import { chatJson, type ChatJsonResult, type ChatMessage } from "@/lib/ai";
 import * as schema from "@/lib/db/schema";
 import { AgentAction } from "@/server/ai/actions";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
@@ -226,6 +226,12 @@ const salsasValidas = new Set(
  */
 async function cargarTurnos(): Promise<{ conversacion: string; historial: string }[]> {
   const turnos: { conversacion: string; historial: string }[] = [];
+  // Tope por conversación: sin él, una charla larga se come la muestra entera.
+  // Pasó de verdad — los 31 casos del primer volcado para revisión humana
+  // salieron TODOS de la misma conversación, así que el revisor vio el mismo
+  // pedido 31 veces y ningún otro cliente. Una muestra que repite un caso no
+  // mide nada, por muchos turnos que traiga.
+  const TOPE_POR_CONVERSACION = argOf("por-conversacion", 3);
   for (const conv of conversaciones) {
     const mensajes = await db
       .select({ direction: schema.message.direction, text: schema.message.text })
@@ -236,9 +242,10 @@ async function cargarTurnos(): Promise<{ conversacion: string; historial: string
     const utiles = mensajes.filter((m) => m.text?.trim());
     if (utiles.length < 3) continue;
 
+    const deEstaConversacion: { conversacion: string; historial: string }[] = [];
     for (let i = 0; i < utiles.length; i++) {
       if (utiles[i].direction !== "in") continue;
-      turnos.push({
+      deEstaConversacion.push({
         conversacion: conv.id,
         historial: utiles
           .slice(0, i + 1)
@@ -246,11 +253,70 @@ async function cargarTurnos(): Promise<{ conversacion: string; historial: string
           .join("\n"),
       });
     }
+    // Los ÚLTIMOS: son los que llevan el pedido más avanzado, y por tanto los
+    // que más tienen que extraer.
+    turnos.push(...deEstaConversacion.slice(-TOPE_POR_CONVERSACION));
   }
   return turnos;
 }
 
 const turnos = await cargarTurnos();
+
+/**
+ * El prompt REAL del agente, armado como lo arma el pipeline.
+ *
+ * Es lo que separa la estrategia A de la B, y no es un detalle de coste: el
+ * extractor de A no sabe que en La Churra un `"0"` reinicia el pedido, así que
+ * arrastra el producto que el cliente acaba de cancelar. Con las reglas del
+ * negocio delante, eso no pasa.
+ */
+async function promptRealDelAgente(): Promise<string> {
+  const [perfil] = await db
+    .select()
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId));
+  if (!perfil?.instructions) {
+    console.error("[medir] este negocio no tiene prompt guardado");
+    process.exit(1);
+  }
+  const kb = await db
+    .select()
+    .from(schema.kbEntry)
+    .where(eq(schema.kbEntry.organizationId, organizationId))
+    .orderBy(asc(schema.kbEntry.createdAt));
+  const stages = await db
+    .select({ name: schema.pipelineStage.name })
+    .from(schema.pipelineStage)
+    .where(eq(schema.pipelineStage.organizationId, organizationId))
+    .orderBy(asc(schema.pipelineStage.position));
+  return buildAgentSystemPrompt({
+    profile: perfil,
+    kb,
+    stages,
+    catalogoDePedidos: perfil.catalogSource === "tabla" ? carta : undefined,
+  });
+}
+
+const PEDIR_ESTADO = `
+
+Además de la acción, añades al MISMO objeto JSON una clave "estado" con el estado del pedido:
+"estado": {"producto": …, "cantidad": …, "salsas": [], "recubierto": …, "adiciones": [], "nombre": …, "telefono": …, "direccion": …, "paso": …}
+Lo que el cliente todavía NO haya dicho va en null (o lista vacía). No inventes nada.`;
+
+/**
+ * `estado` OPCIONAL, y no por comodidad.
+ *
+ * Cuando el agente decide `handoff` (el cliente pide hablar con una persona,
+ * quiere una devolución) o `none`, **no hay pedido que extraer** y no emite
+ * estado. Exigirlo rechazaba esas respuestas —4 de 36 en la primera corrida— y
+ * el rechazo caía justo en las conversaciones más delicadas: las que ya iban
+ * camino de una persona.
+ */
+const AccionConEstado = z.object({ estado: EstadoTolerante.optional() }).passthrough();
+
+/** `--con-prompt` = estrategia B, la que ganó la regla 13. */
+const conPrompt = process.argv.includes("--con-prompt");
+const promptAgente = conPrompt ? await promptRealDelAgente() : "";
 
 /**
  * REGLA 13 — comparar las dos estrategias antes de decidir.
@@ -446,13 +512,39 @@ Lo que el cliente todavía NO haya dicho va en null (o lista vacía). No invente
     const conv = { id: turno.conversacion };
     const historial = turno.historial;
 
-    const messages: ChatMessage[] = [
-      { role: "system", content: SISTEMA },
-      { role: "user", content: `Conversación hasta ahora:\n\n${historial}\n\nDevuelve el estado del pedido.` },
-    ];
+    const messages: ChatMessage[] = conPrompt
+      ? [
+          { role: "system", content: promptAgente + PEDIR_ESTADO },
+          { role: "user", content: historial },
+        ]
+      : [
+          { role: "system", content: SISTEMA },
+          { role: "user", content: `Conversación hasta ahora:\n\n${historial}\n\nDevuelve el estado del pedido.` },
+        ];
 
     const t0 = Date.now();
-    const res = await chatJson(EstadoTolerante, messages, modelo ? { model: modelo } : undefined);
+    const opciones = modelo ? { model: modelo } : undefined;
+    // Las dos vías acaban en lo mismo para lo que viene después: un estado o un
+    // error. La diferencia es de dónde sale — con o sin las reglas del negocio.
+    const VACIO: EstadoPedido = {
+      producto: null,
+      cantidad: null,
+      salsas: [],
+      recubierto: null,
+      adiciones: [],
+      nombre: null,
+      telefono: null,
+      direccion: null,
+      paso: "sin pedido",
+    };
+    const res: ChatJsonResult<EstadoPedido> = conPrompt
+      ? await (async () => {
+          const r = await chatJson(AccionConEstado, messages, opciones);
+          // Sin estado = no hay pedido en marcha, que es una respuesta legítima
+          // y no un fallo.
+          return r.ok ? { ...r, data: r.data.estado ?? VACIO } : r;
+        })()
+      : await chatJson(EstadoTolerante, messages, opciones);
     latencias.push(Date.now() - t0);
     llamadas++;
     if (res.usage) {
@@ -532,9 +624,10 @@ Lo que el cliente todavía NO haya dicho va en null (o lista vacía). No invente
       dudasPorCampo.set(d.campo, (dudasPorCampo.get(d.campo) ?? 0) + 1);
     }
 
-    if (e.producto) {
-      muestras.push({ conversacion: conv.id, ultimo: historial, estado: e });
-    }
+    // TODOS los turnos, no solo los que traen producto: un error también es
+    // que el cliente pida y el modelo no extraiga nada, y filtrando por
+    // `producto` esos falsos negativos no se ven nunca.
+    muestras.push({ conversacion: conv.id, ultimo: historial, estado: e });
   }
 }
 

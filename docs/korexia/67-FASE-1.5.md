@@ -101,7 +101,7 @@ Ni una escritura, ni una tabla, ni una migración. El banco de casos ambiguos so
 | | Resultado |
 |---|---|
 | Turnos donde el cliente **ya eligió** presentación | 32 |
-| De esos, **el backend reconstruye el pedido** | **24 — 75 %** |
+| De esos, **el backend reconstruye el pedido** | **24 — 75 %** ⚠️ ver la corrección más abajo: esta muestra venía casi toda de una sola conversación |
 | De los 8 restantes, motivo | **los 8: falta la salsa** (*"CHURRITA lleva 1 y hay 0"*) |
 | Casos en que el backend no sabe qué le falta | **0** |
 
@@ -131,6 +131,54 @@ de multiplicar por seis**, que era todo el objetivo.
 
 > 🔑 Es el mismo patrón que la Fase 0: la corazonada pedía una columna nueva, y
 > el número dice que la columna habría arreglado un caso de sesenta.
+
+## ⚠️ Corrección: la primera muestra no valía
+
+Al pasar los casos a revisión humana, el dueño vio que **todos tenían casi el
+mismo error**. Tenía razón, y por dos motivos distintos:
+
+**1. La muestra era una sola conversación.** Los 31 casos volcados salieron
+íntegros de la charla más reciente: el mismo pedido, 31 veces, con un turno más
+cada vez. `cargarTurnos()` recorría las conversaciones en orden y la primera
+—larga— se comió el presupuesto de llamadas. Arreglado con un tope por
+conversación (`--por-conversacion`, 3 por defecto).
+
+> Una muestra que repite un caso no mide nada, por muchos turnos que traiga. Y
+> el sesgo no se ve en ninguna cifra agregada: el 75 % de arriba salía de ahí.
+
+**2. Estaba extraída sin las reglas del negocio.** Se usó el extractor de la
+estrategia A —el que la regla 13 ya había descartado—, así que en 8 de los 31
+casos el cliente escribía `0` (que en La Churra **reinicia el pedido**) y el
+estado seguía diciendo CHURRITA. Con el prompt real del agente, eso no pasa.
+
+### La segunda muestra, y lo que encontró
+
+48 turnos de **18 conversaciones distintas**, extraídos con el prompt real:
+
+| | |
+|---|---|
+| JSON inválido | **0 de 48** |
+| Turnos con pedido en marcha | **6** |
+| Turnos sin pedido (horarios, domicilios, devoluciones) | **42** |
+
+**El dato que la primera muestra escondía**: en La Churra **la mayoría de las
+conversaciones no son pedidos**. Que el estado vaya vacío en esos turnos es lo
+correcto, no un fallo — pero cualquier métrica de *"% reconstruible"* calculada
+sobre todos los turnos sale baja por eso, no por mala extracción. El 8,3 % de
+esta muestra y el 75 % de la anterior **miden cosas distintas**, y ninguno de
+los dos es "la" tasa.
+
+### Y un cuarto contrato demasiado rígido
+
+Exigir `estado` en toda respuesta rechazó **4 de 36** en la primera pasada de la
+muestra nueva. El motivo: cuando el agente decide `handoff` (*"quiero hablar con
+Alejandra"*, *"quiero una devolución"*) o `none`, **no hay pedido que extraer** y
+no emite estado. El rechazo caía justo en las conversaciones más delicadas, las
+que ya iban camino de una persona. Con `estado` opcional: **0 fallos**.
+
+Van cuatro. La regla 3 se ha cobrado, en una sola tarde: el enum de `paso`, el
+esquema que el prompt no describía, el tipo de `paso`, y ahora un campo exigido
+donde no aplica.
 
 ## Lo que este informe NO dice
 

@@ -1,6 +1,6 @@
 # Seguridad: auditoría del 31-jul-2026 (con una ronda más el 3-ago-2026)
 
-> **Dentro:** Resumen · Contraseña olvidada · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
+> **Dentro:** Resumen · Contraseña olvidada · Eliminar una cuenta · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
 
 Auditoría completa del código, el historial de git y las dependencias
 (gitleaks + osv-scanner), con cada hallazgo verificado a mano contra este
@@ -217,6 +217,58 @@ con la vieja**.
 > de 10 intentos por IP cada 10 minutos (FR-062) y las pruebas hacen muchos más
 > desde la misma máquina: sin eso se bloquean entre ellas y el fallo parece del
 > código cuando es de la prueba.
+
+---
+
+## Alta equivocada: eliminar una cuenta (15-ago-2026)
+
+Faltaba la otra mitad del alta: **no había forma de deshacerla**. El endpoint de
+cuentas tenía `GET`, `POST` y `PATCH`, pero ningún `DELETE`, ni en `/admin` ni en
+la pantalla de Equipo del cliente.
+
+Lo que costó: el 14-ago se conectó a **Lashes Valen** con una cuenta de pruebas
+(`ESTEBAN1`) como **propietaria**, y la cuenta real de la dueña nunca llegó a
+crearse. Al intentar arreglarlo, dos trampas seguidas:
+
+1. **El botón "Generar" no crea nada** — solo rellena el campo de contraseña. Se
+   le dictó a la clienta una contraseña que no existía en la base.
+2. **"Crear cuenta de acceso" se queda gris sin decir por qué** si falta el
+   Nombre. Se lee como "el sistema no me deja más accesos", no como un campo
+   vacío.
+
+Y con la cuenta de pruebas ya dentro, la única salida era entrar al servidor a
+borrarla a mano.
+
+### La salida: "Eliminar" en `/admin` → cliente → Cuentas
+
+Confirma en dos clics, como el reseteo. Cuatro reglas, todas con prueba:
+
+| Regla | Por qué |
+|---|---|
+| Solo cuentas **de ese cliente** | El identificador viaja desde el navegador; se busca junto con su `organization_id` |
+| **Nunca** una cuenta de la agencia | Igual que en el reseteo: que una sesión robada no alcance a las cuentas internas |
+| **Nunca la última** cuenta del cliente | Un clic de más dejaría al negocio sin ninguna puerta de entrada y sin forma de recuperarla —no hay "olvidé mi contraseña"—. Las cuentas de la agencia no cuentan como supervivientes: el cliente conserva acceso **propio**. En la práctica obliga al orden correcto: primero se crea la buena, después se borra la mala |
+| **El correo queda libre** | Si solo se quitara la membresía, el correo seguiría ocupado y volver a darlo de alta fallaría con *"ya existe una cuenta con ese correo"* — justo lo que se quiere hacer tras un alta equivocada. Se borra el usuario y el `ON DELETE CASCADE` se lleva credenciales, membresías y sesiones. Si la persona trabaja para **otro** cliente, se le retira solo este acceso |
+
+Probado contra Postgres real en `tests/integration/eliminar-cuenta.test.ts`.
+
+> ⚠️ **No confundir con el otro `DELETE`.** El de `clients/[id]/route.ts` borra
+> **el cliente entero**, con sus contactos, su catálogo y su conexión de
+> WhatsApp. En la misma pantalla, a pocos centímetros del nuevo.
+
+### Bug de paso: la cuenta recién creada no se podía tocar
+
+El alta devolvía la fila con un identificador inventado (`tmp_${email}`) en vez
+de su `memberId` real, así que **resetear o borrar una cuenta recién creada daba
+404** hasta recargar la página — justo el caso de uso principal del botón nuevo.
+Ahora el `POST` devuelve `accountId` y la interfaz usa ese.
+
+### Sigue pendiente
+
+**Todas las cuentas nacen como Propietario.** El formulario manda `role: "owner"`
+fijo (`admin-clients.tsx`), aunque el servidor ya acepta `member` — falta solo el
+desplegable. Incoherencia añadida: si es el **cliente** quien crea la cuenta
+desde su pantalla de Equipo, esa sí nace como `member`.
 
 ### Lo que sigue faltando
 

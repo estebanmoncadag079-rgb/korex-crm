@@ -458,6 +458,13 @@ function ClientCard({
               onCreated={(cred, account) => {
                 setAccounts((prev) => (prev ? [...prev, account] : [account]));
                 onAccountCreated(cred);
+                onChanged();
+              }}
+              onDeleted={(memberId) => {
+                setAccounts(
+                  (prev) => prev?.filter((a) => a.id !== memberId) ?? null
+                );
+                onChanged();
               }}
             />
           </>
@@ -895,11 +902,67 @@ function ResetPassword({
   );
 }
 
+/**
+ * Quitarle el acceso a una cuenta. Dos clics, como el reseteo: el primero
+ * arma el botón y el segundo ejecuta, que aquí no hay deshacer.
+ *
+ * El servidor rechaza borrar la última cuenta del cliente y las de la agencia;
+ * esto no lo duplica, solo enseña el motivo cuando pasa.
+ */
+function DeleteAccount({
+  clientId,
+  account,
+  onDeleted,
+}: {
+  clientId: string;
+  account: Account;
+  onDeleted: (memberId: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(
+      `/api/admin/clients/${clientId}/accounts?accountId=${encodeURIComponent(account.id)}`,
+      { method: "DELETE" }
+    ).catch(() => null);
+    setSaving(false);
+    setConfirming(false);
+    if (!res?.ok) {
+      const data = (await res?.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      setError(data?.error?.message ?? "No se pudo eliminar la cuenta");
+      return;
+    }
+    onDeleted(account.id);
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {error && <span className="text-xs text-destructive">{error}</span>}
+      <Button
+        variant={confirming ? "destructive" : "ghost"}
+        size="sm"
+        disabled={saving}
+        onClick={() => (confirming ? void submit() : setConfirming(true))}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        {saving ? "Eliminando…" : confirming ? "¿Seguro? No hay vuelta" : "Eliminar"}
+      </Button>
+    </div>
+  );
+}
+
 function ClientAccounts({
   clientId,
   clientName,
   accounts,
   onCreated,
+  onDeleted,
 }: {
   clientId: string;
   clientName: string;
@@ -908,6 +971,7 @@ function ClientAccounts({
     cred: { label: string; email: string; password: string },
     account: Account
   ) => void;
+  onDeleted: (memberId: string) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -931,10 +995,13 @@ function ClientAccounts({
       setError(data?.error?.message ?? "No se pudo crear la cuenta");
       return;
     }
+    const creada = (await res.json().catch(() => null)) as {
+      accountId?: string;
+    } | null;
     onCreated(
       { label: `Cuenta de ${clientName}`, email, password },
       {
-        id: `tmp_${email}`,
+        id: creada?.accountId ?? "",
         name,
         email,
         role: "owner",
@@ -975,7 +1042,14 @@ function ClientAccounts({
           {/* Las cuentas de la agencia no se tocan desde aquí: el servidor
               también lo rechaza, esto solo evita ofrecer lo que no se puede. */}
           {!a.isPlatformAdmin && (
-            <ResetPassword clientId={clientId} account={a} />
+            <>
+              <ResetPassword clientId={clientId} account={a} />
+              <DeleteAccount
+                clientId={clientId}
+                account={a}
+                onDeleted={onDeleted}
+              />
+            </>
           )}
         </div>
       ))}

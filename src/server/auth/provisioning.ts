@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { getAuth, runInternalSignup } from "@/lib/auth";
@@ -105,7 +105,7 @@ export async function createAccountInOrganization(input: {
   email: string;
   password: string;
   role: "owner" | "member";
-}): Promise<{ userId: string }> {
+}): Promise<{ userId: string; memberId: string }> {
   const auth = getAuth();
   let userId: string;
   try {
@@ -131,18 +131,22 @@ export async function createAccountInOrganization(input: {
     throw new ProvisioningError("invalid", message);
   }
 
+  // El `memberId` se devuelve porque es lo que identifica a la cuenta en el
+  // panel: sin él, la fila recién creada no se puede ni resetear ni borrar
+  // hasta recargar la página.
   const db = getDb();
+  const memberId = newId("organization");
   await db
     .insert(schema.member)
     .values({
-      id: newId("organization"),
+      id: memberId,
       organizationId: input.organizationId,
       userId,
       role: input.role,
     })
     .onConflictDoNothing();
 
-  return { userId };
+  return { userId, memberId };
 }
 
 export type ResetPasswordResult =
@@ -207,6 +211,114 @@ export async function resetAccountPassword(input: {
   await ctx.internalAdapter.deleteUserSessions(account.userId);
 
   return { ok: true, email: account.email, name: account.name };
+}
+
+export type DeleteAccountResult =
+  | { ok: true; email: string; name: string; freedEmail: boolean }
+  | { ok: false; reason: "not_found" | "is_platform_admin" | "last_account" };
+
+/**
+ * Quita una cuenta de acceso de un cliente.
+ *
+ * Existe por el mismo motivo que `resetAccountPassword`: hasta el 15-ago-2026
+ * no había forma de deshacer un alta. Una cuenta creada con el correo
+ * equivocado se quedaba ahí para siempre —el 14-ago quedó una de pruebas como
+ * *propietaria* de un cliente real—, y la única alternativa era entrar al
+ * servidor a borrarla a mano.
+ *
+ * Las dos protecciones son las mismas del reseteo, y por las mismas razones:
+ * solo cuentas **de ese cliente** (el `memberId` se busca junto con su
+ * `organization_id`) y **nunca una cuenta de la agencia**.
+ *
+ * La tercera es propia: **no se puede borrar la última cuenta del cliente.**
+ * Sin ella, un clic de más deja al negocio sin ninguna puerta de entrada y sin
+ * forma de recuperarla —no hay pantalla de "olvidé mi contraseña"—. Las cuentas
+ * de la agencia no cuentan como supervivientes: el cliente tiene que quedarse
+ * con acceso **propio**. En la práctica obliga al orden correcto: primero se
+ * crea la cuenta buena, después se borra la mala.
+ *
+ * **El correo se libera** cuando la cuenta no pertenece a ningún otro cliente:
+ * se borra el usuario entero y el `ON DELETE CASCADE` se lleva credenciales,
+ * membresías y sesiones. Si solo se quitara la membresía, el correo seguiría
+ * ocupado y volver a darlo de alta fallaría con "ya existe una cuenta con ese
+ * correo" — justo lo que se quiere hacer tras un alta equivocada. Si la persona
+ * sí trabaja para otro cliente, se le retira únicamente este acceso.
+ */
+export async function deleteAccountFromOrganization(input: {
+  organizationId: string;
+  memberId: string;
+}): Promise<DeleteAccountResult> {
+  const db = getDb();
+
+  const rows = await db
+    .select({
+      userId: schema.member.userId,
+      email: schema.user.email,
+      name: schema.user.name,
+      platformRole: schema.user.platformRole,
+    })
+    .from(schema.member)
+    .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+    .where(
+      and(
+        eq(schema.member.id, input.memberId),
+        eq(schema.member.organizationId, input.organizationId)
+      )
+    )
+    .limit(1);
+
+  const account = rows[0];
+  if (!account) return { ok: false, reason: "not_found" };
+  if (account.platformRole === "superadmin") {
+    return { ok: false, reason: "is_platform_admin" };
+  }
+
+  const delCliente = await db
+    .select({
+      id: schema.member.id,
+      platformRole: schema.user.platformRole,
+    })
+    .from(schema.member)
+    .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+    .where(eq(schema.member.organizationId, input.organizationId));
+
+  const quedan = delCliente.filter(
+    (m) => m.id !== input.memberId && m.platformRole !== "superadmin"
+  );
+  if (quedan.length === 0) return { ok: false, reason: "last_account" };
+
+  const enOtros = await db
+    .select({ id: schema.member.id })
+    .from(schema.member)
+    .where(
+      and(
+        eq(schema.member.userId, account.userId),
+        ne(schema.member.organizationId, input.organizationId)
+      )
+    )
+    .limit(1);
+
+  if (enOtros[0]) {
+    await db.delete(schema.member).where(eq(schema.member.id, input.memberId));
+    // Trabaja para otro cliente: la cuenta sigue viva, pero la sesión abierta
+    // todavía apunta a este tenant y hay que cortarla.
+    const ctx = await getAuth().$context;
+    await ctx.internalAdapter.deleteUserSessions(account.userId);
+    return {
+      ok: true,
+      email: account.email,
+      name: account.name,
+      freedEmail: false,
+    };
+  }
+
+  await db.delete(schema.user).where(eq(schema.user.id, account.userId));
+  return {
+    ok: true,
+    email: account.email,
+    name: account.name,
+    freedEmail: true,
+  };
 }
 
 /**

@@ -3,6 +3,7 @@ import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
 import { findOrganization, listClientAccounts } from "@/server/admin/clients";
 import {
   createAccountInOrganization,
+  deleteAccountFromOrganization,
   ProvisioningError,
   resetAccountPassword,
 } from "@/server/auth/provisioning";
@@ -50,12 +51,15 @@ export const POST = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) =
   if (!body.ok) return body.response;
 
   try {
-    await createAccountInOrganization({
+    const { memberId } = await createAccountInOrganization({
       organizationId: id,
       ...body.data,
       role: body.data.role ?? "owner",
     });
-    return Response.json({ ok: true, email: body.data.email }, { status: 201 });
+    return Response.json(
+      { ok: true, email: body.data.email, accountId: memberId },
+      { status: 201 }
+    );
   } catch (err) {
     if (err instanceof ProvisioningError) {
       return apiError(
@@ -104,4 +108,52 @@ export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) 
   }
 
   return Response.json({ ok: true, email: result.email, name: result.name });
+});
+
+/**
+ * Elimina una cuenta de acceso de un cliente.
+ *
+ * ⚠️ No confundir con el `DELETE` de `../route.ts`, que borra **el cliente
+ * entero** con sus contactos, su catálogo y su conexión de WhatsApp.
+ */
+export const DELETE = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) => {
+  const { id } = await ctx.params;
+  if (!(await findOrganization(id))) {
+    return apiError(404, "not_found", "Cliente no encontrado");
+  }
+
+  const accountId = new URL(req.url).searchParams.get("accountId")?.trim();
+  if (!accountId) {
+    return apiError(422, "invalid", "Falta la cuenta a eliminar");
+  }
+
+  const result = await deleteAccountFromOrganization({
+    organizationId: id,
+    memberId: accountId,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "not_found") {
+      return apiError(404, "not_found", "Esa cuenta no pertenece a este cliente");
+    }
+    if (result.reason === "last_account") {
+      return apiError(
+        409,
+        "last_account",
+        "Es la única cuenta del cliente: crea la nueva antes de borrar esta"
+      );
+    }
+    return apiError(
+      403,
+      "forbidden",
+      "Las cuentas de la agencia no se eliminan desde aquí"
+    );
+  }
+
+  return Response.json({
+    ok: true,
+    email: result.email,
+    name: result.name,
+    freedEmail: result.freedEmail,
+  });
 });

@@ -113,3 +113,66 @@ export function leerIntencion(
 
   return { intencion: "otra", esperaRespuesta: false, porque: "no encaja en nada conocido" };
 }
+
+/**
+ * Un pedido a medias vale **hasta el final del día**, en hora de Colombia.
+ *
+ * Decisión del dueño (15-ago-2026): dentro de la jornada se sigue donde iba;
+ * al día siguiente se empieza limpio. Así el cliente que vuelve a los diez
+ * minutos no repite lo ya dicho, y al que escribe *"hola"* el martes no se le
+ * ofrecen los churros que dejó a medias el lunes.
+ *
+ * El día se calcula en `America/Bogota` y no en UTC: entre las 19:00 y la
+ * medianoche de Colombia ya es el día siguiente en UTC, que es justo la franja
+ * de más pedidos de una churrería.
+ */
+export function pedidoSigueVigente(
+  ultimaActividad: Date,
+  ahora: Date = new Date(),
+  timeZone = "America/Bogota"
+): boolean {
+  const dia = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  return dia(ultimaActividad) === dia(ahora);
+}
+
+/** Lo que toca hacer en este turno, con la intención y el estado delante. */
+export type PlanDelTurno = {
+  /** Vaciar el pedido antes de nada. */
+  reiniciar: boolean;
+  /** Hay que contestar esto ANTES de seguir pidiendo datos. */
+  responderPrimero: Intencion | null;
+  /**
+   * …y en el MISMO mensaje seguir con lo que falte del pedido (decisión del
+   * dueño): responder y retomar de una, sin gastar un mensaje de más — cada
+   * saliente se paga desde el 1-oct-2026.
+   */
+  continuarEnElMismoMensaje: boolean;
+};
+
+/**
+ * Junta las dos cosas que hasta ahora no se miraban juntas: **qué acaba de
+ * decir el cliente** y **qué le falta al pedido**.
+ *
+ * @param hayPedidoEnCurso Si el estado trae algo que continuar.
+ */
+export function planDelTurno(lectura: Lectura, hayPedidoEnCurso: boolean): PlanDelTurno {
+  if (lectura.intencion === "reinicio") {
+    return { reiniciar: true, responderPrimero: null, continuarEnElMismoMensaje: false };
+  }
+  if (lectura.esperaRespuesta) {
+    return {
+      reiniciar: false,
+      responderPrimero: lectura.intencion,
+      // Solo se retoma si de verdad había algo que retomar: a quien solo
+      // preguntó el horario no se le empieza a pedir la salsa.
+      continuarEnElMismoMensaje: hayPedidoEnCurso,
+    };
+  }
+  return { reiniciar: false, responderPrimero: null, continuarEnElMismoMensaje: hayPedidoEnCurso };
+}

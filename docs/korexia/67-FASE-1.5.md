@@ -180,6 +180,64 @@ Van cuatro. La regla 3 se ha cobrado, en una sola tarde: el enum de `paso`, el
 esquema que el prompt no describía, el tipo de `paso`, y ahora un campo exigido
 donde no aplica.
 
+---
+
+# Tarea 3 (nueva, del 15-ago): intención antes que estado
+
+Al revisar las extracciones, el dueño encontró el problema de fondo:
+
+> **El estado del pedido no puede tener prioridad absoluta sobre la intención
+> más reciente del cliente.**
+
+El caso vivo, de una conversación real:
+
+```
+Cliente: «seria el besties cuanto sale el domi?»
+Sistema: «¿Cuáles salsas desea?»
+```
+
+El modelo hizo bien su parte —extrajo Besties, que es correcto—. **La culpa era
+de `normalizarPedido`**, que decidía qué preguntar mirando solo qué falta en el
+pedido, sin mirar qué acaba de decir el cliente.
+
+**Y su instrucción**: no pasar a la persistencia hasta resolver este conflicto.
+
+## Lo construido: `src/server/orders/intencion.ts`
+
+`leerIntencion()` clasifica el turno —reinicio · saludo · consulta (horario,
+entrega, precio) · pedido · opción · otra— y marca si el cliente **espera
+respuesta** antes de que se le sigan pidiendo datos. No decide la respuesta ni
+toca el flujo conversacional (regla 12).
+
+Con su prueba obligatoria, tal cual la escribió:
+
+| Mensaje | Esperado | ✓ |
+|---|---|---|
+| `0` | Reiniciar | ✅ |
+| `Hola` | No reactivar pedidos anteriores | ✅ |
+| `¿Qué horario tienen?` | Responder el horario | ✅ |
+| `¿Me entregan mañana a las 8?` | Responder sobre la entrega | ✅ |
+| `Quiero una churrita` | Reactivar el flujo de compra | ✅ |
+| `Chocolate` | Añadir la salsa | ✅ |
+
+Más cinco casos de cómo escribe la gente de verdad: pedir y preguntar en el
+mismo mensaje, saludar antes de consultar, sin tildes y en plural, preguntar el
+precio sin elegir, y lo que no encaja marcado como tal en vez de forzado.
+
+## Dos reglas de negocio que faltaban, resueltas por el dueño
+
+Ninguna estaba escrita en ningún sitio, y sin ellas la capa no se puede
+implementar bien:
+
+| Duda | Decisión (15-ago-2026) |
+|---|---|
+| Con pedido a medias, el cliente pregunta el horario o el domicilio | **Responder y retomar en el MISMO mensaje.** Ni callarse ni preguntar *"¿seguimos?"*: cada saliente se paga desde el 1-oct-2026 |
+| El cliente deja un pedido a medias y vuelve más tarde | **Se retoma solo el mismo día.** Al día siguiente empieza limpio |
+
+`pedidoSigueVigente()` calcula ese día en **`America/Bogota`, no en UTC**: a las
+22:00 en Colombia ya es el día siguiente en UTC, y esa es justo la franja de más
+pedidos de una churrería.
+
 ## Lo que este informe NO dice
 
 Mide que el backend reconstruye el pedido **a partir del estado que el modelo

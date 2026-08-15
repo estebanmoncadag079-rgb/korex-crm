@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
-import { leerIntencion } from "@/server/orders/intencion";
+import { leerIntencion, pedidoSigueVigente, planDelTurno } from "@/server/orders/intencion";
 
 const SALSAS = [
   { id: "o1", nombre: "chocolate negro", precioExtraCents: 0 },
@@ -98,5 +98,42 @@ describe("cómo escribe la gente de verdad", () => {
 
   it("lo que no encaja se marca como tal en vez de forzarlo", () => {
     expect(leerIntencion("gracias, muy amable", CARTA).intencion).toBe("otra");
+  });
+});
+
+describe("responder y retomar en el mismo mensaje (decisión del dueño)", () => {
+  it("con pedido en curso: contesta la consulta Y sigue, sin gastar un mensaje de más", () => {
+    const plan = planDelTurno(leerIntencion("cuanto sale el domi?", CARTA), true);
+    expect(plan.responderPrimero).toBe("consulta_entrega");
+    expect(plan.continuarEnElMismoMensaje).toBe(true);
+    expect(plan.reiniciar).toBe(false);
+  });
+
+  it("sin pedido en curso: contesta y NO se pone a pedir datos", () => {
+    const plan = planDelTurno(leerIntencion("¿Qué horario tienen?", CARTA), false);
+    expect(plan.responderPrimero).toBe("consulta_horario");
+    expect(plan.continuarEnElMismoMensaje).toBe(false);
+  });
+
+  it('el "0" manda sobre todo lo demás', () => {
+    const plan = planDelTurno(leerIntencion("0", CARTA), true);
+    expect(plan.reiniciar).toBe(true);
+    expect(plan.continuarEnElMismoMensaje).toBe(false);
+  });
+});
+
+describe("un pedido a medias vale hasta el final del día (decisión del dueño)", () => {
+  // 22:00 en Colombia = 03:00 UTC del día siguiente. Es la franja de más
+  // pedidos de una churrería, y en UTC parecería otro día.
+  const nocheDelLunes = new Date("2026-08-11T03:00:00Z"); // 10-ago 22:00 en Bogotá
+  it("se retoma el mismo día aunque en UTC ya sea otro", () => {
+    const antes = new Date("2026-08-11T01:00:00Z"); // 10-ago 20:00 en Bogotá
+    expect(pedidoSigueVigente(antes, nocheDelLunes)).toBe(true);
+  });
+
+  it("al día siguiente se empieza limpio", () => {
+    const ayer = new Date("2026-08-10T18:00:00Z"); // 10-ago 13:00 en Bogotá
+    const hoy = new Date("2026-08-11T18:00:00Z"); // 11-ago 13:00 en Bogotá
+    expect(pedidoSigueVigente(ayer, hoy)).toBe(false);
   });
 });

@@ -59,3 +59,4 @@ escenarios-reporte.json
 # librería y no se versiona un binario de 1 MB.
 public/pdf.worker.min.mjs
 .tmp-catalogo.mjs
+.tmp-medir-extraccion.mjs

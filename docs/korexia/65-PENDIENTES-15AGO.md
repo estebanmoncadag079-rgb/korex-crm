@@ -79,7 +79,7 @@ mensajes.**
 |---|---|
 | 0 — Medir | ✅ Hecha. Descartó el cambio de modelo y bajó la urgencia del refactor |
 | 1 — Catálogo a tablas | ✅ **En producción en La Churra**, verificado dentro del contenedor el 15-ago a las 13:52 UTC. Falta pantalla |
-| 2 — Estado estructurado | ⏸️ **En espera de un piloto que lo justifique**. Tres objeciones abiertas |
+| 2 — Estado estructurado | 🟡 **Condición de entrada cumplida** (15-ago): la extracción falla **0 % sobre 160 turnos reales**, con la regla de que ningún campo del modelo lleve valores cerrados. Quedan la #3 y la #4, y falta el neto del coste |
 | 3 — Motor de capacidades | ⏸️ Diferida: con 2 verticales no paga |
 
 **La Churra es el laboratorio** de cada fase, en condiciones reales. **Lis la

@@ -69,10 +69,42 @@ de salida y arrastra menos historial.
 Lección para el proyecto: **el precio de tarifa no predice el coste real**. Hay
 que medirlo con el prompt de verdad.
 
-### 4. Tasa de extracción fallida: **NO medida**
+### 4. Tasa de extracción fallida: **MEDIDA el 15-ago** — y el resultado tiene truco
 
-Requiere un prototipo del extractor. Queda pendiente, y sigue siendo la
-condición para la Fase 2.
+`pnpm medir:extraccion <org>` construye el extractor que la Fase 2 necesitaría y
+lo pasa por **conversaciones reales**, turno a turno. Sobre La Churra: **30
+conversaciones, 160 extracciones**, con `gemini-2.5-flash`.
+
+| Qué se midió | Resultado |
+|---|---|
+| JSON inválido con contrato **tolerante** | **0 de 160 — 0,0 %** (el umbral era 1-2 %) |
+| Lo habría rechazado el contrato **estricto** | **131 de 160 — 81,9 %** |
+| Producto que no existe en la carta | **0 de 160** |
+| Coste por extracción | **0,000585 USD** (≈ 2,3 COP) |
+| Latencia p50 / p90 | **912 ms / 1.211 ms** (YCloud corta a 6.000) |
+
+**La objeción #1 cae, pero con una condición de diseño, no gratis.** La primera
+corrida dio 75 % de fallo y el culpable no era el modelo: era pedir `paso` como
+**enum cerrado**. Al aceptarlo como texto libre, el fallo se fue a cero. El
+modelo devolvió **más de 70 etiquetas distintas** —`"inicio"`, `"pagado"`,
+`"cliente pregunta por el costo del domicilio"`— todas razonables, ninguna del
+enum.
+
+> 🔑 **Un campo de valores cerrados que rellena el modelo es una máquina de
+> handoffs falsos.** Es el incidente del 13-ago (`"label"` en vez de
+> `"etiqueta"`) medido en números: el mismo dato, el mismo modelo y la misma
+> conversación fallan el 82 % o el 0 % según cómo de severo sea el contrato.
+> Regla para la Fase 2: **el backend normaliza, nunca rechaza por etiqueta.**
+
+**Lo que la validación NO atrapa** (y por eso hay volcado para revisión humana):
+de 83 extracciones con producto, ninguna se inventó un producto, pero en una
+conversación el cliente escribió *"churros x 6"* —una Churrita **son** 6
+churros— y el extractor puso `cantidad: 6`: **$60.000 en vez de $10.000**. Se
+corrigió solo al turno siguiente. Pasa el esquema y pasa la carta.
+
+La consecuencia de diseño es directa, y refuerza la regla de gobierno: **el
+total lo recalcula el servidor y el cliente lo confirma en el resumen**. La
+cantidad extraída no puede cobrarse sin que alguien la haya visto.
 
 ### ⚠️ Qué se concluye — y qué NO se puede concluir
 
@@ -193,7 +225,9 @@ las reglas propias *"mandan sobre todo lo anterior"* (`generar.ts:174-176`).
 
 ## Las cinco objeciones serias
 
-De la revisión adversarial. Ninguna se ha resuelto todavía.
+De la revisión adversarial. **Estado al 15-ago por la tarde**: la #1 cae con una
+condición de diseño, la #5 ya se resolvió en la Fase 0 (el A/B descartó el cambio
+de modelo), la #2 está medida a medias, y la #3 y la #4 siguen enteras.
 
 ### 1. El plan aprieta donde el proyecto ya aprendió a aflojar
 
@@ -213,6 +247,11 @@ principal en vez del excepcional.
 **Qué lo resolvería**: medir la tasa de extracción fallida en un prototipo antes
 de comprometer la arquitectura. Si es <1-2 %, la objeción cae.
 
+> ✅ **Medido el 15-ago: 0,0 % sobre 160 extracciones reales** — pero solo con
+> contrato tolerante. Con enums cerrados, el 81,9 %. La objeción cae **a cambio
+> de una regla vinculante**: ningún campo que rellene el modelo puede tener
+> valores cerrados; el backend normaliza. Detalle en la Fase 0, medición 4.
+
 ### 2. Nadie ha calculado el coste
 
 [09-COSTOS.md](09-COSTOS.md): *"sube cuando crece el prompt del sistema, que se
@@ -225,6 +264,19 @@ Y hay un techo de latencia: **YCloud exige responder en menos de 6 segundos**.
 El plan tiene un lado que abarata (sacar catálogo y políticas reduce la entrada,
 que es el 94 %) y otro que encarece (llamadas de extracción). **El neto no está
 calculado.** Comprometerse sin esa cuenta es justo lo que el proyecto se prohíbe.
+
+> ⚠️ **Medido a medias el 15-ago.** El lado que ENCARECE ya tiene número: una
+> extracción cuesta **0,000585 USD (≈ 2,3 COP)** y tarda **~0,9 s**. Con unos 4
+> turnos por pedido son **~9 COP añadidos** sobre los ~25 COP que hoy cuesta un
+> pedido: **en torno a un tercio más**, si la extracción va en llamada aparte.
+>
+> Lo que sigue sin medir es el lado que ABARATA —cuánto baja la entrada al sacar
+> el estado del prompt— y una alternativa que lo haría discutible: **emitir el
+> estado en la MISMA llamada** que la respuesta, que costaría casi nada extra.
+> Antes de aceptar el tercio, hay que probar esa vía.
+>
+> La latencia sí cabe: ~0,9 s sobre un turno actual deja margen frente a los 6 s
+> de YCloud, pero se suma, y ese margen es lo que hoy absorbe un reintento.
 
 ### 3. Lo del flujo en dos niveles ya está construido (y la objeción sigue en pie)
 

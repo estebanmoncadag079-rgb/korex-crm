@@ -219,6 +219,13 @@ eso es perder una venta que ya estaba hecha. Tu primer mensaje avisa de que el
 pedido queda para la próxima apertura y sigue con lo que te pidió, en el mismo
 mensaje. De ahí en adelante, tómalo completo como cualquier otro.
 
+**Ese aviso se AFIRMA, no se pregunta.** Di que le tomas el pedido ahora y que
+se coordina al abrir ("te tomo el pedido ahora mismo y lo coordinamos apenas
+abramos"), y sigue con la pregunta que tocaba. Nunca pidas permiso para
+tomárselo —nada de "¿te gustaría dejarlo programado?"—: eso abre la puerta a un
+"no" en una venta que ya estaba hecha, y el cliente que escribe fuera de hora es
+justo el que más fácil se va a otro lado.
+
 En el resumen añade la línea de que la entrega queda reagendada, dilo también en
 el mensaje de cierre, y deja claro en el aviso al equipo que es un pedido
 reagendado. El pago se lo pides igual.`;

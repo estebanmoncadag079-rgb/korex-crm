@@ -1,8 +1,9 @@
 # El estado deja de vivir en el prompt: plan y objeciones
 
-> **Dentro:** Lo que hay que medir antes de empezar · El diagnóstico · Lo que ya
-> está construido · Las cinco objeciones serias · El roadmap por fases · El
-> diseño de datos · Qué NO hacer · La secuencia segura · Qué le pasa a Lis
+> **Dentro:** Resultados de la Fase 0 · El objetivo · Lo urgente primero · La
+> Churra como laboratorio · La frontera de capacidades · La regla de gobierno ·
+> El diagnóstico · Lo que ya está construido · Las cinco objeciones · El roadmap
+> por fases · El diseño de datos · Qué NO hacer · Qué le pasa a Lis
 
 **15-ago-2026.** Documento de arquitectura para sacar del prompt el estado de la
 conversación. Lo revisaron cuatro agentes en paralelo —arquitectura, base de
@@ -310,10 +311,16 @@ arquitectura por un cambio apresurado"*. Crecimiento **incremental**, con
 
 Decisión del dueño, y coincide con [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md):
 
-1. 🔴 **Cambiar la contraseña del superadmin.** Abierta desde el 31-jul.
-2. 🔴 **Encender el salón.** Es un cliente conectado que no factura.
+1. 🔴 **Cambiar la contraseña del superadmin.** Abierta desde el 31-jul. Es el
+   pendiente más barato de cerrar y el de peor consecuencia.
 
-Ninguna arquitectura compensa tener una brecha abierta y un cliente sin cobrar.
+Ninguna arquitectura compensa tener una brecha abierta.
+
+> **El salón NO se enciende todavía** (decisión del dueño, 15-ago): aún faltan
+> cosas de su configuración. Sigue siendo el primer escalón de despliegue de cada
+> fase *precisamente porque está apagado*, pero encenderlo para facturar es una
+> decisión aparte y posterior. Lo que le falta, en
+> [57-PENDIENTES-14AGO.md](57-PENDIENTES-14AGO.md).
 
 ---
 
@@ -384,6 +391,57 @@ las tres súplicas de la tabla del diagnóstico.
 
 Con 2 verticales y 3 clientes no paga. Hágase como subproducto de la Fase 2 solo
 si de verdad reduce las ramas `if (vertical === "citas")`.
+
+---
+
+## La frontera: el backend expone capacidades, no su implementación
+
+El modelo **no debe saber cómo están diseñadas las tablas**. Si lo sabe, cualquier
+cambio de esquema obliga a reescribir prompts de todos los clientes — que es
+exactamente la dependencia que este plan viene a romper.
+
+Lo que el modelo recibe, y nada más:
+
+| Sí recibe | No recibe |
+|---|---|
+| **El estado actual**: *"Churrita · salsa arequipe"* | Nombres de tablas o columnas |
+| **Qué falta**: *"recubierto, dirección"* | `productId`, claves foráneas, tipos |
+| **Las políticas** que aplican: *"no se entrega en apartamento"* | Cómo se guardan esas políticas |
+| **Las capacidades habilitadas**: puede agendar, puede cobrar | Que existe un flag `orders_enabled` |
+
+En concreto: el modelo pide *"añade dos Churritas"*, no `INSERT INTO order_item`.
+Y recibe *"YA TIENES: … FALTA: …"* en lenguaje del negocio, no un volcado del
+JSON interno.
+
+**Por qué importa más de lo que parece**: el día que el catálogo pase de una
+tabla a tres, o que el estado cambie de forma, **ningún prompt debería
+enterarse**. Esa es la prueba de que la frontera está bien puesta.
+
+Corolario: los identificadores internos viajan en el estado que el servidor
+guarda, **no en el texto que lee el modelo**. El modelo habla de "Churrita"; el
+backend sabe que eso es `prod_abc`.
+
+---
+
+## Regla de gobierno: ninguna fase cambia el objetivo
+
+**Ninguna fase de este roadmap puede modificar el objetivo arquitectónico.**
+
+Si aparece una idea nueva —por buena que sea— el orden es:
+
+1. **Documentarla** y justificarla por escrito.
+2. **Decidir si pertenece a este roadmap o a uno futuro.**
+3. Solo entonces, implementarla.
+
+No es burocracia: **ya pasó**. La discusión que originó este documento empezó
+como *"el bot no respeta el orden de los mensajes"*, se convirtió en *"cambiemos
+de modelo"*, luego en *"rediseñemos la arquitectura"*, y la Fase 0 acabó midiendo
+mensajes cuando el objetivo era la escalabilidad del alta. Cuatro desvíos en una
+noche, cada uno razonable por separado.
+
+La pregunta de control, antes de meter algo aquí: **¿esto acerca a que el
+conocimiento viva en el backend y el prompt solo lleve conducta?** Si la
+respuesta no es un sí claro, va a otro roadmap.
 
 ---
 
@@ -587,7 +645,9 @@ básicas.
 | | |
 |---|---|
 | Objetivo | **Confirmado y reescrito**: escalar sin un prompt gigante por cliente. No es reducir mensajes |
-| Urgente antes de nada | Contraseña del superadmin · encender el salón |
+| Urgente antes de nada | Contraseña del superadmin (el salón **no** se enciende aún) |
+| Frontera | El backend expone **capacidades**, no tablas. El modelo nunca ve el esquema |
+| Gobierno | **Ninguna fase cambia el objetivo.** Idea nueva → documentar, justificar, decidir roadmap |
 | Fase 1 (catálogo a tablas) | **Aprobada**. Beneficio claro y reduce contradicciones |
 | Fase 2 (estado estructurado) | **En espera de un piloto que la justifique**, con bandera por cliente y rollback |
 | Laboratorio | **La Churra**, en condiciones reales. Lis la última y ya validada |

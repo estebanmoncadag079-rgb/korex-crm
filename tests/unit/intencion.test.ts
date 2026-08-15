@@ -101,6 +101,23 @@ describe("cómo escribe la gente de verdad", () => {
   });
 });
 
+describe("lo que hace falta para que sirva a más de un negocio", () => {
+  it('el "0" es la convención de La Churra, no una ley: se puede cambiar', () => {
+    // Un negocio con listas numeradas tiene un "0" legítimo, y un reinicio
+    // clavado en el código le borraría el pedido a mitad.
+    const otroNegocio = leerIntencion("0", CARTA, ["empezar de nuevo", "cancelar"]);
+    expect(otroNegocio.intencion).not.toBe("reinicio");
+    expect(leerIntencion("cancelar", CARTA, ["cancelar"]).intencion).toBe("reinicio");
+  });
+
+  it("las presentaciones salen del catálogo, no de una lista escrita a mano", () => {
+    // El día que un negocio venda "Combo Familiar", esto tiene que funcionar
+    // sin tocar una línea de código.
+    const otraCarta: ProductoDelCatalogo[] = [pres("x1", "COMBO FAMILIAR", 2)];
+    expect(leerIntencion("quiero un combo familiar", otraCarta).intencion).toBe("pedido");
+  });
+});
+
 describe("responder y retomar en el mismo mensaje (decisión del dueño)", () => {
   it("con pedido en curso: contesta la consulta Y sigue, sin gastar un mensaje de más", () => {
     const plan = planDelTurno(leerIntencion("cuanto sale el domi?", CARTA), true);

@@ -231,8 +231,33 @@ implementar bien:
 
 | Duda | Decisión (15-ago-2026) |
 |---|---|
-| Con pedido a medias, el cliente pregunta el horario o el domicilio | **Responder y retomar en el MISMO mensaje.** Ni callarse ni preguntar *"¿seguimos?"*: cada saliente se paga desde el 1-oct-2026 |
+| Con pedido a medias, el cliente pregunta el horario o el domicilio | **Responder y retomar en el MISMO mensaje**, ni callarse ni preguntar *"¿seguimos?"* |
 | El cliente deja un pedido a medias y vuelve más tarde | **Se retoma solo el mismo día.** Al día siguiente empieza limpio |
+| *"Quiero 6 churros"*: ¿asumir Churrita o confirmar? | **Puede preguntar.** Confirmar cuesta un mensaje; equivocarse cuesta $50.000 y un cliente |
+
+> ⚠️ **El criterio no es ahorrar mensajes.** La primera versión de este código
+> justificaba lo de "responder y retomar en el mismo mensaje" con que *cada
+> saliente se paga desde el 1-oct-2026* — y así escrito, el siguiente que lo lea
+> optimizará en esa dirección, que es el desvío que la regla 1 prohíbe. El
+> motivo real es que dejar la consulta contestada y el pedido colgando obliga al
+> cliente a retomarlo por su cuenta. Que salga más barato es un efecto
+> secundario. Corregido en el propio comentario del código, que es donde se leerá.
+
+## Por qué esta capa pertenece al proyecto (regla 14)
+
+Hoy *"qué hacer cuando el cliente pregunta por el horario en mitad de un
+pedido"* solo existe escrito **dentro del prompt de cada negocio**, y hay que
+volver a escribirlo —y volver a equivocarse— en cada alta. En el backend se
+escribe una vez y sirve para todos.
+
+Dos cosas se corrigieron para que eso sea cierto de verdad y no de boquilla:
+
+- **El `"0"` ya no está clavado en el código.** Es la convención de La Churra y
+  está en SU prompt; un negocio con listas numeradas tendría un `"0"` legítimo y
+  un reinicio clavado le borraría el pedido a mitad. Ahora entra por parámetro.
+- **Las presentaciones salen del catálogo**, no de una lista escrita a mano: el
+  día que un cliente venda *"Combo Familiar"*, funciona sin tocar código. Hay
+  una prueba con otro negocio distinto que lo verifica.
 
 `pedidoSigueVigente()` calcula ese día en **`America/Bogota`, no en UTC**: a las
 22:00 en Colombia ya es el día siguiente en UTC, y esa es justo la franja de más

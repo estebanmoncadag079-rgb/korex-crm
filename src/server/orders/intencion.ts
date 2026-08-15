@@ -13,6 +13,13 @@
  *
  * Esto NO decide la respuesta ni toca el flujo conversacional (regla 12): solo
  * clasifica el turno, para que quien decida tenga las dos cosas delante.
+ *
+ * **Por qué pertenece a este proyecto** (regla 14, la pregunta de control): hoy
+ * "qué hacer cuando el cliente pregunta por el horario en mitad de un pedido"
+ * solo existe escrito dentro del prompt de cada negocio, y hay que volver a
+ * escribirlo —y volver a equivocarse— en cada alta. Aquí se escribe una vez, en
+ * el backend, y sirve para todos. Eso es lo que reduce la dependencia del
+ * prompt gigante por cliente.
  */
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 
@@ -67,12 +74,22 @@ const PRECIO = ["precio", "precios", "cuanto vale", "cuanto cuesta", "cuanto sal
  */
 export function leerIntencion(
   mensaje: string,
-  catalogo: ProductoDelCatalogo[] = []
+  catalogo: ProductoDelCatalogo[] = [],
+  /**
+   * Qué escribe el cliente para empezar de cero. En La Churra es `"0"`, y está
+   * en SU prompt — no es una ley universal.
+   *
+   * Va como parámetro y no clavado en el código porque esta función corre para
+   * toda la flota: un negocio que ofrezca listas numeradas tendría un `"0"`
+   * legítimo, y un reinicio clavado le borraría el pedido a mitad. Es
+   * exactamente la clase de suposición que no escala.
+   */
+  palabrasDeReinicio: string[] = ["0"]
 ): Lectura {
   const t = llave(mensaje);
 
-  if (t === "0") {
-    return { intencion: "reinicio", esperaRespuesta: false, porque: 'escribió "0"' };
+  if (palabrasDeReinicio.some((p) => t === llave(p))) {
+    return { intencion: "reinicio", esperaRespuesta: false, porque: `escribió "${mensaje.trim()}"` };
   }
 
   // El producto manda sobre el saludo: «hola, quiero una churrita» es un pedido.
@@ -148,9 +165,13 @@ export type PlanDelTurno = {
   /** Hay que contestar esto ANTES de seguir pidiendo datos. */
   responderPrimero: Intencion | null;
   /**
-   * …y en el MISMO mensaje seguir con lo que falte del pedido (decisión del
-   * dueño): responder y retomar de una, sin gastar un mensaje de más — cada
-   * saliente se paga desde el 1-oct-2026.
+   * …y en el MISMO mensaje seguir con lo que falte del pedido.
+   *
+   * Decisión del dueño (15-ago-2026). **El motivo no es ahorrar mensajes**: es
+   * que dejar la consulta contestada y el pedido colgando obliga al cliente a
+   * retomarlo por su cuenta, y a un negocio a vigilar los que se quedan a
+   * medias. Que menos mensajes salga más barato es un efecto secundario, no el
+   * criterio — el criterio es el de la regla 1.
    */
   continuarEnElMismoMensaje: boolean;
 };

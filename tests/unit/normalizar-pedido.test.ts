@@ -62,6 +62,10 @@ const vacio = {
 };
 
 describe("unidades contra presentaciones", () => {
+  // Decisión del dueño (15-ago-2026): ante la ambigüedad de unidades, el
+  // agente PUEDE preguntar. Confirmar cuesta un mensaje; equivocarse cuesta
+  // $50.000 y un cliente. Y la pregunta no depende del negocio: la duda la
+  // levanta el backend, no una regla escrita en el prompt de cada cliente.
   it('"quiero 6 churros" NO son seis Churritas', () => {
     const r = normalizarPedido(
       { ...vacio, producto: "churros", cantidad: 6, salsas: ["arequipe"] },

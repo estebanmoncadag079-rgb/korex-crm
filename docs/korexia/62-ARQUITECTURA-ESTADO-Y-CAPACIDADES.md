@@ -129,7 +129,29 @@ El plan tiene un lado que abarata (sacar catálogo y políticas reduce la entrad
 que es el 94 %) y otro que encarece (llamadas de extracción). **El neto no está
 calculado.** Comprometerse sin esa cuenta es justo lo que el proyecto se prohíbe.
 
-### 3. "Cada cliente quiere un orden distinto" no tiene evidencia
+### 3. Lo del flujo en dos niveles ya está construido (y la objeción sigue en pie)
+
+El dueño pidió *"separar el flujo universal de un restaurante o de un salón de
+las reglas propias de cada negocio, para tener flexibilidad sin duplicar
+prompts"*. **Eso existe hoy, con esos dos niveles exactos:**
+
+| Nivel | Qué es | Dónde |
+|---|---|---|
+| **Universal por vertical** | Las etapas: saludar → qué quiere → opciones → regalo → datos → resumen → pago | `meta(vertical)`, `conducta.ts:272-326` |
+| **Propio del negocio** | Qué se dice en cada etapa, con qué palabras y emojis | `reglasPropias` de la ficha, `ficha.ts:146` |
+| **Desempate** | *"Estas reglas mandan sobre todo lo anterior"* | `generar.ts:174-176`, añadido el 15-ago |
+
+Ojo a un detalle importante: `meta()` entrega **etapas, no palabras**. No dice
+*"muestra las cuatro presentaciones primero"* — eso lo pone cada cliente. Así que
+la flexibilidad que se pide ya está, y no duplica prompts.
+
+Lo que faltaba no era la separación: era **la regla de desempate**, porque las
+reglas del negocio se leían 70 líneas más abajo que el orden universal y perdían.
+Eso se arregló el 15-ago y es lo que hay que probar antes de construir nada más.
+
+Dicho eso, la objeción de fondo **sigue en pie**:
+
+
 
 [45-GENERADOR-DE-PROMPTS.md](45-GENERADOR-DE-PROMPTS.md) clasifica *"dónde va el
 resumen, que termina antes de la despedida, el orden"* explícitamente como
@@ -222,6 +244,28 @@ si de verdad reduce las ramas `if (vertical === "citas")`.
 
 ---
 
+## La regla que manda sobre todo el diseño
+
+Lo formuló el dueño al revisar el plan, y es el principio rector:
+
+> **El LLM nunca es dueño del estado. Solo sugiere cambios. El backend los
+> valida y es la fuente de verdad.**
+
+No es un matiz de redacción: cambia quién responde cuando algo no cuadra. El
+modelo *propone* `{producto: "Churrita", cantidad: 2}`; el servidor comprueba que
+ese producto existe **en esa organización**, que el precio es el de la tabla y
+que el total lo suma él. Si la propuesta no valida, se degrada — nunca se
+persiste a ciegas.
+
+Es el mismo criterio que ya gobierna `resolveStage`, `send_image` y
+`offered_slot`: *comprobar el hecho, no confiar en la intención*.
+
+De aquí se deduce lo que **no** se puede hacer: pedirle al modelo el total, o
+guardar un `productId` sin resolverlo, o aceptar un estado que el servidor no
+sepa reconstruir por su cuenta.
+
+---
+
 ## El diseño de datos
 
 ### Estado de la conversación → tabla propia, JSONB, reemplazo completo
@@ -247,10 +291,37 @@ no se consulta por dentro en caliente, sería coste de escritura a cambio de nad
 aunque el modelo esté confundido. **Cambiar de opinión** no necesita nada: el
 estado se reemplaza entero.
 
-> ⚠️ **El estado lo escribe el LLM: es entrada no confiable.** Cada `productId` se
+> ⚠️ **El estado lo *propone* el LLM: es entrada no confiable.** Cada `productId` se
 > resuelve con `scoped()` contra el catálogo de ESA organización, y **el total lo
 > recalcula el servidor**, nunca el número que diga el modelo. Es el criterio que
 > ya usan `resolveStage` y `send_image`.
+
+### Dos campos que no son opcionales a 200 clientes
+
+Los pidió el dueño, y los dos son baratos ahora e imposibles de retroencajar
+después:
+
+**1. `schema_version` en cada fila de estado.** Un entero. El día que cambie la
+forma del JSON habrá conversaciones vivas con la forma vieja, y sin versión no
+hay forma de saber cuál es cuál salvo adivinando por las claves presentes. Con
+versión, el pipeline sabe si migrar al vuelo o descartar y empezar limpio.
+
+A 3 clientes parece burocracia; a 200 es la diferencia entre desplegar un cambio
+de esquema y no poder tocarlo nunca.
+
+**2. Métricas básicas, para no navegar a ciegas.** El proyecto ya sabe lo que
+cuesta no medir: este documento existe porque no hay un número del problema que
+pretende resolver. Lo mínimo, emitido desde el pipeline:
+
+| Métrica | Para qué |
+|---|---|
+| Turnos por pedido cerrado | Es **dinero directo** desde el 1-oct-2026 |
+| Estados que no validan / total | La objeción #1: si sube, la extracción falla |
+| Pedidos abandonados por `paso` | Dónde se cae la gente de verdad |
+| Coste por conversación | La objeción #2, medida en continuo |
+
+El campo `paso` de la tabla existe precisamente para que la cuarta sea un
+`GROUP BY` y no una arqueología del historial.
 
 ### Capacidades → booleanos en `agent_profile` + `module_config jsonb`
 
@@ -356,9 +427,21 @@ Las dos salidas son incómodas y hay que elegir con los ojos abiertos:
 
 ## Estado de este documento
 
-Escrito el 15-ago-2026 a partir de cuatro revisiones en paralelo. **Es un plan
-propuesto, no aprobado.** La Fase 0 (medir) es condición para todo lo demás, y
-las cinco objeciones siguen abiertas.
+Escrito el 15-ago-2026 a partir de cuatro revisiones en paralelo, y revisado
+después por el dueño.
+
+**Veredicto del dueño: 9/10 como dirección, condicionado a dos cosas** — medir
+primero, y desplegar por una secuencia segura (cliente de prueba o negocio
+apagado antes que los que facturan). Ambas están recogidas arriba: Fase 0 y la
+secuencia de cuatro escalones.
+
+Sus tres aportes ya están incorporados: la regla de propiedad del estado (que
+pasó a ser el principio rector del diseño), el `schema_version` y las métricas
+básicas.
+
+**Sigue siendo un plan propuesto, no aprobado.** La Fase 0 es condición para todo
+lo demás, y de las cinco objeciones, cuatro siguen abiertas (la tercera quedó
+resuelta: el flujo en dos niveles ya existe).
 
 Lo que sí está decidido y verificado: el diagnóstico técnico es correcto —el
 pedido no existe como dato y el prompt le pide al modelo que haga de base de

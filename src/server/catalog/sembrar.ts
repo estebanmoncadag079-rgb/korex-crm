@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
+import { leerFicha } from "@/server/ai/generador/leer-ficha";
 
 /**
  * Pasar el catálogo de un negocio de pedidos del TEXTO de su ficha a las tablas.
@@ -283,11 +284,7 @@ export async function fichaDe(
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
-  const cruda = filas[0]?.ficha;
-  if (!cruda) return null;
-  try {
-    return JSON.parse(cruda) as { catalogo?: string; variantes?: string };
-  } catch {
-    return null;
-  }
+  // Lector tolerante: la ficha puede venir plana o por secciones, y aquí solo
+  // interesan dos de sus campos. Ver `generador/leer-ficha.ts`.
+  return leerFicha(filas[0]?.ficha) as { catalogo?: string; variantes?: string } | null;
 }

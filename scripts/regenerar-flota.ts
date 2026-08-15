@@ -24,7 +24,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { generarPerfil } from "@/server/ai/generador/generar";
-import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
+import { leerFicha } from "@/server/ai/generador/leer-ficha";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -87,10 +87,10 @@ if (aplicar) {
 }
 
 for (const p of perfiles) {
-  let ficha: FichaDelNegocio;
-  try {
-    ficha = JSON.parse(p.ficha!) as FichaDelNegocio;
-  } catch {
+  // Lector tolerante: entiende la ficha plana y la de secciones, así que este
+  // script sigue funcionando durante toda la conversión y después de ella.
+  const ficha = leerFicha(p.ficha);
+  if (!ficha) {
     console.error(`[regenerar] ${p.nombre}: su ficha guardada no es JSON válido, se salta`);
     continue;
   }

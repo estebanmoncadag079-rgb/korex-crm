@@ -23,6 +23,12 @@ import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
+import {
+  aSecciones,
+  aplanar,
+  camposSinDueño,
+  leerFicha,
+} from "@/server/ai/generador/leer-ficha";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -40,67 +46,6 @@ function envVar(name: string): string | undefined {
 for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
   const v = envVar(n);
   if (v && !process.env[n]) process.env[n] = v;
-}
-
-/**
- * El reparto propuesto: cada sección, un dueño.
- *
- * `catalogo` y `duracionTipicaMin` se quedan en `negocio` **a propósito**
- * aunque el catálogo esté migrando a `product`: mientras un cliente siga en
- * `catalog_source = 'prompt'`, ese texto es su carta. La sección desaparece
- * sola cuando toda la flota esté en tablas.
- */
-const DE_NEGOCIO = [
-  "nombre",
-  "queVende",
-  "ubicacion",
-  "horario",
-  "vertical",
-  "catalogo",
-  "duracionTipicaMin",
-  "variantes",
-  "entrega",
-  "pago",
-  "tono",
-  "regalos",
-  "preguntasFrecuentes",
-] as const;
-
-/** Lo que ajusta el operador y el cuestionario NO debe tocar. */
-const DE_FLUJO = ["reglasPropias", "saludoInicial"] as const;
-
-/**
- * La sección `politicas`, que la primera versión de este script daba por
- * vacía… y la simulación demostró que no lo está: `escalarSiempre` y
- * `nuncaPrometer` se perdían en la conversión, y con ellos las reglas de
- * escalado y las promesas prohibidas —incluidas las de salud—.
- *
- * Es justo el tipo de dato que no puede tener dos escritores: son las reglas
- * que se ajustan a mano después de un incidente.
- */
-const DE_POLITICAS = ["escalarSiempre", "nuncaPrometer"] as const;
-
-type FichaV2 = {
-  schema_version: 2;
-  negocio: Record<string, unknown>;
-  flujo: Record<string, unknown>;
-  politicas: Record<string, unknown>;
-};
-
-function aV2(ficha: FichaDelNegocio): FichaV2 {
-  const f = ficha as unknown as Record<string, unknown>;
-  const negocio: Record<string, unknown> = {};
-  const flujo: Record<string, unknown> = {};
-  const politicas: Record<string, unknown> = {};
-  for (const k of DE_NEGOCIO) if (f[k] !== undefined) negocio[k] = f[k];
-  for (const k of DE_FLUJO) if (f[k] !== undefined) flujo[k] = f[k];
-  for (const k of DE_POLITICAS) if (f[k] !== undefined) politicas[k] = f[k];
-  return { schema_version: 2, negocio, flujo, politicas };
-}
-
-/** Y la vuelta: de las secciones al objeto que `generarPerfil` ya sabe leer. */
-function aFicha(v2: FichaV2): FichaDelNegocio {
-  return { ...v2.negocio, ...v2.flujo, ...v2.politicas } as unknown as FichaDelNegocio;
 }
 
 const url = envVar("DATABASE_URL");
@@ -161,19 +106,17 @@ console.log(`${"=".repeat(74)}`);
 for (const p of perfiles) {
   console.log(`\n▸ ${p.nombre}  [catalog_source=${p.catalogSource}]`);
 
-  let ficha: FichaDelNegocio;
-  try {
-    ficha = JSON.parse(p.ficha!) as FichaDelNegocio;
-  } catch {
+  const ficha = leerFicha(p.ficha);
+  if (!ficha) {
     console.log("   ⛔ su ficha no es JSON válido: se saltaría");
     continue;
   }
 
   // 1) ¿La conversión pierde algo por el camino?
-  const v2 = aV2(ficha);
+  const v2 = aSecciones(ficha);
   const original = Object.keys(ficha as unknown as Record<string, unknown>).sort();
-  const reconstruida = Object.keys(aFicha(v2) as unknown as Record<string, unknown>).sort();
-  const perdidos = original.filter((k) => !reconstruida.includes(k));
+  const reconstruida = Object.keys(aplanar(v2) as unknown as Record<string, unknown>).sort();
+  const perdidos = [...new Set([...original.filter((k) => !reconstruida.includes(k)), ...camposSinDueño(ficha)])];
 
   console.log(`   ficha: ${original.length} campos → negocio ${Object.keys(v2.negocio).length} · flujo ${Object.keys(v2.flujo).length} · politicas ${Object.keys(v2.politicas).length}`);
   if (perdidos.length) {
@@ -186,7 +129,7 @@ for (const p of perfiles) {
   const opciones = { catalogoEnTabla: p.catalogSource === "tabla" };
   let recompilado;
   try {
-    recompilado = generarPerfil(aFicha(v2), opciones);
+    recompilado = generarPerfil(aplanar(v2), opciones);
   } catch (err) {
     console.log(`   🔴 no se puede recompilar: ${(err as Error).message}`);
     informe.push({ cliente: p.nombre, error: (err as Error).message });

@@ -98,6 +98,9 @@ export const POST = withPlatformAdmin(
     }
 
     const resultado = await aplicarFicha(id, body.data.ficha, {
+      // Desde /admin actúa la AGENCIA, que es la dueña del flujo y las
+      // políticas. El cuestionario del cliente solo puede tocar `negocio`.
+      puedeEscribir: ["negocio", "flujo", "politicas"],
       telefonosDeAviso: body.data.telefonosDeAviso,
     });
     return Response.json({

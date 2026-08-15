@@ -108,6 +108,85 @@ export function camposSinDueño(ficha: FichaDelNegocio): string[] {
   );
 }
 
+export type Seccion = keyof typeof SECCIONES;
+
+/**
+ * Fusiona una ficha entrante sobre la guardada **respetando la propiedad**:
+ * solo se escriben las secciones que el llamante tiene permitido tocar; el
+ * resto se conserva tal cual estaba.
+ *
+ * Es el corazón del paso 2. Antes, cualquiera de los dos escritores mandaba el
+ * objeto entero y el último ganaba: así se perdieron las reglas de flujo de La
+ * Churra el 15-ago a las 12:59.
+ *
+ * **Alta contra reenvío**: si no hay ficha guardada no hay nada que pisar, así
+ * que se escribe entera. La restricción existe para proteger lo que ya está,
+ * no para impedir que un negocio nazca completo.
+ *
+ * **El formato no cambia aquí**: si la guardada era plana, se devuelve plana.
+ * Convertir a secciones es un acto aparte y explícito, nunca un efecto
+ * secundario de rellenar un formulario.
+ */
+export function fusionarFicha(
+  guardadaCruda: string | null | undefined,
+  entrante: FichaDelNegocio,
+  puedeEscribir: readonly Seccion[]
+): { ficha: FichaDelNegocio; conservadas: Seccion[] } {
+  const guardada = leerFicha(guardadaCruda);
+  if (!guardada) return { ficha: entrante, conservadas: [] };
+
+  const deGuardada = aSecciones(guardada);
+  const deEntrante = aSecciones(entrante);
+  const conservadas: Seccion[] = [];
+
+  const resultado: FichaPorSecciones = {
+    schema_version: 2,
+    negocio: {},
+    flujo: {},
+    politicas: {},
+  };
+  for (const s of ["negocio", "flujo", "politicas"] as const) {
+    if (puedeEscribir.includes(s)) {
+      resultado[s] = deEntrante[s];
+    } else {
+      resultado[s] = deGuardada[s];
+      conservadas.push(s);
+    }
+  }
+
+  // Los campos sin dueño de la guardada no se tiran: se arrastran hasta que
+  // alguien los asigne a una sección.
+  const huerfanos: Record<string, unknown> = {};
+  const g = guardada as unknown as Record<string, unknown>;
+  for (const k of camposSinDueño(guardada)) huerfanos[k] = g[k];
+
+  return {
+    ficha: { ...aplanar(resultado), ...huerfanos } as FichaDelNegocio,
+    conservadas,
+  };
+}
+
+/**
+ * Serializa la ficha **en el mismo formato en que estaba guardada**.
+ *
+ * Un cliente convertido sigue convertido; uno plano sigue plano. Rellenar un
+ * formulario no puede cambiarle el formato de los datos a nadie.
+ */
+export function serializarComoEstaba(
+  guardadaCruda: string | null | undefined,
+  ficha: FichaDelNegocio
+): string {
+  let eraPorSecciones = false;
+  if (guardadaCruda?.trim()) {
+    try {
+      eraPorSecciones = esPorSecciones(JSON.parse(guardadaCruda));
+    } catch {
+      eraPorSecciones = false;
+    }
+  }
+  return JSON.stringify(eraPorSecciones ? aSecciones(ficha) : ficha);
+}
+
 /**
  * Lee la ficha guardada, venga como venga.
  *

@@ -21,6 +21,10 @@ import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
+import {
+  fusionarFicha,
+  serializarComoEstaba,
+} from "@/server/ai/generador/leer-ficha";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -408,6 +412,8 @@ CLIENTES.push(
 );
 
 const aplicar = process.argv.includes("--aplicar");
+/** Solo para un cliente SIN ficha: escribe también la sección `negocio`. */
+const sembrar = process.argv.includes("--sembrar");
 
 const incluirPausados = process.argv.includes("--incluir-pausados");
 const pausados = CLIENTES.filter((c) => c.pausado && !incluirPausados);
@@ -469,23 +475,47 @@ await sql`CREATE TABLE IF NOT EXISTS agent_profile_bk_fichas_13ago AS
 console.log("[fichas] respaldo hecho: agent_profile_bk_fichas_13ago");
 
 for (const g of generados) {
+  /*
+   * Este script es el OPERADOR: escribe `flujo` y `politicas`, y **conserva**
+   * `negocio` tal como lo dejó el cliente en su cuestionario.
+   *
+   * Antes mandaba la ficha entera, igual que el cuestionario, y el último en
+   * escribir ganaba en silencio. Un negocio renombrado desde el cuestionario
+   * volvía a su nombre viejo al correr esto.
+   *
+   * Con `--sembrar` sí escribe la ficha completa: es para un cliente que
+   * todavía no tiene ninguna, donde no hay nada que pisar.
+   */
+  const [fila] = await db
+    .select({ ficha: schema.agentProfile.ficha })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, g.organizationId))
+    .limit(1);
+
+  const { ficha, conservadas } = fusionarFicha(
+    fila?.ficha ?? null,
+    g.ficha,
+    sembrar ? ["negocio", "flujo", "politicas"] : ["flujo", "politicas"]
+  );
+  // El prompt se recompila desde la ficha FUSIONADA, no desde la entrante:
+  // si no, llevaría datos de negocio que este script no tiene derecho a fijar.
+  const perfil = generarPerfil(ficha);
+
   await db
     .update(schema.agentProfile)
     .set({
-      // También el nombre interno: `aplicarFicha` lo escribe y este script no
-      // lo hacía, así que al renombrar un negocio quedaba el viejo colgando
-      // ("Asistente de Lashen Valen studio" con la cuenta ya renombrada).
-      name: `Asistente de ${g.ficha.nombre}`,
-      instructions: g.perfil.instructions,
-      escalationRules: g.perfil.escalationRules,
-      greeting: g.perfil.greeting,
-      // Lo que de verdad cambia el juego: con la ficha guardada, la próxima
-      // lección de `conducta.ts` la heredan con `pnpm regenerar:flota`.
-      ficha: JSON.stringify(g.ficha),
+      name: `Asistente de ${ficha.nombre}`,
+      instructions: perfil.instructions,
+      escalationRules: perfil.escalationRules,
+      greeting: perfil.greeting,
+      ficha: serializarComoEstaba(fila?.ficha ?? null, ficha),
       updatedAt: new Date(),
     })
     .where(eq(schema.agentProfile.organizationId, g.organizationId));
-  console.log(`[fichas] ${g.ficha.nombre}: ficha guardada y prompt regenerado`);
+  console.log(
+    `[fichas] ${ficha.nombre}: flujo y políticas guardados` +
+      (conservadas.length ? ` · se conservó: ${conservadas.join(", ")}` : " · ficha sembrada entera")
+  );
 }
 
 await sql.end();

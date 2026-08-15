@@ -1,5 +1,22 @@
 # Un dueño por dato: el prompt con dos escritores
 
+> 🔑 **Esto no es un problema de arquitectura, es de propiedad de los datos.**
+> Lo formuló el dueño, y conviene tenerlo delante al leer todo lo demás:
+>
+> | Trabajo | Pregunta que responde |
+> |---|---|
+> | Fase 1 | ¿Dónde vive el **catálogo**? |
+> | Fase 2 | ¿Dónde vive el **estado**? |
+> | **Este** | **¿Quién tiene permiso para modificar cada dato?** |
+>
+> Si esto no se resuelve primero, cualquier mejora futura puede desaparecer con
+> una escritura silenciosa — que es exactamente lo que pasó el 15 de agosto.
+
+## 🔴 Regla del proyecto
+
+> **Está prohibido convertir clientes mientras exista un escritor capaz de
+> reconstruir la ficha completa.**
+
 > **Dentro:** Quién escribe hoy · Las cinco colisiones · Lo que nadie había
 > dicho: fuente contra derivado · El flujo actual · El flujo propuesto · El plan
 > de migración con rollback

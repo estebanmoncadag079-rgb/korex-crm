@@ -4,6 +4,11 @@ import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
 import { normalizarHora } from "@/lib/hora";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
+import {
+  fusionarFicha,
+  serializarComoEstaba,
+  type Seccion,
+} from "./leer-ficha";
 import { generarPerfil } from "./generar";
 
 /**
@@ -34,6 +39,12 @@ export type ResultadoDelAlta = {
    * sobrescribía lo contratado; ahora se avisa y decide una persona.
    */
   avisoDeVertical?: string;
+  /**
+   * Secciones que este llamante NO podía escribir y se conservaron tal cual.
+   * Sirve para que quien envía el cuestionario sepa que sus reglas de flujo
+   * siguen ahí en vez de suponerlo.
+   */
+  seccionesConservadas: string[];
 };
 
 /**
@@ -106,16 +117,53 @@ export async function leerBorrador(
  */
 export async function aplicarFicha(
   organizationId: string,
-  ficha: FichaDelNegocio,
-  opciones?: { telefonosDeAviso?: string[] }
+  fichaEntrante: FichaDelNegocio,
+  opciones?: {
+    telefonosDeAviso?: string[];
+    /**
+     * Qué secciones puede escribir QUIEN LLAMA. Por defecto, solo `negocio`:
+     * es lo que el cliente responde en su cuestionario.
+     *
+     * `flujo` y `politicas` son del operador —el orden de los mensajes y las
+     * reglas que se escriben después de un incidente—, y el cuestionario no
+     * puede tocarlas. Desde `/admin` se pasan las tres, porque ahí quien actúa
+     * es la agencia.
+     */
+    puedeEscribir?: readonly Seccion[];
+  }
 ): Promise<ResultadoDelAlta> {
-  const faltan = faltantesDeLaFicha(ficha);
+  const faltan = faltantesDeLaFicha(fichaEntrante);
   if (faltan.length > 0) {
     throw new Error(`Faltan datos en la ficha: ${faltan.join(", ")}.`);
   }
 
-  const perfil = generarPerfil(ficha);
   const db = getDb();
+
+  /*
+   * NADIE sobrescribe el objeto entero.
+   *
+   * Hasta el 15-ago-2026 esta función escribía la ficha completa, y el script
+   * del operador también: el último ganaba en silencio. Así perdió La Churra
+   * sus reglas de flujo a las 12:59, y el síntoma —tres horas más tarde— fue
+   * "el bot dejó de hacer caso".
+   *
+   * Ahora se lee lo guardado y se fusiona por secciones: se escribe solo lo
+   * que este llamante posee y se conserva el resto.
+   */
+  const guardada = await db
+    .select({ ficha: schema.agentProfile.ficha })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  const fichaCruda = guardada[0]?.ficha ?? null;
+
+  const { ficha, conservadas } = fusionarFicha(
+    fichaCruda,
+    fichaEntrante,
+    opciones?.puedeEscribir ?? ["negocio"]
+  );
+
+  const perfil = generarPerfil(ficha);
 
   /*
    * ¿Coincide lo que dice la ficha con lo que la agencia contrató?
@@ -196,7 +244,9 @@ export async function aplicarFicha(
          * mejoraba y solo lo heredaba el siguiente. Con la ficha guardada,
          * `pnpm regenerar:flota` vuelve a ensamblar el prompt de todos.
          */
-        ficha: JSON.stringify(ficha),
+        // En el MISMO formato en que estaba: rellenar un formulario no puede
+        // convertirle los datos a nadie. La conversión es un acto explícito.
+        ficha: serializarComoEstaba(fichaCruda, ficha),
         updatedAt: new Date(),
       })
       .where(eq(schema.agentProfile.organizationId, organizationId));
@@ -261,5 +311,6 @@ export async function aplicarFicha(
     largoDelPrompt: perfil.instructions.length,
     entradasDeConocimiento: sembradas,
     avisoDeVertical,
+    seccionesConservadas: conservadas,
   };
 }

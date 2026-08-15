@@ -10,6 +10,8 @@ import {
   type Seccion,
 } from "./leer-ficha";
 import { generarPerfil } from "./generar";
+import type { Fila } from "./comparar-fila";
+import { conRegistro, type Actor } from "@/server/registro-de-cambios";
 
 /**
  * Deja un cliente configurado a partir de su ficha, en una sola operación.
@@ -130,6 +132,8 @@ export async function aplicarFicha(
      * es la agencia.
      */
     puedeEscribir?: readonly Seccion[];
+    /** Quién ejecuta esto. Sin actor no hay trazabilidad que valga. */
+    actor?: Actor;
   }
 ): Promise<ResultadoDelAlta> {
   const faltan = faltantesDeLaFicha(fichaEntrante);
@@ -214,6 +218,42 @@ export async function aplicarFicha(
   /** Cuántas se sembraron de verdad: 0 si el cliente ya tenía conocimiento. */
   let sembradas = 0;
 
+  /**
+   * Instrumentado: cualquier campo que cambie sin estar declarado sale en el log
+   * como `[NO DECLARADO]`. Es el proceso que revirtió el horario del salón el
+   * 15-ago sin que nada avisara.
+   */
+  const leerFila = async () => {
+    const [f] = await db
+      .select()
+      .from(schema.agentProfile)
+      .where(eq(schema.agentProfile.organizationId, organizationId));
+    return (f as unknown as Fila) ?? null;
+  };
+
+  await conRegistro(
+    {
+      tabla: "agent_profile",
+      registro: organizationId,
+      leerFila,
+      declarados: [
+        "name",
+        "tone",
+        "instructions",
+        "escalationRules",
+        "greeting",
+        "ficha",
+        "notifyPhones",
+        "updatedAt",
+        // Solo en el alta; en un reenvío no deben cambiar y saltará la alarma.
+        ...(horarioYaConfigurado
+          ? []
+          : ["hoursDays", "hoursOpen", "hoursClose", "hoursOpenSunday", "hoursCloseSunday"]),
+      ],
+      proceso: "aplicarFicha",
+      actor: opciones?.actor ?? "script:desconocido",
+    },
+    async () => {
   await db.transaction(async (tx) => {
     await tx
       .update(schema.agentProfile)
@@ -347,6 +387,9 @@ export async function aplicarFicha(
      * misma razón: una sola fuente de verdad.
      */
   });
+
+    }
+  );
 
   return {
     organizationId,

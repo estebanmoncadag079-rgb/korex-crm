@@ -2,6 +2,8 @@ import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
+import type { Fila } from "@/server/ai/generador/comparar-fila";
+import { conRegistro } from "@/server/registro-de-cambios";
 import { isAiConfigured } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -59,11 +61,31 @@ export const PUT = withAuth(async (session, req: Request) => {
   if (!body.ok) return body.response;
 
   const db = getDb();
-  const updated = await db
-    .update(schema.agentProfile)
-    .set({ ...body.data, updatedAt: new Date() })
-    .where(scoped(schema.agentProfile.organizationId, session.organizationId))
-    .returning();
+  const leerFila = async () => {
+    const [f] = await db
+      .select()
+      .from(schema.agentProfile)
+      .where(scoped(schema.agentProfile.organizationId, session.organizationId));
+    return (f as unknown as Fila) ?? null;
+  };
+
+  const updated = await conRegistro(
+    {
+      tabla: "agent_profile",
+      registro: session.organizationId,
+      leerFila,
+      // Solo lo que el cliente posee en su panel.
+      declarados: [...Object.keys(body.data), "updatedAt"],
+      proceso: "api/agent/profile",
+      actor: `user:${session.userId}`,
+    },
+    async () =>
+      db
+        .update(schema.agentProfile)
+        .set({ ...body.data, updatedAt: new Date() })
+        .where(scoped(schema.agentProfile.organizationId, session.organizationId))
+        .returning()
+  );
   if (!updated[0]) return apiError(404, "not_found", "Perfil no encontrado");
   return Response.json({ ok: true });
 });

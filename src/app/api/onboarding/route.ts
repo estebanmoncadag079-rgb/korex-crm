@@ -110,7 +110,9 @@ export const POST = withAuth(async (session, req: Request) => {
 
   const resultado = await aplicarFicha(
     session.organizationId,
-    body.data.borrador as FichaDelNegocio
+    body.data.borrador as FichaDelNegocio,
+    // Quién rellenó el cuestionario: el cliente, con nombre y apellidos en el log.
+    { actor: `user:${session.userId}` }
   );
 
   return Response.json({

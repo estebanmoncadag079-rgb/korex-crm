@@ -154,3 +154,61 @@ export function registrarCambios(entrada: {
     return [];
   }
 }
+
+/**
+ * Envuelve una escritura y la registra: lee la fila entera antes, ejecuta, lee
+ * la fila entera después y anota lo que cambió.
+ *
+ * Existe para que instrumentar un proceso cueste tres líneas. Cuanto más caro
+ * sea instrumentar, más sitios quedarán sin instrumentar — y el que falte será
+ * justo por donde entre el próximo cambio silencioso.
+ *
+ * **No altera el flujo**: devuelve lo que devuelva la operación, y si algo falla
+ * registrando, la operación ya ocurrió y su resultado se respeta.
+ */
+export async function conRegistro<T>(
+  entrada: {
+    tabla: string;
+    registro: string;
+    /** Lee la fila COMPLETA. `null` si aún no existe (un alta). */
+    leerFila: () => Promise<Fila | null>;
+    declarados: readonly string[];
+    proceso: string;
+    actor: Actor;
+  },
+  operacion: () => Promise<T>
+): Promise<T> {
+  let antes: Fila | null = null;
+  try {
+    antes = await entrada.leerFila();
+  } catch {
+    antes = null; // no poder leer el antes no puede impedir la escritura
+  }
+
+  const resultado = await operacion();
+
+  try {
+    const despues = await entrada.leerFila();
+    if (antes && despues) {
+      registrarCambios({
+        tabla: entrada.tabla,
+        registro: entrada.registro,
+        antes,
+        despues,
+        declarados: entrada.declarados,
+        proceso: entrada.proceso,
+        actor: entrada.actor,
+      });
+    } else if (!antes && despues) {
+      console.log(
+        `[cambio] tabla=${entrada.tabla} registro=${entrada.registro} campo=<fila nueva> ` +
+          `valor_anterior=ausente valor_nuevo=<creada> proceso=${entrada.proceso} ` +
+          `actor=${entrada.actor} timestamp=${new Date().toISOString()}`
+      );
+    }
+  } catch (err) {
+    console.warn(`[cambio] no se pudo registrar: ${(err as Error).message}`);
+  }
+
+  return resultado;
+}

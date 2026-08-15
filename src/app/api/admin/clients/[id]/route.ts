@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
+import type { Fila } from "@/server/ai/generador/comparar-fila";
+import { conRegistro } from "@/server/registro-de-cambios";
 import { getEnv } from "@/lib/env";
 import { findOrganization } from "@/server/admin/clients";
 import {
@@ -41,7 +43,7 @@ const patchSchema = z.object({
  * independiente: se puede mandar solo `appointmentsEnabled` sin tocar nada
  * del número.
  */
-export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) => {
+export const PATCH = withPlatformAdmin(async (session, req: Request, ctx: Ctx) => {
   const { id } = await ctx.params;
   if (!(await findOrganization(id))) {
     return apiError(404, "not_found", "Cliente no encontrado");
@@ -51,10 +53,28 @@ export const PATCH = withPlatformAdmin(async (_session, req: Request, ctx: Ctx) 
 
   if (body.data.appointmentsEnabled !== undefined) {
     const db = getDb();
-    await db
-      .update(schema.agentProfile)
-      .set({ appointmentsEnabled: body.data.appointmentsEnabled })
-      .where(eq(schema.agentProfile.organizationId, id));
+    const leerFila = async () => {
+      const [f] = await db
+        .select()
+        .from(schema.agentProfile)
+        .where(eq(schema.agentProfile.organizationId, id));
+      return (f as unknown as Fila) ?? null;
+    };
+    await conRegistro(
+      {
+        tabla: "agent_profile",
+        registro: id,
+        leerFila,
+        declarados: ["appointmentsEnabled"],
+        proceso: "api/admin/clients",
+        actor: `user:${session.userId}`,
+      },
+      async () =>
+        db
+          .update(schema.agentProfile)
+          .set({ appointmentsEnabled: body.data.appointmentsEnabled })
+          .where(eq(schema.agentProfile.organizationId, id))
+    );
   }
 
   if (body.data.phone === undefined) {

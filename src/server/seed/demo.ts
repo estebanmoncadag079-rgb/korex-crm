@@ -166,6 +166,13 @@ export async function seedDemo(
   organizationId: string
 ): Promise<{ contacts: number; kbEntries: number }> {
   const demoPhones = DEMO_CONTACTS.map((c) => c.phone);
+  // El proceso con más poder de destrucción del sistema deja constancia de que
+  // corrió, aunque ahora solo pueda hacerlo sobre una organización vacía.
+  console.log(
+    `[cambio] tabla=agent_profile registro=${organizationId} campo=<demo> ` +
+      `valor_anterior=<organización vacía> valor_nuevo=<negocio de demostración> ` +
+      `proceso=seedDemo actor=sistema timestamp=${new Date().toISOString()}`
+  );
   const perfilDemo = generarPerfil(FICHA_DEMO);
 
   // --- Idempotencia: limpiar datos demo previos (orden inverso de FKs) ---

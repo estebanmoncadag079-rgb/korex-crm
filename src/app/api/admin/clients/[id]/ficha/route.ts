@@ -70,7 +70,7 @@ const cuerpo = z.object({
 });
 
 export const POST = withPlatformAdmin(
-  async (_session, req: Request, ctx: { params: Promise<{ id: string }> }) => {
+  async (session, req: Request, ctx: { params: Promise<{ id: string }> }) => {
     const { id } = await ctx.params;
 
     // Que la organización exista se comprueba ANTES de generar nada: un id mal
@@ -101,6 +101,7 @@ export const POST = withPlatformAdmin(
       // Desde /admin actúa la AGENCIA, que es la dueña del flujo y las
       // políticas. El cuestionario del cliente solo puede tocar `negocio`.
       puedeEscribir: ["negocio", "flujo", "politicas"],
+      actor: `user:${session.userId}`,
       telefonosDeAviso: body.data.telefonosDeAviso,
     });
     return Response.json({

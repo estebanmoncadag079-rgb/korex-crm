@@ -206,6 +206,20 @@ export async function escribirCatalogo(
   let nGrupos = 0;
   let nOpciones = 0;
 
+  // Un borrado masivo deja rastro: cuántas filas desaparecen y por orden de
+  // quién. Sin esto, re-sembrar el catálogo es invisible en el log.
+  const antes = await db
+    .select({ id: schema.product.id })
+    .from(schema.product)
+    .where(scoped(schema.product.organizationId, organizationId));
+  if (antes.length > 0) {
+    console.log(
+      `[cambio] tabla=product registro=${organizationId} campo=<catálogo completo> ` +
+        `valor_anterior=<${antes.length} productos> valor_nuevo=<${leido.productos.length} productos> ` +
+        `proceso=escribirCatalogo actor=script:migrar-catalogo timestamp=${new Date().toISOString()}`
+    );
+  }
+
   await db.transaction(async (tx) => {
     // Los hijos caen por ON DELETE CASCADE de la FK compuesta.
     await tx

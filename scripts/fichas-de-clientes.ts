@@ -19,6 +19,8 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
+import type { Fila } from "@/server/ai/generador/comparar-fila";
+import { conRegistro } from "@/server/registro-de-cambios";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
 import {
@@ -501,9 +503,25 @@ for (const g of generados) {
   // si no, llevaría datos de negocio que este script no tiene derecho a fijar.
   const perfil = generarPerfil(ficha);
 
-  await db
-    .update(schema.agentProfile)
-    .set({
+  const leerFila = async () => {
+    const [f] = await db
+      .select()
+      .from(schema.agentProfile)
+        }).where(eq(schema.agentProfile.organizationId, g.organizationId))
+  );
+    return (f as unknown as Fila) ?? null;
+  };
+  await conRegistro(
+    {
+      tabla: "agent_profile",
+      registro: g.organizationId,
+      leerFila,
+      declarados: ["name", "instructions", "escalationRules", "greeting", "ficha", "updatedAt"],
+      proceso: "fichas-de-clientes",
+      actor: "script:fichas-de-clientes",
+    },
+    async () =>
+      db.update(schema.agentProfile).set({
       name: `Asistente de ${ficha.nombre}`,
       instructions: perfil.instructions,
       escalationRules: perfil.escalationRules,

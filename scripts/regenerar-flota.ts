@@ -23,6 +23,8 @@ import { eq, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
+import type { Fila } from "@/server/ai/generador/comparar-fila";
+import { conRegistro } from "@/server/registro-de-cambios";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 
@@ -115,9 +117,25 @@ for (const p of perfiles) {
   );
 
   if (!aplicar || igual) continue;
-  await db
-    .update(schema.agentProfile)
-    .set({
+  const leerFila = async () => {
+    const [f] = await db
+      .select()
+      .from(schema.agentProfile)
+        }).where(eq(schema.agentProfile.organizationId, p.organizationId))
+  );
+    return (f as unknown as Fila) ?? null;
+  };
+  await conRegistro(
+    {
+      tabla: "agent_profile",
+      registro: p.organizationId,
+      leerFila,
+      declarados: ["name", "instructions", "escalationRules", "greeting", "updatedAt"],
+      proceso: "regenerar:flota",
+      actor: "script:regenerar:flota",
+    },
+    async () =>
+      db.update(schema.agentProfile).set({
       name: `Asistente de ${ficha.nombre}`,
       instructions: perfil.instructions,
       escalationRules: perfil.escalationRules,

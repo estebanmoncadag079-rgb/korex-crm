@@ -62,6 +62,8 @@ if (!orgId || orgId.startsWith("--")) {
   process.exit(1);
 }
 const aplicar = process.argv.includes("--aplicar");
+/** Reemplazar un catálogo ya cargado exige decirlo a propósito. */
+const forzar = process.argv.includes("--forzar");
 const encender = process.argv.includes("--encender");
 const apagar = process.argv.includes("--apagar");
 
@@ -173,6 +175,60 @@ if (!aplicar) {
   console.log("\n[catalogo] NO se escribió nada (falta --aplicar). Revisa la lista de arriba primero.");
   await sql.end();
   process.exit(0);
+}
+
+/*
+ * El cerrojo del borrado masivo.
+ *
+ * `escribirCatalogo` BORRA todos los productos de la organización y los recrea
+ * desde el texto de la ficha. Ejecutarlo dos veces no es inocuo: se pierde
+ * cualquier precio corregido en la tabla —que es justo lo que la Fase 1
+ * prometió que se podía hacer con un UPDATE— y los IDs cambian.
+ *
+ * Con productos ya cargados hace falta `--forzar`, y se dice cuántos van a
+ * desaparecer antes de hacerlo.
+ */
+const yaCargados = await catalogoDePedidos(orgId);
+if (yaCargados.length > 0) {
+  const opciones = yaCargados.reduce(
+    (n, p) => n + p.grupos.reduce((m, g) => m + g.opciones.length, 0),
+    0
+  );
+  console.log(`
+[catalogo] ⚠️  ESTE NEGOCIO YA TIENE CATÁLOGO EN TABLAS`);
+  console.log(`[catalogo]    se BORRARÍAN ${yaCargados.length} productos y ${opciones} opciones,`);
+  console.log(`[catalogo]    y se recrearían desde el texto de la ficha (los IDs cambian).`);
+
+  /*
+   * ¿Difieren la tabla y la ficha? Entonces alguien corrigió a mano.
+   *
+   * Se comparan los nombres NORMALIZADOS. La primera versión avisaba de
+   * "divergencia" porque la tabla guarda `BESTIES` y la ficha dice `Besties`:
+   * una alarma que suena siempre es una alarma apagada, y ésta tiene que sonar
+   * solo cuando un precio o un producto cambiaron de verdad.
+   */
+  const clave = (nombre: string, precio: number | null) =>
+    `${nombre.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim()}|${precio ?? "?"}`;
+  const enTabla = yaCargados.map((p) => clave(p.nombre, p.precioCents)).sort();
+  const enFicha = leido.productos.map((p) => clave(p.nombre, p.precioCents)).sort();
+  const distintos = enTabla.length !== enFicha.length || enTabla.some((v, i) => v !== enFicha[i]);
+  if (distintos) {
+    console.log(`
+[catalogo] 🔴 LA TABLA Y LA FICHA NO COINCIDEN.`);
+    console.log(`[catalogo]    en la tabla: ${enTabla.join(" · ")}`);
+    console.log(`[catalogo]    en la ficha: ${enFicha.join(" · ")}`);
+    console.log(`[catalogo]    Alguien corrigió precios a mano: re-sembrar los pierde.`);
+  }
+
+  if (!forzar) {
+    console.error(`
+[catalogo] ⛔ ABORTADO. Si de verdad quieres reemplazarlo: --forzar
+`);
+    await sql.end();
+    process.exit(1);
+  }
+  console.log(`
+[catalogo] --forzar recibido: se reemplaza el catálogo.`);
 }
 
 const res = await escribirCatalogo(orgId, leido);

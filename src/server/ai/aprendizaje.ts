@@ -266,6 +266,7 @@ export async function aprobarPropuesta(
 
   const kbId = newId("kbEntry");
   await db.insert(schema.kbEntry).values({
+    origen: "agente",
     id: kbId,
     organizationId,
     kind: "qa",

@@ -414,6 +414,22 @@ export const kbEntry = pgTable(
     question: text("question"),
     answer: text("answer"),
     content: text("content"),
+    /**
+     * Quién puso esta entrada. **Cada origen solo puede modificar o borrar las
+     * suyas.**
+     *
+     * El conocimiento crece de tres sitios legítimos —el cliente en su
+     * pantalla, el operador desde el laboratorio y el agente al aprender de una
+     * conversación— y hasta ahora los tres escribían sobre el mismo montón. Así
+     * se perdió la corrección de salud del salón: el cuestionario repuso una
+     * versión vieja encima de algo que una persona había arreglado a mano.
+     *
+     * `cliente` por defecto: es lo que hay hoy en las 33 entradas existentes y
+     * lo más restrictivo para el resto.
+     */
+    origen: text("origen", { enum: ["cliente", "operador", "agente"] })
+      .notNull()
+      .default("cliente"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

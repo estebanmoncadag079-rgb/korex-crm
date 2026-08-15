@@ -40,6 +40,7 @@ export const POST = withPlatformAdmin(async (session, req: Request) => {
   const inserted = await db
     .insert(schema.kbEntry)
     .values({
+    origen: "operador",
       id: newId("kbEntry"),
       organizationId: session.organizationId,
       kind: "qa",

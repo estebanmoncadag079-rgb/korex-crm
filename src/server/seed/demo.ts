@@ -2,6 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import type { getDb } from "@/lib/db";
 import { schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
+import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
+import { generarPerfil } from "@/server/ai/generador/generar";
 
 /**
  * Negocio de demostración "Ferretería El Martillo" (FR-075).
@@ -130,11 +132,41 @@ const DEMO_KB: { kind: "qa" | "block"; question?: string; answer?: string; conte
   // HUECO INTENCIONAL: nada sobre garantías ni devoluciones (lo encuentra el Laboratorio).
 ];
 
+/**
+ * La ficha del negocio de demostración.
+ *
+ * Existe para que la demo **no sea una excepción**: su prompt se compila con
+ * `generarPerfil()` igual que el de un cliente real, así que hereda cada
+ * lección de `conducta.ts` sin que nadie tenga que acordarse de copiarla.
+ */
+const FICHA_DEMO = {
+  nombre: "Ferretería El Martillo",
+  queVende: "herramienta, tornillería y material eléctrico",
+  vertical: "pedidos",
+  horario: { dias: [1, 2, 3, 4, 5, 6], abre: "8:00 AM", cierra: "6:00 PM" },
+  catalogo: [
+    "Taladro percutor — $1.890",
+    "Juego de desarmadores — $349",
+    "Cinta métrica 5 m — $89",
+  ].join("\n"),
+  entrega: {
+    haceDomicilios: true,
+    como: "envío local el mismo día",
+    quienPagaElDomicilio: "el cliente, al recibir",
+  },
+  pago: { formas: "efectivo y transferencia", datosCuenta: "cuenta demo 0000" },
+  tono: "Cercano y práctico, de ferretería de confianza. Tutea al cliente.",
+  reglasPropias: ["Si piden mayoreo, menciona los mínimos."],
+  escalarSiempre: ["facturas con datos fiscales complejos", "quejas de producto dañado"],
+  nuncaPrometer: ["existencias que no estén en el conocimiento"],
+} as unknown as FichaDelNegocio;
+
 export async function seedDemo(
   db: Db,
   organizationId: string
 ): Promise<{ contacts: number; kbEntries: number }> {
   const demoPhones = DEMO_CONTACTS.map((c) => c.phone);
+  const perfilDemo = generarPerfil(FICHA_DEMO);
 
   // --- Idempotencia: limpiar datos demo previos (orden inverso de FKs) ---
   const prevContacts = await db
@@ -159,10 +191,14 @@ export async function seedDemo(
     await db.delete(schema.lead).where(inArray(schema.lead.contactId, prevIds));
     await db.delete(schema.contact).where(inArray(schema.contact.id, prevIds));
   }
-  // KB y corridas demo previas
-  await db
-    .delete(schema.kbEntry)
-    .where(eq(schema.kbEntry.organizationId, organizationId));
+  /*
+   * El conocimiento NO se borra. Nunca.
+   *
+   * Aquí había un `DELETE` de `kb_entry` entero "por idempotencia". Como la
+   * demo solo puede correr sobre una organización sin nada configurado, no hay
+   * nada que limpiar — y si algún día la guarda fallara, este borrado
+   * convertiría un error en una pérdida.
+   */
   await db
     .delete(schema.agentTestCase)
     .where(eq(schema.agentTestCase.organizationId, organizationId));
@@ -253,13 +289,16 @@ export async function seedDemo(
   await db
     .update(schema.agentProfile)
     .set({
-      name: "Martillito",
-      tone: "Cercano y práctico, de ferretería de confianza. Tutea al cliente.",
-      instructions:
-        "Ayuda a cotizar y cerrar ventas. Da precios en MXN solo si están en el conocimiento. Si piden mayoreo, menciona los mínimos. Nunca inventes existencias.",
-      escalationRules:
-        "Escala a un humano si piden factura con datos fiscales complejos, si hay una queja de producto dañado o si lo piden explícitamente.",
-      greeting: "¡Hola! Soy Martillito, el asistente de Ferretería El Martillo 🔨",
+      name: `Asistente de ${FICHA_DEMO.nombre}`,
+      tone: FICHA_DEMO.tono,
+      // El prompt de la demo se COMPILA desde su ficha, como el de cualquier
+      // cliente. Antes eran cuatro cadenas escritas a mano: la única excepción
+      // del sistema a "lo derivado no se escribe, se recompila" — y encima en
+      // el proceso con más poder de destrucción.
+      instructions: perfilDemo.instructions,
+      escalationRules: perfilDemo.escalationRules,
+      greeting: perfilDemo.greeting,
+      ficha: JSON.stringify(FICHA_DEMO),
       updatedAt: new Date(),
     })
     .where(eq(schema.agentProfile.organizationId, organizationId));
@@ -371,14 +410,55 @@ export async function seedDemo(
 }
 
 /** true si la organización aún no tiene datos de dominio (para el botón). */
+/**
+ * ¿Se puede cargar la demo sin destruir nada?
+ *
+ * **La versión anterior preguntaba solo si había contactos**, y esa es la
+ * pregunta equivocada: un cliente recién dado de alta tiene su prompt, su ficha
+ * y su catálogo puestos, y **todavía ningún mensaje**. Justo en esa ventana, un
+ * clic en "cargar demo" le sustituía el prompt por el de una ferretería y le
+ * borraba el conocimiento entero.
+ *
+ * Ahora la pregunta es la correcta: **¿hay algo configurado que se pueda
+ * perder?** Basta con que exista una sola de estas cosas para decir que no.
+ */
 export async function isDomainEmpty(
   db: Db,
   organizationId: string
 ): Promise<boolean> {
-  const rows = await db
-    .select({ id: schema.contact.id })
-    .from(schema.contact)
-    .where(eq(schema.contact.organizationId, organizationId))
+  return (await motivosParaNoSembrar(db, organizationId)).length === 0;
+}
+
+/** Qué impide cargar la demo, en palabras que se puedan enseñar al usuario. */
+export async function motivosParaNoSembrar(
+  db: Db,
+  organizationId: string
+): Promise<string[]> {
+  const motivos: string[] = [];
+
+  const [perfil] = await db
+    .select({
+      instructions: schema.agentProfile.instructions,
+      ficha: schema.agentProfile.ficha,
+    })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
-  return rows.length === 0;
+  if (perfil?.instructions?.trim()) motivos.push("ya tiene un prompt configurado");
+  if (perfil?.ficha) motivos.push("ya tiene su ficha guardada");
+
+  const hay = async (tabla: typeof schema.contact | typeof schema.kbEntry | typeof schema.product | typeof schema.service) => {
+    const filas = await db
+      .select({ id: tabla.id })
+      .from(tabla)
+      .where(eq(tabla.organizationId, organizationId))
+      .limit(1);
+    return filas.length > 0;
+  };
+  if (await hay(schema.kbEntry)) motivos.push("ya tiene conocimiento cargado");
+  if (await hay(schema.product)) motivos.push("ya tiene catálogo de productos");
+  if (await hay(schema.service)) motivos.push("ya tiene servicios cargados");
+  if (await hay(schema.contact)) motivos.push("ya tiene contactos");
+
+  return motivos;
 }

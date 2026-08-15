@@ -148,6 +148,13 @@
       "when": 1786796676151,
       "tag": "0020_catalogo_de_pedidos",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786883076151,
+      "tag": "0021_origen_del_conocimiento",
+      "breakpoints": true
     }
   ]
 }

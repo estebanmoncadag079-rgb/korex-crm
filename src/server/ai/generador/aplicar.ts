@@ -154,11 +154,17 @@ export async function aplicarFicha(
     .select({
       ficha: schema.agentProfile.ficha,
       catalogSource: schema.agentProfile.catalogSource,
+      hoursOpen: schema.agentProfile.hoursOpen,
+      hoursClose: schema.agentProfile.hoursClose,
     })
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
   const fichaCruda = guardada[0]?.ficha ?? null;
+  /** Con horario ya puesto, esto es un reenvío: no se toca. */
+  const horarioYaConfigurado = Boolean(
+    guardada[0]?.hoursOpen?.trim() && guardada[0]?.hoursClose?.trim()
+  );
 
   const { ficha, conservadas } = fusionarFicha(
     fichaCruda,
@@ -217,14 +223,35 @@ export async function aplicarFicha(
         instructions: perfil.instructions,
         escalationRules: perfil.escalationRules,
         greeting: perfil.greeting,
-        hoursDays: ficha.horario.dias.join(","),
-        // Se guarda YA normalizado a "HH:MM": el cliente escribe "9 AM" y el
-        // motor de citas necesita "09:00". Guardar el texto crudo dejaba la
-        // agenda sin un solo hueco, en silencio (ver `lib/hora.ts`).
-        hoursOpen: normalizarHora(ficha.horario.abre) ?? ficha.horario.abre,
-        hoursClose: normalizarHora(ficha.horario.cierra) ?? ficha.horario.cierra,
-        hoursOpenSunday: normalizarHora(ficha.horario.abreDomingo) ?? null,
-        hoursCloseSunday: normalizarHora(ficha.horario.cierraDomingo) ?? null,
+        /*
+         * EL HORARIO SOLO SE ESCRIBE EN EL ALTA.
+         *
+         * Las columnas `hours*` son la fuente canónica: las leen el pipeline,
+         * el prompt y el motor de citas. `ficha.horario` es lo que el cliente
+         * respondió el día del alta — un registro histórico, no un dato
+         * operativo.
+         *
+         * Reescribirlas en cada reenvío del cuestionario revirtió el horario
+         * del salón el 15-ago a las 19:46:41: alguien lo había corregido a
+         * 9:30–18:30 y volvió a 9:00–20:00 sin que nada avisara. El agente
+         * habría ofrecido citas a las 19:00 con el salón cerrado.
+         *
+         * En el alta sí se escriben —si no, un negocio nuevo nace sin horario y
+         * el agente cree que siempre está abierto—, y a partir de ahí solo las
+         * cambia su dueño.
+         */
+        ...(horarioYaConfigurado
+          ? {}
+          : {
+              hoursDays: ficha.horario.dias.join(","),
+              // Normalizado a "HH:MM": el cliente escribe "9 AM" y el motor de
+              // citas necesita "09:00". El texto crudo dejaba la agenda sin un
+              // solo hueco, en silencio (ver `lib/hora.ts`).
+              hoursOpen: normalizarHora(ficha.horario.abre) ?? ficha.horario.abre,
+              hoursClose: normalizarHora(ficha.horario.cierra) ?? ficha.horario.cierra,
+              hoursOpenSunday: normalizarHora(ficha.horario.abreDomingo) ?? null,
+              hoursCloseSunday: normalizarHora(ficha.horario.cierraDomingo) ?? null,
+            }),
         // Vacío es una decisión válida y hay que poder expresarla: Lis pidió
         // expresamente que no se avisara a ningún número, ni al suyo.
         //

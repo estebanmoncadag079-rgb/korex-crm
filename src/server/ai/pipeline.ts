@@ -3,7 +3,8 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import { getEnv, isAiConfigured } from "@/lib/env";
-import { chatJson, type ChatMessage } from "@/lib/ai";
+import { chatJson, type ChatJsonResult, type ChatMessage } from "@/lib/ai";
+import { z } from "zod";
 import { publish } from "@/server/events/bus";
 import { isWindowOpen } from "@/server/inbox/window";
 import { SendError, sendImage, sendText } from "@/server/inbox/send";
@@ -41,6 +42,15 @@ import {
   resolverEspecialista,
 } from "@/server/appointments/queries";
 import { catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
+import {
+  borrarEstado,
+  guardarEstado,
+  leerEstado,
+  validarPropuesta,
+  type EstadoDelPedido,
+  type PropuestaDelModelo,
+} from "@/server/orders/estado";
+import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
   anunciaCierre,
@@ -519,6 +529,41 @@ export async function runAgentTurn(
     }
   }
 
+  /*
+   * FASE 2 — el estado del pedido, si este cliente lo tiene encendido.
+   *
+   * ⚠️ **Todo lo de la Fase 2 cuelga de `state_source === 'backend'`, y hoy los
+   * cuatro clientes están en `'prompt'`.** Con la bandera así, este bloque no
+   * lee, no escribe y no cambia el prompt: el turno corre exactamente como
+   * antes. Es el mismo interruptor que la Fase 1, que ya demostró servir.
+   *
+   * El "0" reinicia ANTES de llamar al modelo, igual que el handoff: es una
+   * decisión determinista del servidor, no algo que se le pida al LLM.
+   */
+  const estadoEstructurado = !profile.appointmentsEnabled && profile.stateSource === "backend";
+  let bloqueDeEstado: string | undefined;
+  let estadoGuardado: EstadoDelPedido | null = null;
+  let salsasQueLleva = 0;
+
+  if (estadoEstructurado) {
+    const productos = await catalogoDePedidosQuery(organizationId);
+    if (productos.length === 0) {
+      // Sin catálogo en tablas no hay nada contra lo que validar: se cae al
+      // comportamiento de siempre en vez de inventarse un pedido.
+      console.warn(
+        `[estado] ${organizationId}: state_source='backend' pero sin catálogo; se usa el del prompt`
+      );
+    } else {
+      if (lastInbound.text && matchesReinicio(lastInbound.text)) {
+        await borrarEstado(conversation.id, { actor: "pipeline", proceso: "reinicio" });
+      }
+      estadoGuardado = await leerEstado(conversation.id);
+      const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
+      salsasQueLleva = delPedido?.grupos.find((g) => g.opciones.length > 0)?.maximo ?? 0;
+      if (estadoGuardado) bloqueDeEstado = comoTexto(estadoGuardado, salsasQueLleva);
+    }
+  }
+
   const messages: ChatMessage[] = [
     {
       role: "system",
@@ -530,13 +575,42 @@ export async function runAgentTurn(
         now: opts?.now,
         appointments: profile.appointmentsEnabled ? { catalog: services } : undefined,
         catalogoDePedidos,
+        estadoDelPedido: bloqueDeEstado,
         fotos,
       }),
     },
     ...toChatHistory(history, estado),
   ];
 
-  const result = await chatJson(AgentAction, messages);
+  /*
+   * Con el estado encendido, la propuesta viaja en la MISMA llamada que la
+   * respuesta. Lo decidió la medición: más barata ($0,002320 contra $0,002508
+   * por turno), más rápida (2.172 ms contra 3.690) y **acierta donde la llamada
+   * aparte falla**, porque conoce las reglas del negocio — sabe que el "0"
+   * reinicia.
+   *
+   * El esquema es `passthrough` con `estado` OPCIONAL: cuando el agente deriva
+   * a una persona o calla, no hay pedido que extraer, y exigirlo rechazaba 4 de
+   * cada 36 respuestas justo en las conversaciones más delicadas.
+   */
+  const conEstado = estadoEstructurado ? await chatJsonConEstado(messages) : null;
+  const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
+  const propuestaDelTurno = conEstado?.propuesta;
+
+  /*
+   * El modelo PROPONE; el backend valida y persiste.
+   *
+   * Se hace después de la respuesta y **fuera de su camino**: si la propuesta no
+   * vale, se registra y se descarta, pero el cliente ya tiene su contestación.
+   * Un estado que no valida no puede convertirse en un turno perdido.
+   */
+  if (estadoEstructurado && result.ok) {
+    await guardarEstadoPropuesto({
+      organizationId,
+      conversationId: conversation.id,
+      propuesta: propuestaDelTurno,
+    });
+  }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
   // son justo los que encarecen a un cliente sin que se note en ninguna parte.
   await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
@@ -1500,4 +1574,104 @@ async function avisarYConfirmar(params: {
     params.conversation,
     params.farewell ? `${params.confirmacion}\n${params.farewell}` : params.confirmacion
   );
+}
+
+
+/**
+ * ¿El cliente pidió empezar de cero?
+ *
+ * Determinista y ANTES del modelo, igual que el handoff: si dependiera del LLM,
+ * un turno confuso podría arrastrar un pedido que el cliente ya canceló. La
+ * palabra la decide cada negocio; `"0"` es la convención de La Churra y está en
+ * su prompt, no en este código.
+ */
+function matchesReinicio(texto: string, palabras: string[] = ["0"]): boolean {
+  const t = texto.trim().toLowerCase();
+  return palabras.some((p) => t === p.toLowerCase());
+}
+
+/**
+ * Valida la propuesta del modelo y la guarda si es válida.
+ *
+ * **Nunca lanza**: esto corre después de que el cliente ya tenga su respuesta.
+ * Un fallo aquí no puede convertirse en un turno perdido — se registra y el
+ * estado se queda como estaba, que es recuperable.
+ */
+async function guardarEstadoPropuesto(entrada: {
+  organizationId: string;
+  conversationId: string;
+  propuesta: PropuestaDelModelo | undefined;
+}): Promise<void> {
+  // Sin `estado` en la respuesta no hay nada que guardar: pasa cuando el agente
+  // deriva a una persona o no responde, y es legítimo.
+  if (!entrada.propuesta) return;
+
+  try {
+    const productos = await catalogoDePedidosQuery(entrada.organizationId);
+    const v = validarPropuesta(entrada.propuesta, productos);
+    if (!v.ok) {
+      console.warn(
+        `[estado] ${entrada.conversationId}: propuesta RECHAZADA — ${v.rechazos.join(" · ")}`
+      );
+      return;
+    }
+    await guardarEstado({
+      conversationId: entrada.conversationId,
+      organizationId: entrada.organizationId,
+      estado: v.estado,
+      actor: "pipeline",
+      proceso: "runAgentTurn",
+    });
+  } catch (err) {
+    console.warn(`[estado] no se pudo guardar: ${(err as Error).message}`);
+  }
+}
+
+
+/**
+ * La llamada del agente pidiéndole ADEMÁS el estado del pedido.
+ *
+ * Devuelve la acción con su tipo de siempre —el resto del pipeline no se entera
+ * de nada— y la propuesta aparte. Si el modelo manda una acción que no encaja
+ * en `AgentAction`, se trata como salida inválida igual que antes: la Fase 2 no
+ * puede relajar el contrato que ya funciona.
+ */
+async function chatJsonConEstado(
+  messages: ChatMessage[]
+): Promise<{ resultado: ChatJsonResult<AgentActionType>; propuesta?: PropuestaDelModelo }> {
+  const EsquemaConEstado = z
+    .object({ estado: z.record(z.string(), z.unknown()).optional() })
+    .passthrough();
+
+  const bruto = await chatJson(EsquemaConEstado, [
+    ...messages.slice(0, 1),
+    {
+      role: "system",
+      content:
+        'Además de la acción, añade al MISMO objeto JSON una clave "estado" con el pedido tal como va: ' +
+        '{"producto": …, "cantidad": …, "salsas": [], "recubierto": …, "adiciones": [], ' +
+        '"nombre": …, "telefono": …, "direccion": …, "paso": …, "confirmado": false}. ' +
+        "Lo que el cliente aún no haya dicho va en null (o lista vacía). No inventes nada.",
+    },
+    ...messages.slice(1),
+  ]);
+
+  if (!bruto.ok) return { resultado: bruto as ChatJsonResult<AgentActionType> };
+
+  const { estado, ...accion } = bruto.data as { estado?: unknown };
+  const validada = AgentAction.safeParse(accion);
+  if (!validada.success) {
+    return {
+      resultado: {
+        ok: false,
+        error: "invalid_output",
+        detail: `la acción no cumple el contrato: ${validada.error.issues[0]?.message ?? "?"}`,
+        usage: bruto.usage,
+      },
+    };
+  }
+  return {
+    resultado: { ok: true, data: validada.data, raw: bruto.raw, usage: bruto.usage },
+    propuesta: estado as PropuestaDelModelo | undefined,
+  };
 }

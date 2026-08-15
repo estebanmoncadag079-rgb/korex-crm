@@ -244,6 +244,34 @@ try {
   });
   comprobar("no se usa a medias: se empieza limpio", (await leerEstado(conversationId)) === null);
 
+  // 6b. Concurrencia
+  console.log("\n6b. CONCURRENCIA (dos turnos a la vez sobre la misma conversación)");
+  const dos: EstadoDelPedido[] = [
+    { ...estadoVacio(), producto: { id: productId, nombre: "CHURRITA", cantidad: 1 }, paso: "turno-A" },
+    { ...estadoVacio(), producto: { id: productId, nombre: "CHURRITA", cantidad: 2 }, paso: "turno-B" },
+  ];
+  await Promise.all(
+    dos.map((e) =>
+      guardarEstado({
+        conversationId,
+        organizationId,
+        estado: e,
+        actor: "script:probar-estado",
+        proceso: "concurrencia",
+      })
+    )
+  );
+  const tras = await leerEstado(conversationId);
+  // La cola garantiza un turno por conversación, así que esto NO debería pasar
+  // en producción; se comprueba igual porque el día que la cola falle, el
+  // reemplazo completo tiene que dejar un estado coherente, no una mezcla.
+  const coherente =
+    tras !== null &&
+    ((tras.paso === "turno-A" && tras.producto.cantidad === 1) ||
+      (tras.paso === "turno-B" && tras.producto.cantidad === 2));
+  comprobar("gana uno de los dos ENTERO, sin mezclarse", coherente, `quedó ${tras?.paso}`);
+  await borrarEstado(conversationId, { actor: "script:probar-estado", proceso: "limpieza" });
+
   // 7. La flota, fila completa
   console.log("\n7. LA FLOTA NO CAMBIÓ");
   const flotaDespues = await huellaDeLaFlota();

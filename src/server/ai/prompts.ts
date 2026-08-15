@@ -569,6 +569,14 @@ export function buildAgentSystemPrompt(input: {
    * capacidades en `docs/korexia/62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md`).
    */
   catalogoDePedidos?: string;
+  /**
+   * FASE 2. El pedido que el BACKEND sostiene, ya validado, y lo que falta.
+   *
+   * Presente solo cuando `state_source = 'backend'`. Sustituye a las súplicas
+   * del prompt ("no vuelvas a preguntar lo que ya te dijeron"): el modelo deja
+   * de tener que acordarse porque se lo recuerda el servidor.
+   */
+  estadoDelPedido?: string;
   /** Fotos cargadas por el negocio. Vacío o ausente = no puede mandar ninguna. */
   fotos?: { etiqueta: string; kind: string }[];
 }): string {
@@ -593,6 +601,9 @@ export function buildAgentSystemPrompt(input: {
     input.catalogoDePedidos
       ? `CATÁLOGO DEL NEGOCIO (precios y opciones; es la fuente de verdad, no inventes nada que no esté aquí):\n${input.catalogoDePedidos}`
       : null,
+    // El estado que sostiene el servidor. Va DESPUÉS del catálogo: primero qué
+    // vende el negocio, luego qué lleva este cliente concreto.
+    input.estadoDelPedido ?? null,
     // Solo donde hace falta contar días: los clientes de pedidos no agendan.
     input.appointments
       ? calendarioProximosDias(

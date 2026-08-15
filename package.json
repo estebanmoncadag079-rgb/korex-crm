@@ -33,7 +33,8 @@
     "simular:ficha": "esbuild scripts/simular-ficha-v2.ts --bundle --platform=node --format=esm --outfile=.tmp-simular-ficha.mjs --alias:@=./src --packages=external && node .tmp-simular-ficha.mjs",
     "probar:propiedad": "esbuild scripts/probar-propiedad-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-propiedad.mjs --alias:@=./src --packages=external && node .tmp-probar-propiedad.mjs",
     "convertir:ficha": "esbuild scripts/convertir-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-convertir-ficha.mjs --alias:@=./src --packages=external && node .tmp-convertir-ficha.mjs",
-    "restaurar:horario": "esbuild scripts/restaurar-horario.ts --bundle --platform=node --format=esm --outfile=.tmp-restaurar-horario.mjs --alias:@=./src --packages=external && node .tmp-restaurar-horario.mjs"
+    "restaurar:horario": "esbuild scripts/restaurar-horario.ts --bundle --platform=node --format=esm --outfile=.tmp-restaurar-horario.mjs --alias:@=./src --packages=external && node .tmp-restaurar-horario.mjs",
+    "probar:estado": "esbuild scripts/probar-estado.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-estado.mjs --alias:@=./src --packages=external && node .tmp-probar-estado.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -385,6 +385,16 @@ export const agentProfile = pgTable(
      */
     catalogSource: text("catalog_source").notNull().default("prompt"),
     /**
+     * FASE 2. `'prompt'` = el estado del pedido lo sostiene el modelo dentro de
+     * la conversación, como hasta hoy. `'backend'` = lo mantiene el servidor en
+     * `conversation_state`, validado y con el total recalculado.
+     *
+     * Nace en `'prompt'` y se enciende cliente por cliente. Volver atrás es un
+     * UPDATE de esta columna, sin desplegar: es el mismo patrón de
+     * `catalog_source`, que ya funcionó en la Fase 1.
+     */
+    stateSource: text("state_source").notNull().default("prompt"),
+    /**
      * La ficha del negocio con la que se generó este prompt (JSON).
      *
      * Sin ella, una lección nueva en `conducta.ts` solo llegaba a los clientes

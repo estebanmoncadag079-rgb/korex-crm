@@ -83,6 +83,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [61-UNA-SOLA-PUERTA.md](61-UNA-SOLA-PUERTA.md) | 🔑 **Cada dato se escribe en un solo sitio**: el cuestionario borraba el conocimiento de la pantalla y deshizo una corrección de salud ya verificada. Qué se quitó del cuestionario y de la pantalla del agente, por qué la conducta no se edita cliente por cliente, y la lección de fondo — *una verificación sobre algo que el siguiente clic deshace no verifica nada* |
 
+| [62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md](62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md) | 🔴 **Plan propuesto, NO aprobado**: sacar del prompt el estado de la conversación (hoy el prompt le pide al modelo que "relea el historial" porque el pedido no existe como dato). Incluye el roadmap por fases, el diseño de datos… y **las cinco objeciones que siguen abiertas**, empezando por la más incómoda: nadie ha medido cuántos pedidos se pierden de verdad |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

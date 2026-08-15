@@ -85,6 +85,12 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md](62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md) | 🔴 **Plan propuesto, NO aprobado**: sacar del prompt el estado de la conversación (hoy el prompt le pide al modelo que "relea el historial" porque el pedido no existe como dato). Incluye el roadmap por fases, el diseño de datos… y **las cinco objeciones que siguen abiertas**, empezando por la más incómoda: nadie ha medido cuántos pedidos se pierden de verdad |
 
+| [63-CATALOGO-DE-PEDIDOS-EN-TABLAS.md](63-CATALOGO-DE-PEDIDOS-EN-TABLAS.md) | **La Fase 1, hecha**: el menú de pedidos sale del prompt a `product`. La receta de tres pasos para migrar un cliente (ver → escribir → encender), el rollback de un comando, y las **cuatro trampas** que aparecieron al hacerlo — incluida la del formato real de la ficha, que se comía cuántas salsas lleva cada presentación |
+
+| [64-BITACORA-14-15AGO.md](64-BITACORA-14-15AGO.md) | **El relato del 14 y 15 de agosto**: la cuenta que nunca se creó, el cuestionario que borraba el conocimiento, las **tres causas** por las que el bot no respetaba el orden (ninguna era el modelo), la Fase 0 que midió y descartó, y lo que se descubrió sin buscarlo |
+
+| [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: lo urgente por orden, qué bloquea al salón, la deuda que volverá a morder y el estado del roadmap |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

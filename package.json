@@ -31,7 +31,8 @@
     "migrar:catalogo": "esbuild scripts/migrar-catalogo.ts --bundle --platform=node --format=esm --outfile=.tmp-catalogo.mjs --alias:@=./src --packages=external && node .tmp-catalogo.mjs",
     "medir:extraccion": "esbuild scripts/medir-extraccion.ts --bundle --platform=node --format=esm --outfile=.tmp-medir-extraccion.mjs --alias:@=./src --packages=external && node .tmp-medir-extraccion.mjs",
     "simular:ficha": "esbuild scripts/simular-ficha-v2.ts --bundle --platform=node --format=esm --outfile=.tmp-simular-ficha.mjs --alias:@=./src --packages=external && node .tmp-simular-ficha.mjs",
-    "probar:propiedad": "esbuild scripts/probar-propiedad-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-propiedad.mjs --alias:@=./src --packages=external && node .tmp-probar-propiedad.mjs"
+    "probar:propiedad": "esbuild scripts/probar-propiedad-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-propiedad.mjs --alias:@=./src --packages=external && node .tmp-probar-propiedad.mjs",
+    "convertir:ficha": "esbuild scripts/convertir-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-convertir-ficha.mjs --alias:@=./src --packages=external && node .tmp-convertir-ficha.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -381,3 +381,66 @@ derivado no se escribe: se recompila"*.
 por eso perderlo duele tanto. Con las secciones separadas, el prompt vuelve a
 ser lo que debería: **un artefacto que se puede tirar y recompilar** desde
 datos con dueño.
+
+---
+
+# ✅ Cerrado el 15-ago-2026
+
+Las cuatro puertas, con una prueba por cada una y todo desplegado.
+
+## Fase A · `seed/demo`
+
+La guarda preguntaba *"¿hay contactos?"*. Ahora pregunta **"¿hay algo
+configurado que se pueda perder?"** —prompt, ficha, conocimiento, productos,
+servicios o contactos—, el prompt de la demo **se compila** con `generarPerfil`
+desde una ficha demo, y desaparece el `DELETE` masivo de `kb_entry`.
+
+## Fase B · Horario
+
+Las columnas `hours*` son la fuente canónica. `aplicarFicha` **solo las escribe
+en el alta**; en cada reenvío posterior no las toca. `ficha.horario` pasa a ser
+registro histórico.
+
+## Fase C · Catálogo
+
+`migrar:catalogo --aplicar` aborta si ya hay productos, dice cuántos borraría y
+avisa si tabla y ficha divergen. Con `--forzar` sigue. Verificado contra
+producción: **abortó correctamente** sobre La Churra.
+
+Y el aviso de divergencia dio un **falso positivo** (`BESTIES` vs `Besties`):
+ahora compara normalizado. *Una alarma que suena siempre es una alarma apagada*
+— el mismo criterio que `[NO DECLARADO]`.
+
+## Fase D · Conocimiento
+
+Columna `kb_entry.origen` (`cliente` | `operador` | `agente`), aditiva y con
+default para las 33 filas existentes (migración 0021). **Cada origen solo puede
+modificar o borrar lo suyo**: es lo que faltaba cuando la corrección de salud del
+salón fue repuesta por una versión vieja.
+
+## La trazabilidad, desplegada
+
+Los **siete procesos** instrumentados con `conRegistro`, que lee la fila entera
+antes y después y registra **solo lo que cambió**:
+
+| Proceso | Actor |
+|---|---|
+| `aplicarFicha` | `user:<id>` (web) · `script:<nombre>` |
+| `api/agent/profile` · `api/admin/clients` | `user:<id>` |
+| `regenerar:flota` · `fichas-de-clientes` | `script:<nombre>` |
+| `escribirCatalogo` | registra el borrado masivo |
+| `seedDemo` | deja constancia de que corrió |
+
+**Primera lectura tras desplegar**: se provocó la operación culpable del
+incidente —reenviar el cuestionario del salón— y registró **un solo campo**
+(`updatedAt`) y **cero `[NO DECLARADO]`**. El horario aguantó en 09:30–18:30.
+
+## Un cargador que no puede borrar
+
+`cargar:opciones` añade grupos sin tocar nada más: lista blanca de grupos, se
+salta los que ya existen, imprime su plan como SQL y **se cancela solo** si
+contuviera una sentencia destructiva. Nació porque `escribirCatalogo` borra y
+recrea, y aquí eso habría destruido unas salsas que en tablas están **mejor** que
+en la ficha.
+
+> 🔑 **Nunca degrades un dato correcto para unificarlo con uno peor.**

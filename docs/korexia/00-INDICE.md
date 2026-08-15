@@ -95,6 +95,12 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [68-UN-DUENO-POR-DATO.md](68-UN-DUENO-POR-DATO.md) | 🔴 **El prompt con dos escritores**: las 9 rutas que escriben `agent_profile`, las 5 colisiones, y por qué repartir campos no basta (lo derivado no se escribe: se recompila). Diagramas del flujo actual y propuesto, y plan de migración con rollback |
 
+| [69-FASE-2-ESTADO-ESTRUCTURADO.md](69-FASE-2-ESTADO-ESTRUCTURADO.md) | **La Fase 2: implementada y APAGADA**. El modelo del estado, el validador, el extractor, cómo se conecta al pipeline y qué bloquea encender la bandera. Incluye cómo encender y cómo apagar |
+
+| [71-BITACORA-15AGO.md](71-BITACORA-15AGO.md) | **El relato del 15 de agosto**: la Fase 1 que no estaba desplegada, las tres cosas que las mediciones desmintieron, el día que una prueba causó el fallo que buscaba, las cuatro puertas y el arranque de la Fase 2 |
+
+| [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
+
 | [67-FASE-1.5.md](67-FASE-1.5.md) | 🔵 **Validar antes de persistir**: la Fase 2 **no puede escribir en la base** hasta que la validación semántica y las métricas den evidencia. Las dos tareas obligatorias, las prohibiciones y la pregunta que decide si se sigue o se para |
 
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para

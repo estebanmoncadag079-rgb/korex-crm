@@ -263,6 +263,54 @@ Dos cosas se corrigieron para que eso sea cierto de verdad y no de boquilla:
 22:00 en Colombia ya es el día siguiente en UTC, y esa es justo la franja de más
 pedidos de una churrería.
 
+---
+
+# 🔴 El flujo del negocio, dictado — y el hueco que destapa
+
+El dueño describe el pedido completo (15-ago-2026):
+
+> Carta → **presentación** (Churrita 1 salsa · Besties 2 · Family Box 3 · Mega
+> Box 5) → **salsas** (arequipe, chocolate, lechera, chocolate blanco) →
+> **recubierto** (azúcar-canela, azúcar sola, sin azúcar) → **adiciones** →
+> **nombre, teléfono y dirección**. Y listo.
+
+**La tabla `product` solo tiene el grupo SALSA.** El recubierto y las adiciones
+—con sus precios— siguen viviendo **únicamente en el prompt**:
+
+```
+✨ RECUBIERTO: Azúcar-canela · Azúcar sola · Ambas · Sin azúcar
+💛 ADICIONES: Salsa de CHOCOLATE $2.000 · LECHERA $1.500 · AREQUIPE $1.500
+              · CHOCOLATE BLANCO $2.000 · Botella de agua $2.000
+```
+
+Consecuencias, todas medibles:
+
+1. **El backend no puede validar el recubierto** ni saber que falta.
+2. **No puede sumar las adiciones**: una botella de agua son $2.000 que hoy
+   solo existen dentro del prompt, y el total lo pone el modelo.
+3. **La métrica "reconstruible" medía de menos.** Un pedido que el normalizador
+   daba por entendido puede no tener recubierto ni datos de entrega.
+
+## Lo corregido
+
+- Los grupos se buscan **por nombre** (`SALSA`, `RECUBIERTO`, `ADICIONES`) en
+  vez de "el primer grupo con opciones", que solo funcionaba mientras hubiera
+  uno.
+- Nuevo `faltaParaCerrar`: qué le falta al pedido **en el orden del flujo**
+  —presentación → salsas → recubierto → nombre, teléfono, dirección—, separado
+  de `reconstruible`, que es otra cosa: *"entendido sin ambigüedad"* no es
+  *"listo para despachar"*. Mezclarlas fue lo que infló la primera métrica.
+- Si el grupo no está en la tabla (como hoy), **se acepta lo que venga sin
+  inventar una lista** y sin exigirlo para cerrar. Hay una prueba de ese caso
+  exacto, porque es el estado real de producción.
+
+## ⚠️ Una discrepancia que hay que resolver
+
+El dueño nombra **tres** recubiertos (canela, azúcar sola, sin azúcar). El
+prompt ofrece **cuatro**: incluye **"Ambas"**. Uno de los dos está mal, y hasta
+saber cuál no se debe cargar el grupo en tablas — cargarlo mal es repetir los
+12 precios equivocados del salón.
+
 ## Lo que este informe NO dice
 
 Mide que el backend reconstruye el pedido **a partir del estado que el modelo

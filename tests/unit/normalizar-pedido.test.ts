@@ -211,6 +211,103 @@ describe("el total lo calcula el servidor (regla 2)", () => {
   });
 });
 
+/**
+ * El flujo REAL del negocio, dictado por el dueño el 15-ago-2026:
+ *
+ *   carta → presentación → salsas (1/2/3/5 según cuál) → recubierto
+ *   (azúcar-canela · azúcar sola · sin azúcar) → adiciones → nombre, teléfono
+ *   y dirección → listo.
+ *
+ * ⚠️ Hoy la tabla `product` **solo** tiene el grupo SALSA: el recubierto y las
+ * adiciones siguen viviendo únicamente en el prompt. Estas pruebas fijan el
+ * comportamiento para cuando estén cargados, y el caso de que NO lo estén.
+ */
+describe("el flujo completo del pedido", () => {
+  const RECUBIERTOS = [
+    { id: "r1", nombre: "azúcar-canela", precioExtraCents: 0 },
+    { id: "r2", nombre: "azúcar sola", precioExtraCents: 0 },
+    { id: "r3", nombre: "sin azúcar", precioExtraCents: 0 },
+  ];
+  const ADICIONES = [
+    { id: "a1", nombre: "botella de agua", precioExtraCents: 200000 },
+    { id: "a2", nombre: "salsa de chocolate", precioExtraCents: 200000 },
+    { id: "a3", nombre: "lechera", precioExtraCents: 150000 },
+  ];
+  const churritaCompleta: ProductoDelCatalogo = {
+    ...CHURRITA,
+    grupos: [
+      { id: "gs", nombre: "SALSA", minimo: 1, maximo: 1, opciones: SALSAS },
+      { id: "gr", nombre: "RECUBIERTO", minimo: 1, maximo: 1, opciones: RECUBIERTOS },
+      { id: "ga", nombre: "ADICIONES", minimo: 0, maximo: 5, opciones: ADICIONES },
+    ],
+  };
+  const CARTA_COMPLETA = [churritaCompleta];
+
+  it("dice todo lo que falta, en el orden del flujo", () => {
+    const r = normalizarPedido({ ...vacio, producto: "churrita" }, CARTA_COMPLETA, UNIDADES);
+    expect(r.faltaParaCerrar).toEqual([
+      "salsas",
+      "recubierto",
+      "nombre",
+      "teléfono",
+      "dirección",
+    ]);
+  });
+
+  it("un pedido con todo no deja nada pendiente, y el total lo suma el servidor", () => {
+    const r = normalizarPedido(
+      {
+        producto: "churrita",
+        cantidad: 1,
+        salsas: ["arequipe"],
+        recubierto: "azúcar-canela",
+        adiciones: ["botella de agua"],
+        nombre: "Andrea",
+        telefono: "3001234567",
+        direccion: "Cra 5 #10-20",
+      },
+      CARTA_COMPLETA,
+      UNIDADES
+    );
+    expect(r.faltaParaCerrar).toEqual([]);
+    expect(r.estado.totalCents).toBe(1200000); // $10.000 + $2.000 de la botella
+    expect(r.reconstruible).toBe(true);
+  });
+
+  it("el recubierto se valida contra la carta, no contra lo que suene bien", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "churrita", salsas: ["arequipe"], recubierto: "con miel" },
+      CARTA_COMPLETA,
+      UNIDADES
+    );
+    expect(r.dudas.some((d) => d.campo === "recubierto")).toBe(true);
+    expect(r.reconstruible).toBe(false);
+  });
+
+  it("mayúsculas y tildes en el recubierto se corrigen, no se rechazan", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "churrita", salsas: ["arequipe"], recubierto: "AZUCAR SOLA" },
+      CARTA_COMPLETA,
+      UNIDADES
+    );
+    expect(r.estado.recubierto).toBe("azúcar sola");
+    expect(r.dudas.some((d) => d.campo === "recubierto")).toBe(false);
+  });
+
+  it("sin el grupo en la tabla (como hoy), se acepta lo que venga sin inventar una lista", () => {
+    // CARTA no tiene grupo RECUBIERTO: es el estado real de producción.
+    const r = normalizarPedido(
+      { ...vacio, producto: "churrita", salsas: ["arequipe"], recubierto: "azúcar-canela" },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.recubierto).toBe("azúcar-canela");
+    expect(r.dudas.some((d) => d.campo === "recubierto")).toBe(false);
+    // Y por eso tampoco puede exigirlo para cerrar.
+    expect(r.faltaParaCerrar).not.toContain("recubierto");
+  });
+});
+
 describe("la pregunta obligatoria de la Fase 1.5", () => {
   it("solo dice que puede reconstruir cuando no queda ninguna duda", () => {
     const completo = normalizarPedido(

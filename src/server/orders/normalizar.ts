@@ -26,6 +26,10 @@ export type EstadoPropuesto = {
   salsas: string[];
   recubierto: string | null;
   adiciones: string[];
+  /** Los tres datos de entrega. Sin ellos el pedido no se puede despachar. */
+  nombre?: string | null;
+  telefono?: string | null;
+  direccion?: string | null;
 };
 
 export type Correccion = {
@@ -57,6 +61,15 @@ export type Resultado = {
   estado: EstadoNormalizado;
   correcciones: Correccion[];
   dudas: Duda[];
+  /**
+   * Lo que le falta al pedido para poder despacharlo, en el orden del flujo del
+   * negocio: presentación → salsas → recubierto → datos de entrega.
+   *
+   * Es distinto de `reconstruible`: un pedido puede estar entendido sin
+   * ambigüedad (nada que preguntar de lo dicho) y aun así estar **a medias**.
+   * Mezclar las dos cosas fue lo que infló la primera métrica de este informe.
+   */
+  faltaParaCerrar: string[];
   /**
    * La pregunta obligatoria de la Fase 1.5: *¿puede el backend reconstruir el
    * pedido exactamente igual que lo haría un humano?* Solo es `true` cuando no
@@ -246,6 +259,13 @@ export function normalizarPedido(
   if (cantidad < 1) cantidad = 1;
 
   // --- Las opciones ------------------------------------------------------
+  //
+  // Los grupos se buscan POR NOMBRE. Antes se cogía "el primer grupo con
+  // opciones", que funcionaba solo mientras el catálogo tuviera un único grupo
+  // — y el flujo real de La Churra tiene tres: salsas, recubierto y adiciones.
+  const grupoLlamado = (p: ProductoDelCatalogo | undefined, ...nombres: string[]) =>
+    p?.grupos.find((g) => nombres.some((n) => llave(g.nombre).startsWith(llave(n))));
+
   const salsas: string[] = [];
   if (!producto) {
     // Sin presentación no se pueden validar contra su grupo, pero lo que el
@@ -255,7 +275,8 @@ export function normalizarPedido(
     }
   }
   if (producto) {
-    const grupo = producto.grupos.find((g) => g.opciones.length > 0);
+    const grupo =
+      grupoLlamado(producto, "salsa") ?? producto.grupos.find((g) => g.opciones.length > 0);
     const validas = new Map(
       (grupo?.opciones ?? []).map((o) => [llave(o.nombre), o.nombre] as const)
     );
@@ -286,6 +307,34 @@ export function normalizarPedido(
     }
   }
 
+  // --- El recubierto -----------------------------------------------------
+  // Va aparte de las salsas porque es otra elección del flujo y con otras
+  // opciones (azúcar-canela, azúcar sola, sin azúcar). Si el catálogo todavía
+  // no lo tiene en tablas, se acepta lo que venga sin validarlo: no se puede
+  // rechazar contra una lista que no existe.
+  let recubierto = propuesto.recubierto;
+  const grupoRecubierto = grupoLlamado(producto, "recubierto", "azucar", "azúcar");
+  if (producto && grupoRecubierto && recubierto) {
+    const buena = grupoRecubierto.opciones.find((o) => llave(o.nombre) === llave(recubierto!));
+    if (buena) {
+      if (buena.nombre !== recubierto) {
+        correcciones.push({
+          campo: "recubierto",
+          de: recubierto,
+          a: buena.nombre,
+          regla: "nombre de recubierto normalizado",
+        });
+      }
+      recubierto = buena.nombre;
+    } else {
+      dudas.push({
+        campo: "recubierto",
+        porque: `"${recubierto}" no está entre los recubiertos de la carta`,
+        preguntar: `¿Cuál recubierto desea? Hay: ${grupoRecubierto.opciones.map((o) => o.nombre).join(", ")}`,
+      });
+    }
+  }
+
   // --- El total, siempre del servidor ------------------------------------
   let totalCents: number | null = null;
   if (producto && dudas.length === 0) {
@@ -301,13 +350,28 @@ export function normalizarPedido(
     }
   }
 
+  // --- Qué falta para poder despachar ------------------------------------
+  // El flujo del negocio, en su orden: presentación → salsas → recubierto →
+  // datos de entrega. Las adiciones son opcionales y por eso no están aquí.
+  const faltaParaCerrar: string[] = [];
+  if (!producto) faltaParaCerrar.push("presentación");
+  else {
+    const cuantasSalsas = grupoLlamado(producto, "salsa")?.maximo ?? 0;
+    if (salsas.length < cuantasSalsas) faltaParaCerrar.push("salsas");
+    if (grupoRecubierto && !recubierto) faltaParaCerrar.push("recubierto");
+  }
+  if (!propuesto.nombre?.trim()) faltaParaCerrar.push("nombre");
+  if (!propuesto.telefono?.trim()) faltaParaCerrar.push("teléfono");
+  if (!propuesto.direccion?.trim()) faltaParaCerrar.push("dirección");
+
   return {
+    faltaParaCerrar,
     estado: {
       productoId: producto?.id ?? null,
       producto: producto?.nombre ?? null,
       cantidad,
       salsas,
-      recubierto: propuesto.recubierto,
+      recubierto,
       adiciones: propuesto.adiciones,
       totalCents,
     },

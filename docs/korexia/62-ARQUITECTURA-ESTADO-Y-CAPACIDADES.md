@@ -106,6 +106,62 @@ La consecuencia de diseño es directa, y refuerza la regla de gobierno: **el
 total lo recalcula el servidor y el cliente lo confirma en el resumen**. La
 cantidad extraída no puede cobrarse sin que alguien la haya visto.
 
+### 5. Regla 13 — A contra B: **gana B, y por un motivo que no era el coste**
+
+`pnpm medir:extraccion <org> --comparar` mide las dos estrategias sobre los
+**mismos turnos reales** y con el **prompt real** del negocio, armado como lo
+arma el pipeline. Sobre 20 turnos de La Churra:
+
+| | Coste/turno | Latencia | JSON inválido |
+|---|---|---|---|
+| **A** — la llamada del agente + una extracción aparte | $0,002508 | 3.690 ms | 0 |
+| **B** — una sola llamada: respuesta + estado | **$0,002320** | **2.172 ms** | **0** |
+
+B sale **más barata y más rápida**, y —lo que más importaba— **no rompe el
+contrato del agente**: 0 acciones inválidas. La sospecha de que meter el estado
+en la llamada del agente contaminaría lo que hoy funciona **no se confirmó**.
+
+**Pero el hallazgo está en las discrepancias**, no en la tabla. A y B coinciden
+en el producto solo el 55 % de las veces, así que se volcaron los 12 turnos
+discrepantes con su conversación y se miraron. El patrón es nítido:
+
+```
+CLIENTE: churrita … CLIENTE: hola … CLIENTE: 0
+  A → producto CHURRITA
+  B → producto null
+```
+
+**El "0" reinicia el pedido en este negocio.** B lo respeta; A no. Y la razón es
+estructural, no de suerte: **el extractor de A trabaja con un prompt corto que
+solo conoce la carta**, mientras que B extrae dentro del prompt del agente, que
+sí conoce las reglas del negocio.
+
+> 🔑 **Una extracción que no conoce las reglas del negocio no puede mantener el
+> estado de ese negocio.** Es el mismo principio que la Fase 1: el dato y quien
+> lo interpreta no pueden vivir separados.
+
+Dos avisos sobre esta medición, para no leerla de más:
+
+- **20 turnos son pocos** y las latencias bailan entre corridas. Sirve para
+  elegir estrategia, no para prometer un número.
+- **El `paso` de B son números** (`"1"`, `"2"`), porque el prompt de La Churra
+  numera sus cinco mensajes; el de A es descriptivo (`"seleccion_salsa"`).
+  Ninguno de los dos vale como enum —la regla 4 ya lo prohíbe— y el backend
+  tendrá que normalizarlos igual.
+
+### Y otra vez el mismo error, por si hacía falta insistir
+
+La primera corrida de esta comparación dio **16 fallos de 20 para B**, y la
+conclusión fácil habría sido *"B rompe el contrato, se descarta"*. El motivo
+real, al mirarlo: `estado.paso Expected string, received number`. El modelo
+devolvía el paso como **número**, porque el prompt del negocio numera sus
+mensajes. Al aceptar los dos tipos, B pasó de 16 fallos a **0**.
+
+Es la **tercera vez en esta misma sesión** que un contrato severo se disfraza de
+fallo del modelo: el enum en la medición 4, el esquema `{respuesta}` que el
+prompt real no describe, y ahora el tipo de `paso`. Las tres veces el número
+"malo" era mío.
+
 ### ⚠️ Qué se concluye — y qué NO se puede concluir
 
 Lo primero, una corrección al propio diseño de esta Fase 0:
@@ -270,10 +326,13 @@ calculado.** Comprometerse sin esa cuenta es justo lo que el proyecto se prohíb
 > turnos por pedido son **~9 COP añadidos** sobre los ~25 COP que hoy cuesta un
 > pedido: **en torno a un tercio más**, si la extracción va en llamada aparte.
 >
-> Lo que sigue sin medir es el lado que ABARATA —cuánto baja la entrada al sacar
-> el estado del prompt— y una alternativa que lo haría discutible: **emitir el
-> estado en la MISMA llamada** que la respuesta, que costaría casi nada extra.
-> Antes de aceptar el tercio, hay que probar esa vía.
+> ✅ **Esa alternativa ya se probó** (regla 13, medición 5): emitir el estado en
+> la MISMA llamada **no cuesta un tercio más — cuesta menos** que el turno de
+> hoy más la extracción aparte, y encima va más rápido. El tercio añadido solo
+> aparece si la extracción va en llamada separada, que es la estrategia perdedora.
+>
+> Lo que sigue sin medir es el lado que ABARATA: cuánto baja la entrada al sacar
+> el estado del prompt.
 >
 > La latencia sí cabe: ~0,9 s sobre un turno actual deja margen frente a los 6 s
 > de YCloud, pero se suma, y ese margen es lo que hoy absorbe un reintento.
@@ -554,6 +613,13 @@ conocimiento viva en el backend y el prompt solo lleve conducta?** Si la
 respuesta no es un sí claro, va a otro roadmap.
 
 ---
+
+## ⛔ Las reglas obligatorias mandan sobre este documento
+
+Desde el 15-ago hay catorce reglas de arquitectura dictadas por el dueño en
+[66-REGLAS-FASE-2.md](66-REGLAS-FASE-2.md). **Son vinculantes**: si algo de este
+plan las contradice, gana la regla. Lo que sigue explica el porqué del diseño;
+aquello define lo que se puede y no se puede hacer.
 
 ## La regla que manda sobre todo el diseño
 

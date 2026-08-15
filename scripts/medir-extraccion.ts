@@ -30,6 +30,8 @@ import postgres from "postgres";
 import { z } from "zod";
 import { chatJson, type ChatMessage } from "@/lib/ai";
 import * as schema from "@/lib/db/schema";
+import { AgentAction } from "@/server/ai/actions";
+import { buildAgentSystemPrompt } from "@/server/ai/prompts";
 import { catalogoDePedidos } from "@/server/catalog/queries";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 
@@ -108,7 +110,11 @@ const EstadoTolerante = z.object({
   nombre: z.string().nullable(),
   telefono: z.string().nullable(),
   direccion: z.string().nullable(),
-  paso: z.string(),
+  // `coerce` y no `string`: el modelo devuelve `paso` como NÚMERO en cuanto el
+  // prompt del negocio numera sus mensajes —"(1) presentaciones, (2) salsas…"—
+  // y exigir texto rechazaba el 80 % de las respuestas. Normalizar el tipo es
+  // trabajo del backend; rechazar por él es fabricar un handoff falso.
+  paso: z.coerce.string(),
 });
 type EstadoPedido = z.infer<typeof EstadoTolerante>;
 
@@ -181,32 +187,235 @@ const salsasValidas = new Set(
   productos.flatMap((p) => p.grupos.flatMap((g) => g.opciones.map((o) => o.nombre.toLowerCase())))
 );
 
-for (const conv of conversaciones) {
-  if (llamadas >= MAX_LLAMADAS) break;
+/**
+ * Los turnos del cliente, cada uno con la conversación hasta ese punto.
+ *
+ * Se mide en CADA mensaje del cliente, que es lo que haría la Fase 2: el
+ * backend rehace el estado en cada turno. Medir solo el final escondería justo
+ * los turnos intermedios, que son los que más se equivocan — y de hecho el
+ * error de `cantidad: 6` apareció en uno de ellos.
+ */
+async function cargarTurnos(): Promise<{ conversacion: string; historial: string }[]> {
+  const turnos: { conversacion: string; historial: string }[] = [];
+  for (const conv of conversaciones) {
+    const mensajes = await db
+      .select({ direction: schema.message.direction, text: schema.message.text })
+      .from(schema.message)
+      .where(eq(schema.message.conversationId, conv.id))
+      .orderBy(asc(schema.message.createdAt));
 
-  const mensajes = await db
-    .select({
-      direction: schema.message.direction,
-      text: schema.message.text,
-    })
-    .from(schema.message)
-    .where(eq(schema.message.conversationId, conv.id))
-    .orderBy(asc(schema.message.createdAt));
+    const utiles = mensajes.filter((m) => m.text?.trim());
+    if (utiles.length < 3) continue;
 
-  const utiles = mensajes.filter((m) => m.text?.trim());
-  if (utiles.length < 3) continue;
+    for (let i = 0; i < utiles.length; i++) {
+      if (utiles[i].direction !== "in") continue;
+      turnos.push({
+        conversacion: conv.id,
+        historial: utiles
+          .slice(0, i + 1)
+          .map((m) => `${m.direction === "in" ? "CLIENTE" : "NEGOCIO"}: ${m.text}`)
+          .join("\n"),
+      });
+    }
+  }
+  return turnos;
+}
 
-  // Se extrae en CADA mensaje del cliente, que es lo que haría la Fase 2: el
-  // backend rehace el estado en cada turno. Medir solo el final escondería
-  // justo los turnos intermedios, que son los que más se equivocan.
-  for (let i = 0; i < utiles.length; i++) {
-    if (utiles[i].direction !== "in") continue;
+const turnos = await cargarTurnos();
+
+/**
+ * REGLA 13 — comparar las dos estrategias antes de decidir.
+ *
+ *   A = la llamada del agente (como hoy) + una llamada aparte que extrae el estado
+ *   B = una sola llamada que devuelve respuesta y estado juntos
+ *
+ * Se mide sobre los MISMOS turnos reales y con el prompt REAL del negocio: usar
+ * un prompt de juguete abarataría la estrategia B artificialmente, porque su
+ * ventaja es justamente no pagar dos veces esos 17.000 caracteres de entrada.
+ */
+if (process.argv.includes("--comparar")) {
+  const CUANTOS_TURNOS = argOf("turnos", 15);
+
+  // El prompt REAL, armado como lo arma el pipeline. Usar solo
+  // `agent_profile.instructions` no vale: las instrucciones del formato de
+  // acción viven en `buildAgentSystemPrompt`, no en la ficha, y sin ellas el
+  // modelo no sabe que debe contestar con `{"action": …}` — 17 fallos de 20 en
+  // la corrida anterior, todos causados por medir un prompt que no existe.
+  const [perfil] = await db
+    .select()
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId));
+  if (!perfil?.instructions) {
+    console.error("[medir] este negocio no tiene prompt guardado");
+    process.exit(1);
+  }
+  const kb = await db
+    .select()
+    .from(schema.kbEntry)
+    .where(eq(schema.kbEntry.organizationId, organizationId))
+    .orderBy(asc(schema.kbEntry.createdAt));
+  const stages = await db
+    .select({ name: schema.pipelineStage.name })
+    .from(schema.pipelineStage)
+    .where(eq(schema.pipelineStage.organizationId, organizationId))
+    .orderBy(asc(schema.pipelineStage.position));
+
+  const promptDelAgente = buildAgentSystemPrompt({
+    profile: perfil,
+    kb,
+    stages,
+    catalogoDePedidos: perfil.catalogSource === "tabla" ? carta : undefined,
+  });
+
+  // El contrato REAL del agente, el mismo que usa `pipeline.ts`. Pedirle otro
+  // formato mediría lo bien que adivina un esquema que su prompt no describe:
+  // la primera corrida de esta comparación dio 15 fallos de 15 justo por eso.
+  //
+  // Para B se añade una clave más al JSON que ya devuelve, y se comprueba
+  // aparte si la parte de acción habría pasado `AgentAction` — porque el riesgo
+  // de B no es el coste, es contaminar el contrato que hoy funciona.
+  const AccionConEstado = z.object({ estado: EstadoTolerante }).passthrough();
+
+  const PEDIR_ESTADO = `
+
+Además de la acción, añades al MISMO objeto JSON una clave "estado" con el estado del pedido:
+"estado": {"producto": …, "cantidad": …, "salsas": [], "recubierto": …, "adiciones": [], "nombre": …, "telefono": …, "direccion": …, "paso": …}
+Lo que el cliente todavía NO haya dicho va en null (o lista vacía). No inventes nada.`;
+
+  type Acumulado = { coste: number; ms: number[]; fallos: number; porque: string[] };
+  const nuevo = (): Acumulado => ({ coste: 0, ms: [], fallos: 0, porque: [] });
+  const base = nuevo();
+  const extra = nuevo();
+  const unaSola = nuevo();
+  let coincideProducto = 0;
+  let coincideCantidad = 0;
+  let comparables = 0;
+  let fueraDeCartaB = 0;
+  let accionRotaEnB = 0;
+  const discrepancias: unknown[] = [];
+
+  for (const turno of turnos.slice(0, CUANTOS_TURNOS)) {
+    const opts = modelo ? { model: modelo } : undefined;
+
+    // --- A, primera mitad: la llamada que el agente ya hace hoy ---
+    let t = Date.now();
+    const rBase = await chatJson(
+      AgentAction,
+      [
+        { role: "system", content: promptDelAgente },
+        { role: "user", content: turno.historial },
+      ],
+      opts
+    );
+    base.ms.push(Date.now() - t);
+    if (rBase.usage) base.coste += rBase.usage.costUsd;
+    if (!rBase.ok) base.fallos++;
+
+    // --- A, segunda mitad: la extracción aparte ---
+    t = Date.now();
+    const rExtra = await chatJson(
+      EstadoTolerante,
+      [
+        { role: "system", content: SISTEMA },
+        { role: "user", content: `Conversación hasta ahora:\n\n${turno.historial}\n\nDevuelve el estado del pedido.` },
+      ],
+      opts
+    );
+    extra.ms.push(Date.now() - t);
+    if (rExtra.usage) extra.coste += rExtra.usage.costUsd;
+    if (!rExtra.ok) extra.fallos++;
+
+    // --- B: todo en una ---
+    t = Date.now();
+    const rUna = await chatJson(
+      AccionConEstado,
+      [
+        { role: "system", content: promptDelAgente + PEDIR_ESTADO },
+        { role: "user", content: turno.historial },
+      ],
+      opts
+    );
+    unaSola.ms.push(Date.now() - t);
+    if (rUna.usage) unaSola.coste += rUna.usage.costUsd;
+    if (!rUna.ok) {
+      unaSola.fallos++;
+      // Un porcentaje de fallo no dice qué arreglar; el motivo, sí.
+      if (unaSola.porque.length < 3) unaSola.porque.push(rUna.detail.slice(0, 200));
+    }
+    // ¿Le costó la acción el haber pedido el estado también?
+    if (rUna.ok) {
+      const { estado: _estado, ...accion } = rUna.data;
+      if (!AgentAction.safeParse(accion).success) accionRotaEnB++;
+    }
+
+    // Precisión: ¿dicen lo mismo las dos estrategias sobre el mismo turno?
+    if (rExtra.ok && rUna.ok) {
+      comparables++;
+      const a = rExtra.data;
+      const b = rUna.data.estado;
+      const mismoProducto =
+        (a.producto ?? "").toLowerCase().trim() === (b.producto ?? "").toLowerCase().trim();
+      if (mismoProducto) coincideProducto++;
+      if (a.cantidad === b.cantidad) coincideCantidad++;
+      if (b.producto && !nombresDeProducto.has(b.producto.toLowerCase().trim())) fueraDeCartaB++;
+      // Donde discrepan es donde hay que mirar: el script no sabe cuál acierta,
+      // y elegir estrategia por un porcentaje de coincidencia sería elegir a
+      // ciegas. Van al archivo con su conversación entera (regla 11).
+      if (!mismoProducto || a.cantidad !== b.cantidad) {
+        discrepancias.push({
+          conversacion: turno.conversacion,
+          historial: turno.historial,
+          A: { producto: a.producto, cantidad: a.cantidad, paso: a.paso },
+          B: { producto: b.producto, cantidad: b.cantidad, paso: b.paso },
+        });
+      }
+    }
+  }
+
+  const media = (xs: number[]) => (xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : 0);
+  const n = Math.min(CUANTOS_TURNOS, turnos.length);
+  const costeA = base.coste + extra.coste;
+  const msA = media(base.ms) + media(extra.ms);
+  const pctC = (x: number) => (comparables ? ((x / comparables) * 100).toFixed(1) : "0");
+
+  console.log(`\n${"=".repeat(72)}`);
+  console.log(`REGLA 13 — estrategia A (dos llamadas) contra B (una sola)`);
+  console.log(`modelo: ${modelo ?? process.env.OPENROUTER_MODEL} · turnos reales: ${n}`);
+  console.log(`${"=".repeat(72)}`);
+  console.log(`\n              coste/turno     latencia     JSON inválido`);
+  console.log(`  A (2 llamadas)  $${(costeA / n).toFixed(6)}    ${msA} ms      ${base.fallos + extra.fallos}`);
+  console.log(`  B (1 llamada)   $${(unaSola.coste / n).toFixed(6)}    ${media(unaSola.ms)} ms      ${unaSola.fallos}`);
+  console.log(`\n  de los cuales, en A:`);
+  console.log(`    respuesta del agente : $${(base.coste / n).toFixed(6)}  ${media(base.ms)} ms`);
+  console.log(`    extracción aparte    : $${(extra.coste / n).toFixed(6)}  ${media(extra.ms)} ms`);
+  console.log(`\n--- Precisión: ¿dicen lo mismo? (sobre ${comparables} turnos comparables) ---`);
+  console.log(`  mismo producto : ${coincideProducto} (${pctC(coincideProducto)} %)`);
+  console.log(`  misma cantidad : ${coincideCantidad} (${pctC(coincideCantidad)} %)`);
+  console.log(`  B saca un producto fuera de la carta: ${fueraDeCartaB}`);
+  console.log(`\n  ⛔ acciones de B que NO pasarían el contrato del agente: ${accionRotaEnB}`);
+  console.log(`     (el riesgo de B no es el coste: es romper el contrato que hoy funciona)`);
+  if (unaSola.porque.length) {
+    console.log(`\n--- Por qué falla B ---`);
+    for (const p of unaSola.porque) console.log(`  ${p}`);
+  }
+  if (discrepancias.length) {
+    const iSal = process.argv.indexOf("--salida");
+    const ruta = iSal === -1 ? `discrepancias-${organizationId}.json` : process.argv[iSal + 1];
+    writeFileSync(ruta, JSON.stringify(discrepancias, null, 2), "utf8");
+    console.log(`\n  ${discrepancias.length} turnos donde A y B NO dicen lo mismo, con su conversación:`);
+    console.log(`  ${ruta}`);
+  }
+  console.log(`\n  ⚠️ Coincidir no es acertar: si las dos se equivocan igual, esto sale 100 %.`);
+
+  await sql.end();
+  process.exit(0);
+}
+
+{
+  for (const turno of turnos) {
     if (llamadas >= MAX_LLAMADAS) break;
-
-    const historial = utiles
-      .slice(0, i + 1)
-      .map((m) => `${m.direction === "in" ? "CLIENTE" : "NEGOCIO"}: ${m.text}`)
-      .join("\n");
+    const conv = { id: turno.conversacion };
+    const historial = turno.historial;
 
     const messages: ChatMessage[] = [
       { role: "system", content: SISTEMA },

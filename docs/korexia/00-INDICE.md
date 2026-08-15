@@ -91,6 +91,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: lo urgente por orden, qué bloquea al salón, la deuda que volverá a morder y el estado del roadmap |
 
+| [66-REGLAS-FASE-2.md](66-REGLAS-FASE-2.md) | ⛔ **LAS CATORCE REGLAS OBLIGATORIAS de la Fase 2**, dictadas por el dueño. No son consejos: un cambio que incumpla una no entra, aunque funcione. **Leer antes de escribir una sola línea de la Fase 2** |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

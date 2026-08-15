@@ -88,6 +88,10 @@ mensajes.**
 Detalle, objeciones y diseño de datos en
 [62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md](62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md).
 
+⛔ **Y antes de escribir una línea de la Fase 2**, las catorce reglas
+obligatorias del dueño: [66-REGLAS-FASE-2.md](66-REGLAS-FASE-2.md). No son
+consejos — un cambio que incumpla una no entra, aunque funcione.
+
 ---
 
 ## Lo que se cerró el 14-15 de agosto

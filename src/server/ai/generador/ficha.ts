@@ -148,7 +148,13 @@ export type FichaDelNegocio = {
   // ── 6. Lo que sus clientes preguntan seguido ───────────────────────────────
   /**
    * Van al KB (`kb_entry`), no al prompt: son datos consultables y crecen con
-   * el tiempo. Se listan aquí para que el alta las capture de una vez.
+   * el tiempo.
+   *
+   * ⚠️ **Solo siembran a un cliente cuya KB está vacía; nunca la reemplazan.**
+   * El cuestionario dejó de pedirlas el 15-ago-2026 porque preguntaba lo mismo
+   * que la pantalla de Conocimiento, que es la fuente de verdad
+   * (`docs/korexia/61-UNA-SOLA-PUERTA.md`). El campo se conserva porque las
+   * fichas ya guardadas lo traen y `aplicarFicha` lo sigue leyendo para el alta.
    */
   preguntasFrecuentes: PreguntaFrecuente[];
 

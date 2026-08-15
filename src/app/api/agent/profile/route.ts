@@ -31,13 +31,22 @@ export const GET = withAuth(async (session) => {
   });
 });
 
+/**
+ * Lo que se puede cambiar desde la pantalla del agente.
+ *
+ * ⚠️ **`name`, `tone`, `instructions`, `escalationRules` y `greeting` ya no se
+ * aceptan** (15-ago-2026). Los genera `generarPerfil()` a partir de la ficha del
+ * negocio y de `conducta.ts`, y los reescribe entero cada vez que se envía el
+ * cuestionario o se pasa `regenerar:flota`: cualquier cosa escrita por aquí
+ * duraba hasta el siguiente clic y desaparecía sin dejar rastro.
+ *
+ * No basta con quitar los campos de la pantalla —la ruta seguiría abierta—, así
+ * que se cierran también aquí. Se cambian editando la ficha y regenerando, que
+ * es lo que hace que una lección aprendida llegue a **toda la flota** en vez de
+ * quedarse en el cliente donde se corrigió.
+ */
 const putSchema = z.object({
   enabled: z.boolean().optional(),
-  name: z.string().trim().min(1).max(60).optional(),
-  tone: z.string().max(500).nullable().optional(),
-  instructions: z.string().max(40000).nullable().optional(),
-  escalationRules: z.string().max(4000).nullable().optional(),
-  greeting: z.string().max(1000).nullable().optional(),
   /** Números del equipo que reciben el aviso de pedido (CSV). */
   notifyPhones: z.string().max(400).nullable().optional(),
   /** Plantilla aprobada para el aviso (atraviesa la ventana de 24 h). */

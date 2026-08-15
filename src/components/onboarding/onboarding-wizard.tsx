@@ -970,54 +970,19 @@ export function OnboardingWizard() {
         </>
       ),
     },
-    {
-      titulo: "Lo que más te preguntan",
-      subtitulo: "Entre más completes aquí, menos veces te va a interrumpir el asistente.",
-      contenido: (
-        <div className="space-y-4">
-          {(ficha.preguntasFrecuentes ?? [{ pregunta: "", respuesta: "" }]).map(
-            (p, i) => (
-              <div key={i} className="space-y-2 rounded-md border p-3">
-                <Input
-                  placeholder="¿Qué te preguntan? Ej: ¿hacen envíos fuera de la ciudad?"
-                  value={p.pregunta}
-                  onChange={(e) => {
-                    const copia = [...(ficha.preguntasFrecuentes ?? [p])];
-                    copia[i] = { respuesta: p.respuesta, pregunta: e.target.value };
-                    set({ preguntasFrecuentes: copia });
-                  }}
-                />
-                <Textarea
-                  rows={2}
-                  placeholder="¿Qué responderías tú?"
-                  value={p.respuesta}
-                  onChange={(e) => {
-                    const copia = [...(ficha.preguntasFrecuentes ?? [p])];
-                    copia[i] = { pregunta: p.pregunta, respuesta: e.target.value };
-                    set({ preguntasFrecuentes: copia });
-                  }}
-                />
-              </div>
-            )
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              set({
-                preguntasFrecuentes: [
-                  ...(ficha.preguntasFrecuentes ?? []),
-                  { pregunta: "", respuesta: "" },
-                ],
-              })
-            }
-          >
-            + Agregar otra pregunta
-          </Button>
-        </div>
-      ),
-    },
+    /*
+     * Aquí había un paso "Lo que más te preguntan" que recogía las preguntas
+     * frecuentes. Se quitó el 15-ago-2026 porque **preguntaba lo mismo que la
+     * pantalla de Conocimiento**, y de las dos copias solo una podía ganar: al
+     * enviar el cuestionario, lo escrito en el cuestionario borraba lo escrito
+     * en la pantalla, sin aviso y sin rastro.
+     *
+     * Le pasó a Lashes Valen con una respuesta de salud que ya se había
+     * corregido a mano (`docs/korexia/57-PENDIENTES-14AGO.md`).
+     *
+     * Es la misma decisión que ya se había tomado con el catálogo, que tampoco
+     * se pide aquí: el dato vive en su pantalla, y el alta no lo duplica.
+     */
     {
       titulo: "Cuándo debe llamarte a ti",
       subtitulo: "La etapa más importante: cuándo el asistente NO debe resolver solo.",

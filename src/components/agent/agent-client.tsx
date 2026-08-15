@@ -156,58 +156,31 @@ function ProfileSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Comportamiento</CardTitle>
+        <CardTitle>Avisos</CardTitle>
         <CardDescription>
-          Cómo se presenta y actúa el agente al responder a tus clientes.
+          A quién le llegan los pedidos que confirma el agente.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="agent-name">Nombre del agente</Label>
-          <Input
-            id="agent-name"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="agent-tone">Tono</Label>
-          <Input
-            id="agent-tone"
-            placeholder="p. ej. cercano y directo, con usted"
-            value={form.tone ?? ""}
-            onChange={(e) => setForm({ ...form, tone: e.target.value })}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="agent-instructions">Instrucciones</Label>
-          <Textarea
-            id="agent-instructions"
-            rows={5}
-            placeholder="Qué debe y no debe hacer el agente…"
-            value={form.instructions ?? ""}
-            onChange={(e) => setForm({ ...form, instructions: e.target.value })}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="agent-escalation">Reglas de escalado</Label>
-          <Textarea
-            id="agent-escalation"
-            rows={3}
-            placeholder="Cuándo pasar la conversación a un humano…"
-            value={form.escalationRules ?? ""}
-            onChange={(e) => setForm({ ...form, escalationRules: e.target.value })}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="agent-greeting">Saludo</Label>
-          <Input
-            id="agent-greeting"
-            placeholder="Saludo para conversaciones nuevas"
-            value={form.greeting ?? ""}
-            onChange={(e) => setForm({ ...form, greeting: e.target.value })}
-          />
-        </div>
+        {/*
+          Aquí se editaban a mano el nombre, el tono, las instrucciones, las
+          reglas de escalado y el saludo. Se quitaron el 15-ago-2026.
+
+          No era una pantalla de más: era una pantalla que **mentía**. Esos cinco
+          campos los reescribe `generarPerfil()` cada vez que se envía el
+          cuestionario o se pasa `regenerar:flota`, así que lo que se escribiera
+          aquí duraba hasta el siguiente clic —sin aviso, sin rastro y sin forma
+          de saber que se había perdido—. La conducta es **la misma para todos
+          los clientes** (`conducta.ts`) y lo propio del negocio sale de su
+          ficha: ninguna de las dos se corrige cliente por cliente.
+
+          Cambiarlas aquí, además, rompía el modelo entero: una lección
+          aprendida se escribe UNA vez en `conducta.ts` y llega a toda la flota.
+          Un prompt editado a mano se queda fuera de esa mejora para siempre.
+
+          Lo que sí sigue aquí abajo es lo que NO se genera: a qué teléfonos
+          avisar. Eso es de cada negocio y cambia cuando cambia su equipo.
+        */}
         <div className="space-y-1.5">
           <Label htmlFor="agent-notify">Avisar pedidos a estos WhatsApp</Label>
           <Input
@@ -249,8 +222,20 @@ function ProfileSection({
         </div>
         {/* Acción principal a lo ancho en móvil: es el objetivo más grande
             posible al final de un formulario largo. */}
-        <Button className="w-full sm:w-auto" onClick={() => void onSave(form)}>
-          Guardar comportamiento
+        {/* Solo los campos de avisos: mandar `form` entero devolvería a la base
+            el prompt que esta pantalla tenía cargado, que puede ser anterior a
+            la última regeneración. */}
+        <Button
+          className="w-full sm:w-auto"
+          onClick={() =>
+            void onSave({
+              notifyPhones: form.notifyPhones,
+              notifyTemplate: form.notifyTemplate,
+              notifyTemplateLang: form.notifyTemplateLang,
+            })
+          }
+        >
+          Guardar avisos
         </Button>
       </CardContent>
     </Card>

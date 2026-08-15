@@ -81,6 +81,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [60-CONECTAR-UN-CLIENTE-CON-SU-YCLOUD.md](60-CONECTAR-UN-CLIENTE-CON-SU-YCLOUD.md) | 🔑 **La receta de conectar un cliente que trae su propia cuenta de YCloud**: el orden que evita perder mensajes, los dos muros de Meta (los "eventos automáticos" y el sitio web), cómo verificar sin adivinar con tres comandos, y **por qué el cuestionario pisa lo que se ajusta a mano** |
 
+| [61-UNA-SOLA-PUERTA.md](61-UNA-SOLA-PUERTA.md) | 🔑 **Cada dato se escribe en un solo sitio**: el cuestionario borraba el conocimiento de la pantalla y deshizo una corrección de salud ya verificada. Qué se quitó del cuestionario y de la pantalla del agente, por qué la conducta no se edita cliente por cliente, y la lección de fondo — *una verificación sobre algo que el siguiente clic deshace no verifica nada* |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

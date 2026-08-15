@@ -23,7 +23,10 @@ export type ResultadoDelAlta = {
   organizationId: string;
   /** Caracteres del prompt generado, para enseñarlo en la pantalla. */
   largoDelPrompt: number;
-  /** Cuántas preguntas frecuentes se cargaron al conocimiento. */
+  /**
+   * Cuántas preguntas frecuentes se sembraron. **0 si el cliente ya tenía
+   * conocimiento**: en ese caso no se toca nada (ver `aplicarFicha`).
+   */
   entradasDeConocimiento: number;
 };
 
@@ -108,6 +111,12 @@ export async function aplicarFicha(
   const perfil = generarPerfil(ficha);
   const db = getDb();
 
+  const preguntas = (ficha.preguntasFrecuentes ?? []).filter(
+    (p) => p.pregunta.trim() && p.respuesta.trim()
+  );
+  /** Cuántas se sembraron de verdad: 0 si el cliente ya tenía conocimiento. */
+  let sembradas = 0;
+
   await db.transaction(async (tx) => {
     await tx
       .update(schema.agentProfile)
@@ -127,7 +136,15 @@ export async function aplicarFicha(
         hoursCloseSunday: normalizarHora(ficha.horario.cierraDomingo) ?? null,
         // Vacío es una decisión válida y hay que poder expresarla: Lis pidió
         // expresamente que no se avisara a ningún número, ni al suyo.
-        notifyPhones: (opciones?.telefonosDeAviso ?? []).join(",") || null,
+        //
+        // Pero "no me pasaron teléfonos" no es lo mismo que "no quiero
+        // ninguno": si no vienen en las opciones se deja lo que ya hubiera, o
+        // reenviar el cuestionario borraría los avisos que el negocio configuró
+        // en su pantalla. Es el mismo borrado silencioso que tenía el
+        // conocimiento aquí abajo.
+        ...(opciones?.telefonosDeAviso
+          ? { notifyPhones: opciones.telefonosDeAviso.join(",") || null }
+          : {}),
         appointmentsEnabled: ficha.vertical === "citas",
         enabled: false,
         /*
@@ -143,17 +160,34 @@ export async function aplicarFicha(
       })
       .where(eq(schema.agentProfile.organizationId, organizationId));
 
-    // El conocimiento se REEMPLAZA, no se acumula: si se corrige la ficha y se
-    // vuelve a aplicar, no deben quedar las respuestas viejas conviviendo con
-    // las nuevas — el agente daría dos versiones del mismo dato.
-    await tx
-      .delete(schema.kbEntry)
-      .where(eq(schema.kbEntry.organizationId, organizationId));
+    /*
+     * El conocimiento SOLO se siembra, nunca se reemplaza.
+     *
+     * Hasta el 15-ago-2026 esto borraba `kb_entry` entero y lo reponía desde la
+     * ficha, con el argumento de que no convivieran dos versiones del mismo
+     * dato. El efecto real era el contrario: **la pantalla de Conocimiento y el
+     * cuestionario preguntaban lo mismo, y el cuestionario ganaba en silencio.**
+     *
+     * Lo que costó: a Lashes Valen se le corrigió a mano una respuesta que
+     * prometía que la extensión de pestañas no irrita los ojos —en un asunto de
+     * salud, lo que la conducta prohíbe—, se verificó contra el agente real y se
+     * dio por cerrada. Al enviar el cuestionario, la respuesta vieja volvió: la
+     * corrección se había hecho en la KB y no en la ficha. Nadie se enteró
+     * porque el borrado no deja rastro ni aviso.
+     *
+     * Es el mismo razonamiento que ya se aplicó al catálogo unas líneas más
+     * abajo, y la misma conclusión: **una sola fuente de verdad**. Aquí esa
+     * fuente es la pantalla de Conocimiento, porque el conocimiento crece con el
+     * negocio (dirección, parqueadero, cancelación, retardos) en vez de llenarse
+     * una vez el día del alta.
+     */
+    const yaTieneConocimiento = await tx
+      .select({ id: schema.kbEntry.id })
+      .from(schema.kbEntry)
+      .where(eq(schema.kbEntry.organizationId, organizationId))
+      .limit(1);
 
-    const preguntas = ficha.preguntasFrecuentes.filter(
-      (p) => p.pregunta.trim() && p.respuesta.trim()
-    );
-    if (preguntas.length > 0) {
+    if (yaTieneConocimiento.length === 0 && preguntas.length > 0) {
       await tx.insert(schema.kbEntry).values(
         preguntas.map((p) => ({
           id: newId("kbEntry"),
@@ -163,6 +197,7 @@ export async function aplicarFicha(
           answer: p.respuesta.trim(),
         }))
       );
+      sembradas = preguntas.length;
     }
 
     /*
@@ -183,8 +218,6 @@ export async function aplicarFicha(
   return {
     organizationId,
     largoDelPrompt: perfil.instructions.length,
-    entradasDeConocimiento: ficha.preguntasFrecuentes.filter(
-      (p) => p.pregunta.trim() && p.respuesta.trim()
-    ).length,
+    entradasDeConocimiento: sembradas,
   };
 }

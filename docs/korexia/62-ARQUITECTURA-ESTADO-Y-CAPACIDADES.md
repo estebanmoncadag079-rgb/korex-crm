@@ -12,7 +12,82 @@ son la parte más valiosa.
 
 ---
 
-## 🔴 Lo primero: esto no está medido
+## ✅ Fase 0 EJECUTADA (15-ago-2026): los números cambian el plan
+
+Se midió antes de construir nada, y **el resultado no respalda el refactor
+completo**. Tres de las cuatro mediciones están hechas.
+
+### 1. La tasa real de desorden: el caso típico ya funciona
+
+Mensajes salientes por **sesión de pedido** (agrupado por día, para no sumar
+varios pedidos del mismo contacto), sobre **167 conversaciones reales**:
+
+| Cliente | Mediana | Media | p90 | Máx |
+|---|---|---|---|---|
+| **La Churra** | **3** | **4,9** | 12 | 26 |
+| Lis Pastelería | 6 | 8,8 | **21,4** | 41 |
+| Lashes Valen | 4 | 6,2 | 13,2 | 34 |
+
+**La Churra ya cumple el objetivo de 5 mensajes.** No hay ningún 79 % aquí: el
+pedido mediano se resuelve en 3 mensajes.
+
+> 🔍 **El dato que más importa**: la sesión de **26 mensajes** del 15-ago que
+> disparó toda esta discusión era **del propio dueño probando** (número acabado
+> en 8172). Los días anteriores, con clientes reales, La Churra promedia entre
+> **2 y 5**. El fallo que se vio en las capturas es real, pero **su frecuencia
+> con clientes reales es baja**.
+
+**Dónde sí hay dinero**: en la cola, no en la mediana. El p90 de Lis es 21,4
+mensajes y su máximo 41. Una de cada diez conversaciones se descontrola.
+
+### 2. El A/B de modelo: la sospecha no se sostiene
+
+Mismo prompt (el de Lis, sin tocar), mismo catálogo, 24 escenarios, solo cambia
+el modelo:
+
+| Modelo | Fallas | Veredicto |
+|---|---|---|
+| `google/gemini-2.5-flash` | **0** | — |
+| `openai/gpt-4.1-mini` | **2** | 1 real (repreguntó un nombre ya dado) + 1 probable falso positivo del test |
+
+**Gemini no es peor.** La intuición de que GPT-4.1 mini obedecía mejor no se
+confirma en el banco.
+
+### 3. El coste: al revés de lo que todos suponíamos
+
+| Modelo | tokens in | tokens out | **Coste por llamada** |
+|---|---|---|---|
+| `gpt-4.1-mini` | 10.098 | 116 | **0,0023067 USD** |
+| `gemini-2.5-flash` | 11.371 | 148 | **0,0029497 USD** |
+
+**GPT-4.1 mini sale un 22 % MÁS BARATO en la práctica**, pese a tener un precio
+de entrada más alto por millón de tokens (0,40 contra 0,30). Dos razones: su
+salida cuesta menos (1,60 contra 2,50) y **es más conciso** — genera menos tokens
+de salida y arrastra menos historial.
+
+Lección para el proyecto: **el precio de tarifa no predice el coste real**. Hay
+que medirlo con el prompt de verdad.
+
+### 4. Tasa de extracción fallida: **NO medida**
+
+Requiere un prototipo del extractor. Queda pendiente, y sigue siendo la
+condición para la Fase 2.
+
+### Qué se concluye
+
+- El diagnóstico técnico es correcto (el pedido no existe como dato), pero **su
+  impacto medido es mucho menor de lo que parecía**.
+- **La Fase 1 (catálogo a tabla) sigue justificada** por sí sola: quita
+  contradicciones y reduce la entrada, que es el 94 % del coste.
+- **La Fase 2 (estado estructurado) no está justificada todavía** por estos
+  números. Lo que sí lo estaría: atacar el p90 de Lis, que es donde se va el
+  dinero.
+- **Cambiar de modelo no está justificado** por calidad. Si algún día se hace,
+  que sea por coste — y entonces el candidato es GPT-4.1 mini, no al revés.
+
+---
+
+## 🔴 El apartado original: por qué se exigió medir
 
 **No existe ningún número que diga cuántos pedidos se pierden hoy por desorden
 de mensajes.** Todo el diagnóstico sale de unas capturas de WhatsApp de una

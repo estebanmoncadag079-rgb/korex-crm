@@ -93,6 +93,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [66-REGLAS-FASE-2.md](66-REGLAS-FASE-2.md) | ⛔ **LAS CATORCE REGLAS OBLIGATORIAS de la Fase 2**, dictadas por el dueño. No son consejos: un cambio que incumpla una no entra, aunque funcione. **Leer antes de escribir una sola línea de la Fase 2** |
 
+| [67-FASE-1.5.md](67-FASE-1.5.md) | 🔵 **Validar antes de persistir**: la Fase 2 **no puede escribir en la base** hasta que la validación semántica y las métricas den evidencia. Las dos tareas obligatorias, las prohibiciones y la pregunta que decide si se sigue o se para |
+
 Cada archivo empieza con una línea **Dentro:** que lista sus apartados — para
 localizar algo sin abrirlos todos.
 

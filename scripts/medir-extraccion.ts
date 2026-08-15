@@ -32,6 +32,7 @@ import { chatJson, type ChatMessage } from "@/lib/ai";
 import * as schema from "@/lib/db/schema";
 import { AgentAction } from "@/server/ai/actions";
 import { buildAgentSystemPrompt } from "@/server/ai/prompts";
+import { normalizarPedido } from "@/server/orders/normalizar";
 import { catalogoDePedidos } from "@/server/catalog/queries";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 
@@ -181,6 +182,34 @@ let costeTotal = 0;
 let tokensIn = 0;
 let tokensOut = 0;
 const muestras: { conversacion: string; ultimo: string; estado: EstadoPedido }[] = [];
+
+// --- Fase 1.5 -------------------------------------------------------------
+// Telemetría en memoria y a un archivo. NADA de esto toca la base: la Fase 2
+// no está autorizada a escribir ([67-FASE-1.5.md](../docs/korexia/67-FASE-1.5.md)).
+const telemetria: unknown[] = [];
+let reconstruibles = 0;
+const corregidos = new Map<string, number>();
+const dudasPorCampo = new Map<string, number>();
+
+/**
+ * Cuántas unidades trae cada presentación: `--unidades "CHURRITA=6,BESTIES=14"`.
+ *
+ * No sale de la base **porque no está**: `product.description` está vacío en
+ * los cuatro productos de La Churra. Se pasa a mano para poder medir cuánto
+ * cambiaría el resultado si ese dato existiera — que es la evidencia que
+ * justificaría añadirlo, no una excusa para inventarlo.
+ */
+const iUnidades = process.argv.indexOf("--unidades");
+const unidades =
+  iUnidades === -1
+    ? undefined
+    : Object.fromEntries(
+        process.argv[iUnidades + 1]
+          .split(",")
+          .map((par) => par.split("="))
+          .filter((p) => p.length === 2)
+          .map(([k, v]) => [k.trim(), Number(v)])
+      );
 
 const nombresDeProducto = new Map(productos.map((p) => [p.nombre.toLowerCase(), p]));
 const salsasValidas = new Set(
@@ -470,6 +499,39 @@ Lo que el cliente todavía NO haya dicho va en null (o lista vacía). No invente
     // eligió tres mensajes atrás) o una alucinación. Juzgar por el último
     // mensaje es como culpar al modelo sin leer la conversación. Va a un
     // archivo aparte porque en consola ahoga el resumen.
+    // --- Fase 1.5: validación semántica + telemetría (nada se persiste) ---
+    const t1 = Date.now();
+    const norm = normalizarPedido(
+      {
+        producto: e.producto,
+        cantidad: e.cantidad,
+        salsas: e.salsas,
+        recubierto: e.recubierto,
+        adiciones: e.adiciones,
+      },
+      productos,
+      unidades
+    );
+    // Regla 10: los TRES estados y sus diferencias, no solo el final.
+    telemetria.push({
+      conversacion: conv.id,
+      propuesto: e,
+      normalizado: norm.estado,
+      correcciones: norm.correcciones,
+      dudas: norm.dudas,
+      reconstruible: norm.reconstruible,
+      msExtraccion: latencias[latencias.length - 1],
+      msNormalizacion: Date.now() - t1,
+      costeUsd: res.usage?.costUsd ?? 0,
+    });
+    if (norm.reconstruible) reconstruibles++;
+    for (const c of norm.correcciones) {
+      corregidos.set(c.regla, (corregidos.get(c.regla) ?? 0) + 1);
+    }
+    for (const d of norm.dudas) {
+      dudasPorCampo.set(d.campo, (dudasPorCampo.get(d.campo) ?? 0) + 1);
+    }
+
     if (e.producto) {
       muestras.push({ conversacion: conv.id, ultimo: historial, estado: e });
     }
@@ -526,6 +588,27 @@ const iSalida = process.argv.indexOf("--salida");
 const salida =
   iSalida === -1 ? `extraccion-${organizationId}.json` : process.argv[iSalida + 1];
 writeFileSync(salida, JSON.stringify(muestras, null, 2), "utf8");
+// --- Fase 1.5: el informe que exige la Tarea 1 ---------------------------
+console.log(`\n--- Fase 1.5: ¿puede el backend reconstruir el pedido? ---`);
+console.log(`  reconstruibles: ${reconstruibles} de ${llamadas}  (${pct(reconstruibles)} %)`);
+console.log(`  ${unidades ? "CON" : "SIN"} el dato de unidades por presentación${unidades ? "" : "  ← es el estado real de producción"}`);
+if (corregidos.size) {
+  console.log(`\n  correcciones automáticas del backend:`);
+  for (const [regla, n] of [...corregidos.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${n} × ${regla}`);
+  }
+}
+if (dudasPorCampo.size) {
+  console.log(`\n  lo que el backend NO puede resolver solo (y por eso pregunta):`);
+  for (const [campo, n] of [...dudasPorCampo.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${campo}: ${n}`);
+  }
+}
+const rutaTelemetria = `telemetria-${organizationId}.json`;
+writeFileSync(rutaTelemetria, JSON.stringify(telemetria, null, 2), "utf8");
+console.log(`\n  telemetría (propuesto → normalizado → diferencias): ${rutaTelemetria}`);
+console.log(`  ⛔ nada de esto se ha escrito en la base: la Fase 2 no está autorizada.`);
+
 console.log(`\n--- Para revisar a ojo ---`);
 console.log(`  ${muestras.length} extracciones con producto, volcadas con su conversación en:`);
 console.log(`  ${salida}`);

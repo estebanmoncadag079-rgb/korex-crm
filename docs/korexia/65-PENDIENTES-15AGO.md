@@ -79,7 +79,8 @@ mensajes.**
 |---|---|
 | 0 — Medir | ✅ Hecha. Descartó el cambio de modelo y bajó la urgencia del refactor |
 | 1 — Catálogo a tablas | ✅ **En producción en La Churra**, verificado dentro del contenedor el 15-ago a las 13:52 UTC. Falta pantalla |
-| 2 — Estado estructurado | 🟡 **Condición de entrada cumplida** (15-ago): la extracción falla **0 % sobre 160 turnos reales**, con la regla de que ningún campo del modelo lleve valores cerrados. Quedan la #3 y la #4, y falta el neto del coste |
+| **1.5 — Validar antes de persistir** | 🔵 **EN CURSO, y bloquea la Fase 2**. Validación semántica + métricas, **todo en memoria**: prohibido escribir en la base, crear tablas o migrar. Ver [66](66-REGLAS-FASE-2.md) y [67](67-FASE-1.5.md) |
+| 2 — Estado estructurado | ⛔ **NO autorizada a escribir en la base**. Su condición de entrada se cumplió (extracción 0 % de fallo sobre 160 turnos reales), pero no empieza hasta que la Fase 1.5 dé evidencia. Siguen abiertas la objeción #3 y la #4 |
 | 3 — Motor de capacidades | ⏸️ Diferida: con 2 verticales no paga |
 
 **La Churra es el laboratorio** de cada fase, en condiciones reales. **Lis la

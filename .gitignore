@@ -60,3 +60,6 @@ escenarios-reporte.json
 public/pdf.worker.min.mjs
 .tmp-catalogo.mjs
 .tmp-medir-extraccion.mjs
+telemetria-*.json
+extraccion-*.json
+discrepancias-*.json

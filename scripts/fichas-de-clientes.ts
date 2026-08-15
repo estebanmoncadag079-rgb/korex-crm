@@ -55,13 +55,23 @@ const CHURRA: FichaDelNegocio = {
     "🥨 Besties — $20.000 (14 churros · 2 salsas)",
     "🥨 Family Box — $32.000 (22 churros · 3 salsas)",
     "🥨 Mega Box — $50.000 (34 churros · 5 salsas)",
-    "",
-    "Adiciones: 🍫 Salsa de CHOCOLATE $2.000 · 🐄 LECHERA $1.500 · 🍯 AREQUIPE $1.500 · 🤍 CHOCOLATE BLANCO $2.000 · 💧 Botella de agua $2.000",
   ].join("\n"),
+  /*
+   * Las adiciones salieron del catálogo el 15-ago-2026.
+   *
+   * Estaban pegadas aquí, así que "## Lo que vendes" se las daba al modelo
+   * junto a las presentaciones, y luego una regla le pedía que no las
+   * enseñara en el primer mensaje. Pedirle que separe lo que se le entrega
+   * junto no funciona: las mostraba igual, con carta y todo.
+   *
+   * Aquí abajo van con las salsas y el recubierto, que es donde el cliente las
+   * elige de verdad — el mensaje 2.
+   */
 
   variantes: [
     "SALSAS (los nombres van SIEMPRE en MAYÚSCULAS): 🍯 AREQUIPE · 🍫 CHOCOLATE · 🐄 LECHERA · 🤍 CHOCOLATE BLANCO. Cada presentación incluye un número de salsas: la Churrita 1, la Besties 2, el Family Box 3 y el Mega Box 5.",
     "RECUBIERTO: ✨ Azúcar-canela · ✨ Azúcar sola · ✨ Ambas · ✨ Sin azúcar.",
+    "ADICIONES (opcionales, se cobran aparte): 🍫 Salsa de CHOCOLATE $2.000 · 🐄 LECHERA $1.500 · 🍯 AREQUIPE $1.500 · 🤍 CHOCOLATE BLANCO $2.000 · 💧 Botella de agua $2.000.",
   ].join("\n"),
 
   entrega: {
@@ -108,8 +118,11 @@ const CHURRA: FichaDelNegocio = {
     // mensaje de más es dinero: desde el 1-oct-2026 Meta cobra todos los
     // salientes, así que el pedido entero tiene que caber en CINCO.
     "Un pedido completo son CINCO mensajes tuyos, ni uno más. (1) Las CUATRO presentaciones y «*¿Cuál te provoca?* 💛». (2) Celebras la elección, dices cuántos churros trae, y pides EN EL MISMO MENSAJE salsa, recubierto y adiciones. (3) Pides EN EL MISMO MENSAJE nombre, teléfono y dirección. (4) El resumen con el total y la confirmación, con el formato exacto que tienes más abajo. (5) Ya confirmado: los datos de pago y el cierre, también con su formato de más abajo. Nunca partas uno de estos en dos mensajes ni mandes uno suelto entre medias.",
-    "Tu PRIMER mensaje lleva SIEMPRE las cuatro presentaciones y termina en «*¿Cuál te provoca?* 💛», da igual lo que te escriban («hola», «cuál es la carta», «quiero churros») y da igual que el negocio esté cerrado. Nunca mandes un saludo suelto preguntando «¿qué se te antoja?» y te quedes esperando: eso gasta dos mensajes para hacer lo de uno.",
-    "En el mensaje 1 NO listes las adiciones ni las salsas, aunque estén en tu catálogo: solo las cuatro presentaciones. Las adiciones van en el mensaje 2, junto a la salsa y el recubierto. Enseñarlo todo de golpe abruma y le hace elegir antes de saber qué trae su caja.",
+    // La versión anterior de esta regla decía «nunca preguntes ¿qué se te
+    // antoja?» — y el agente contestó exactamente eso. Nombrar la frase
+    // prohibida es dársela: se describe SOLO lo que sí hay que hacer.
+    "Tu PRIMER mensaje de cada conversación es siempre este, completo, y termina justo ahí:\n\n¡Hola Churr@! 🥨✨ Qué alegría que nos escribas 😊 Estas son nuestras presentaciones:\n\n🥨 Churrita — $10.000 (6 churros · 1 salsa)\n🥨 Besties — $20.000 (14 churros · 2 salsas)\n🥨 Family Box — $32.000 (22 churros · 3 salsas)\n🥨 Mega Box — $50.000 (34 churros · 5 salsas)\n\n*¿Cuál te provoca?* 💛",
+    "Ese primer mensaje es el mismo escriban lo que escriban («hola», «tienes carta», «quiero churros», «0») y esté el negocio abierto o cerrado. Si está cerrado, le añades delante la línea del reagendamiento y sigues con las presentaciones en el MISMO mensaje. Ya con las presentaciones a la vista, el cliente elige y pasas al mensaje 2.",
     "Mensaje 2, exactamente con esta forma — un título en negrita y MAYÚSCULAS por pregunta, las opciones debajo en UNA línea separadas por « · », y una línea en blanco entre bloques:\n*¿QUÉ SALSA DESEAS?*\n🍯 AREQUIPE · 🍫 CHOCOLATE · 🐄 LECHERA · 🤍 CHOCOLATE BLANCO\n\n*¿CÓMO QUIERES TU RECUBIERTO?*\n✨ Azúcar-canela · ✨ Azúcar sola · ✨ Ambas · ✨ Sin azúcar\n\n*¿ALGUNA ADICIÓN?* (opcional)\n🍫 Salsa de CHOCOLATE $2.000 · 🐄 LECHERA $1.500 · 🍯 AREQUIPE $1.500 · 🤍 CHOCOLATE BLANCO $2.000 · 💧 Botella de agua $2.000",
     "Mensaje 3, exactamente con esta forma y SOLO estas tres líneas, cada una con su emoji:\n👤 *TU NOMBRE COMPLETO*\n📞 *TU NÚMERO DE CONTACTO* (10 dígitos)\n📍 *TU DIRECCIÓN COMPLETA* (barrio, apto/torre o # de casa)",
     "En el mensaje 3 **NO le preguntes cómo quiere recibir el pedido ni le ofrezcas elegir entre domicilio y recoger**, aunque el orden general de preguntas lo mencione: aquí se da por hecho el domicilio y por eso se le pide la dirección. Recoger en el punto solo se nombra **si el cliente lo pregunta él**, y entonces le dices que sí, que puede pasar por el C.C. Alfaguara. Es la misma regla que el pago en efectivo.",

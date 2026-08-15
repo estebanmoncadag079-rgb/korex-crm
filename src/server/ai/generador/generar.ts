@@ -157,8 +157,22 @@ export function generarPerfil(ficha: FichaDelNegocio): PerfilGenerado {
     // Las reglas propias van ANTES del cierre y de las prohibiciones
     // universales: son del día a día de este negocio y el modelo las necesita
     // mientras atiende, no al final entre las advertencias.
+    /*
+     * La cabecera dice que MANDAN, y no es un adorno.
+     *
+     * 15-ago-2026: La Churra tenía escrito que su primer mensaje lleva las
+     * cuatro presentaciones, y el agente seguía saludando y esperando. El orden
+     * general (`## El orden en que preguntas`) cae en la línea 22 del prompt y
+     * estas reglas en la 89: cuando dos instrucciones se contradicen, gana la
+     * que el modelo leyó primero.
+     *
+     * Decir aquí quién manda **no impone ningún flujo** —cada negocio sigue
+     * escribiendo el suyo—, solo resuelve el empate a favor de quien conoce su
+     * negocio. Es la diferencia con subir el flujo de un cliente a la conducta
+     * universal, que encasillaría a toda la flota en el orden de una churrería.
+     */
     vinetas(ficha.reglasPropias)
-      ? `## Reglas propias de este negocio\n\n${vinetas(ficha.reglasPropias)}`
+      ? `## Reglas propias de este negocio\n\nEstas reglas **mandan sobre todo lo anterior**. Si alguna contradice el orden de preguntas o la forma de escribir que te dije más arriba, haz lo que dice esta sección: son las de este negocio en concreto.\n\n${vinetas(ficha.reglasPropias)}`
       : null,
     ficha.vertical === "citas" ? CIERRE_CITAS : CIERRE,
     // Solo en pedidos: una cita fuera de hora no se "reagenda sola", se pide

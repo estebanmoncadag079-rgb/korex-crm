@@ -65,3 +65,4 @@ extraccion-*.json
 discrepancias-*.json
 .tmp-simular-ficha.mjs
 simulacion-ficha-v2.json
+.tmp-probar-propiedad.mjs

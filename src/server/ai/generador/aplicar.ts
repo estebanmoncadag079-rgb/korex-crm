@@ -28,6 +28,12 @@ export type ResultadoDelAlta = {
    * conocimiento**: en ese caso no se toca nada (ver `aplicarFicha`).
    */
   entradasDeConocimiento: number;
+  /**
+   * Presente cuando la ficha y lo contratado en `/admin` **no coinciden** en el
+   * vertical de citas. Antes esto no existía porque la ficha simplemente
+   * sobrescribía lo contratado; ahora se avisa y decide una persona.
+   */
+  avisoDeVertical?: string;
 };
 
 /**
@@ -111,6 +117,28 @@ export async function aplicarFicha(
   const perfil = generarPerfil(ficha);
   const db = getDb();
 
+  /*
+   * ¿Coincide lo que dice la ficha con lo que la agencia contrató?
+   *
+   * Antes esto no se preguntaba: se sobrescribía `appointmentsEnabled` con lo
+   * que dijera la ficha. Ahora se compara y, si difieren, se devuelve el aviso
+   * para que alguien lo mire — que es lo que se hace con un desacuerdo entre
+   * dos fuentes, en vez de dejar ganar a la última que escribe.
+   */
+  const antes = await db
+    .select({ appointmentsEnabled: schema.agentProfile.appointmentsEnabled })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  const contratadoConCitas = antes[0]?.appointmentsEnabled ?? false;
+  const fichaDiceCitas = ficha.vertical === "citas";
+  const avisoDeVertical =
+    contratadoConCitas === fichaDiceCitas
+      ? undefined
+      : fichaDiceCitas
+        ? "La ficha dice que este negocio agenda citas, pero en /admin no tiene el vertical de citas activado."
+        : "En /admin este negocio tiene el vertical de citas activado, pero su ficha no es de citas.";
+
   const preguntas = (ficha.preguntasFrecuentes ?? []).filter(
     (p) => p.pregunta.trim() && p.respuesta.trim()
   );
@@ -145,8 +173,21 @@ export async function aplicarFicha(
         ...(opciones?.telefonosDeAviso
           ? { notifyPhones: opciones.telefonosDeAviso.join(",") || null }
           : {}),
-        appointmentsEnabled: ficha.vertical === "citas",
-        enabled: false,
+        /*
+         * NI `enabled` NI `appointmentsEnabled` se escriben aquí: los dos
+         * tienen otro dueño y escribirlos era pisarle el trabajo.
+         *
+         * - `enabled` es del CLIENTE, desde su panel. Forzarlo a `false`
+         *   significaba que un negocio que ya estaba vendiendo **se apagaba
+         *   solo** al reenviar el cuestionario. Y no hace falta para que un
+         *   alta nazca apagada: la columna ya tiene `default(false)`.
+         * - `appointmentsEnabled` es de la AGENCIA, desde `/admin`, que es
+         *   quien contrata el vertical y ya lo escribe en `provisioning.ts`.
+         *   Deducirlo de la ficha lo sobrescribía sin avisar.
+         *
+         * Si la ficha y lo contratado no coinciden se AVISA (`avisoDeVertical`):
+         * un desacuerdo se reporta, no se resuelve pisando al otro.
+         */
         /*
          * La ficha se guarda para poder REGENERAR el prompt.
          *
@@ -219,5 +260,6 @@ export async function aplicarFicha(
     organizationId,
     largoDelPrompt: perfil.instructions.length,
     entradasDeConocimiento: sembradas,
+    avisoDeVertical,
   };
 }

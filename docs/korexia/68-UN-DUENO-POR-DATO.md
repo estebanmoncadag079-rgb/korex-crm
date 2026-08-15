@@ -169,6 +169,119 @@ Aditivo, por cliente y reversible sin desplegar — como la Fase 1.
 - **No arregla el hueco del catálogo** (recubierto y adiciones siguen fuera de
   `product`); eso es completar la Fase 1 y va aparte.
 
+---
+
+# Informe previo a la migración (15-ago-2026)
+
+El dueño frenó la migración y pidió cerrar siete puntos antes de tocar la base.
+**El resultado cambia el plan: ya no hacen falta columnas nuevas.**
+
+## 1. Los tres campos nuevos, uno a uno — y los tres sobran
+
+| Campo | ¿Qué resuelve? | Si no existiera… | Alternativa más simple | Veredicto |
+|---|---|---|---|---|
+| `ficha_v2` | Guardar la ficha por secciones sin romper la actual | Habría que reescribir `ficha` in situ | **`schema_version` DENTRO del JSON** y un lector que entienda las dos formas | ❌ **no hace falta** |
+| `ficha_schema` | Saber qué forma tiene la ficha | No se sabría cuál es cuál | El JSON ya puede decirlo de sí mismo | ❌ **no hace falta** — y una columna aparte sería **el mismo dato en dos sitios**, justo lo que este trabajo viene a quitar |
+| `generado_de` | Detectar que el prompt está viejo respecto a la ficha | No se detectaría el desfase | **Recompilar y comparar**: `pnpm simular:ficha` lo dice en 2 segundos, sobre la flota entera | ❌ **no hace falta**, y un hash puede quedarse viejo él mismo |
+
+> 🔑 La simulación dejó sin argumento a `generado_de`: si el prompt **se puede
+> recompilar idéntico cuando quieras**, no hace falta guardar una huella de
+> cuándo se generó. Se pregunta y ya.
+
+## 2. Riesgos de mantener `ficha` y `ficha_v2` a la vez
+
+Se analizaron para decidir… y el análisis es lo que llevó a no crearla:
+
+| Riesgo | Gravedad | Por qué |
+|---|---|---|
+| **Dos fuentes del mismo dato** | 🔴 alta | Es exactamente el problema que este documento arregla. Crear `ficha_v2` sería reproducirlo mientras dure la migración |
+| Escritor que actualiza una y olvida la otra | 🔴 alta | Son 4 escritores × 2 columnas = 8 caminos que mantener sincronizados |
+| Divergencia silenciosa | 🟠 media | Nadie se entera hasta que alguien regenera y sale un prompt distinto |
+| Rollback ambiguo | 🟠 media | Con dos columnas vivas, "volver atrás" deja de tener una respuesta única |
+| Coste de mantenimiento | 🟡 bajo | Código temporal que suele quedarse |
+
+**Conclusión: la doble escritura sobra.** Con un lector que entienda las dos
+formas, la conversión es un `UPDATE` por cliente, reversible desde el respaldo.
+
+## 3. Simulación sobre la flota — **sin escribir nada**
+
+`pnpm simular:ficha` (nuevo, solo lectura):
+
+```
+▸ La Churra    ficha: 15 campos → negocio 11 · flujo 2 · politicas 2
+               ✅ ningún campo se pierde
+               prompt: 17.355 guardado vs 17.355 recompilado → ✅ IDÉNTICO
+▸ Lashes Valen ficha: 12 campos → negocio 9 · flujo 1 · politicas 2
+               ✅ ningún campo se pierde
+               prompt: 6.889 guardado vs 6.889 recompilado → ✅ IDÉNTICO
+
+RESULTADO: 2 de 2 recompilan IDÉNTICO
+Sin ficha (no migrables): Lis Pastelería, korex.ia
+```
+
+### El fallo que la simulación encontró antes de tocar nada
+
+La **primera** corrida dio esto:
+
+```
+🔴 CAMPOS QUE SE PERDERÍAN: escalarSiempre, nuncaPrometer
+   prompt: 17.355 guardado vs 16.978 recompilado → 🔴 DIFERENTE
+```
+
+Este documento había dado por vacía la sección `politicas`. **No lo estaba**:
+ahí viven `escalarSiempre` y `nuncaPrometer` —las reglas de escalado y las
+promesas prohibidas, incluidas las de salud—. Migrar sin simular habría borrado
+en silencio justo las reglas que se ajustan a mano después de un incidente.
+
+La sección `politicas` que pedía el dueño **era necesaria**, y la simulación lo
+demostró con un número en vez de con una opinión.
+
+## 4. Auditoría de escritores: **9 rutas, ni una más**
+
+Confirmado por tres barridos: Drizzle (`update`/`insert`/`delete`), SQL crudo
+sobre `agent_profile`, y `sql.unsafe`/`db.execute`. Los `db.execute` que existen
+son de `rate-limit`, `cola` y `health`, sobre otras tablas. El único SQL crudo
+que menciona `agent_profile` es el `CREATE TABLE … AS SELECT` del respaldo de
+`regenerar:flota` — lectura.
+
+## 5. Los dos fallos críticos: **corregidos**
+
+`aplicarFicha` ya no escribe `enabled` ni `appointmentsEnabled`:
+
+- **`enabled`**: es del cliente. Forzarlo a `false` apagaba un agente que estaba
+  vendiendo cada vez que se reenviaba el cuestionario. No hace falta para que un
+  alta nazca apagada: la columna ya tiene `default(false)`.
+- **`appointmentsEnabled`**: es de la agencia, desde `/admin`, y ya lo escribe
+  `provisioning.ts`. Ahora, si la ficha y lo contratado no coinciden, se
+  **avisa** (`avisoDeVertical`) en vez de pisar.
+
+## 6. ¿Funciona el sistema sin un prompt persistido?
+
+**Sí.** Es lo que demuestra el punto 3: el prompt de los dos clientes con ficha
+se recompila **carácter por carácter idéntico**. `instructions` deja de ser un
+dato que custodiar y pasa a ser un artefacto reproducible — que es justo lo que
+hace que perderlo deje de ser un incidente.
+
+## 7. Recomendación final
+
+**No ejecutar el paso 1 del plan original: ya no existe.** Sin `ficha_v2`, sin
+`ficha_schema` y sin `generado_de`, **no hay migración de esquema que ejecutar**.
+
+El plan queda en cuatro pasos, todos reversibles y ninguno con DDL:
+
+| Paso | Qué | Rollback |
+|---|---|---|
+| **1** | Desplegar un **lector tolerante**: entiende la ficha plana (sin `schema_version`) y la de secciones. Nada cambia de comportamiento | desplegar el anterior |
+| **2** | Cada escritor pasa a tocar **solo su sección** | ídem |
+| **3** | Convertir la ficha **cliente por cliente** con respaldo previo, en el orden de siempre: salón → La Churra → **Lis nunca** (no tiene ficha) | restaurar del respaldo, sin desplegar |
+| **4** | Semanas después, retirar el soporte de la forma plana | — |
+
+**El orden importa**: primero el lector, después la conversión. Al revés, un
+código viejo se encontraría una ficha que no sabe leer.
+
+Y una nota sobre Lis: **no tiene ficha**, así que este trabajo no la toca. Su
+prompt seguirá siendo manual hasta que se decida otra cosa.
+
 ## La pregunta de control (regla 14)
 
 > ¿Esto reduce la dependencia del prompt de 18.000 caracteres?

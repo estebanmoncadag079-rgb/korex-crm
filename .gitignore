@@ -63,3 +63,5 @@ public/pdf.worker.min.mjs
 telemetria-*.json
 extraccion-*.json
 discrepancias-*.json
+.tmp-simular-ficha.mjs
+simulacion-ficha-v2.json

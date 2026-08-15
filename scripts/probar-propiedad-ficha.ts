@@ -18,6 +18,7 @@ import { aplicarFicha } from "@/server/ai/generador/aplicar";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
 import { aSecciones, leerFicha } from "@/server/ai/generador/leer-ficha";
 import { verificarAntesDeMigrar } from "@/server/ai/generador/verificar-migracion";
+import { compararFila, explicar, type Fila } from "@/server/ai/generador/comparar-fila";
 import { createClientWithOwner } from "@/server/auth/provisioning";
 
 function envVar(name: string): string | undefined {
@@ -75,19 +76,19 @@ const DEL_CUESTIONARIO = {
 const db = getDb();
 let organizationId = "";
 
-const leerPerfil = async () => {
+/**
+ * La FILA COMPLETA, no una lista de campos.
+ *
+ * La versión anterior de esta función leía cinco columnas escogidas a mano, y
+ * por eso no vio que `aplicarFicha` revertía el horario del salón el 15-ago a
+ * las 19:46. Una lista comprueba lo que ya sabes que se rompe.
+ */
+const leerPerfil = async (): Promise<Fila> => {
   const [p] = await db
-    .select({
-      instructions: schema.agentProfile.instructions,
-      greeting: schema.agentProfile.greeting,
-      escalationRules: schema.agentProfile.escalationRules,
-      enabled: schema.agentProfile.enabled,
-      appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
-      ficha: schema.agentProfile.ficha,
-    })
+    .select()
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId));
-  return p!;
+  return p as unknown as Fila;
 };
 
 try {
@@ -172,9 +173,17 @@ try {
   const sigueConvertida = despues.ficha?.includes('"schema_version"') ?? false;
   console.log(`formato de la ficha: ${sigueConvertida ? "✅ sigue por secciones" : "🔴 volvió a plana"}`);
 
+  // La comprobación que manda: reenviar el cuestionario solo puede tocar lo que
+  // el cuestionario declara suyo. Cualquier otra columna que cambie, aborta.
+  const DECLARADOS = ["ficha", "instructions", "greeting", "escalationRules", "name", "tone", "updatedAt"];
+  const filaEntera = compararFila(antes, despues, DECLARADOS);
+  console.log(`
+--- FILA COMPLETA (la regla nueva) ---`);
+  console.log(explicar(filaEntera));
+
   console.log(`${"─".repeat(72)}`);
   console.log(
-    comprobacion.ok && reglasIntactas && sigueConvertida
+    comprobacion.ok && reglasIntactas && sigueConvertida && filaEntera.ok
       ? "\n✅ PASA: reenviar el cuestionario NO cambió el prompt ni tocó lo ajeno."
       : `\n🔴 FALLA:\n   - ${[...comprobacion.fallos, ...(reglasIntactas ? [] : ["se perdieron las reglas de flujo"])].join("\n   - ")}`
   );

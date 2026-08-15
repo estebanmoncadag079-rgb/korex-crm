@@ -12,10 +12,63 @@
 > Si esto no se resuelve primero, cualquier mejora futura puede desaparecer con
 > una escritura silenciosa — que es exactamente lo que pasó el 15 de agosto.
 
-## 🔴 Regla del proyecto
+## 🔴 Reglas del proyecto
 
-> **Está prohibido convertir clientes mientras exista un escritor capaz de
+> **1. Está prohibido convertir clientes mientras exista un escritor capaz de
 > reconstruir la ficha completa.**
+>
+> **2. Ninguna prueba valida una lista de campos.** Se captura la fila entera
+> antes, se ejecuta la operación, se captura la fila entera después, y solo
+> pueden haber cambiado los campos que el escritor **declaró**. Cualquier otra
+> diferencia aborta.
+>
+> **3. No se confía en la documentación.** La evidencia válida es el estado
+> reconstruido desde la base y los respaldos.
+
+---
+
+# 🔴 El incidente del horario (15-ago-2026, 19:46:41 UTC)
+
+**Una prueba diseñada para detectar pérdidas silenciosas causó una pérdida
+silenciosa.** Es el hallazgo que originó las reglas 2 y 3.
+
+## Reconstrucción desde los respaldos de 6 h del VPS
+
+| Respaldo (UTC) | Columnas `hours*` | `ficha.horario` |
+|---|---|---|
+| 14-ago 15:30 | 09:00 – 20:00 | `09:00` / `20:00` |
+| **14-ago 21:30** | **09:30 – 18:30** | **`9:30 AM` / `6:30 PM`** ← corrección humana, en **las dos** copias |
+| 15-ago 03:30 | 09:30 – 18:30 | `9:30 AM` / `6:30 PM` |
+| **15-ago 09:30** | 09:30 – 18:30 | **`09:00` / `20:00`** ← 🔴 la ficha se revierte sola |
+| 15-ago 15:30 | 09:30 – 18:30 | `09:00` / `20:00` |
+| **15-ago 19:46:41** | **09:00 – 20:00** | `09:00` / `20:00` ← 🔴 las columnas también |
+
+## El último escritor, con nombre
+
+`aplicarFicha`, invocado **por la propia prueba de propiedad de la ficha**. Esa
+prueba verificaba `instructions`, `greeting`, `escalationRules`, `enabled` y
+`appointmentsEnabled` —los cinco campos que ya sabíamos frágiles— y **el horario
+no estaba en la lista**, así que pasó por delante sin activarla.
+
+`aplicarFicha` reescribe `hours*` desde `ficha.horario` en cada reenvío, y la
+ficha ya llevaba revertida desde la mañana.
+
+## Cuál era el dato auténtico, y cómo se demuestra
+
+El formato lo dice sin ambigüedad:
+
+```
+14-ago:  "abre":"9:30 AM"  "cierra":"6:30 PM"    ← lo escribió una persona
+15-ago:  "abre":"09:00"    "cierra":"20:00"      ← formato de máquina
+```
+
+Nadie corrige a mano *hacia* un horario más largo. El horario real es
+**9:30–18:30**, restaurado el 15-ago en las dos copias con
+`pnpm restaurar:horario`, que declara sus campos y compara la fila entera.
+
+> 🔑 **La documentación afirmaba dos veces que el horario estaba "confirmado en
+> la base" en 9:30–18:30 mientras la base decía 09:00–20:00.** De ahí la regla
+> 3: la doc registra lo que alguien creyó; el respaldo registra lo que pasó.
 
 > **Dentro:** Quién escribe hoy · Las cinco colisiones · Lo que nadie había
 > dicho: fuente contra derivado · El flujo actual · El flujo propuesto · El plan
@@ -298,6 +351,27 @@ código viejo se encontraría una ficha que no sabe leer.
 
 Y una nota sobre Lis: **no tiene ficha**, así que este trabajo no la toca. Su
 prompt seguirá siendo manual hasta que se decida otra cosa.
+
+---
+
+# Doble residencia: el mapa completo y su fuente canónica
+
+| Campo | Fuente A | Fuente B | Quién escribe | Quién lee | **Canónica** | Estado |
+|---|---|---|---|---|---|---|
+| **Horario** | `ficha.horario` | columnas `hours*` | `aplicarFicha` (A→B) | pipeline, prompt y **motor de citas** (B) | **B — las columnas** | 🔴 mordió el 15-ago; restaurado |
+| **Catálogo** | `ficha.catalogo` (texto) | tablas `product` | `aplicarFicha` (A) · `escribirCatalogo` (A→B, con `DELETE`) | pipeline (B) | **B — las tablas** | ⚠️ latente: re-sembrar revierte a A |
+| **Conocimiento** | `ficha.preguntasFrecuentes` | `kb_entry` | `aplicarFicha` (solo siembra) + 5 escritores más | pipeline (B) | **B — `kb_entry`** | ⚠️ 6 escritores, uno borra |
+| **Precios** | saludo en `ficha.flujo` (texto) | `product.price_cents` | operador (A) · migración (B) | el agente ve **las dos** | **B — la tabla** | ⚠️ latente |
+| **Prompt** | `ficha` | `instructions` | 4 escritores, todos recompilan | pipeline (B) | **A — la ficha** (B es derivado) | ✅ resuelto |
+| **Vertical** | `ficha.vertical` | `appointments_enabled` | `/admin` (B) | pipeline (B) | **B — `/admin`** | ✅ resuelto: ahora avisa |
+
+**El criterio que ordena la tabla**: la fuente canónica es **la que el sistema
+lee para decidir**, no la que se rellenó primero. La ficha es el formulario del
+alta; las tablas y columnas son cómo funciona el negocio hoy.
+
+**La excepción es el prompt, y es deliberada**: ahí lo canónico es la ficha
+porque `instructions` es un **derivado compilado**. Por eso la regla dice *"lo
+derivado no se escribe: se recompila"*.
 
 ## La pregunta de control (regla 14)
 

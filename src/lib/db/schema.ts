@@ -1020,3 +1020,26 @@ export const mediaAsset = pgTable(
     uniqueIndex("media_org_etiqueta_uq").on(t.organizationId, t.etiqueta),
   ]
 );
+
+/**
+ * El estado del pedido, mantenido por el BACKEND — Fase 2.
+ *
+ * **1:1 con la conversación y se reemplaza entero en cada turno.** Sin deltas
+ * ni merges: elimina una familia completa de bugs y es seguro porque la cola
+ * garantiza un turno por conversación a la vez (34-COLA-DE-TURNOS.md).
+ *
+ * El modelo PROPONE este objeto; el backend lo valida contra el catálogo de esa
+ * organización y **recalcula el total él mismo** antes de guardarlo. Lo que se
+ * persiste aquí ya pasó por `normalizarPedido`.
+ */
+export const conversationState = pgTable("conversation_state", {
+  conversationId: text("conversation_id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  estado: jsonb("estado").notNull(),
+  /** Para poder cambiar la forma del JSON sin adivinar cuál es cuál. */
+  schemaVersion: integer("schema_version").notNull().default(1),
+  /** Dónde se quedó. Existe para que "dónde se cae la gente" sea un GROUP BY. */
+  paso: text("paso"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

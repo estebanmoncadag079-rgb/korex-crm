@@ -155,6 +155,13 @@
       "when": 1786883076151,
       "tag": "0021_origen_del_conocimiento",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786969476151,
+      "tag": "0022_estado_de_la_conversacion",
+      "breakpoints": true
     }
   ]
 }

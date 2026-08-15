@@ -73,17 +73,38 @@ que medirlo con el prompt de verdad.
 Requiere un prototipo del extractor. Queda pendiente, y sigue siendo la
 condición para la Fase 2.
 
-### Qué se concluye
+### ⚠️ Qué se concluye — y qué NO se puede concluir
 
-- El diagnóstico técnico es correcto (el pedido no existe como dato), pero **su
-  impacto medido es mucho menor de lo que parecía**.
-- **La Fase 1 (catálogo a tabla) sigue justificada** por sí sola: quita
-  contradicciones y reduce la entrada, que es el 94 % del coste.
-- **La Fase 2 (estado estructurado) no está justificada todavía** por estos
-  números. Lo que sí lo estaría: atacar el p90 de Lis, que es donde se va el
-  dinero.
+Lo primero, una corrección al propio diseño de esta Fase 0:
+
+> **Se midió el síntoma equivocado.** Estas mediciones cuentan mensajes, y el
+> objetivo del refactor **nunca fue reducir mensajes**: es **dejar de depender de
+> un prompt de 18.000 caracteres por cliente** para poder crecer a decenas o
+> cientos de negocios. Ese problema **no se mide con las conversaciones de hoy**,
+> porque no se manifiesta en la conversación: se manifiesta en el alta y el
+> mantenimiento — que es justo lo que [33-ESCALABILIDAD.md](33-ESCALABILIDAD.md)
+> ya señalaba como el techo real.
+
+Y una corrección de interpretación, aportada por el dueño:
+
+> **El p90 alto de Lis no es un fallo: es su negocio.** Tortas por encargo,
+> personalizaciones y dedicatorias necesitan más idas y venidas que una caja de
+> churros. Contar sus 21 mensajes como "desorden" fue un error de lectura de este
+> documento. Un pedido largo ahí es un pedido bien atendido.
+
+Con eso dicho, lo que los números **sí** sostienen:
+
+- El diagnóstico técnico es correcto: el pedido no existe como dato.
+- **El caso conversacional típico no está roto** (La Churra, mediana 3). Así que
+  el refactor **no se justifica como arreglo de un fallo urgente**…
+- …pero **sí se justifica como escalabilidad**, que es su motivo real y que estas
+  mediciones no tocan.
 - **Cambiar de modelo no está justificado** por calidad. Si algún día se hace,
   que sea por coste — y entonces el candidato es GPT-4.1 mini, no al revés.
+
+**Lo que queda por medir de verdad** (y no se hizo, porque se midió lo otro):
+cuánto cuesta hoy dar de alta y mantener un cliente, y cuánto costaría con el
+catálogo en tablas. Esa es la métrica del objetivo real.
 
 ---
 
@@ -264,6 +285,53 @@ pasaba como texto plano).
 
 Decidir *"no es el modelo, es la arquitectura"* sin un A/B limpio es tan
 arriesgado como lo contrario. **Cuesta una tarde y unos centavos.**
+
+---
+
+## El objetivo, escrito para que no se vuelva a desviar
+
+**No es reducir mensajes. No es arreglar un bot que responde mal.**
+
+> Es que **el conocimiento estructurado viva en el backend y el prompt se ocupe
+> solo del comportamiento conversacional**, para que korex.ia pueda sostener
+> muchos negocios sin mantener un prompt enorme por cada uno.
+
+Todo lo demás —menos contradicciones, menos coste de entrada, menos mensajes— son
+efectos secundarios agradables, no la meta. Si una fase no acerca a ese objetivo,
+no pertenece a este plan.
+
+Y la condición innegociable, en palabras del dueño: *"no vamos a sacrificar la
+arquitectura por un cambio apresurado"*. Crecimiento **incremental**, con
+**bandera por cliente**, **migraciones aditivas** y **rollback fácil**.
+
+---
+
+## Antes de la Fase 1: lo urgente va primero
+
+Decisión del dueño, y coincide con [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md):
+
+1. 🔴 **Cambiar la contraseña del superadmin.** Abierta desde el 31-jul.
+2. 🔴 **Encender el salón.** Es un cliente conectado que no factura.
+
+Ninguna arquitectura compensa tener una brecha abierta y un cliente sin cobrar.
+
+---
+
+## La Churra es el laboratorio; Lis llega la última y ya validada
+
+También decisión del dueño, y es la que más baja el riesgo:
+
+> Cada fase se prueba en **La Churra**, en condiciones reales, hasta que
+> demuestre valor. Solo entonces llega a Lis — con rollback inmediato y con la
+> confianza de que esa arquitectura ya funcionó en producción.
+
+Por qué funciona: La Churra ya tiene ficha, su catálogo es simple (4
+presentaciones), su volumen es menor y su pedido mediano son 3 mensajes. Es el
+banco de pruebas más honesto que hay, porque **es un negocio real con clientes
+reales**, no un espejo.
+
+Orden definitivo: **Lashes Valen (apagado) → La Churra (laboratorio) → Lis (la
+última, ya validada)**.
 
 ---
 
@@ -514,9 +582,22 @@ Sus tres aportes ya están incorporados: la regla de propiedad del estado (que
 pasó a ser el principio rector del diseño), el `schema_version` y las métricas
 básicas.
 
-**Sigue siendo un plan propuesto, no aprobado.** La Fase 0 es condición para todo
-lo demás, y de las cinco objeciones, cuatro siguen abiertas (la tercera quedó
-resuelta: el flujo en dos niveles ya existe).
+**Estado tras la Fase 0 (15-ago, noche):**
+
+| | |
+|---|---|
+| Objetivo | **Confirmado y reescrito**: escalar sin un prompt gigante por cliente. No es reducir mensajes |
+| Urgente antes de nada | Contraseña del superadmin · encender el salón |
+| Fase 1 (catálogo a tablas) | **Aprobada**. Beneficio claro y reduce contradicciones |
+| Fase 2 (estado estructurado) | **En espera de un piloto que la justifique**, con bandera por cliente y rollback |
+| Laboratorio | **La Churra**, en condiciones reales. Lis la última y ya validada |
+| Cambio de modelo | **Descartado** por calidad (Gemini 0 fallas contra 2) |
+
+De las cinco objeciones: la tercera quedó resuelta (el flujo en dos niveles ya
+existe); la primera se atendió con la Fase 0 —aunque midiendo el síntoma
+equivocado, ver arriba—; **la segunda (fragilidad de la extracción), la cuarta
+(otra fuente de verdad) y la quinta siguen abiertas** y son condición para la
+Fase 2, no para la Fase 1.
 
 Lo que sí está decidido y verificado: el diagnóstico técnico es correcto —el
 pedido no existe como dato y el prompt le pide al modelo que haga de base de

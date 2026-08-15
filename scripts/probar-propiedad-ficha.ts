@@ -105,15 +105,23 @@ try {
   organizationId = creado.organizationId;
   console.log(`\n1. cliente de prueba creado: ${organizationId}`);
 
-  // 2. La agencia aplica la ficha completa (las tres secciones)
+  // 2. Antes de nada: agente encendido y catálogo EN TABLAS.
+  //
+  // Lo segundo va aquí y no después a propósito. Reenviar el cuestionario de un
+  // cliente con el catálogo en tablas volvía a embeberlo en el prompt (+698
+  // caracteres en La Churra, la carta duplicada) porque `aplicarFicha` no se
+  // había enterado de la Fase 1. Sin este caso la prueba pasaba y el fallo
+  // seguía vivo; y si la bandera se cambia DESPUÉS de generar el prompt, se
+  // comparan dos escenarios distintos y la prueba miente al revés.
+  await db
+    .update(schema.agentProfile)
+    .set({ enabled: true, catalogSource: "tabla" })
+    .where(eq(schema.agentProfile.organizationId, organizationId));
+
+  // La agencia aplica la ficha completa (las tres secciones)
   await aplicarFicha(organizationId, FICHA_COMPLETA, {
     puedeEscribir: ["negocio", "flujo", "politicas"],
   });
-  // El cliente enciende su agente: así se comprueba que el cuestionario no lo apaga.
-  await db
-    .update(schema.agentProfile)
-    .set({ enabled: true })
-    .where(eq(schema.agentProfile.organizationId, organizationId));
   const antes = await leerPerfil();
   console.log(`2. ficha aplicada · prompt ${antes.instructions?.length} caracteres · enabled=${antes.enabled}`);
 

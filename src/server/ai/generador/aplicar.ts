@@ -151,7 +151,10 @@ export async function aplicarFicha(
    * que este llamante posee y se conserva el resto.
    */
   const guardada = await db
-    .select({ ficha: schema.agentProfile.ficha })
+    .select({
+      ficha: schema.agentProfile.ficha,
+      catalogSource: schema.agentProfile.catalogSource,
+    })
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
@@ -163,7 +166,19 @@ export async function aplicarFicha(
     opciones?.puedeEscribir ?? ["negocio"]
   );
 
-  const perfil = generarPerfil(ficha);
+  /*
+   * `catalogoEnTabla` NO es opcional aquí, y olvidarlo costó un prompt.
+   *
+   * Esta función nunca se enteró de la Fase 1: seguía embebiendo el catálogo en
+   * el prompt aunque el cliente ya lo tuviera en `product`. Como nadie había
+   * reenviado el cuestionario de La Churra desde que se encendió su bandera, el
+   * fallo estuvo latente — hasta que la prueba de conversión lo destapó: su
+   * prompt pasó de 17.355 a 18.053 caracteres, con la carta duplicada (una en
+   * el texto y otra que el pipeline inyecta desde las tablas).
+   */
+  const perfil = generarPerfil(ficha, {
+    catalogoEnTabla: guardada[0]?.catalogSource === "tabla",
+  });
 
   /*
    * ¿Coincide lo que dice la ficha con lo que la agencia contrató?

@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [76-EL-MAPA-DE-LAS-SALSAS.md](76-EL-MAPA-DE-LAS-SALSAS.md) | 🔴 **Los 16 puntos que interpretan el catálogo**, y el hallazgo que salió del inventario: `sumaDeExtras` **cobra la salsa incluida como si fuera adición** porque mira las opciones sin mirar su grupo |
+
 | [75-COMO-SE-DOCUMENTA.md](75-COMO-SE-DOCUMENTA.md) | 🔴 **La regla que gobierna a las demás**: todo cambio se documenta en el mismo instante y en el mismo commit. Las siete obligaciones —incluida *cómo revertirlo*—, el orden obligatorio, cuándo un cambio está terminado y la plantilla de bitácora |
 
 | [74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md) | 🔴 **Reglas permanentes de los logs**: nada de estructuras completas ni texto del usuario, un solo módulo que sanea, y **ninguna tabla se instrumenta sin clasificar sus campos** (técnico · negocio · personal · secreto). Qué usar en cada caso, el guardarraíl que lo comprueba solo, y lo que todavía no cubre |

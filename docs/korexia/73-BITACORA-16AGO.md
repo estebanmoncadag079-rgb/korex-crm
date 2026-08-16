@@ -253,6 +253,30 @@ expuesto de golpe**, pero las huellas nuevas dejan de ser comparables con las
 emitidas mientras estuvo el HMAC.
 **Estado**: terminado.
 
+### 01:30 · El inventario de las salsas, y lo que encontró
+
+**Objetivo**: antes de corregir `normalizar.ts:382`, mapear **todos** los puntos
+que interpretan el catálogo. La orden del dueño: *"si encuentras otra
+implementación distinta, detente y documéntala antes de modificar nada"*.
+**Archivos**: solo documentación — `76-EL-MAPA-DE-LAS-SALSAS.md` (nuevo), `72`,
+`00-INDICE`, esta bitácora. **Ni una línea de código.**
+**Riesgos**: 🔴 **encontrado uno nuevo y peor que el que se iba a arreglar**.
+`sumaDeExtras` recorre todos los grupos y suma cualquier opción cuyo nombre
+coincida, **sin mirar de qué grupo es**. En La Churra `AREQUIPE` y `LECHERA`
+están como salsa incluida **y** como adición de $1.500: pedir una Churrita con
+salsa de arequipe cobraría $1.500 fantasma. Se activa con `cargar:opciones` + la
+bandera, las dos en la lista de encendido.
+**Evidencia**: 16 puntos inventariados; 3 con lógica propia (`:382`,
+`sumaDeExtras`, `render.ts`), 4 que recorren todos los grupos **a propósito**.
+**Reversión**: `git revert <sha>`; solo se pierde documentación.
+**Estado**: terminado — **el arreglo, detenido a la espera de instrucciones**.
+
+> 🔑 La corazonada del dueño se cumplió al pie de la letra: *"cuando una regla de
+> negocio está repartida entre pipeline, validadores, normalizadores y scripts,
+> casi siempre aparecen más implementaciones ocultas"*. El bug del `find()`
+> apareció en un sitio que la documentación daba por corregido; el inventario
+> encontró el siguiente **un piso más abajo, y este cobra dinero de más**.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

@@ -106,6 +106,7 @@ hallazgos; ninguno necesita migración. Los que bloquean el encendido:
 | 🔴 | **Datos personales en los logs**: `entrega.telefono/direccion/nombre` se volcaban en claro | ✅ **corregido el 16-ago** — ver [10-SEGURIDAD.md](10-SEGURIDAD.md) |
 | 🔴 | **Tres logs volcaban datos de clientes YA en producción** (dos webhooks y el pipeline), sin relación con la Fase 2 | ✅ **corregido el 16-ago** — ver [74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md) |
 | 🟠 | `normalizar.ts:382` calcula las salsas por su cuenta, sin `grupoDeSalsas()` | 🔴 pendiente |
+| 🔴 | **`sumaDeExtras` cobra la salsa incluida como si fuera adición**: mira las opciones sin mirar su grupo, y en La Churra `AREQUIPE` y `LECHERA` están en los dos. **Se activa con la tarea 4** | 🔴 pendiente — ver [76](76-EL-MAPA-DE-LAS-SALSAS.md) |
 | 🟠 | `leerAporte()` es código muerto y la doc dice que se usa | 🔴 pendiente |
 
 Y los recomendados: la instrumentación de `agent/profile` que se autodeclara, el

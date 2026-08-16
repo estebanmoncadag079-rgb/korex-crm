@@ -323,3 +323,74 @@ function registrarCambioDeEstado(entrada: {
     console.warn(`[cambio] no se pudo registrar el estado: ${(err as Error).message}`);
   }
 }
+
+/** Cómo acabó el turno para el estado. */
+export type ResultadoDelTurno = "guardado" | "rechazado" | "sin_propuesta" | "error";
+
+export type MetricaDeEstado = {
+  organizationId: string;
+  conversationId: string;
+  resultado: ResultadoDelTurno;
+  /** Ausente cuando el modelo no propuso estado, o cuando la validación ni corrió. */
+  validacion?: Validacion;
+  /** Milisegundos de la llamada al modelo que trae la propuesta. */
+  msModelo?: number;
+  /** Milisegundos que tarda el BACKEND en validar y persistir. */
+  msBackend: number;
+  /** El error, cuando `resultado = "error"`. */
+  detalle?: string;
+};
+
+/**
+ * Las seis métricas de la regla 10, en UNA línea por turno.
+ *
+ * **Por qué una línea y no seis contadores**: un contador dice *cuántos*, y la
+ * pregunta del piloto es *cuál* — qué conversación, qué se corrigió y por qué se
+ * rechazó. Con la línea completa las seis se derivan grepeando, y no hace falta
+ * decidir hoy qué agregación se querrá mañana. Es la misma decisión que ya se
+ * tomó para el registro de cambios: log estructurado antes que tabla.
+ *
+ * Cómo se saca cada una de las seis:
+ *
+ * | Regla 10 | De dónde sale |
+ * |---|---|
+ * | Estados inválidos | `resultado=rechazado` · el porqué en `motivos=` |
+ * | Estados corregidos | `correcciones=N` · qué campos en `campos_corregidos=` |
+ * | Turnos por pedido | líneas con el mismo `conv=` hasta `confirmado=true` |
+ * | Pedidos abandonados | un `conv=` que nunca llega a `confirmado=true` |
+ * | Coste por conversación | ya existía: `registrarUsoIa(…, "conv:<id>")` |
+ * | Tiempo de extracción | `ms_modelo=` (la llamada) y `ms_backend=` (validar y persistir) |
+ *
+ * **Nunca lanza y nunca vuelca valores del cliente**: van los NOMBRES de los
+ * campos corregidos, no lo que el cliente escribió. Un log de métricas se acaba
+ * pegando en un chat, y ahí no puede aparecer la dirección de nadie.
+ */
+export function registrarMetricaDeEstado(m: MetricaDeEstado): void {
+  try {
+    const v = m.validacion;
+    // Solo el nombre del campo: `correcciones` viene como "campo: «de» → «a»".
+    const campos = (v?.correcciones ?? []).map((c) => c.split(":")[0]!.trim());
+    const linea =
+      `[metrica] evento=estado org=${m.organizationId} conv=${m.conversationId} ` +
+      `resultado=${m.resultado} ` +
+      `paso=${paraLog("paso", v?.estado.paso ?? "-")} ` +
+      `confirmado=${v?.estado.confirmado ?? "-"} ` +
+      `producto=${paraLog("producto", v?.estado.producto.nombre ?? "-")} ` +
+      `total_cents=${v?.estado.totalCents ?? "-"} ` +
+      `correcciones=${campos.length} ` +
+      `campos_corregidos=${campos.length ? campos.join("|") : "-"} ` +
+      `rechazos=${v?.rechazos.length ?? 0} ` +
+      `motivos=${v?.rechazos.length ? paraLog("motivos", v.rechazos.join(" · ")) : "-"} ` +
+      `dudas=${v?.dudas.length ?? 0} ` +
+      `ms_modelo=${m.msModelo ?? "-"} ms_backend=${m.msBackend} ` +
+      (m.detalle ? `detalle=${paraLog("detalle", m.detalle)} ` : "") +
+      `timestamp=${new Date().toISOString()}`;
+
+    // Rechazado y error se ven en `warn`: son lo que hay que mirar a diario
+    // durante el piloto. El resto es material de análisis, no una alarma.
+    if (m.resultado === "rechazado" || m.resultado === "error") console.warn(linea);
+    else console.log(linea);
+  } catch (err) {
+    console.warn(`[metrica] no se pudo registrar: ${(err as Error).message}`);
+  }
+}

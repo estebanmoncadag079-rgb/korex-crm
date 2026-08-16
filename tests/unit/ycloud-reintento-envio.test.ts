@@ -42,6 +42,18 @@ describe("ycloudSendText: reintentos", () => {
       to: { kind: "phone", value: "573165345762" },
       text: "hola",
     });
+    /*
+     * Un observador temprano del rechazo.
+     *
+     * Sin esto la promesa pasa por `runAllTimersAsync` SIN dueño: para cuando el
+     * test hace `await expect(...).rejects`, Node ya la contó como "unhandled
+     * rejection". Las cuatro pruebas pasaban igual, pero **vitest salía con
+     * código 1** y dejaba el gate en rojo por dos errores que no eran de nadie.
+     *
+     * El `.catch` solo marca la promesa como observada; el rechazo se sigue
+     * propagando al test por el `return`.
+     */
+    promesa.catch(() => {});
     // Las esperas entre reintentos no deben alargar la prueba.
     await vi.runAllTimersAsync();
     return promesa;

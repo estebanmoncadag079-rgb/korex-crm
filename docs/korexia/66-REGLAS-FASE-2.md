@@ -95,6 +95,13 @@ Estados inválidos · estados corregidos · pedidos abandonados · turnos por pe
 
 Sin métricas, la Fase 2 volverá a depender de intuiciones.
 
+> ✅ **Ejecutada el 16-ago**, antes de que se persista ni un estado.
+> `registrarMetricaDeEstado` emite **una línea por turno** de la que se derivan
+> las seis; el coste ya venía de `registrarUsoIa`. Detalle y ejemplo en
+> [69](69-FASE-2-ESTADO-ESTRUCTURADO.md). Una línea y no seis contadores porque
+> la pregunta del piloto no es *cuántos* sino **cuál**: qué conversación, qué se
+> corrigió y por qué se rechazó.
+
 ## 11. Mantener la revisión humana durante el piloto
 
 `LLM → extracción → estado generado → registro → revisión humana`. **No eliminar

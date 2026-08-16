@@ -11,6 +11,42 @@ dueño.
 
 ---
 
+## 🔴 Lo primero de todo el 16-ago: **la Fase 2 no está desplegada**
+
+Verificado dentro del contenedor, no en la documentación:
+
+| | |
+|---|---|
+| Imagen viva construida | 15-ago **22:34 UTC** (17:34 hora local) |
+| Commits posteriores a ella | `14cca67` 17:57 · `eb51c55` 18:08 · `701d1b2` 18:17 · `2c08431` 18:22 |
+| `state_source` dentro de `/app/.next` | **0 archivos** (igual `totalCents`, `RECUBIERTO`, `ADICIONES`) |
+| Código en `/etc/easypanel/…/crm/code` | ✅ al día (fecha del último commit) |
+
+**Falta el paso 4: que el dueño pulse Desplegar en EasyPanel.** Hoy no rompe
+nada —la bandera está apagada y el código vivo ni conoce la columna—, pero
+encender la bandera antes de desplegar **no haría absolutamente nada**, y se
+perdería una tarde buscando por qué.
+
+## ⚠️ Cargar las opciones cambia el prompt VIVO de La Churra
+
+`renderCatalogoDePedidos` ([render.ts](../../src/server/catalog/render.ts)) pinta
+**cualquier** grupo que encuentre en las tablas, con su `(opcional)` y sus
+precios. En cuanto `RECUBIERTO` y `ADICIONES` existan, aparecen en el prompt del
+cliente que factura **sin desplegar nada**. No es un preparativo inocuo: hay que
+renderizar el catálogo antes y después y comparar.
+
+## ✅ Regla 10, cerrada el 16-ago
+
+`registrarMetricaDeEstado` emite una línea por turno de la que salen las seis
+métricas. Escrito, **sin ejecutar todavía**: falta `pnpm test` y desplegar.
+
+## 👉 La lista de la Fase 2 vive ahora en el 72
+
+Las 18 tareas numeradas, clasificadas (bloqueante · recomendada · opcional), con
+cuáles escriben en producción y en qué orden: **[72-COMO-ENCENDER-LA-FASE-2.md](72-COMO-ENCENDER-LA-FASE-2.md)**.
+
+---
+
 ## 🔴 Lo primero, sin cambios desde el 31-jul
 
 **La contraseña del superadmin.** Quien la tenga entra como cualquier cliente,
@@ -45,6 +81,11 @@ existe justamente para no tenerlas. **Está excluida de la carga.**
 **Lectura del asistente, a confirmar**: en esa lista, "ambas" solo puede
 referirse a las dos anteriores.
 
+> ✅ **RESUELTA por el dueño el 16-ago**: «Ambas» **es lo mismo que
+> `Azúcar-canela`**. Sobra en el texto: se borra de la ficha y la carga queda
+> exactamente como se simuló — 3 opciones de recubierto, `max_select: 1`, sin
+> "Ambas". El desbloqueo ya no depende de nadie.
+
 ### 2. ¿Cuál es el nombre bueno de la salsa de chocolate?
 
 ```
@@ -74,12 +115,17 @@ El comando **se cancela solo** si su plan contuviera una sentencia destructiva.
 Está toda implementada y desplegada, con `state_source = 'prompt'` en los cuatro
 clientes. Ver [69-FASE-2-ESTADO-ESTRUCTURADO.md](69-FASE-2-ESTADO-ESTRUCTURADO.md).
 
-**El orden que queda:**
+**El orden que queda** (corregido el 16-ago: el despliegue va PRIMERO):
 
-1. Resolver «Ambas» → cargar recubierto y adiciones (paso 3 de arriba).
-2. Encender la bandera **en un cliente efímero** y correr el banco de escenarios.
-3. Revisar a ojo un pedido completo (lo hace el dueño, no el asistente).
-4. Solo entonces, decidir si se enciende en La Churra.
+1. **Desplegar** y comprobar dentro del contenedor que `state_source` ya aparece.
+2. Borrar «Ambas» de la ficha y aplicar `cargar:opciones`, comparando el
+   catálogo renderizado antes y después.
+3. Corregir el nombre de la salsa en la ficha (`CHOCOLATE` → `chocolate negro`,
+   que es lo que dice la tabla, que manda).
+4. Las cuatro métricas que falta añadir (regla 10).
+5. Encender la bandera **en un cliente efímero** y correr el banco de escenarios.
+6. Revisar a ojo un pedido completo (lo hace el dueño, no el asistente).
+7. Solo entonces, decidir si se enciende en La Churra.
 
 > 🔴 **Aviso sobre el laboratorio**: el salón es de **CITAS**, así que el estado
 > de pedido no le aplica. El único cliente de pedidos con catálogo en tablas es

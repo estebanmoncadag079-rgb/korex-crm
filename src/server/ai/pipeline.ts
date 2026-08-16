@@ -46,10 +46,12 @@ import {
   borrarEstado,
   guardarEstado,
   leerEstado,
+  registrarMetricaDeEstado,
   validarPropuesta,
   type EstadoDelPedido,
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
+import { grupoDeSalsas } from "@/server/orders/normalizar";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
@@ -559,7 +561,17 @@ export async function runAgentTurn(
       }
       estadoGuardado = await leerEstado(conversation.id);
       const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
-      salsasQueLleva = delPedido?.grupos.find((g) => g.opciones.length > 0)?.maximo ?? 0;
+      /*
+       * El grupo de las salsas se pide POR NOMBRE, con el mismo criterio que
+       * `normalizarPedido` — no "el primer grupo con opciones".
+       *
+       * Aquí había una discrepancia con la Fase 1.5, que ya declaraba corregido
+       * ese patrón: mientras el catálogo tenga un solo grupo las dos formas dan
+       * lo mismo, pero **el día que se carguen RECUBIERTO y ADICIONES** este
+       * `find` puede devolver el recubierto (máximo 1) y el agente pedirle UNA
+       * salsa a un Mega Box, que lleva cinco.
+       */
+      salsasQueLleva = grupoDeSalsas(delPedido)?.maximo ?? 0;
       if (estadoGuardado) bloqueDeEstado = comoTexto(estadoGuardado, salsasQueLleva);
     }
   }
@@ -593,7 +605,11 @@ export async function runAgentTurn(
    * a una persona o calla, no hay pedido que extraer, y exigirlo rechazaba 4 de
    * cada 36 respuestas justo en las conversaciones más delicadas.
    */
+  // Regla 10: el tiempo de extracción se mide sobre la llamada que trae la
+  // propuesta, no sobre el turno entero. Con el estado apagado no se mide nada.
+  const t0 = estadoEstructurado ? Date.now() : 0;
   const conEstado = estadoEstructurado ? await chatJsonConEstado(messages) : null;
+  const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
   const propuestaDelTurno = conEstado?.propuesta;
 
@@ -609,6 +625,7 @@ export async function runAgentTurn(
       organizationId,
       conversationId: conversation.id,
       propuesta: propuestaDelTurno,
+      msModelo,
     });
   }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
@@ -1601,18 +1618,38 @@ async function guardarEstadoPropuesto(entrada: {
   organizationId: string;
   conversationId: string;
   propuesta: PropuestaDelModelo | undefined;
+  msModelo?: number;
 }): Promise<void> {
+  // El reloj arranca antes del primer `await`: lo que se mide es lo que el
+  // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
+  const t0 = Date.now();
+  const metrica = (
+    resultado: "guardado" | "rechazado" | "sin_propuesta" | "error",
+    extra: { validacion?: ReturnType<typeof validarPropuesta>; detalle?: string } = {}
+  ) =>
+    registrarMetricaDeEstado({
+      organizationId: entrada.organizationId,
+      conversationId: entrada.conversationId,
+      resultado,
+      validacion: extra.validacion,
+      msModelo: entrada.msModelo,
+      msBackend: Date.now() - t0,
+      detalle: extra.detalle,
+    });
+
   // Sin `estado` en la respuesta no hay nada que guardar: pasa cuando el agente
-  // deriva a una persona o no responde, y es legítimo.
-  if (!entrada.propuesta) return;
+  // deriva a una persona o no responde, y es legítimo. Se anota igual: si esto
+  // deja de ser raro, el modelo dejó de extraer y hay que enterarse.
+  if (!entrada.propuesta) {
+    metrica("sin_propuesta");
+    return;
+  }
 
   try {
     const productos = await catalogoDePedidosQuery(entrada.organizationId);
     const v = validarPropuesta(entrada.propuesta, productos);
     if (!v.ok) {
-      console.warn(
-        `[estado] ${entrada.conversationId}: propuesta RECHAZADA — ${v.rechazos.join(" · ")}`
-      );
+      metrica("rechazado", { validacion: v });
       return;
     }
     await guardarEstado({
@@ -1622,8 +1659,9 @@ async function guardarEstadoPropuesto(entrada: {
       actor: "pipeline",
       proceso: "runAgentTurn",
     });
+    metrica("guardado", { validacion: v });
   } catch (err) {
-    console.warn(`[estado] no se pudo guardar: ${(err as Error).message}`);
+    metrica("error", { detalle: (err as Error).message });
   }
 }
 

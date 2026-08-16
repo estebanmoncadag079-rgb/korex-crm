@@ -331,3 +331,10 @@ caso de silencio ni de invención.
 coste), pero **se emite desde el script de medición, no desde el pipeline**.
 Instrumentar el pipeline es tocar producción, y eso no entra hasta que estas
 cifras se revisen a ojo.
+
+> ✅ **Cerrada el 16-ago.** El pipeline ya emite las métricas por su cuenta
+> (`registrarMetricaDeEstado`, una línea por turno), y sigue sin escribir nada
+> que no sea log. Lo que la hizo entrar por fin: **la instrumentación va dentro
+> del `if (state_source === 'backend')`**, así que con la bandera apagada —hoy,
+> los cuatro clientes— no se emite ni una línea. Instrumentar dejó de ser "tocar
+> producción". Detalle en [69](69-FASE-2-ESTADO-ESTRUCTURADO.md).

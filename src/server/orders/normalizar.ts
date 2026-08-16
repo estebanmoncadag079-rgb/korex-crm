@@ -96,6 +96,32 @@ function unidadesQueMenciona(texto: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+type Grupo = ProductoDelCatalogo["grupos"][number];
+
+/** El grupo de opciones que se llama así. Se busca POR NOMBRE, no por posición. */
+export function grupoLlamado(
+  producto: ProductoDelCatalogo | undefined,
+  ...nombres: string[]
+): Grupo | undefined {
+  return producto?.grupos.find((g) => nombres.some((n) => llave(g.nombre).startsWith(llave(n))));
+}
+
+/**
+ * El grupo de las SALSAS, que es el que dice cuántas lleva cada presentación.
+ *
+ * Vive aquí, exportado, porque **el pipeline necesita exactamente el mismo
+ * criterio**: si allí se coge "el primer grupo con opciones" y aquí el que se
+ * llama salsa, los dos discrepan el día que el catálogo tenga tres grupos —y ese
+ * día llega con la carga de `RECUBIERTO` y `ADICIONES`—. Discrepar significaría
+ * pedirle 1 salsa a un Mega Box, que lleva 5.
+ *
+ * El `??` es la red para el catálogo de un solo grupo, que es el de hoy.
+ */
+export function grupoDeSalsas(producto: ProductoDelCatalogo | undefined): Grupo | undefined {
+  if (!producto) return undefined;
+  return grupoLlamado(producto, "salsa") ?? producto.grupos.find((g) => g.opciones.length > 0);
+}
+
 export function normalizarPedido(
   propuesto: EstadoPropuesto,
   catalogo: ProductoDelCatalogo[],
@@ -260,12 +286,10 @@ export function normalizarPedido(
 
   // --- Las opciones ------------------------------------------------------
   //
-  // Los grupos se buscan POR NOMBRE. Antes se cogía "el primer grupo con
-  // opciones", que funcionaba solo mientras el catálogo tuviera un único grupo
-  // — y el flujo real de La Churra tiene tres: salsas, recubierto y adiciones.
-  const grupoLlamado = (p: ProductoDelCatalogo | undefined, ...nombres: string[]) =>
-    p?.grupos.find((g) => nombres.some((n) => llave(g.nombre).startsWith(llave(n))));
-
+  // Los grupos se buscan POR NOMBRE (`grupoLlamado`, arriba). Antes se cogía "el
+  // primer grupo con opciones", que funcionaba solo mientras el catálogo tuviera
+  // un único grupo — y el flujo real de La Churra tiene tres: salsas, recubierto
+  // y adiciones.
   const salsas: string[] = [];
   if (!producto) {
     // Sin presentación no se pueden validar contra su grupo, pero lo que el
@@ -275,8 +299,7 @@ export function normalizarPedido(
     }
   }
   if (producto) {
-    const grupo =
-      grupoLlamado(producto, "salsa") ?? producto.grupos.find((g) => g.opciones.length > 0);
+    const grupo = grupoDeSalsas(producto);
     const validas = new Map(
       (grupo?.opciones ?? []).map((o) => [llave(o.nombre), o.nombre] as const)
     );

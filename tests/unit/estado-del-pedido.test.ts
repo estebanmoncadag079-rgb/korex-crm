@@ -5,10 +5,16 @@
  * decide**. Cada caso comprueba que una propuesta razonable del modelo no basta
  * para que algo se persista.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
-import { estadoVacio, validarPropuesta, type EstadoDelPedido } from "@/server/orders/estado";
+import {
+  estadoVacio,
+  registrarMetricaDeEstado,
+  validarPropuesta,
+  type EstadoDelPedido,
+} from "@/server/orders/estado";
 import { comoTexto, leerAporte, loQueFalta } from "@/server/orders/extraer";
+import { grupoDeSalsas } from "@/server/orders/normalizar";
 
 const SALSAS = [
   { id: "o1", nombre: "chocolate negro", precioExtraCents: 0 },
@@ -198,5 +204,142 @@ describe("lo que el backend le recuerda al modelo", () => {
 
   it("sin pedido en curso no inyecta nada: el prompt no engorda porque sí", () => {
     expect(comoTexto(estadoVacio(), 1)).toBe("");
+  });
+});
+
+describe("las métricas de la regla 10", () => {
+  const capturar = (fn: () => void): string => {
+    let linea = "";
+    const log = vi.spyOn(console, "log").mockImplementation((m) => void (linea = String(m)));
+    const warn = vi.spyOn(console, "warn").mockImplementation((m) => void (linea = String(m)));
+    try {
+      fn();
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+    return linea;
+  };
+
+  it("una línea por turno con lo que las seis métricas necesitan", () => {
+    const v = validarPropuesta(propuesta({ producto: "Churritas" }), CARTA, UNIDADES);
+    const linea = capturar(() =>
+      registrarMetricaDeEstado({
+        organizationId: "org_x",
+        conversationId: "cv_1",
+        resultado: "guardado",
+        validacion: v,
+        msModelo: 2172,
+        msBackend: 31,
+      })
+    );
+
+    expect(linea).toContain("[metrica] evento=estado org=org_x conv=cv_1");
+    expect(linea).toContain("resultado=guardado");
+    expect(linea).toContain("ms_modelo=2172");
+    expect(linea).toContain("ms_backend=31");
+    // "Churritas" → CHURRITA es una corrección: la métrica la cuenta, y dice
+    // QUÉ campo se corrigió (no cuántos, que no sirve para investigar nada).
+    expect(linea).toMatch(/correcciones=[1-9]/);
+    expect(linea).toContain("campos_corregidos=producto");
+    expect(linea).toContain("rechazos=0");
+  });
+
+  it("un rechazo dice POR QUÉ, que es lo que se mira a diario", () => {
+    const v = validarPropuesta(propuesta({ cantidad: 0 }), CARTA, UNIDADES);
+    expect(v.ok).toBe(false);
+    const linea = capturar(() =>
+      registrarMetricaDeEstado({
+        organizationId: "org_x",
+        conversationId: "cv_2",
+        resultado: "rechazado",
+        validacion: v,
+        msBackend: 4,
+      })
+    );
+
+    expect(linea).toContain("resultado=rechazado");
+    expect(linea).toContain("rechazos=1");
+    expect(linea).toContain("cantidad inválida: 0");
+    expect(linea).toContain("ms_modelo=-"); // no hubo llamada que medir
+  });
+
+  it("NO vuelca lo que escribió el cliente: solo el nombre del campo", () => {
+    const v = validarPropuesta(
+      propuesta({ nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #4-3" }),
+      CARTA,
+      UNIDADES
+    );
+    const linea = capturar(() =>
+      registrarMetricaDeEstado({
+        organizationId: "org_x",
+        conversationId: "cv_3",
+        resultado: "guardado",
+        validacion: v,
+        msBackend: 7,
+      })
+    );
+
+    expect(linea).not.toContain("3001234567");
+    expect(linea).not.toContain("Cra 5");
+    expect(linea).not.toContain("Andrea");
+  });
+
+  it("sin propuesta no revienta: se anota igual, con todo a cero", () => {
+    const linea = capturar(() =>
+      registrarMetricaDeEstado({
+        organizationId: "org_x",
+        conversationId: "cv_4",
+        resultado: "sin_propuesta",
+        msBackend: 0,
+      })
+    );
+
+    expect(linea).toContain("resultado=sin_propuesta");
+    expect(linea).toContain("correcciones=0");
+    expect(linea).toContain("rechazos=0");
+  });
+});
+
+describe("el grupo de las salsas se busca por NOMBRE", () => {
+  // El catálogo tal como quedará DESPUÉS de cargar recubierto y adiciones: el
+  // orden deja de ser una garantía, y con él se caía "el primer grupo con
+  // opciones".
+  const CON_TRES_GRUPOS: ProductoDelCatalogo = {
+    ...CHURRITA,
+    grupos: [
+      {
+        id: "g0",
+        nombre: "RECUBIERTO",
+        minimo: 1,
+        maximo: 1,
+        opciones: [{ id: "r1", nombre: "azúcar-canela", precioExtraCents: 0 }],
+      },
+      { id: "g1", nombre: "SALSA", minimo: 1, maximo: 5, opciones: SALSAS },
+      {
+        id: "g2",
+        nombre: "ADICIONES",
+        minimo: 0,
+        maximo: 5,
+        opciones: [{ id: "a1", nombre: "botella de agua", precioExtraCents: 200000 }],
+      },
+    ],
+  };
+
+  it("elige SALSA aunque el recubierto vaya primero", () => {
+    expect(grupoDeSalsas(CON_TRES_GRUPOS)?.nombre).toBe("SALSA");
+    expect(grupoDeSalsas(CON_TRES_GRUPOS)?.maximo).toBe(5);
+  });
+
+  it("con un solo grupo sin nombre reconocible, la red sigue funcionando", () => {
+    const raro: ProductoDelCatalogo = {
+      ...CHURRITA,
+      grupos: [{ id: "g9", nombre: "ACOMPAÑAMIENTO", minimo: 1, maximo: 2, opciones: SALSAS }],
+    };
+    expect(grupoDeSalsas(raro)?.maximo).toBe(2);
+  });
+
+  it("sin producto no hay grupo, y no revienta", () => {
+    expect(grupoDeSalsas(undefined)).toBeUndefined();
   });
 });

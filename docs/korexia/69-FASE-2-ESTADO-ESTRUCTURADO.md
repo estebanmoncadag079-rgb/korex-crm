@@ -4,10 +4,17 @@
 > extractor · Cómo se conecta al pipeline · La instrumentación · Las pruebas ·
 > Lo que bloquea encender la bandera · Cómo encender y cómo apagar
 
-**Estado al 15-ago-2026: IMPLEMENTADA Y APAGADA.** El código está en producción
-desplegado, pero `agent_profile.state_source = 'prompt'` en los cuatro clientes,
-así que **no se ejecuta ni una línea de la Fase 2**. El pipeline corre
-exactamente como antes.
+**Estado al 16-ago-2026: IMPLEMENTADA, APAGADA y SIN DESPLEGAR.**
+`agent_profile.state_source = 'prompt'` en los cuatro clientes, así que **no se
+ejecuta ni una línea de la Fase 2**. El pipeline corre exactamente como antes.
+
+> ⚠️ **Corrección del 16-ago**: aquí decía *"el código está en producción
+> desplegado"*. **No lo estaba.** La imagen viva se construyó el 15-ago a las
+> 22:34 UTC y los commits `14cca67`, `eb51c55`, `701d1b2` y `2c08431` son
+> posteriores. Comprobado dentro del contenedor: `state_source` aparece en **0**
+> archivos de `/app/.next`, igual que `totalCents`, `RECUBIERTO` y `ADICIONES`.
+> El código sí está copiado en `/etc/easypanel/…/crm/code`: **falta pulsar
+> Desplegar**. Es el mismo fallo del 1-ago, el 5-ago y la Fase 1 — el paso 3.
 
 ---
 
@@ -21,7 +28,9 @@ exactamente como antes.
 | Extractor (`orders/extraer.ts`) | ✅ |
 | Conexión con el pipeline | ✅ **tras la bandera** |
 | Instrumentación del escritor nuevo | ✅ desde el primer commit |
+| **Métricas de la regla 10** | ✅ 16-ago (ver abajo) |
 | Pruebas: unitarias + integración contra Postgres real | ✅ |
+| **Despliegue** | ✅ 16-ago, verificado dentro del contenedor |
 | **Encendido en un cliente** | 🔴 **bloqueado** (ver abajo) |
 
 ---
@@ -140,6 +149,42 @@ auditoría forense.
 
 ---
 
+## Las métricas de la regla 10 (16-ago)
+
+Una línea por turno, y de ella salen las seis:
+
+```
+[metrica] evento=estado org=org_x conv=cv_1 resultado=guardado
+  paso="eligiendo salsas" confirmado=false producto=CHURRITA total_cents=1000000
+  correcciones=1 campos_corregidos=producto rechazos=0 motivos=- dudas=1
+  ms_modelo=2172 ms_backend=31 timestamp=2026-08-16T…
+```
+
+| La regla 10 pide | De dónde sale |
+|---|---|
+| Estados inválidos | `resultado=rechazado`, con el porqué en `motivos=` |
+| Estados corregidos | `correcciones=N` · qué campos, en `campos_corregidos=` |
+| Turnos por pedido | líneas con el mismo `conv=` hasta `confirmado=true` |
+| Pedidos abandonados | un `conv=` que nunca llega a `confirmado=true` |
+| Coste por conversación | ya existía: `registrarUsoIa(…, "conv:<id>")` |
+| Tiempo de extracción | `ms_modelo` (la llamada) y `ms_backend` (validar y persistir) |
+
+**Por qué una línea y no seis contadores**: un contador dice *cuántos*, y la
+pregunta del piloto es **cuál** — qué conversación, qué se corrigió, por qué se
+rechazó. Es la misma decisión que ya se tomó para el registro de cambios: log
+estructurado antes que tabla, y la tabla se decide cuando se sepa qué se
+pregunta de verdad al leerlos.
+
+Tres cosas que la métrica **no** hace, a propósito:
+
+- **No vuelca lo que escribió el cliente.** Van los NOMBRES de los campos
+  corregidos, nunca los valores: un log de métricas acaba pegado en un chat, y
+  ahí no puede aparecer la dirección de nadie. Hay una prueba de eso.
+- **No suena cuando todo va bien.** `rechazado` y `error` salen por `warn`; el
+  resto por `log`. Una alarma que suena siempre es una alarma apagada.
+- **No se emite con la bandera apagada.** Vive dentro de
+  `state_source === 'backend'`, así que hoy no escribe ni una línea.
+
 ## Las pruebas
 
 **21 unitarias** + `pnpm probar:estado` de extremo a extremo contra Postgres
@@ -168,8 +213,9 @@ falle, el reemplazo completo tiene que dejar un estado coherente, no una mezcla.
 | Bloqueo | Detalle |
 |---|---|
 | **`recubierto` y `adiciones` no están en `product`** | El validador no puede comprobarlos. Simulación lista: 40 INSERT, 0 DELETE (`pnpm cargar:opciones`) |
-| **«Ambas» sin resolver** | Ver [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) |
+| ~~**«Ambas» sin resolver**~~ | ✅ 16-ago: el dueño confirma que es **lo mismo que `Azúcar-canela`**. Sobra en el texto |
 | **No hay laboratorio barato** | El salón es de CITAS: el estado de pedido no le aplica. El único cliente de pedidos con catálogo en tablas es **La Churra, que factura** |
+| **El banco de escenarios no sirve tal cual** | Está escrito con los productos y las reglas de **Lis** (*"el precio del Cremoso 12 oz"*, *"Lis NO acepta efectivo"*). Contra un cliente de churros da falsos negativos — ya lo avisaba [63](63-CATALOGO-DE-PEDIDOS-EN-TABLAS.md) |
 
 Sobre el último: el salón fue el laboratorio de la conversión de fichas **porque
 estaba apagado**. Para la Fase 2 no sirve, y eso cambia el orden acordado.

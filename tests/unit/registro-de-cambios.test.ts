@@ -6,11 +6,15 @@
  * 15-ago a las 19:46:41 por `aplicarFicha`, mientras una prueba miraba otros
  * cinco campos.
  */
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  clasificar,
   formatear,
   paraLog,
   registrarCambios,
+  TABLAS_CLASIFICADAS,
   type Actor,
 } from "@/server/registro-de-cambios";
 
@@ -85,30 +89,30 @@ describe("el incidente del horario, reproducido", () => {
 
 describe("qué se escribe y qué no", () => {
   it("un prompt de 18.000 caracteres se resume, no se vuelca", () => {
-    const v = paraLog("instructions", "x".repeat(18000));
+    const v = paraLog("agent_profile", "instructions", "x".repeat(18000));
     expect(v).toMatch(/^<18000 caracteres · huella [0-9a-f]+>$/);
   });
 
   it("dos valores largos distintos dan huellas distintas", () => {
-    expect(paraLog("instructions", "a".repeat(500))).not.toBe(
-      paraLog("instructions", "b".repeat(500))
+    expect(paraLog("agent_profile", "instructions", "a".repeat(500))).not.toBe(
+      paraLog("agent_profile", "instructions", "b".repeat(500))
     );
   });
 
   it("el mismo valor largo da la misma huella: así se detecta una reversión", () => {
-    const antiguo = paraLog("instructions", "PROMPT BUENO".repeat(50));
-    const vuelto = paraLog("instructions", "PROMPT BUENO".repeat(50));
+    const antiguo = paraLog("agent_profile", "instructions", "PROMPT BUENO".repeat(50));
+    const vuelto = paraLog("agent_profile", "instructions", "PROMPT BUENO".repeat(50));
     expect(antiguo).toBe(vuelto);
   });
 
   it("NUNCA escribe un token de WhatsApp", () => {
-    expect(paraLog("accessToken", "EAAG123secreto")).toBe("<oculto>");
-    expect(paraLog("metaAccessToken", "EAAG123secreto")).toBe("<oculto>");
-    expect(paraLog("phoneNumberId", "123456")).toBe("<oculto>");
+    expect(paraLog("agent_profile", "accessToken", "EAAG123secreto")).toBe("<oculto>");
+    expect(paraLog("agent_profile", "metaAccessToken", "EAAG123secreto")).toBe("<oculto>");
+    expect(paraLog("agent_profile", "phoneNumberId", "123456")).toBe("<oculto>");
   });
 
   it("los saltos de línea no rompen el formato de una línea", () => {
-    expect(paraLog("tone", "cercano\ny alegre")).toBe("cercano y alegre");
+    expect(paraLog("agent_profile", "tone", "cercano\ny alegre")).toBe("cercano y alegre");
   });
 
   /*
@@ -121,19 +125,19 @@ describe("qué se escribe y qué no", () => {
    */
   describe("un dato de una persona no se escribe nunca", () => {
     it("ni el teléfono, ni la dirección, ni el nombre de quien pide", () => {
-      expect(paraLog("entrega.telefono", "3001234567")).not.toContain("3001234567");
-      expect(paraLog("entrega.direccion", "Cra 5 #4-32 apto 301")).not.toContain("Cra 5");
-      expect(paraLog("entrega.nombre", "Andrea Gómez")).not.toContain("Andrea");
+      expect(paraLog("conversation_state", "entrega.telefono", "3001234567")).not.toContain("3001234567");
+      expect(paraLog("conversation_state", "entrega.direccion", "Cra 5 #4-32 apto 301")).not.toContain("Cra 5");
+      expect(paraLog("conversation_state", "entrega.nombre", "Andrea Gómez")).not.toContain("Andrea");
     });
 
     it("tampoco los teléfonos del equipo", () => {
-      expect(paraLog("notifyPhones", "573001234567,573109876543")).not.toContain("57300");
+      expect(paraLog("agent_profile", "notifyPhones", "573001234567,573109876543")).not.toContain("57300");
     });
 
     it("pero SIGUE diciendo que cambió, y si volvió al de antes", () => {
-      const uno = paraLog("entrega.telefono", "3001234567");
-      const otro = paraLog("entrega.telefono", "3009999999");
-      const vuelto = paraLog("entrega.telefono", "3001234567");
+      const uno = paraLog("conversation_state", "entrega.telefono", "3001234567");
+      const otro = paraLog("conversation_state", "entrega.telefono", "3009999999");
+      const vuelto = paraLog("conversation_state", "entrega.telefono", "3001234567");
 
       expect(uno).not.toBe(otro); // cambió
       expect(uno).toBe(vuelto); // y volvió: es la pregunta que sí se hace
@@ -142,17 +146,17 @@ describe("qué se escribe y qué no", () => {
 
     it("la red: un campo NUEVO con pinta de identificador también se tapa", () => {
       // El campo que alguien añada mañana y nadie se acuerde de listar.
-      expect(paraLog("campoQueNadieListo", "3001234567")).toContain("<personal");
+      expect(paraLog("agent_profile", "campoQueNadieListo", "3001234567")).toContain("<personal");
     });
 
     it("NO se come el nombre del producto, que es dato de negocio", () => {
-      expect(paraLog("producto.nombre", "CHURRITA")).toBe("CHURRITA");
-      expect(paraLog("salsas", "arequipe, lechera")).toBe("arequipe, lechera");
+      expect(paraLog("conversation_state", "producto.nombre", "CHURRITA")).toBe("CHURRITA");
+      expect(paraLog("conversation_state", "salsas", "arequipe, lechera")).toBe("arequipe, lechera");
     });
 
     it("NO se come un total, que es un número y no una persona", () => {
       // 1000000 son siete dígitos: la red por valor solo mira cadenas.
-      expect(paraLog("totalCents", 1000000)).toBe("1000000");
+      expect(paraLog("conversation_state", "totalCents", 1000000)).toBe("1000000");
     });
 
     it("la línea entera del log no lleva el teléfono por ningún lado", () => {
@@ -178,8 +182,8 @@ describe("qué se escribe y qué no", () => {
   });
 
   it("distingue null de ausente, que no es lo mismo", () => {
-    expect(paraLog("greeting", null)).toBe("null");
-    expect(paraLog("greeting", undefined)).toBe("ausente");
+    expect(paraLog("agent_profile", "greeting", null)).toBe("null");
+    expect(paraLog("agent_profile", "greeting", undefined)).toBe("ausente");
   });
 });
 
@@ -276,5 +280,86 @@ describe("la instrumentación es PASIVA (criterio de despliegue)", () => {
       })
     ).not.toThrow();
     espia.mockRestore();
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * REGLA 11 (16-ago-2026): una tabla no se instrumenta sin clasificar.
+ *
+ * El problema no estaba en los logs: estaba en que el sistema no sabía qué
+ * SIGNIFICAN los datos. `contact.name` es una persona, `product.name` es un
+ * churro y `agent_profile.name` es el nombre del asistente — el mismo campo
+ * `name`, tres cosas distintas.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("qué significa cada dato, no cómo se llama", () => {
+  it("el mismo campo `name` no significa lo mismo en dos tablas", () => {
+    // El nombre del asistente es dato de negocio: se lee entero.
+    expect(paraLog("agent_profile", "name", "Asistente")).toBe("Asistente");
+    // El de un contacto es una persona… y `contact` no está clasificada aún,
+    // así que se protege igual y se marca como deuda.
+    expect(paraLog("contact", "name", "Andrea Gómez")).toContain("<sin clasificar");
+    expect(paraLog("contact", "name", "Andrea Gómez")).not.toContain("Andrea");
+  });
+
+  it("clasifica las cuatro clases, y admite no saber", () => {
+    expect(clasificar("agent_profile", "instructions")).toBe("negocio");
+    expect(clasificar("agent_profile", "notifyPhones")).toBe("personal");
+    expect(clasificar("conversation_state", "producto.id")).toBe("tecnico");
+    expect(clasificar("conversation_state", "entrega.direccion")).toBe("personal");
+    expect(clasificar("kb_entry", "answer")).toBeNull();
+  });
+
+  /* La prueba negativa que la regla 11 exige de cada tabla nueva. */
+  it("PRUEBA NEGATIVA: lo no clasificado se protege y SE NOTA", () => {
+    const v = paraLog("tabla_que_nadie_clasifico", "loQueSea", "Andrea, Cra 5 #4-32");
+    expect(v).not.toContain("Andrea");
+    expect(v).not.toContain("Cra 5");
+    expect(v).toMatch(/^<sin clasificar · \d+ caracteres · huella [0-9a-f]+>$/);
+  });
+
+  it("un número sin clasificar sí pasa: un contador no identifica a nadie", () => {
+    expect(paraLog("tabla_nueva", "intentos", 3)).toBe("3");
+    expect(paraLog("tabla_nueva", "activo", true)).toBe("true");
+  });
+
+  it("la columna JSONB entera del estado es personal, no solo sus hojas", () => {
+    // Cierra el resquicio: un estado corto cabía en 120 caracteres y salía
+    // entero, con teléfono y dirección dentro.
+    const v = paraLog("conversation_state", "estado", { entrega: { telefono: "3001234567" } });
+    expect(v).not.toContain("3001234567");
+    expect(v).toContain("<personal");
+  });
+});
+
+function archivosTs(dir: string, acc: string[] = []): string[] {
+  for (const entrada of readdirSync(dir)) {
+    const ruta = join(dir, entrada);
+    if (statSync(ruta).isDirectory()) archivosTs(ruta, acc);
+    else if (/\.tsx?$/.test(entrada)) acc.push(ruta);
+  }
+  return acc;
+}
+
+describe("regla 11: ninguna tabla se instrumenta sin clasificación previa", () => {
+  it("toda tabla registrada está clasificada", () => {
+    const sinClasificar = new Set<string>();
+
+    for (const archivo of archivosTs(join(process.cwd(), "src"))) {
+      const codigo = readFileSync(archivo, "utf8");
+      if (!/conRegistro\(|registrarCambios\(/.test(codigo)) continue;
+      for (const m of codigo.matchAll(/tabla:\s*"([a-z_]+)"/g)) {
+        if (!TABLAS_CLASIFICADAS.includes(m[1]!)) sinClasificar.add(`${m[1]} (${archivo})`);
+      }
+    }
+
+    /*
+     * Si esto falla, alguien instrumentó una tabla sin decir qué significan sus
+     * campos. El arreglo es clasificarla en `CLASIFICACION`, no ampliar esta
+     * lista: sin clasificación, el registro protege de más o de menos, y las
+     * dos formas ya costaron un incidente.
+     */
+    expect([...sinClasificar]).toEqual([]);
   });
 });

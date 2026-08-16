@@ -83,6 +83,103 @@ const PERSONALES = [
  */
 const PARECE_IDENTIFICADOR = /\d{7,}/;
 
+/**
+ * Qué SIGNIFICA un dato, que es lo que el nombre del campo no dice.
+ *
+ * `contact.name` es una persona y `product.name` es un churro. `agent_profile.
+ * name` es el nombre del asistente. **El mismo campo `name`, tres cosas
+ * distintas**, y hasta el 16-ago-2026 el registro no podía distinguirlas: o
+ * protegía de más y perdía trazabilidad de negocio, o protegía de menos y
+ * filtraba datos de clientes.
+ */
+export type Clase = "tecnico" | "negocio" | "personal" | "secreto";
+
+/**
+ * La clasificación, por tabla. **Una tabla sin clasificar no se instrumenta**
+ * (regla 11).
+ *
+ * Lo que no está aquí se trata como personal y sale marcado `<sin clasificar>`:
+ * es la misma decisión que `[NO DECLARADO]` — el campo que se olvidó tiene que
+ * verse en el log, no colarse por él.
+ */
+const CLASIFICACION: Record<string, Record<string, Clase>> = {
+  agent_profile: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    enabled: "tecnico",
+    appointmentsEnabled: "tecnico",
+    catalogSource: "tecnico",
+    stateSource: "tecnico",
+    createdAt: "tecnico",
+    updatedAt: "tecnico",
+    // `name` aquí es el nombre del ASISTENTE, no el de una persona.
+    name: "negocio",
+    tone: "negocio",
+    instructions: "negocio",
+    escalationRules: "negocio",
+    greeting: "negocio",
+    hoursOpen: "negocio",
+    hoursClose: "negocio",
+    hoursDays: "negocio",
+    hoursOpenSunday: "negocio",
+    hoursCloseSunday: "negocio",
+    notifyTemplate: "negocio",
+    notifyTemplateLang: "negocio",
+    ficha: "negocio",
+    // Teléfonos de personas del equipo.
+    notifyPhones: "personal",
+  },
+  organization: {
+    id: "tecnico",
+    slug: "tecnico",
+    createdAt: "tecnico",
+    // Razón social del negocio, no el nombre de su dueña.
+    name: "negocio",
+    logo: "negocio",
+    metadata: "negocio",
+  },
+  conversation_state: {
+    conversationId: "tecnico",
+    organizationId: "tecnico",
+    schemaVersion: "tecnico",
+    createdAt: "tecnico",
+    updatedAt: "tecnico",
+    "producto.id": "tecnico",
+    "producto.nombre": "negocio",
+    "producto.cantidad": "negocio",
+    salsas: "negocio",
+    recubierto: "negocio",
+    adiciones: "negocio",
+    totalCents: "negocio",
+    paso: "negocio",
+    confirmado: "negocio",
+    /*
+     * La columna JSONB entera lleva los datos de entrega dentro. Clasificarla
+     * como personal cierra el resquicio de que un estado corto —menos de 120
+     * caracteres— se volcara entero por no llegar al límite de longitud.
+     */
+    estado: "personal",
+    "entrega.nombre": "personal",
+    "entrega.telefono": "personal",
+    "entrega.direccion": "personal",
+  },
+  /** No es una tabla: son los campos de `registrarMetricaDeEstado`. */
+  metrica: {
+    paso: "negocio",
+    producto: "negocio",
+    motivos: "negocio",
+    detalle: "negocio",
+  },
+};
+
+/** Qué es este campo, o `null` si nadie lo ha clasificado todavía. */
+export function clasificar(tabla: string, campo: string): Clase | null {
+  return CLASIFICACION[tabla]?.[campo] ?? null;
+}
+
+/** Las tablas que ya se pueden instrumentar. Para la prueba de la regla 11. */
+export const TABLAS_CLASIFICADAS = Object.keys(CLASIFICACION);
+
 /** A partir de aquí no se vuelca el valor: se resume. */
 const LARGO_MAXIMO = 120;
 
@@ -111,8 +208,10 @@ function huellaDe(texto: string): string {
  * longitud y una huella. Con eso basta para saber **si** cambió y **si volvió**
  * a un valor anterior, que es la pregunta que se hace de verdad al investigar.
  */
-export function paraLog(campo: string, valor: unknown): string {
-  if (esSecreto(campo)) return "<oculto>";
+export function paraLog(tabla: string, campo: string, valor: unknown): string {
+  const clase = clasificar(tabla, campo);
+
+  if (clase === "secreto" || esSecreto(campo)) return "<oculto>";
   if (valor === null) return "null";
   if (valor === undefined) return "ausente";
   if (valor instanceof Date) return valor.toISOString();
@@ -126,9 +225,29 @@ export function paraLog(campo: string, valor: unknown): string {
    * teléfonos y direcciones de clientes finales — `entrega.telefono` cabe de
    * sobra en los 120 caracteres, así que salía tal cual. La huella conserva lo
    * único que se pregunta al investigar: si cambió, y si volvió al de antes.
+   *
+   * Las dos redes de después de la clasificación se quedan a propósito: cubren
+   * la tabla que alguien registre sin haberla clasificado.
    */
-  if (esPersonal(campo) || (typeof valor === "string" && PARECE_IDENTIFICADOR.test(texto))) {
+  if (
+    clase === "personal" ||
+    esPersonal(campo) ||
+    (typeof valor === "string" && PARECE_IDENTIFICADOR.test(texto))
+  ) {
     return `<personal · ${texto.length} caracteres · huella ${huellaDe(texto)}>`;
+  }
+
+  /*
+   * Sin clasificar = se protege igual, y SE NOTA.
+   *
+   * Volcarlo por defecto es como estaba el 16-ago a las 00:00, y así fue como
+   * el teléfono del cliente acabó en el log. La marca es deliberada: un
+   * `<sin clasificar>` en producción es trabajo pendiente, igual que un
+   * `[NO DECLARADO]`. Los números y booleanos pasan: un contador o una marca de
+   * tiempo no identifican a nadie.
+   */
+  if (clase === null && typeof valor !== "number" && typeof valor !== "boolean") {
+    return `<sin clasificar · ${texto.length} caracteres · huella ${huellaDe(texto)}>`;
   }
 
   if (texto.length <= LARGO_MAXIMO) {
@@ -285,8 +404,8 @@ export function registrarCambios(entrada: {
       tabla: entrada.tabla,
       registro: entrada.registro,
       campo: d.campo,
-      valorAnterior: paraLog(d.campo, d.de),
-      valorNuevo: paraLog(d.campo, d.a),
+      valorAnterior: paraLog(entrada.tabla, d.campo, d.de),
+      valorNuevo: paraLog(entrada.tabla, d.campo, d.a),
       proceso: entrada.proceso,
       actor: entrada.actor,
       timestamp,

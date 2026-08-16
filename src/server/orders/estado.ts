@@ -314,8 +314,8 @@ function registrarCambioDeEstado(entrada: {
       if (a[campo] === b[campo]) continue;
       console.log(
         `[cambio] tabla=conversation_state registro=${entrada.conversationId} ` +
-          `campo=${campo} valor_anterior=${paraLog(campo, a[campo])} ` +
-          `valor_nuevo=${paraLog(campo, b[campo])} proceso=${entrada.proceso} ` +
+          `campo=${campo} valor_anterior=${paraLog("conversation_state", campo, a[campo])} ` +
+          `valor_nuevo=${paraLog("conversation_state", campo, b[campo])} proceso=${entrada.proceso} ` +
           `actor=${entrada.actor} timestamp=${timestamp}`
       );
     }
@@ -373,17 +373,17 @@ export function registrarMetricaDeEstado(m: MetricaDeEstado): void {
     const linea =
       `[metrica] evento=estado org=${m.organizationId} conv=${m.conversationId} ` +
       `resultado=${m.resultado} ` +
-      `paso=${paraLog("paso", v?.estado.paso ?? "-")} ` +
+      `paso=${paraLog("metrica", "paso", v?.estado.paso ?? "-")} ` +
       `confirmado=${v?.estado.confirmado ?? "-"} ` +
-      `producto=${paraLog("producto", v?.estado.producto.nombre ?? "-")} ` +
+      `producto=${paraLog("metrica", "producto", v?.estado.producto.nombre ?? "-")} ` +
       `total_cents=${v?.estado.totalCents ?? "-"} ` +
       `correcciones=${campos.length} ` +
       `campos_corregidos=${campos.length ? campos.join("|") : "-"} ` +
       `rechazos=${v?.rechazos.length ?? 0} ` +
-      `motivos=${v?.rechazos.length ? paraLog("motivos", v.rechazos.join(" · ")) : "-"} ` +
+      `motivos=${v?.rechazos.length ? paraLog("metrica", "motivos", v.rechazos.join(" · ")) : "-"} ` +
       `dudas=${v?.dudas.length ?? 0} ` +
       `ms_modelo=${m.msModelo ?? "-"} ms_backend=${m.msBackend} ` +
-      (m.detalle ? `detalle=${paraLog("detalle", m.detalle)} ` : "") +
+      (m.detalle ? `detalle=${paraLog("metrica", "detalle", m.detalle)} ` : "") +
       `timestamp=${new Date().toISOString()}`;
 
     // Rechazado y error se ven en `warn`: son lo que hay que mirar a diario

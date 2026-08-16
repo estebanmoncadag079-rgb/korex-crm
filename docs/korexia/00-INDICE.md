@@ -103,7 +103,7 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [75-COMO-SE-DOCUMENTA.md](75-COMO-SE-DOCUMENTA.md) | 🔴 **La regla que gobierna a las demás**: todo cambio se documenta en el mismo instante y en el mismo commit. Las siete obligaciones —incluida *cómo revertirlo*—, el orden obligatorio, cuándo un cambio está terminado y la plantilla de bitácora |
 
-| [74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md) | 🔴 **Reglas permanentes de los logs**: nada de estructuras completas ni texto del usuario, y un solo módulo que sanea. Qué usar en cada caso, el guardarraíl que lo comprueba solo, y lo que todavía no cubre |
+| [74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md) | 🔴 **Reglas permanentes de los logs**: nada de estructuras completas ni texto del usuario, un solo módulo que sanea, y **ninguna tabla se instrumenta sin clasificar sus campos** (técnico · negocio · personal · secreto). Qué usar en cada caso, el guardarraíl que lo comprueba solo, y lo que todavía no cubre |
 
 | [73-BITACORA-16AGO.md](73-BITACORA-16AGO.md) | **El relato del 16 de agosto**: el despliegue que faltaba, las métricas de la regla 10, la auditoría de cinco frentes y las correcciones — entre ellas el teléfono del cliente que iba a parar al log |
 

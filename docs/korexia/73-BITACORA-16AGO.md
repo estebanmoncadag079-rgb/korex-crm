@@ -219,6 +219,23 @@ darle de comer las fugas reales se vio que `.from` no estaba en la lista.
 guardarraíl deja de mirar `${…}`.
 **Estado**: terminado.
 
+### 01:12 · `paraLog(tabla, campo, valor)` y la regla de clasificación
+
+**Objetivo**: que el registro sepa **qué significa** cada dato, no solo cómo se
+llama. `contact.name` es una persona, `product.name` un churro y
+`agent_profile.name` el nombre del asistente: el mismo campo, tres cosas.
+**Archivos**: `server/registro-de-cambios.ts` (`Clase`, `CLASIFICACION`,
+`clasificar`, firma nueva de `paraLog`) · `orders/estado.ts` (5 llamadas) ·
+`tests/unit/registro-de-cambios.test.ts` · doc: `74` (regla 3), `73`, índice.
+**Riesgos**: que un campo no clasificado se volcara por defecto —**se decidió lo
+contrario**: se protege y sale marcado `<sin clasificar>`, como `[NO DECLARADO]`—
+y que la firma nueva rompiera llamadas: las 8 actualizadas, `tsc` lo verifica.
+**Evidencia**: 707 pruebas en verde (6 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert <sha>`. Vuelve `paraLog(campo, valor)` y con él la
+imposibilidad de distinguir `contact.name` de `product.name`. **No revertir sin
+revisar antes qué tablas se hayan instrumentado entretanto.**
+**Estado**: terminado.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

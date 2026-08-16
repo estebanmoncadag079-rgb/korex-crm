@@ -1,6 +1,6 @@
 # Reglas de los logs
 
-> **Dentro:** Las dos reglas · Por qué existen · Qué usar en cada caso · Lo que
+> **Dentro:** Las tres reglas · Por qué existen · Qué usar en cada caso · Lo que
 > el guardarraíl comprueba solo · Lo que todavía no cubre
 
 **Dictadas el 16-ago-2026**, después de encontrar que dos webhooks volcaban el
@@ -27,6 +27,51 @@ No se añaden módulos nuevos de registro. Ya hay `registrarCambios`, `paraLog` 
 `registrarMetricaDeEstado`; **el riesgo real no es que falte un mecanismo, es que
 haya cinco** y que cada uno proteja cosas distintas. Todo lo nuevo entra ahí.
 
+## Regla 3 — Ninguna tabla se instrumenta sin clasificar
+
+> **Antes de instrumentar una tabla nueva:**
+>
+> 1. **Clasificar sus campos**: técnico · negocio · personal · secreto.
+> 2. **Documentar la clasificación.**
+> 3. **Añadirla al sistema de logs** (`CLASIFICACION` en `registro-de-cambios`).
+> 4. **Escribir al menos una prueba negativa.**
+>
+> Una tabla no puede instrumentarse sin clasificación previa.
+
+> ⚠️ **Nota de numeración**: el dueño la dictó como *"regla 11"*. Aquí es la 3
+> porque la **regla 11 de la Fase 2** ya existe y es otra cosa —*mantener la
+> revisión humana durante el piloto*, [66](66-REGLAS-FASE-2.md)—. Dos reglas con
+> el mismo número acaban en una discusión sobre cuál era.
+
+**Por qué**: el problema nunca estuvo en los logs. Estaba en que **el sistema no
+sabía qué significan los datos**.
+
+```
+contact.name        → una persona
+product.name        → un churro
+agent_profile.name  → el nombre del asistente
+```
+
+El mismo campo `name`, tres cosas distintas. Con solo el nombre del campo, el
+registro tenía dos salidas y las dos malas: proteger de más y perder
+trazabilidad de negocio, o proteger de menos y volver a filtrar datos. Por eso
+`paraLog` recibe ahora **la tabla**:
+
+```ts
+paraLog("agent_profile", "name", "Asistente")   → Asistente
+paraLog("contact",       "name", "Andrea Gómez") → <sin clasificar · 12 caracteres · huella …>
+```
+
+**Lo no clasificado se protege, y se nota.** Un `<sin clasificar>` en el log es
+trabajo pendiente, igual que un `[NO DECLARADO]`: volcarlo por defecto es
+exactamente como estaba el sistema cuando el teléfono del cliente acabó dentro.
+
+Las tablas clasificadas hoy son `agent_profile`, `organization`,
+`conversation_state` y la pseudo-tabla `metrica`. **`kb_entry`, `contact`,
+`message`, `media_asset` y `user` no lo están** — y por eso no se pueden
+instrumentar todavía. Una prueba recorre `src/` y falla si alguien registra una
+tabla que no esté clasificada.
+
 ---
 
 ## Qué usar en cada caso
@@ -35,7 +80,7 @@ haya cinco** y que cada uno proteja cosas distintas. Todo lo nuevo entra ahí.
 |---|---|---|
 | Un evento entrante (webhook) | `eventoParaLog(event)` | Todas las **claves**, los valores de texto resumidos |
 | Un texto libre (mensaje, respuesta del agente) | `resumirTexto(texto)` | `<45 caracteres · huella a59491e8>` |
-| Un valor de un campo concreto | `paraLog(campo, valor)` | El valor, salvo que sea secreto o personal |
+| Un valor de un campo concreto | `paraLog(tabla, campo, valor)` | Según la clase del campo **en esa tabla** |
 | Un cambio en una tabla | `registrarCambios(...)` / `conRegistro(...)` | Una línea por campo, ya saneada |
 | Ids, tipos, estados, contadores, tiempos | Directamente | Tal cual: no identifican a nadie |
 
@@ -122,10 +167,13 @@ Con honestidad, porque la diferencia importa:
    ya no puede pasar sin romper el gate.
 2. **El guardarraíl mira `console.*`, no cualquier salida.** Un `process.stdout.
    write` o una librería futura se le escapan. Hoy no existe ninguno de los dos.
-3. **La lista de patrones es de lo conocido.** Cubre los campos que existen hoy;
-   un dato personal con un nombre nuevo (`nit`, `cedula`, `correo`) no dispara
-   nada hasta que se añada. Es la misma limitación que `PERSONALES`, y la misma
-   respuesta: cuando aparezca un campo nuevo, entra en las dos listas.
+3. **La lista de patrones del guardarraíl es de lo conocido.** Un dato personal
+   con un nombre nuevo (`nit`, `cedula`, `correo`) interpolado en un `console.*`
+   no dispara nada hasta que se añada. Dentro del registro de cambios esto ya no
+   aplica —lo no clasificado se protege solo—, pero en un `console.*` suelto sí.
+4. **Cinco tablas siguen sin clasificar**: `kb_entry`, `contact`, `message`,
+   `media_asset` y `user`. No es deuda oculta: la regla 3 impide instrumentarlas
+   hasta que lo estén, y una prueba lo verifica.
 4. **La huella es seudonimización, no anonimización.** Son 32 bits sin sal: quien
    tenga el log puede probar los diez mil millones de teléfonos posibles y
    encontrar el que coincide. Para un log interno es aceptable; conviene saberlo.

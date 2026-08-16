@@ -1,7 +1,11 @@
 # Bitácora del 16 de agosto
 
 > **Dentro:** El despliegue que faltaba · La auditoría · Las correcciones, una a
-> una
+> una · El registro formal de los cuatro cambios
+
+**Formato**: desde el 16-ago rige [75-COMO-SE-DOCUMENTA.md](75-COMO-SE-DOCUMENTA.md).
+El relato va primero; **el registro formal, con la reversión de cada cambio,
+está al final**.
 
 Sesión de cierre técnico: **ni una bandera encendida, ni un dato de producción
 tocado**. Todo el trabajo es código, pruebas y documentación.
@@ -141,3 +145,87 @@ protegido justo el campo que traía el teléfono del cliente.
 > buscando algo que no existe. Toda comprobación automática necesita su prueba
 > negativa — y la suya de exceso: `msg.to`, el número *del negocio*, tiene que
 > poder seguir registrándose o el aviso *"número sin cliente"* deja de servir.
+
+---
+
+# Registro formal de los cambios · 16-ago-2026
+
+> Los cuatro se hicieron **antes** de que existiera
+> [75-COMO-SE-DOCUMENTA.md](75-COMO-SE-DOCUMENTA.md), y ninguno traía la séptima
+> obligación: **cómo revertirlo**. Se completa aquí, que es exactamente la deuda
+> que esa regla viene a impedir.
+
+**Lo que vale para los cuatro**: ninguno tocó la base de datos, ninguno añadió
+migraciones y **ninguno está desplegado**. Revertir es un `git revert` y nada
+más — no hay dato que devolver a su sitio ni bandera que reponer.
+
+### 00:19 · Las métricas de la regla 10, y el bug de las salsas
+
+**Objetivo**: cerrar la regla 10 (las seis métricas) antes de que se persista
+ningún estado, sin tocar la base.
+**Archivos**: `orders/estado.ts` (emisor de la métrica) · `ai/pipeline.ts`
+(los dos enganches y `grupoDeSalsas`) · `orders/normalizar.ts`
+(`grupoLlamado`/`grupoDeSalsas` exportadas) · `tests/unit/estado-del-pedido.test.ts`
+· `ycloud-reintento-envio.test.ts` (el gate en rojo) · doc: `66`, `67`, `69`,
+`70`, `72` (nuevo), índice.
+**Riesgos**: que la métrica volcara datos del cliente (se limitó a nombres de
+campo); que subir `SCHEMA_VERSION` invalidara estados vivos (**se descartó
+tocar el modelo** por eso).
+**Evidencia**: 682 pruebas en verde, `tsc` y `eslint` limpios.
+**Reversión**: `git revert e154e0f`. Vuelve el bug de las salsas —inofensivo
+mientras el catálogo tenga un solo grupo— y desaparecen las métricas. La Fase 2
+sigue apagada en ambos casos.
+**Estado**: terminado.
+
+### 00:28 · El teléfono del cliente ya no llega al log
+
+**Objetivo**: impedir que `entrega.telefono/direccion/nombre` y `notifyPhones`
+se escriban en el registro de cambios.
+**Archivos**: `server/registro-de-cambios.ts` · `tests/unit/registro-de-cambios.test.ts`
+· doc: `10-SEGURIDAD`, `69`, `72`, `73` (nuevo), índice.
+**Riesgos**: **sobrecorregir** — tapar `producto.nombre` o `totalCents` habría
+costado trazabilidad de negocio sin ganar privacidad. Dos pruebas lo impiden.
+**Evidencia**: 689 pruebas en verde (7 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert 612d3b4`. Los datos personales volverían al log en
+cuanto se encendiera la Fase 2. **No revertir sin cerrar antes esa bandera.**
+**Estado**: terminado.
+
+### 00:48 · Tres logs dejan de escribir datos de clientes en producción
+
+**Objetivo**: cortar tres fugas **activas** —dos webhooks y el pipeline— que no
+dependían de la Fase 2.
+**Archivos**: `server/registro-de-cambios.ts` (`sanearEvento`, `eventoParaLog`,
+`resumirTexto`) · `inbox/ycloud-events.ts` · `ai/pipeline.ts` ·
+`tests/unit/logs-sin-datos-personales.test.ts` (nuevo) · doc: `74` (nuevo),
+`10-SEGURIDAD`, `72`, `73`, índice.
+**Riesgos**: **perder la utilidad de diagnóstico** por la que existían esos
+volcados. Se conservan todas las claves del evento; se pierde a propósito poder
+copiar del log el texto de una respuesta perdida.
+**Evidencia**: 698 pruebas en verde (9 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert baccd31`. Las tres fugas vuelven a estar abiertas
+**en producción**, no en la Fase 2. Es el commit menos revertible de los cuatro.
+**Estado**: terminado.
+
+### 01:00 · Las dos fugas por interpolación
+
+**Objetivo**: cerrar `from=${m?.from}` y `tel=${c.phone}`, y que el guardarraíl
+detecte también interpolaciones.
+**Archivos**: `inbox/ycloud-events.ts` · `inbox/ingest.ts` ·
+`tests/unit/logs-sin-datos-personales.test.ts` · doc: `74`, `10-SEGURIDAD`, `73`.
+**Riesgos**: un guardarraíl que no detecta nada y parece verde — **pasó**: al
+darle de comer las fugas reales se vio que `.from` no estaba en la lista.
+**Evidencia**: 701 pruebas en verde (3 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert 89e68f6`. Vuelven las dos interpolaciones y el
+guardarraíl deja de mirar `${…}`.
+**Estado**: terminado.
+
+### 01:0x · La regla de documentación
+
+**Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de
+los cuatro cambios anteriores.
+**Archivos**: `75-COMO-SE-DOCUMENTA.md` (nuevo) · esta bitácora · índice.
+**Riesgos**: ninguno técnico — no toca código.
+**Evidencia**: sin código, el gate no cambia (701 en verde).
+**Reversión**: `git revert` del commit. Se perdería la regla escrita, no ningún
+comportamiento.
+**Estado**: terminado.

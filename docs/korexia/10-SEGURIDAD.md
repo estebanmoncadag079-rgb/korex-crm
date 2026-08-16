@@ -1,6 +1,6 @@
 # Seguridad: auditoría del 31-jul-2026 (con una ronda más el 3-ago-2026)
 
-> **Dentro:** Resumen · Contraseña olvidada · Eliminar una cuenta · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
+> **Dentro:** Resumen · Contraseña olvidada · Eliminar una cuenta · Corregido (16-ago): el teléfono del cliente iba al log · Lo más grave sigue abierto y no es de código · Corregido: un cliente podía atacar a otro · Corregido: las firmas fallaban ABIERTAS · Corregido (3-ago): un cliente podía silenciar el agente de otro · Corregido (3-ago): el rate-limit del login se evadía · Pendiente, sin urgencia · Lo que está bien hecho
 
 Auditoría completa del código, el historial de git y las dependencias
 (gitleaks + osv-scanner), con cada hallazgo verificado a mano contra este
@@ -16,6 +16,50 @@ el repositorio ni en el historial de git.
 
 Los problemas reales estaban **en la frontera de los webhooks públicos**, y ya
 están corregidos.
+
+## ✅ Corregido (16-ago-2026): el teléfono del cliente iba a parar al log
+
+Lo encontró la auditoría del 16-ago, **antes de encender la Fase 2**, que es
+justo lo que lo habría activado.
+
+El registro de cambios escribe una línea por campo con su valor anterior y su
+valor nuevo. La Fase 2 guarda el pedido con **nombre, teléfono y dirección del
+cliente final**, y `paraLog` solo tapaba dos cosas: los campos que parecen un
+secreto (`token`, `apiKey`…) y los valores de más de 120 caracteres. Un teléfono
+no es ninguna de las dos:
+
+```
+[cambio] tabla=conversation_state campo=entrega.telefono
+  valor_anterior=null valor_nuevo=3001234567 …
+```
+
+Con la bandera apagada no se emitió ni una línea. En el turno siguiente a
+encenderla, el log del contenedor —que se lee a ojo y se pega en un chat— habría
+empezado a acumular datos de clientes reales.
+
+**Cómo se corrigió**: una categoría nueva en `paraLog`, distinta de los
+secretos. Un token se oculta y punto; un teléfono hay que poder **seguirlo sin
+leerlo**, porque *"¿cambió?"* y *"¿volvió al de antes?"* son preguntas legítimas
+al investigar un pedido. Se sustituye por una huella estable:
+
+```
+valor_nuevo=<personal · 10 caracteres · huella 3f2ab1c9>
+```
+
+Tres decisiones que importan:
+
+- **La lista de campos personales se compara EXACTA, no por substring.** Con
+  `includes` bastaba poner `"nombre"` para tapar también `producto.nombre` —el
+  nombre de un churro—, perdiendo trazabilidad de negocio sin ganar privacidad.
+- **Hay una red por si alguien añade un campo y no lo lista**: una cadena con
+  siete dígitos seguidos se tapa igual. Es el fallo que se repite en este
+  proyecto — el que falta siempre es el que nadie declaró.
+- **La red solo mira cadenas.** `totalCents` son `1000000`, siete dígitos y un
+  número: un total no es una persona.
+
+Con siete pruebas, entre ellas la que comprueba que la línea completa del log no
+contiene el número por ningún lado, y las dos que impiden la sobrecorrección
+(el nombre del producto y el total siguen legibles).
 
 ## 🔴 Lo más grave sigue abierto y no es de código
 

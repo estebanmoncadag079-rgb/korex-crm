@@ -111,6 +111,72 @@ describe("qué se escribe y qué no", () => {
     expect(paraLog("tone", "cercano\ny alegre")).toBe("cercano y alegre");
   });
 
+  /*
+   * Los datos de una persona (16-ago-2026).
+   *
+   * La Fase 2 guarda el pedido con nombre, teléfono y dirección del cliente
+   * final, y el registro por campo los volcaba en claro: caben de sobra en los
+   * 120 caracteres, así que no los resumía nadie. El log del contenedor se lee
+   * a ojo y se pega en un chat.
+   */
+  describe("un dato de una persona no se escribe nunca", () => {
+    it("ni el teléfono, ni la dirección, ni el nombre de quien pide", () => {
+      expect(paraLog("entrega.telefono", "3001234567")).not.toContain("3001234567");
+      expect(paraLog("entrega.direccion", "Cra 5 #4-32 apto 301")).not.toContain("Cra 5");
+      expect(paraLog("entrega.nombre", "Andrea Gómez")).not.toContain("Andrea");
+    });
+
+    it("tampoco los teléfonos del equipo", () => {
+      expect(paraLog("notifyPhones", "573001234567,573109876543")).not.toContain("57300");
+    });
+
+    it("pero SIGUE diciendo que cambió, y si volvió al de antes", () => {
+      const uno = paraLog("entrega.telefono", "3001234567");
+      const otro = paraLog("entrega.telefono", "3009999999");
+      const vuelto = paraLog("entrega.telefono", "3001234567");
+
+      expect(uno).not.toBe(otro); // cambió
+      expect(uno).toBe(vuelto); // y volvió: es la pregunta que sí se hace
+      expect(uno).toMatch(/^<personal · 10 caracteres · huella [0-9a-f]+>$/);
+    });
+
+    it("la red: un campo NUEVO con pinta de identificador también se tapa", () => {
+      // El campo que alguien añada mañana y nadie se acuerde de listar.
+      expect(paraLog("campoQueNadieListo", "3001234567")).toContain("<personal");
+    });
+
+    it("NO se come el nombre del producto, que es dato de negocio", () => {
+      expect(paraLog("producto.nombre", "CHURRITA")).toBe("CHURRITA");
+      expect(paraLog("salsas", "arequipe, lechera")).toBe("arequipe, lechera");
+    });
+
+    it("NO se come un total, que es un número y no una persona", () => {
+      // 1000000 son siete dígitos: la red por valor solo mira cadenas.
+      expect(paraLog("totalCents", 1000000)).toBe("1000000");
+    });
+
+    it("la línea entera del log no lleva el teléfono por ningún lado", () => {
+      const espia = vi.spyOn(console, "log").mockImplementation(() => {});
+      const cambios = registrarCambios({
+        tabla: "conversation_state",
+        registro: "cv_x",
+        antes: { "entrega.telefono": null },
+        despues: { "entrega.telefono": "3001234567" },
+        declarados: ["entrega.telefono"],
+        proceso: "runAgentTurn",
+        actor: "pipeline",
+        ahora: new Date("2026-08-16T00:00:00.000Z"),
+      });
+
+      const linea = formatear(cambios[0]!);
+      expect(linea).not.toContain("3001234567");
+      expect(linea).toContain("campo=entrega.telefono");
+      // Y lo que se emitió por consola tampoco.
+      expect(String(espia.mock.calls[0]?.[0] ?? "")).not.toContain("3001234567");
+      espia.mockRestore();
+    });
+  });
+
   it("distingue null de ausente, que no es lo mismo", () => {
     expect(paraLog("greeting", null)).toBe("null");
     expect(paraLog("greeting", undefined)).toBe("ausente");

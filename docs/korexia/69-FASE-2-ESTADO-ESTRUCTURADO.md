@@ -147,6 +147,12 @@ Un log **por CAMPO** del estado, no uno por escritura:
 a 6"* es la diferencia entre encontrar un cobro de más en un minuto o en una
 auditoría forense.
 
+> ⚠️ **16-ago**: este log volcaba en claro `entrega.telefono`, `entrega.direccion`
+> y `entrega.nombre` — datos del cliente final. Corregido en `paraLog`, que ahora
+> los sustituye por una huella estable (`<personal · 10 caracteres · huella …>`):
+> se sigue sabiendo **si cambió y si volvió al valor anterior**, sin escribir el
+> dato. Detalle en [10-SEGURIDAD.md](10-SEGURIDAD.md).
+
 ---
 
 ## Las métricas de la regla 10 (16-ago)

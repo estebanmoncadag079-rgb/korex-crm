@@ -51,12 +51,57 @@ const SECRETOS = [
   "wabaId",
 ];
 
+/**
+ * Campos con datos de una PERSONA: de estos se registra **que cambiaron y si
+ * volvieron a un valor anterior**, nunca a qué.
+ *
+ * No es lo mismo que un secreto. Un token se oculta y punto; un teléfono hay
+ * que poder seguirlo sin leerlo — «cambió» y «volvió al de antes» son preguntas
+ * legítimas al investigar un pedido, y la huella las contesta las dos.
+ *
+ * ⚠️ **La comparación es EXACTA, no por substring.** Con `includes` bastaba
+ * poner `"nombre"` para que `producto.nombre` —el nombre de un churro— quedara
+ * oculto también, y ahí se pierde trazabilidad de negocio sin ganar privacidad.
+ */
+const PERSONALES = [
+  "entrega.nombre",
+  "entrega.telefono",
+  "entrega.direccion",
+  "notifyphones",
+  "telefono",
+  "direccion",
+  "phone",
+  "address",
+];
+
+/**
+ * La red para el campo que alguien añada mañana.
+ *
+ * Siete dígitos seguidos dentro de un texto es un teléfono, un documento o una
+ * cuenta. Se aplica **solo a cadenas**: `totalCents` son 1000000 y es un número,
+ * no una persona.
+ */
+const PARECE_IDENTIFICADOR = /\d{7,}/;
+
 /** A partir de aquí no se vuelca el valor: se resume. */
 const LARGO_MAXIMO = 120;
 
 function esSecreto(campo: string): boolean {
   const c = campo.toLowerCase();
   return SECRETOS.some((s) => c.includes(s.toLowerCase()));
+}
+
+function esPersonal(campo: string): boolean {
+  return PERSONALES.includes(campo.toLowerCase());
+}
+
+/** Un número estable a partir del texto: mismo valor, misma huella. */
+function huellaDe(texto: string): string {
+  let huella = 0;
+  for (let i = 0; i < texto.length; i++) {
+    huella = (huella * 31 + texto.charCodeAt(i)) | 0;
+  }
+  return (huella >>> 0).toString(16);
 }
 
 /**
@@ -73,15 +118,24 @@ export function paraLog(campo: string, valor: unknown): string {
   if (valor instanceof Date) return valor.toISOString();
 
   const texto = typeof valor === "object" ? JSON.stringify(valor) : String(valor);
+
+  /*
+   * El dato de una persona no se escribe, ni corto ni largo.
+   *
+   * Sin esto, encender la Fase 2 habría llenado el log del contenedor de
+   * teléfonos y direcciones de clientes finales — `entrega.telefono` cabe de
+   * sobra en los 120 caracteres, así que salía tal cual. La huella conserva lo
+   * único que se pregunta al investigar: si cambió, y si volvió al de antes.
+   */
+  if (esPersonal(campo) || (typeof valor === "string" && PARECE_IDENTIFICADOR.test(texto))) {
+    return `<personal · ${texto.length} caracteres · huella ${huellaDe(texto)}>`;
+  }
+
   if (texto.length <= LARGO_MAXIMO) {
     // Los saltos de línea romperían "una línea por cambio".
     return texto.replace(/\s+/g, " ");
   }
-  let huella = 0;
-  for (let i = 0; i < texto.length; i++) {
-    huella = (huella * 31 + texto.charCodeAt(i)) | 0;
-  }
-  return `<${texto.length} caracteres · huella ${(huella >>> 0).toString(16)}>`;
+  return `<${texto.length} caracteres · huella ${huellaDe(texto)}>`;
 }
 
 export type Cambio = {

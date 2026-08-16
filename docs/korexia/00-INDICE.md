@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [73-BITACORA-16AGO.md](73-BITACORA-16AGO.md) | **El relato del 16 de agosto**: el despliegue que faltaba, las métricas de la regla 10, la auditoría de cinco frentes y las correcciones — entre ellas el teléfono del cliente que iba a parar al log |
+
 | [72-COMO-ENCENDER-LA-FASE-2.md](72-COMO-ENCENDER-LA-FASE-2.md) | 🔴 **La lista de la Fase 2**: 18 tareas numeradas y clasificadas (bloqueante · recomendada · opcional), cuáles escriben en producción, el camino mínimo en orden, y el bug latente que se activaba justo al cargar las opciones |
 
 | [67-FASE-1.5.md](67-FASE-1.5.md) | 🔵 **Validar antes de persistir**: la Fase 2 **no puede escribir en la base** hasta que la validación semántica y las métricas den evidencia. Las dos tareas obligatorias, las prohibiciones y la pregunta que decide si se sigue o se para |

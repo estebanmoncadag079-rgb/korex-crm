@@ -94,6 +94,25 @@ nadie lo note.
 
 ---
 
+---
+
+## Los hallazgos de la auditoría del 16-ago
+
+Se auditó catálogo, endpoints, Fase 2, seguridad y arquitectura. Trece
+hallazgos; ninguno necesita migración. Los que bloquean el encendido:
+
+| | Hallazgo | Estado |
+|---|---|---|
+| 🔴 | **Datos personales en los logs**: `entrega.telefono/direccion/nombre` se volcaban en claro | ✅ **corregido el 16-ago** — ver [10-SEGURIDAD.md](10-SEGURIDAD.md) |
+| 🟠 | `normalizar.ts:382` calcula las salsas por su cuenta, sin `grupoDeSalsas()` | 🔴 pendiente |
+| 🟠 | `leerAporte()` es código muerto y la doc dice que se usa | 🔴 pendiente |
+
+Y los recomendados: la instrumentación de `agent/profile` que se autodeclara, el
+precio de Lis dentro del prompt universal, los tres `.set({ ...body.data })` y
+`api/kb/[id]` sin instrumentar.
+
+---
+
 ## Lo que se hizo el 16-ago sin tocar la base
 
 **Las métricas de la regla 10** (`registrarMetricaDeEstado`): una línea por turno

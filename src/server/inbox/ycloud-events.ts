@@ -11,7 +11,7 @@ import {
   ingestOutboundEcho,
 } from "@/server/inbox/ingest";
 import { notifyTeam } from "@/server/ai/notify-team";
-import { eventoParaLog } from "@/server/registro-de-cambios";
+import { eventoParaLog, resumirTexto } from "@/server/registro-de-cambios";
 
 /**
  * Procesamiento de un evento de YCloud, común a las dos puertas de entrada:
@@ -54,10 +54,17 @@ export async function handleYcloudEvent(
   const msg = parseYcloudInbound(event);
   if (!msg) {
     const m = event.whatsappInboundMessage;
+    /*
+     * Lo que hace falta saber aquí es CUÁL de los campos falta, no cuánto vale
+     * el que vino: `from` es el teléfono del cliente y `fromUserId` su BSUID.
+     * Con la huella se distingue además un evento de otro, que es lo que se
+     * mira cuando esto se dispara dos veces seguidas.
+     */
     console.warn(
       "[ycloud webhook] MENSAJE DESCARTADO: el evento no trae los datos " +
         `mínimos (id=${m?.id ?? "falta"}, wabaId=${m?.wabaId ?? "falta"}, ` +
-        `from=${m?.from ?? "falta"}, fromUserId=${m?.fromUserId ?? "falta"}, ` +
+        `from=${m?.from ? resumirTexto(m.from) : "falta"}, ` +
+        `fromUserId=${m?.fromUserId ? resumirTexto(m.fromUserId) : "falta"}, ` +
         `type=${m?.type ?? "?"})`
     );
     /**

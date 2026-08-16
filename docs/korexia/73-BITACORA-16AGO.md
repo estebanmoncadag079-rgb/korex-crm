@@ -113,3 +113,31 @@ dentro de un `console.*`. Detalle en
 > 🔑 La conclusión del dueño, que reordena lo que queda: **la Fase 2 ya no está
 > bloqueada por el estado estructurado, sino por la observabilidad y la
 > protección de datos.**
+
+---
+
+## 6. Las dos que quedaban, y el guardarraíl que se puso a prueba
+
+El informe anterior dejaba dos fugas fuera del alcance: `from=${m?.from}` y
+`tel=${c.phone}`. No serializaban nada — **interpolaban**, y por eso el
+guardarraíl no las veía.
+
+El dueño lo señaló como lo que era: *"se corrigieron las fugas complejas y
+quedaron dos triviales; eso rompe la consistencia del sistema"*. Tenía razón, y
+además una de las dos estaba **diez líneas por encima** de una de las ya
+corregidas.
+
+Antes de tocar nada, un barrido de `src/` entero: **21 candidatos**, de los
+cuales 19 son legítimos —el teléfono *del negocio*, identificadores técnicos y
+mensajes de excepción— y 2 eran las fugas conocidas. Ninguna nueva.
+
+Lo interesante vino después. Al ampliar el guardarraíl para que detecte
+interpolaciones, se le añadió **un caso que le da de comer las dos fugas reales
+y comprueba que las detecta**. Y falló: **`.from` no estaba en la lista de
+patrones**. Sin ese negativo, el guardarraíl habría quedado en verde dando por
+protegido justo el campo que traía el teléfono del cliente.
+
+> 🔑 **Un guardarraíl que nunca ha fallado no demuestra nada**: puede estar
+> buscando algo que no existe. Toda comprobación automática necesita su prueba
+> negativa — y la suya de exceso: `msg.to`, el número *del negocio*, tiene que
+> poder seguir registrándose o el aviso *"número sin cliente"* deja de servir.

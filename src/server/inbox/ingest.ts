@@ -23,6 +23,7 @@ import {
   resumeReason,
 } from "@/server/inbox/handoff-policy";
 import { maybeRunAgentTurn } from "@/server/ai/trigger";
+import { resumirTexto } from "@/server/registro-de-cambios";
 
 /** Tipos de contenido soportados; el resto se ignora sin error. */
 const SUPPORTED_TYPES = new Set([
@@ -104,9 +105,21 @@ export async function getOrCreateContact(
      * duplicados de antes.
      */
     if (candidatos.length > 1) {
+      /*
+       * Los ids bastan para encontrarlos en el panel y fusionarlos; el teléfono
+       * y el BSUID iban en claro y son de la persona duplicada. En huella se
+       * conserva lo que de verdad se mira aquí: **si los dos candidatos traen
+       * el mismo número o distinto** — misma huella, mismo dato.
+       */
       console.warn(
         `[contacto] MISMA PERSONA EN DOS CONTACTOS de ${organizationId}: ` +
-          candidatos.map((c) => `${c.id} (tel=${c.phone ?? "-"}, bsuid=${c.waUserId ?? "-"})`).join(" | ") +
+          candidatos
+            .map(
+              (c) =>
+                `${c.id} (tel=${c.phone ? resumirTexto(c.phone) : "-"}, ` +
+                `bsuid=${c.waUserId ? resumirTexto(c.waUserId) : "-"})`
+            )
+            .join(" | ") +
           ` — se usa ${existing.id}; fusionar a mano`
       );
     }

@@ -138,6 +138,112 @@ function llamadasAConsole(codigo: string): string[] {
   return llamadas;
 }
 
+/** Las interpolaciones `${…}` de una llamada, con llaves balanceadas. */
+function interpolaciones(texto: string): string[] {
+  const out: string[] = [];
+  const re = /\$\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto))) {
+    let i = m.index + 2;
+    let abiertas = 1;
+    while (i < texto.length && abiertas > 0) {
+      if (texto[i] === "{") abiertas++;
+      else if (texto[i] === "}") abiertas--;
+      i++;
+    }
+    out.push(texto.slice(m.index + 2, i - 1).replace(/\s+/g, " ").trim());
+  }
+  return out;
+}
+
+/**
+ * Lo que no puede interpolarse crudo en un log: son datos de la persona que
+ * escribe, no del negocio.
+ *
+ * `businessPhone`, `msg.to` y `phoneNumberId` **no están** a propósito: son el
+ * número comercial del cliente-empresa y un id de Meta, y sin ellos el aviso
+ * *"mensaje para un número sin cliente"* no sirve para nada — que es
+ * exactamente para lo que se escribió.
+ */
+const PROHIBIDO_CRUDO = [
+  /\.phone\b/i,
+  // `.from` es el teléfono del cliente en los eventos de WhatsApp. `Array.from`
+  // queda fuera por el negativo: es lo único legítimo que acaba igual.
+  /(?<!Array)\.from\b/,
+  /\.telefono\b/i,
+  /\.direccion\b/i,
+  /\.address\b/i,
+  /\.text\b/i,
+  /\.body\b/i,
+  /\bwaUserId\b/,
+  /\bfromUserId\b/,
+  /\bprofileName\b/,
+  /\.caption\b/i,
+  /\bcustomerProfile\b/,
+];
+
+/** Pasar por el saneador es la salida buena, no una excepción. */
+const SANEADO = /resumirTexto\(|paraLog\(|eventoParaLog\(/;
+
+describe("regla del proyecto: ningún log interpola un dato personal crudo", () => {
+  it("todo dato de una persona sale por el saneador", () => {
+    const culpables: string[] = [];
+
+    for (const archivo of archivosTs(join(process.cwd(), "src"))) {
+      const codigo = readFileSync(archivo, "utf8");
+      if (!codigo.includes("console.")) continue;
+
+      for (const llamada of llamadasAConsole(codigo)) {
+        for (const expr of interpolaciones(llamada)) {
+          if (SANEADO.test(expr)) continue;
+          if (PROHIBIDO_CRUDO.some((re) => re.test(expr))) {
+            culpables.push(`${archivo.replace(process.cwd(), "")}: \${${expr.slice(0, 60)}}`);
+          }
+        }
+      }
+    }
+
+    /*
+     * Si esto falla: envolver el valor en `resumirTexto()`. Se conserva poder
+     * distinguir un valor de otro —y ver si dos son el mismo— sin escribirlo.
+     */
+    expect(culpables).toEqual([]);
+  });
+
+  /*
+   * Un guardarraíl que nunca ha fallado no demuestra nada: podría estar
+   * buscando algo que no existe. Aquí se le da de comer las dos fugas REALES
+   * del 16-ago y sus versiones corregidas.
+   */
+  it("el detector detecta: las dos fugas reales del 16-ago lo disparan", () => {
+    const antes = [
+      'console.warn(`from=${m?.from ?? "falta"}`);',
+      'console.warn(`tel=${c.phone ?? "-"}, bsuid=${c.waUserId ?? "-"}`);',
+    ];
+    for (const codigo of antes) {
+      const exprs = llamadasAConsole(codigo).flatMap(interpolaciones);
+      expect(exprs.some((e) => PROHIBIDO_CRUDO.some((re) => re.test(e)))).toBe(true);
+    }
+
+    const despues = [
+      'console.warn(`from=${m?.from ? resumirTexto(m.from) : "falta"}`);',
+      'console.warn(`tel=${c.phone ? resumirTexto(c.phone) : "-"}`);',
+    ];
+    for (const codigo of despues) {
+      const exprs = llamadasAConsole(codigo).flatMap(interpolaciones);
+      expect(exprs.every((e) => SANEADO.test(e) || !PROHIBIDO_CRUDO.some((re) => re.test(e)))).toBe(
+        true
+      );
+    }
+  });
+
+  it("no se pasa de listo: el teléfono del NEGOCIO sigue pudiendo registrarse", () => {
+    const codigo = 'console.warn(`número sin cliente (to=${msg.to}, waba=${msg.wabaId})`);';
+    const exprs = llamadasAConsole(codigo).flatMap(interpolaciones);
+    expect(exprs.some((e) => PROHIBIDO_CRUDO.some((re) => re.test(e)))).toBe(false);
+  });
+});
+
 describe("regla del proyecto: ningún log vuelca una estructura completa", () => {
   it("no hay un solo `console.*` que serialice un objeto entero", () => {
     const culpables: string[] = [];

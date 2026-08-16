@@ -86,6 +86,26 @@ En el pipeline sí hay una pérdida consciente: el texto ya no se puede copiar d
 log para reenviarlo. Hacen falta **dos fallos seguidos de base de datos** para
 llegar a ese punto, y a cambio el resumen del pedido deja de escribirse.
 
+### Y dos más, por interpolación
+
+El mismo día, y a propósito en un commit aparte: quedaban dos fugas triviales
+que el primer arreglo no tocaba, porque no serializaban nada — **interpolaban**.
+
+| Dónde | Qué escribía |
+|---|---|
+| `ycloud-events.ts:57` | `from=${m?.from}` y `fromUserId=${m?.fromUserId}`: teléfono del cliente y su BSUID, **diez líneas por encima** de una de las fugas ya corregidas |
+| `ingest.ts:107` | `tel=${c.phone}, bsuid=${c.waUserId}` de cada contacto duplicado |
+
+Las dos van ahora por `resumirTexto()`, que conserva lo que de verdad se mira en
+cada sitio: en la primera, **cuál de los dos campos falta** (lo que se pregunta
+ahí); en la segunda, **si los dos contactos duplicados traen el mismo número o
+distinto** — misma huella, mismo dato.
+
+Un barrido de `src/` entero confirmó que no queda ninguna más: 21 candidatos
+examinados, y los otros 19 son el teléfono **del negocio** (`businessPhone`,
+`msg.to`), identificadores técnicos (`waMessageId`, `phoneNumberId`,
+`session.userId`) o mensajes de excepción (`err.message`).
+
 Con la regla permanente y el guardarraíl que la verifica sola:
 **[74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md)**.
 

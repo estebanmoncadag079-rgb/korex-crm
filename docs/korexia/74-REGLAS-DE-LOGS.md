@@ -82,8 +82,26 @@ campo nuevo no se vuelque solo.
 ## El guardarraíl que lo comprueba solo
 
 `tests/unit/logs-sin-datos-personales.test.ts` **recorre todo `src/`**, extrae el
-argumento completo de cada `console.*` contando paréntesis, y falla si alguno
-contiene `JSON.stringify` o `util.inspect`.
+argumento completo de cada `console.*` contando paréntesis, y falla por dos vías:
+
+1. **Serialización**: el argumento contiene `JSON.stringify` o `util.inspect`.
+2. **Interpolación**: alguna `${…}` toca un dato de una persona —`.phone`,
+   `.from`, `.text`, `.body`, `waUserId`, `fromUserId`, `profileName`,
+   `customerProfile`, `.direccion`, `.address`, `.caption`— **sin pasar por**
+   `resumirTexto()`, `paraLog()` o `eventoParaLog()`.
+
+**Y se verifica a sí mismo.** Hay un tercer caso que le da de comer las dos fugas
+reales del 16-ago y sus versiones corregidas: si el detector dejara de detectar,
+falla. No es adorno — al escribirlo se descubrió que `.from` **no estaba en la
+lista**, y sin ese negativo el guardarraíl habría dado por protegido justo el
+campo que traía el teléfono del cliente.
+
+> Un guardarraíl que nunca ha fallado no demuestra nada: puede estar buscando
+> algo que no existe.
+
+Un cuarto caso protege del exceso contrario: `msg.to` y `businessPhone` —el
+número **del negocio**— tienen que poder seguir registrándose, porque sin ellos
+el aviso *"mensaje para un número sin cliente"* no sirve para nada.
 
 > Si esa prueba se pone roja, **el arreglo no es añadir una excepción**: es pasar
 > el objeto por `eventoParaLog()` o `resumirTexto()`.
@@ -99,14 +117,16 @@ Con honestidad, porque la diferencia importa:
 
 1. **Hay ~100 `console.*` directos** repartidos por `src/`. La regla 2 dice que
    todo debe pasar por el módulo de registro; hoy eso se cumple para lo
-   peligroso —las estructuras completas—, no para la última línea escrita. La
-   migración es una tarea aparte, y **no urge**: lo que hacía daño era volcar
-   objetos enteros, y eso ya no puede pasar.
-2. **El guardarraíl detecta serialización, no interpolación.** Un
-   `console.warn(\`tel=${contacto.phone}\`)` sigue siendo posible y sigue siendo
-   una fuga. Quedan localizadas dos —`ycloud-events.ts:58` y `ingest.ts:109`—,
-   pendientes de decidir.
-3. **La huella es seudonimización, no anonimización.** Son 32 bits sin sal: quien
+   peligroso —estructuras completas y datos personales—, no para la última línea
+   escrita. La migración es una tarea aparte, y **no urge**: lo que hacía daño
+   ya no puede pasar sin romper el gate.
+2. **El guardarraíl mira `console.*`, no cualquier salida.** Un `process.stdout.
+   write` o una librería futura se le escapan. Hoy no existe ninguno de los dos.
+3. **La lista de patrones es de lo conocido.** Cubre los campos que existen hoy;
+   un dato personal con un nombre nuevo (`nit`, `cedula`, `correo`) no dispara
+   nada hasta que se añada. Es la misma limitación que `PERSONALES`, y la misma
+   respuesta: cuando aparezca un campo nuevo, entra en las dos listas.
+4. **La huella es seudonimización, no anonimización.** Son 32 bits sin sal: quien
    tenga el log puede probar los diez mil millones de teléfonos posibles y
    encontrar el que coincide. Para un log interno es aceptable; conviene saberlo.
    Endurecerla con HMAC (`ENCRYPTION_KEY` ya existe) cuesta una línea y está

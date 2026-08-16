@@ -75,3 +75,41 @@ Siete pruebas nuevas, dos de ellas contra la sobrecorrección.
 > 🔑 La lección: **una lista de campos sensibles es una lista de los que alguien
 > se acordó**. Por eso el arreglo lleva red, igual que la instrumentación lleva
 > `[NO DECLARADO]`.
+
+---
+
+## 5. 🔴 Y entonces apareció lo que ya estaba pasando
+
+La revisión del propio arreglo destapó algo peor. El commit anterior protegía
+**una sola superficie**: la que pasa por `paraLog`. Fuera de ella hay ~100
+`console.*` directos —no hay `pino`, ni `winston`, ni logger—, y **tres estaban
+escribiendo datos de clientes en producción desde hace semanas**:
+
+- dos webhooks volcaban `JSON.stringify(event)` entero: teléfono, nombre de
+  perfil y texto del mensaje. **Uno se dispara con los mensajes `unsupported`,
+  que llegan a diario**;
+- y el pipeline volcaba la respuesta completa del agente, que es el resumen del
+  pedido con nombre, teléfono y dirección.
+
+Eso dejó de ser deuda técnica para ser un incidente de privacidad, y cambió la
+prioridad: **por delante de la Fase 2**, porque no dependía de ella.
+
+Lo difícil no fue taparlos, fue **taparlos sin romper para qué estaban**. Los dos
+de YCloud existían para diagnosticar qué campo trae el remitente cuando el parser
+falla — así se descubrió lo de `fromUserId` el 2-ago. `eventoParaLog()` conserva
+**todas las claves** y resume los valores: la pregunta se responde igual, y el
+teléfono no hacía falta para responderla.
+
+> 🔑 **La lista es de lo PERMITIDO, no de lo prohibido.** En un evento entrante,
+> todo texto que no sea un identificador conocido se resume — incluida la clave
+> que YCloud añada mañana. Una lista de prohibidos solo protege de lo que ya
+> conoces.
+
+Y una regla nueva con guardarraíl: `logs-sin-datos-personales.test.ts` recorre
+`src/` entero y **rompe el gate** si alguien vuelve a meter un `JSON.stringify`
+dentro de un `console.*`. Detalle en
+[74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md).
+
+> 🔑 La conclusión del dueño, que reordena lo que queda: **la Fase 2 ya no está
+> bloqueada por el estado estructurado, sino por la observabilidad y la
+> protección de datos.**

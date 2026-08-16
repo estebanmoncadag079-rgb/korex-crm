@@ -61,6 +61,34 @@ Con siete pruebas, entre ellas la que comprueba que la línea completa del log n
 contiene el número por ningún lado, y las dos que impiden la sobrecorrección
 (el nombre del producto y el total siguen legibles).
 
+## ✅ Corregido (16-ago-2026): tres logs volcaban datos de clientes en producción
+
+Lo anterior era un riesgo **futuro** —se activaba al encender la Fase 2—. Esto
+ya estaba ocurriendo:
+
+| Dónde | Qué escribía |
+|---|---|
+| `ycloud-events.ts:87` | `JSON.stringify(event)` entero en *"mensaje sin texto ni adjunto"*: teléfono del cliente, su nombre de perfil de WhatsApp y el cuerpo del mensaje. **Se dispara con los mensajes `unsupported`, que llegan a diario** ([24](24-MENSAJES-UNSUPPORTED.md)) |
+| `ycloud-events.ts:69` | El mismo volcado, cuando el evento se descarta por faltarle datos |
+| `pipeline.ts` (`persistFailedOutbound`) | La respuesta completa del agente — que es el **resumen del pedido**: nombre, teléfono y dirección |
+
+**Ninguno estaba puesto por descuido**, y eso es lo que hizo que duraran: los dos
+de YCloud servían para diagnosticar qué campo trae el remitente cuando el parser
+falla (así se encontró lo de `fromUserId` el 2-ago), y el del pipeline estaba
+para poder reenviar a mano una respuesta perdida.
+
+**Cómo se corrigió sin perder esa utilidad**: `eventoParaLog()` conserva **todas
+las claves** del evento y resume los valores de texto. La pregunta *"¿qué campo
+trae el remitente?"* se responde viendo las claves; el teléfono no hacía falta
+para responderla.
+
+En el pipeline sí hay una pérdida consciente: el texto ya no se puede copiar del
+log para reenviarlo. Hacen falta **dos fallos seguidos de base de datos** para
+llegar a ese punto, y a cambio el resumen del pedido deja de escribirse.
+
+Con la regla permanente y el guardarraíl que la verifica sola:
+**[74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md)**.
+
 ## 🔴 Lo más grave sigue abierto y no es de código
 
 **La contraseña del superadmin quedó expuesta en un chat y no se ha cambiado.**

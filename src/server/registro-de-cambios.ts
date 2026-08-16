@@ -138,6 +138,99 @@ export function paraLog(campo: string, valor: unknown): string {
   return `<${texto.length} caracteres · huella ${huellaDe(texto)}>`;
 }
 
+/**
+ * Claves cuyo valor de TEXTO se conserva en claro dentro de un evento: son
+ * identificadores y metadatos, nunca contenido escrito por una persona.
+ *
+ * Es una **lista de lo permitido**, al revés que `PERSONALES`. En un evento de
+ * webhook todo lo que no sea un identificador conocido es, por defecto,
+ * contenido del usuario — y lo que llegue mañana con un nombre que nadie previó
+ * también. Es la única forma de que un campo nuevo no se vuelque solo.
+ */
+const IDENTIFICADORES = [
+  "id",
+  "type",
+  "wabaid",
+  "status",
+  "mimetype",
+  "sendtime",
+  "createtime",
+  "updatetime",
+  "timestamp",
+  "errorcode",
+  "code",
+  "direction",
+  "event",
+  "version",
+  "apiversion",
+];
+
+/** Un texto libre reducido a lo que se puede escribir: cuánto medía y cuál era. */
+export function resumirTexto(valor: unknown): string {
+  if (valor === null) return "null";
+  if (valor === undefined) return "ausente";
+  const texto = String(valor);
+  return `<${texto.length} caracteres · huella ${huellaDe(texto)}>`;
+}
+
+/** Hasta dónde se baja en un objeto anidado antes de resumirlo entero. */
+const PROFUNDIDAD_MAXIMA = 6;
+
+/**
+ * Un evento entrante, listo para el log: **se conservan todas las CLAVES y se
+ * resumen los VALORES de texto** que no sean identificadores.
+ *
+ * Por qué así y no una lista de campos a tapar: los dos volcados que esto
+ * sustituye existían para diagnosticar **qué campo traía el dato** cuando el
+ * parser fallaba — el 2-ago-2026 se descubrió así que algunos clientes mandan
+ * `fromUserId` en vez de `from`. Esa pregunta se responde viendo las claves,
+ * no los valores. Con esto se sigue viendo una clave que nadie esperaba, y su
+ * huella distingue un valor de otro sin escribir ninguno de los dos.
+ *
+ * **Nunca lanza**: un evento con ciclos o un objeto raro no puede tumbar el
+ * webhook que se está registrando.
+ */
+export function sanearEvento(valor: unknown, profundidad = 0): unknown {
+  if (valor === null || valor === undefined) return valor ?? null;
+  if (typeof valor === "number" || typeof valor === "boolean") return valor;
+  if (valor instanceof Date) return valor.toISOString();
+
+  if (typeof valor === "string") return resumirTexto(valor);
+
+  if (profundidad >= PROFUNDIDAD_MAXIMA) return "<anidado>";
+
+  if (Array.isArray(valor)) {
+    return valor.map((v) => sanearEvento(v, profundidad + 1));
+  }
+
+  if (typeof valor === "object") {
+    const salida: Record<string, unknown> = {};
+    for (const [clave, v] of Object.entries(valor as Record<string, unknown>)) {
+      if (esSecreto(clave)) {
+        salida[clave] = "<oculto>";
+      } else if (typeof v === "string" && IDENTIFICADORES.includes(clave.toLowerCase())) {
+        // Un identificador se conserva, pero acotado: nada de textos largos
+        // colándose por una clave llamada `code`.
+        salida[clave] = v.length <= LARGO_MAXIMO ? v : resumirTexto(v);
+      } else {
+        salida[clave] = sanearEvento(v, profundidad + 1);
+      }
+    }
+    return salida;
+  }
+
+  return "<no serializable>";
+}
+
+/** `sanearEvento` ya listo para interpolar en una línea de log. */
+export function eventoParaLog(evento: unknown): string {
+  try {
+    return JSON.stringify(sanearEvento(evento));
+  } catch (err) {
+    return `<no se pudo sanear: ${(err as Error).message}>`;
+  }
+}
+
 export type Cambio = {
   tabla: string;
   registro: string;

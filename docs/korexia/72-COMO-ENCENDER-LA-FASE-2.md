@@ -104,6 +104,7 @@ hallazgos; ninguno necesita migración. Los que bloquean el encendido:
 | | Hallazgo | Estado |
 |---|---|---|
 | 🔴 | **Datos personales en los logs**: `entrega.telefono/direccion/nombre` se volcaban en claro | ✅ **corregido el 16-ago** — ver [10-SEGURIDAD.md](10-SEGURIDAD.md) |
+| 🔴 | **Tres logs volcaban datos de clientes YA en producción** (dos webhooks y el pipeline), sin relación con la Fase 2 | ✅ **corregido el 16-ago** — ver [74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md) |
 | 🟠 | `normalizar.ts:382` calcula las salsas por su cuenta, sin `grupoDeSalsas()` | 🔴 pendiente |
 | 🟠 | `leerAporte()` es código muerto y la doc dice que se usa | 🔴 pendiente |
 

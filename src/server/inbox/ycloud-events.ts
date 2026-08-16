@@ -11,6 +11,7 @@ import {
   ingestOutboundEcho,
 } from "@/server/inbox/ingest";
 import { notifyTeam } from "@/server/ai/notify-team";
+import { eventoParaLog } from "@/server/registro-de-cambios";
 
 /**
  * Procesamiento de un evento de YCloud, común a las dos puertas de entrada:
@@ -65,8 +66,14 @@ export async function handleYcloudEvent(
      * de WhatsApp mandan `fromUserId` en vez de `from`, y eso YA se lee
      * arriba. Si esto se sigue disparando, es un caso todavía más raro (ni
      * uno ni el otro) y hace falta ver el payload de nuevo.
+     *
+     * ⚠️ **Va saneado desde el 16-ago-2026.** Antes era un `JSON.stringify`
+     * crudo: el teléfono del cliente, su nombre de perfil y el texto de su
+     * mensaje, enteros, en el log del contenedor. `eventoParaLog` conserva
+     * **todas las claves** —que es lo que respondía la pregunta de arriba: qué
+     * campo trae el remitente— y resume los valores de texto.
      */
-    console.warn(`[ycloud webhook] evento completo descartado: ${JSON.stringify(event)}`);
+    console.warn(`[ycloud webhook] evento completo descartado: ${eventoParaLog(event)}`);
     // El mensaje del cliente se pierde sin dejar ni una fila: avisar al
     // equipo YA, para que lo atienda a mano en WhatsApp, es lo único que
     // evita que el cliente se quede esperando sin que nadie se entere
@@ -84,7 +91,7 @@ export async function handleYcloudEvent(
      */
     console.warn(
       `[ycloud webhook] mensaje sin texto ni adjunto (type=${msg.type}, id=${msg.id}): ` +
-        `no dispara al agente. Evento completo: ${JSON.stringify(event)}`
+        `no dispara al agente. Evento completo: ${eventoParaLog(event)}`
     );
   }
 

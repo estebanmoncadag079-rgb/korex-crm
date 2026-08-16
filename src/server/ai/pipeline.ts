@@ -52,6 +52,7 @@ import {
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
 import { grupoDeSalsas } from "@/server/orders/normalizar";
+import { resumirTexto } from "@/server/registro-de-cambios";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
@@ -1467,10 +1468,21 @@ async function persistirSalienteFallido(
       });
     }
   } catch (guardar) {
-    // Último recinto: si ni siquiera se puede guardar, al menos que quede en
-    // el registro con el texto completo, para poder reenviarlo a mano.
+    /*
+     * Último recinto: falló el envío Y falló guardar el fallo.
+     *
+     * Hasta el 16-ago-2026 aquí se volcaba el texto ENTERO "para poder
+     * reenviarlo a mano" — y el texto de un turno del agente es el resumen del
+     * pedido: nombre, teléfono y dirección del cliente, en el log del
+     * contenedor. Se cambia por la medida y la huella: siguen respondiendo
+     * *"¿hubo respuesta?"*, *"¿de qué tamaño?"* y *"¿es la misma que la de ese
+     * otro turno?"*, que es lo que se pregunta al investigar. Lo que se pierde
+     * es poder copiar el texto del log, y hace falta que fallen la base de
+     * datos DOS veces seguidas para llegar hasta aquí.
+     */
     console.error(
-      `[agente] respuesta PERDIDA en ${conversation.id} (no se pudo guardar): ${text}`,
+      `[agente] respuesta PERDIDA en ${conversation.id} (no se pudo guardar): ` +
+        `texto=${resumirTexto(text)}`,
       guardar
     );
   }

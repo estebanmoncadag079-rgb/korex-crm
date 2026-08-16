@@ -298,6 +298,29 @@ no, `sumaDeExtras` es el único sumador de opciones y `normalizar.ts:372` el
 > validación y no precio, así que se queda para la 2B con una prueba que fija el
 > comportamiento actual.
 
+### 01:42 · Tarea 2B — las salsas no son únicas
+
+**Objetivo**: aplicar la decisión de negocio del dueño —*"el cliente puede
+repetir un sabor hasta el límite de su presentación"*— y desbloquear el Mega Box.
+**Archivos**: `orders/normalizar.ts` (dos `includes` fuera, tope nuevo,
+`sumaDeExtras` por lo pedido) · `tests/unit/normalizar-pedido.test.ts` · doc:
+`76`, `73`.
+**Riesgos**: (a) que quitar el `includes` abriera la puerta a pedir siete salsas
+en una Churrita — se añadió el tope, que **pregunta en vez de recortar**;
+(b) que las adiciones repetidas se cobraran mal: al recorrer el catálogo en vez
+de lo pedido, **dos botellas de agua costaban una**. Corregido en el mismo
+cambio porque es la misma decisión de negocio.
+**Evidencia**: 728 pruebas en verde (11 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert <sha>`. Vuelven las salsas únicas y con ellas el Mega
+Box que no se puede cerrar. **Ojo**: también vuelve el cobro de una sola agua.
+**Estado**: terminado.
+
+> 🔑 Auditoría de duplicados completa: **dos** deduplicaciones de salsas en todo
+> el proyecto, y ninguna más. Los otros ocho `Set`/`includes` deduplican grupos
+> del catálogo, teléfonos del equipo, ids o campos de un log — todos correctos.
+> La diferencia está en **qué se deduplica**: el catálogo es un conjunto, la
+> elección del cliente es una lista.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

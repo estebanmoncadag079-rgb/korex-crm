@@ -390,20 +390,11 @@ describe("el precio: una salsa incluida no se cobra", () => {
   });
 
   /*
-   * 🔴 HALLAZGO del 16-ago, encontrado escribiendo la prueba de arriba y
-   * DELIBERADAMENTE NO CORREGIDO AQUÍ: es validación, no precio, y los errores
-   * de dinero llevan rama propia.
-   *
-   * El Mega Box lleva CINCO salsas y el catálogo solo tiene CUATRO opciones
-   * distintas. Como `normalizarPedido` deduplica (`salsas.includes`), un cliente
-   * que pida dos de arequipe se queda en 4 y el pedido NUNCA se completa:
-   * duda permanente, `totalCents: null` y `reconstruible: false`.
-   *
-   * Con la Fase 2 encendida eso significa un Mega Box que no se puede confirmar
-   * jamás. Esta prueba fija el comportamiento ACTUAL para que el día que se
-   * arregle se vea en el diff.
+   * El Mega Box con adiciones cargadas: cinco salsas repetidas y ni un peso de
+   * más. Junta los dos arreglos del 16-ago —el grupo del precio (2A) y las
+   * salsas repetibles (2B)— en el caso que los destapó a los dos.
    */
-  it("HALLAZGO: un Mega Box con salsas repetidas no se puede completar", () => {
+  it("Mega Box con salsas repetidas: se completa y no se cobra ninguna", () => {
     const r = normalizarPedido(
       {
         ...vacio,
@@ -414,10 +405,25 @@ describe("el precio: una salsa incluida no se cobra", () => {
       CARTA_CON,
       UNIDADES
     );
-    expect(r.estado.salsas).toHaveLength(4); // la quinta se deduplicó
-    expect(r.dudas.some((d) => d.campo === "salsas")).toBe(true);
-    expect(r.estado.totalCents).toBeNull(); // …y por eso no hay total
-    expect(r.reconstruible).toBe(false);
+    expect(r.estado.salsas).toHaveLength(5); // la quinta ya no se pierde
+    expect(r.dudas.some((d) => d.campo === "salsas")).toBe(false);
+    expect(r.estado.totalCents).toBe(5000000); // $50.000 exactos, sin recargo
+    expect(r.reconstruible).toBe(true);
+  });
+
+  it("dos botellas de agua se cobran DOS veces, no una", () => {
+    const r = normalizarPedido(
+      {
+        ...vacio,
+        producto: "CHURRITA",
+        cantidad: 1,
+        salsas: ["arequipe"],
+        adiciones: ["Botella de agua", "Botella de agua"],
+      },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(r.estado.totalCents).toBe(1000000 + 200000 * 2); // $14.000
   });
 
   it("pero una ADICIÓN de arequipe sí se cobra: $1.500", () => {
@@ -459,5 +465,111 @@ describe("el precio: una salsa incluida no se cobra", () => {
       UNIDADES
     );
     expect(r.estado.totalCents).toBe((1000000 + 200000) * 2); // $24.000
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * LAS SALSAS NO SON ÚNICAS (decisión del dueño, 16-ago-2026).
+ *
+ * Un Mega Box lleva CINCO y el catálogo tiene CUATRO sabores: repetir no es un
+ * error, es la única forma de completarlo.
+ *
+ *   Churrita   → 1     Family Box → 3
+ *   Besties    → 2     Mega Box   → 5
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("las salsas se pueden repetir", () => {
+  it("dos de arequipe en una Besties: se conservan las DOS", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["arequipe", "arequipe"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toEqual(["arequipe", "arequipe"]);
+    expect(r.dudas.some((d) => d.campo === "salsas")).toBe(false);
+    expect(r.estado.totalCents).toBe(2000000); // $20.000, completo
+  });
+
+  it("Family Box: arequipe + arequipe + lechera", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "FAMILY BOX", cantidad: 1, salsas: ["arequipe", "arequipe", "lechera"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toEqual(["arequipe", "arequipe", "lechera"]);
+    expect(r.reconstruible).toBe(true);
+  });
+
+  it("EL CASO QUE NO SE PODÍA CERRAR: Mega Box con cinco salsas de cuatro sabores", () => {
+    const r = normalizarPedido(
+      {
+        ...vacio,
+        producto: "MEGA BOX",
+        cantidad: 1,
+        salsas: ["arequipe", "arequipe", "lechera", "chocolate negro", "chocolate blanco"],
+      },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toHaveLength(5);
+    expect(r.dudas.some((d) => d.campo === "salsas")).toBe(false);
+    expect(r.estado.totalCents).toBe(5000000); // $50.000
+    expect(r.reconstruible).toBe(true);
+  });
+
+  it("repetir NO altera el precio: las salsas van incluidas", () => {
+    const unaSola = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"] },
+      CARTA,
+      UNIDADES
+    );
+    const dosIguales = normalizarPedido(
+      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["arequipe", "arequipe"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(unaSola.estado.totalCents).toBe(1000000);
+    expect(dosIguales.estado.totalCents).toBe(2000000); // el precio es de la caja
+  });
+
+  it("se corrige el nombre de CADA repetición, sin perder ninguna", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["Arequipe", "AREQUIPE"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toEqual(["arequipe", "arequipe"]);
+  });
+
+  /* NEGATIVAS: repetir no es barra libre. */
+  it("pasarse del máximo se pregunta, no se recorta en silencio", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe", "arequipe", "lechera"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toHaveLength(3); // no se recorta por su cuenta
+    expect(r.dudas.some((d) => d.porque.includes("pidió 3"))).toBe(true);
+    expect(r.estado.totalCents).toBeNull(); // y sin total no se puede confirmar
+  });
+
+  it("una salsa repetida que NO existe sigue siendo un rechazo", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["mostaza", "mostaza"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toHaveLength(0);
+    expect(r.dudas.filter((d) => d.campo === "salsas").length).toBeGreaterThan(0);
+  });
+
+  it("sin presentación elegida, las repeticiones también se conservan", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: null, salsas: ["arequipe", "arequipe"] },
+      CARTA,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toEqual(["arequipe", "arequipe"]);
   });
 });

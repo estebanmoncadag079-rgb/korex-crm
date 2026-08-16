@@ -300,12 +300,28 @@ export function normalizarPedido(
   // primer grupo con opciones", que funcionaba solo mientras el catálogo tuviera
   // un único grupo — y el flujo real de La Churra tiene tres: salsas, recubierto
   // y adiciones.
+  /*
+   * 🔴 LAS SALSAS NO SON ÚNICAS (decisión del dueño, 16-ago-2026).
+   *
+   * Un Mega Box lleva CINCO salsas y el catálogo tiene CUATRO sabores: repetir
+   * no es un error del cliente, es la única forma de completarlo. Hasta hoy
+   * esto deduplicaba con `salsas.includes(...)`, así que
+   *
+   *   ["arequipe", "arequipe", "lechera"]  →  ["arequipe", "lechera"]
+   *
+   * y el Mega Box **no se podía completar jamás**: se quedaba en cuatro, con
+   * duda permanente, sin total y sin poder confirmarse.
+   *
+   * Se conserva la lista TAL CUAL la pidió el cliente. Lo que sí se comprueba
+   * ahora, porque el `includes` lo tapaba de rebote, es que no se pase del
+   * máximo del producto.
+   */
   const salsas: string[] = [];
   if (!producto) {
     // Sin presentación no se pueden validar contra su grupo, pero lo que el
     // cliente ya dijo NO se tira: se conserva para cuando elija.
     for (const s of propuesto.salsas) {
-      if (opcionesConocidas.has(llave(s)) && !salsas.includes(s)) salsas.push(s);
+      if (opcionesConocidas.has(llave(s))) salsas.push(s);
     }
   }
   if (producto) {
@@ -319,7 +335,7 @@ export function normalizarPedido(
         if (buena !== s) {
           correcciones.push({ campo: "salsas", de: s, a: buena, regla: "nombre de salsa normalizado" });
         }
-        if (!salsas.includes(buena)) salsas.push(buena);
+        salsas.push(buena);
       } else {
         dudas.push({
           campo: "salsas",
@@ -336,6 +352,22 @@ export function normalizarPedido(
         campo: "salsas",
         porque: `${producto.nombre} lleva ${cuantas} y hay ${salsas.length}`,
         preguntar: `¿Cuál${cuantas - salsas.length > 1 ? "es" : ""} salsa${cuantas - salsas.length > 1 ? "s" : ""} desea?`,
+      });
+    }
+    /*
+     * Y pasarse tampoco vale.
+     *
+     * Antes esto no hacía falta: el `includes` recortaba de rebote cualquier
+     * exceso que fuera repetición. Ahora que las salsas se repiten a propósito,
+     * pedir siete en una Churrita es un pedido que nadie puede despachar. No se
+     * recorta en silencio —eso sería decidir por el cliente cuáles quitar—: se
+     * pregunta.
+     */
+    if (grupo && cuantas > 0 && salsas.length > cuantas) {
+      dudas.push({
+        campo: "salsas",
+        porque: `${producto.nombre} lleva ${cuantas} y pidió ${salsas.length}`,
+        preguntar: `Una ${producto.nombre} lleva ${cuantas} salsa${cuantas > 1 ? "s" : ""}. ¿Cuáles deja?`,
       });
     }
   }
@@ -459,11 +491,20 @@ function sumaDeExtras(
   salsas: string[],
   adiciones: string[]
 ): number {
+  /*
+   * Se recorre lo PEDIDO, no el catálogo.
+   *
+   * Al revés —una vuelta por opción del catálogo— dos botellas de agua se
+   * cobraban como una: la opción coincidía y se sumaba **una sola vez**. Con la
+   * decisión del 16-ago de que las opciones se repiten, eso pasaba de detalle a
+   * cobro de menos.
+   */
   const deSuGrupo = (grupo: Grupo | undefined, pedidas: string[]): number => {
     if (!grupo || pedidas.length === 0) return 0;
     let extra = 0;
-    for (const o of grupo.opciones) {
-      if (pedidas.some((p) => llave(p) === llave(o.nombre))) extra += o.precioExtraCents;
+    for (const p of pedidas) {
+      const o = grupo.opciones.find((o) => llave(o.nombre) === llave(p));
+      if (o) extra += o.precioExtraCents;
     }
     return extra;
   };

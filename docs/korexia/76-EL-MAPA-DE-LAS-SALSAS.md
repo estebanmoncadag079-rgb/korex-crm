@@ -106,7 +106,45 @@ salsas, $32.000 exactos · una adición de arequipe suma $1.500.
 > añadirlo cambiaría lo que se cobra hoy. Si algún día un negocio cobra por él,
 > hay que tocarlo — y entonces será una decisión de negocio, no un descuido.
 
-## 🔴 Y el hallazgo que salió al escribir la prueba
+## ✅ Las salsas no son únicas (decisión del dueño, 16-ago)
+
+> **El cliente puede repetir un sabor tantas veces como quiera, hasta el límite
+> de su presentación.** Churrita 1 · Besties 2 · Family Box 3 · Mega Box 5.
+
+Válido: *Besties → arequipe + arequipe* · *Mega Box → arequipe + arequipe +
+lechera + chocolate + chocolate blanco*.
+
+Con esa regla escrita, el bloqueo del Mega Box deja de ser un bug de borde y
+pasa a ser lo esperado: **cinco salsas de cuatro sabores obligan a repetir.**
+
+### La auditoría de duplicados, completa
+
+| Sitio | Qué deduplicaba | Veredicto |
+|---|---|---|
+| `normalizar.ts:308` | salsas, **sin** presentación elegida | 🔴 quitado |
+| `normalizar.ts:322` | salsas, **con** presentación | 🔴 quitado |
+| `sumaDeExtras` | recorría el catálogo, no lo pedido → **dos aguas costaban una** | 🔴 corregido |
+| `render.ts:68` (`vistos`) | el mismo **grupo** repetido entre productos | ✅ correcto: es catálogo, no selección |
+| `notify-team.ts:45` (`seen`) | teléfonos del equipo | ✅ correcto: nadie quiere dos avisos |
+| `medir-extraccion.ts:215` | nombres **válidos** del catálogo | ✅ correcto |
+| `estado.ts:310`, `comparar-fila.ts:64` | campos de un log | ✅ correcto |
+| `pipeline.ts:447`, `catalogo-diff`, `anuncio-de-cierre`, `logic.ts`, `runner.ts` | ids, horarios, índices | ✅ nada que ver con opciones |
+
+**Dos deduplicaciones de salsas, y ninguna más en todo el proyecto.**
+
+### Lo que hubo que añadir al quitarlas
+
+El `includes` recortaba de rebote cualquier exceso que fuera repetición. Sin él,
+pedir **siete** salsas en una Churrita pasaba sin protesta. Ahora se pregunta:
+
+```
+"CHURRITA lleva 1 y pidió 3"  →  "Una CHURRITA lleva 1 salsa. ¿Cuáles deja?"
+```
+
+**No se recorta en silencio**: elegir cuáles quitar es del cliente, no del
+backend.
+
+## 🔴 El hallazgo que salió al escribir la prueba (ya resuelto)
 
 **El Mega Box no se puede completar nunca.** Lleva **cinco** salsas y el catálogo
 tiene **cuatro** opciones distintas; como `normalizarPedido` deduplica
@@ -120,11 +158,11 @@ Con la Fase 2 encendida, **un Mega Box no se podría confirmar jamás**: el
 validador rechaza `confirmado sin total calculado`, así que el estado no se
 persiste y el pedido se queda dando vueltas.
 
-**No se corrigió aquí**: es validación, no precio, y los errores de dinero llevan
-rama propia. Hay una prueba que **fija el comportamiento actual** para que el día
-que se arregle se vea en el diff. Decisión pendiente del dueño: permitir salsas
-repetidas (lo natural: cinco salsas de cuatro sabores obliga a repetir) o cambiar
-el `maximo` del Mega Box.
+> ✅ **Resuelto el 16-ago (tarea 2B)**, en cuanto el dueño zanjó la decisión de
+> negocio: **las salsas se repiten**. Se quitaron las dos deduplicaciones y el
+> Mega Box se completa con cinco salsas de cuatro sabores. La prueba que fijaba
+> el comportamiento roto se sustituyó por la del comportamiento bueno — y el
+> diff de ese cambio es exactamente lo que se quería poder ver.
 
 ## Qué se unifica
 

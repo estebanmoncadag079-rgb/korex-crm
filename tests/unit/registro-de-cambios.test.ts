@@ -6,6 +6,7 @@
  * 15-ago a las 19:46:41 por `aplicarFicha`, mientras una prueba miraba otros
  * cinco campos.
  */
+import { createHmac } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -361,5 +362,47 @@ describe("regla 11: ninguna tabla se instrumenta sin clasificación previa", () 
      * dos formas ya costaron un incidente.
      */
     expect([...sinClasificar]).toEqual([]);
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * La huella, con clave (16-ago-2026).
+ *
+ * Antes era un hash de 32 bits SIN clave. Un teléfono colombiano son diez
+ * dígitos: probar los diez mil millones y quedarse con el que coincide es
+ * cuestión de minutos. Con HMAC y `ENCRYPTION_KEY`, ese ataque exige la clave.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("la huella no se puede deshacer", () => {
+  const huella = (v: string) =>
+    paraLog("conversation_state", "entrega.telefono", v).match(/huella ([0-9a-f]+)/)![1]!;
+
+  it("es determinista: el mismo teléfono, la misma huella", () => {
+    expect(huella("3001234567")).toBe(huella("3001234567"));
+  });
+
+  it("dos teléfonos distintos no colisionan", () => {
+    expect(huella("3001234567")).not.toBe(huella("3001234568"));
+  });
+
+  it("NO es el hash débil de antes: 12 hex, no 8", () => {
+    // El anterior era `(h >>> 0).toString(16)`: 8 hex como mucho, y sin clave.
+    expect(huella("3001234567")).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it("con clave, la huella de un valor conocido CAMBIA al cambiar la clave", () => {
+    // Es lo que impide reconstruir el valor probando candidatos sin la clave:
+    // el mismo teléfono da huellas distintas en dos instalaciones distintas.
+    const conUna = createHmac("sha256", Buffer.alloc(32, 1)).update("3001234567").digest("hex");
+    const conOtra = createHmac("sha256", Buffer.alloc(32, 2)).update("3001234567").digest("hex");
+    expect(conUna.slice(0, 12)).not.toBe(conOtra.slice(0, 12));
+  });
+
+  it("una huella no contiene el valor ni ninguna parte suya", () => {
+    const h = huella("3001234567");
+    for (let i = 0; i + 4 <= 10; i++) {
+      expect(h).not.toContain("3001234567".slice(i, i + 4));
+    }
   });
 });

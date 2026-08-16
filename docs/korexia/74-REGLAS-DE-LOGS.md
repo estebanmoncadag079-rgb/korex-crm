@@ -174,8 +174,37 @@ Con honestidad, porque la diferencia importa:
 4. **Cinco tablas siguen sin clasificar**: `kb_entry`, `contact`, `message`,
    `media_asset` y `user`. No es deuda oculta: la regla 3 impide instrumentarlas
    hasta que lo estén, y una prueba lo verifica.
-4. **La huella es seudonimización, no anonimización.** Son 32 bits sin sal: quien
-   tenga el log puede probar los diez mil millones de teléfonos posibles y
-   encontrar el que coincide. Para un log interno es aceptable; conviene saberlo.
-   Endurecerla con HMAC (`ENCRYPTION_KEY` ya existe) cuesta una línea y está
-   anotado para cuando la Fase 2 se estabilice.
+5. **La huella depende de que exista `ENCRYPTION_KEY`.** Sin ella cae a SHA-256
+   sin clave y **avisa una vez por arranque**; en producción la clave existe
+   —cifra las credenciales de WhatsApp—, así que ese aviso en el log es señal de
+   que algo va mal en el entorno.
+
+---
+
+## La huella, y por qué lleva clave
+
+```
+valor_nuevo=<personal · 10 caracteres · huella 3f2ab1c94d07>
+```
+
+Es **HMAC-SHA256 con `ENCRYPTION_KEY`**, truncado a 12 hex. Hasta el 16-ago era
+un hash de 32 bits **sin clave**, y eso no protegía casi nada: un teléfono
+colombiano son diez dígitos, así que **probar los diez mil millones de
+candidatos y quedarse con el que coincide es cuestión de minutos**. Con clave
+secreta ese ataque exige la clave — y quien la tiene ya tiene la base entera.
+
+Lo que la huella sigue respondiendo, que es para lo que está:
+
+- *¿cambió este dato?* → huella distinta;
+- *¿volvió al valor anterior?* → misma huella;
+- *¿estos dos contactos traen el mismo teléfono?* → misma huella.
+
+Y lo que no: **de la huella no se vuelve al valor.**
+
+> ⚠️ **Rotar `ENCRYPTION_KEY` invalida las huellas anteriores.** Las nuevas
+> siguen siendo comparables entre sí, pero no con las de antes de la rotación.
+> Si algún día se rota la clave, conviene anotar la fecha en la bitácora.
+
+La clave se lee de `process.env` y **no de `getEnv()`**, que valida el entorno
+entero y lanza si falta cualquier otra variable: un fallo registrando no puede
+tumbar la operación que se está registrando.

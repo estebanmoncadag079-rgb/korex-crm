@@ -21,6 +21,7 @@
  *            valor_anterior=09:30 valor_nuevo=09:00
  *            proceso=aplicarFicha actor=user:abc timestamp=2026-08-15T19:46:41.403Z
  */
+import { createHash, createHmac } from "node:crypto";
 import { compararFila, type Fila } from "@/server/ai/generador/comparar-fila";
 
 /**
@@ -192,13 +193,59 @@ function esPersonal(campo: string): boolean {
   return PERSONALES.includes(campo.toLowerCase());
 }
 
-/** Un número estable a partir del texto: mismo valor, misma huella. */
-function huellaDe(texto: string): string {
-  let huella = 0;
-  for (let i = 0; i < texto.length; i++) {
-    huella = (huella * 31 + texto.charCodeAt(i)) | 0;
+/**
+ * La clave de las huellas, resuelta una vez.
+ *
+ * Se lee de `process.env` y **no de `getEnv()`**: aquel valida el entorno entero
+ * y **lanza** si falta cualquier otra variable, y la regla de este módulo es que
+ * un fallo registrando no puede tumbar la operación que se está registrando.
+ *
+ * `undefined` = sin resolver · `null` = no hay clave.
+ */
+let claveDeHuella: Buffer | null | undefined;
+let yaAviso = false;
+
+function clave(): Buffer | null {
+  if (claveDeHuella !== undefined) return claveDeHuella;
+  try {
+    const bruta = process.env.ENCRYPTION_KEY;
+    const buf = bruta ? Buffer.from(bruta, "base64") : null;
+    claveDeHuella = buf && buf.length === 32 ? buf : null;
+  } catch {
+    claveDeHuella = null;
   }
-  return (huella >>> 0).toString(16);
+  if (!claveDeHuella && !yaAviso) {
+    yaAviso = true;
+    console.warn(
+      "[cambio] sin ENCRYPTION_KEY válida: las huellas van sin clave y son " +
+        "reconstruibles por fuerza bruta. Solo debería pasar fuera de producción."
+    );
+  }
+  return claveDeHuella;
+}
+
+/**
+ * La huella de un valor: mismo valor, misma huella; valores distintos, huellas
+ * distintas. **Nunca al revés** — de la huella no se vuelve al valor.
+ *
+ * Es HMAC-SHA256 con `ENCRYPTION_KEY`, y eso es justo lo que la hace servir.
+ * La versión anterior era un hash de 32 bits sin clave: un teléfono colombiano
+ * son diez dígitos, así que **probar los diez mil millones de candidatos y
+ * quedarse con el que coincide es cuestión de minutos**. Con clave secreta, ese
+ * ataque exige la clave — y quien la tiene ya tiene la base de datos entera.
+ *
+ * Se trunca a 12 hex (48 bits): de sobra para distinguir dos valores y detectar
+ * que uno volvió, sin alargar la línea del log.
+ *
+ * ⚠️ **Rotar `ENCRYPTION_KEY` invalida las huellas anteriores.** Siguen siendo
+ * comparables entre sí, pero no con las de antes de la rotación.
+ */
+function huellaDe(texto: string): string {
+  const k = clave();
+  const digest = k
+    ? createHmac("sha256", k).update(texto, "utf8").digest("hex")
+    : createHash("sha256").update(texto, "utf8").digest("hex");
+  return digest.slice(0, 12);
 }
 
 /**

@@ -236,6 +236,23 @@ imposibilidad de distinguir `contact.name` de `product.name`. **No revertir sin
 revisar antes qué tablas se hayan instrumentado entretanto.**
 **Estado**: terminado.
 
+### 01:20 · La huella, ahora con clave
+
+**Objetivo**: que la huella deje de ser reversible. Era un hash de 32 bits sin
+clave, y un teléfono colombiano son diez dígitos: **probar los diez mil millones
+de candidatos y quedarse con el que coincide costaba minutos**.
+**Archivos**: `server/registro-de-cambios.ts` (`clave()`, `huellaDe` con
+HMAC-SHA256) · `tests/unit/registro-de-cambios.test.ts` · doc: `74`, `73`.
+**Riesgos**: (a) que leer la clave tumbara el registro — se lee de `process.env`
+y **no de `getEnv()`**, que lanza si falta cualquier otra variable; (b) quedarse
+sin clave en silencio — cae a SHA-256 y **avisa una vez por arranque**;
+(c) rotar `ENCRYPTION_KEY` invalida las huellas anteriores, anotado en el 74.
+**Evidencia**: 712 pruebas en verde (5 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert <sha>`. Vuelve el hash débil; **ningún dato queda
+expuesto de golpe**, pero las huellas nuevas dejan de ser comparables con las
+emitidas mientras estuvo el HMAC.
+**Estado**: terminado.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

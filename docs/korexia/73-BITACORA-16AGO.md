@@ -277,6 +277,27 @@ bandera, las dos en la lista de encendido.
 > apareció en un sitio que la documentación daba por corregido; el inventario
 > encontró el siguiente **un piso más abajo, y este cobra dinero de más**.
 
+### 01:35 · Tarea 2A — el precio: cada opción se cobra por su grupo
+
+**Objetivo**: que `sumaDeExtras` deje de cobrar una salsa incluida como si fuera
+una adición. Rama propia porque **afecta al dinero**.
+**Archivos**: `orders/normalizar.ts` (`grupoDeAdiciones` nuevo, `sumaDeExtras`
+reescrita) · `tests/unit/normalizar-pedido.test.ts` · doc: `76`, `72`, `73`.
+**Riesgos**: (a) romper el cobro de las adiciones legítimas — seis pruebas lo
+cubren; (b) que existiera **otra** implementación del cálculo: se verificó que
+no, `sumaDeExtras` es el único sumador de opciones y `normalizar.ts:372` el
+único que calcula el total; (c) el recubierto sigue sin sumarse, **a propósito**.
+**Evidencia**: 719 pruebas en verde (7 nuevas), `tsc` y `eslint` limpios.
+**Reversión**: `git revert <sha>`. Vuelve el doble cobro — **inofensivo mientras
+`ADICIONES` no esté cargado**, y peligroso el día que lo esté.
+**Estado**: terminado · 🔴 **un hallazgo nuevo, sin corregir a propósito**.
+
+> 🔑 El hallazgo salió **de escribir la prueba**, no de leer el código: el Mega
+> Box lleva cinco salsas y solo hay cuatro sabores, y como el normalizador
+> deduplica, **nunca llega a cinco**. Sin total, sin confirmación posible. Es
+> validación y no precio, así que se queda para la 2B con una prueba que fija el
+> comportamiento actual.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

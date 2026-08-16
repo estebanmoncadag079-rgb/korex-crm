@@ -326,3 +326,138 @@ describe("la pregunta obligatoria de la Fase 1.5", () => {
     expect(aMedias.reconstruible).toBe(false);
   });
 });
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * 🔴 EL PRECIO: cada opción se cobra por SU grupo (16-ago-2026).
+ *
+ * `sumaDeExtras` recorría todos los grupos y sumaba cualquier opción cuyo
+ * nombre coincidiera. En La Churra los mismos nombres están en los dos:
+ *
+ *   SALSAS   : arequipe · lechera · chocolate negro · chocolate blanco  ($0)
+ *   ADICIONES: … LECHERA $1.500 · AREQUIPE $1.500 · CHOCOLATE BLANCO $2.000
+ *
+ * Una salsa incluida cobraba $1.500 que nadie pidió.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("el precio: una salsa incluida no se cobra", () => {
+  const ADICIONES = [
+    { id: "a1", nombre: "Salsa de CHOCOLATE", precioExtraCents: 200000 },
+    { id: "a2", nombre: "LECHERA", precioExtraCents: 150000 },
+    { id: "a3", nombre: "AREQUIPE", precioExtraCents: 150000 },
+    { id: "a4", nombre: "CHOCOLATE BLANCO", precioExtraCents: 200000 },
+    { id: "a5", nombre: "Botella de agua", precioExtraCents: 200000 },
+  ];
+
+  /** La carta tal como quedará DESPUÉS de `cargar:opciones`. */
+  function conAdiciones(base: ProductoDelCatalogo): ProductoDelCatalogo {
+    return {
+      ...base,
+      grupos: [
+        ...base.grupos,
+        { id: `ad-${base.id}`, nombre: "ADICIONES", minimo: 0, maximo: 5, opciones: ADICIONES },
+      ],
+    };
+  }
+
+  const CHURRITA_CON = conAdiciones(CHURRITA);
+  const FAMILY_CON = conAdiciones(CARTA.find((p) => p.nombre === "FAMILY BOX")!);
+  const MEGA_CON = conAdiciones(CARTA.find((p) => p.nombre === "MEGA BOX")!);
+  const CARTA_CON = [CHURRITA_CON, FAMILY_CON, MEGA_CON];
+
+  it("una Churrita con arequipe cuesta el precio de la Churrita, sin un peso más", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"] },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(r.estado.totalCents).toBe(1000000); // $10.000 exactos
+  });
+
+  it("una caja con TODAS sus salsas incluidas tampoco suma nada", () => {
+    const r = normalizarPedido(
+      {
+        ...vacio,
+        producto: "FAMILY BOX",
+        cantidad: 1,
+        salsas: ["arequipe", "lechera", "chocolate blanco"],
+      },
+      CARTA_CON,
+      UNIDADES
+    );
+    // Los tres nombres existen ADEMÁS como adición de pago. No se cobran.
+    expect(r.estado.totalCents).toBe(3200000); // $32.000 exactos
+  });
+
+  /*
+   * 🔴 HALLAZGO del 16-ago, encontrado escribiendo la prueba de arriba y
+   * DELIBERADAMENTE NO CORREGIDO AQUÍ: es validación, no precio, y los errores
+   * de dinero llevan rama propia.
+   *
+   * El Mega Box lleva CINCO salsas y el catálogo solo tiene CUATRO opciones
+   * distintas. Como `normalizarPedido` deduplica (`salsas.includes`), un cliente
+   * que pida dos de arequipe se queda en 4 y el pedido NUNCA se completa:
+   * duda permanente, `totalCents: null` y `reconstruible: false`.
+   *
+   * Con la Fase 2 encendida eso significa un Mega Box que no se puede confirmar
+   * jamás. Esta prueba fija el comportamiento ACTUAL para que el día que se
+   * arregle se vea en el diff.
+   */
+  it("HALLAZGO: un Mega Box con salsas repetidas no se puede completar", () => {
+    const r = normalizarPedido(
+      {
+        ...vacio,
+        producto: "MEGA BOX",
+        cantidad: 1,
+        salsas: ["arequipe", "lechera", "chocolate negro", "chocolate blanco", "arequipe"],
+      },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(r.estado.salsas).toHaveLength(4); // la quinta se deduplicó
+    expect(r.dudas.some((d) => d.campo === "salsas")).toBe(true);
+    expect(r.estado.totalCents).toBeNull(); // …y por eso no hay total
+    expect(r.reconstruible).toBe(false);
+  });
+
+  it("pero una ADICIÓN de arequipe sí se cobra: $1.500", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"], adiciones: ["AREQUIPE"] },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(r.estado.totalCents).toBe(1000000 + 150000); // $11.500
+  });
+
+  it("la misma palabra en los dos grupos: se cobra UNA vez, la de la adición", () => {
+    const soloSalsa = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["lechera"] },
+      CARTA_CON,
+      UNIDADES
+    );
+    const salsaYAdicion = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["lechera"], adiciones: ["LECHERA"] },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(salsaYAdicion.estado.totalCents! - soloSalsa.estado.totalCents!).toBe(150000);
+  });
+
+  it("una adición que no existe en la carta no inventa un cargo", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"], adiciones: ["caviar"] },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(r.estado.totalCents).toBe(1000000);
+  });
+
+  it("y el extra se multiplica por la cantidad, como el producto", () => {
+    const r = normalizarPedido(
+      { ...vacio, producto: "CHURRITA", cantidad: 2, salsas: ["arequipe"], adiciones: ["Botella de agua"] },
+      CARTA_CON,
+      UNIDADES
+    );
+    expect(r.estado.totalCents).toBe((1000000 + 200000) * 2); // $24.000
+  });
+});

@@ -86,6 +86,46 @@ tercer sitio que decide qué grupos importan**. Se deja como está, anotado.
 
 ---
 
+## ✅ Corregido el 16-ago (tarea 2A, commit propio)
+
+`sumaDeExtras` compara ahora **cada lista contra su grupo**: las salsas contra
+`grupoDeSalsas()`, las adiciones contra `grupoDeAdiciones()` — nuevo, y **sin
+red** al primer grupo con opciones, al revés que las salsas: confundirse aquí es
+cobrar de más, y ante la duda se prefiere no cobrar nada.
+
+Se verificó que **no existe una segunda implementación**: `sumaDeExtras` es el
+único punto del proyecto que suma precios de opciones, y `normalizar.ts:372`
+(`(precio + extras) × cantidad`) el único que calcula un total.
+
+Seis pruebas con los datos reales de La Churra, entre ellas las cuatro que pidió
+el dueño: la salsa incluida no genera cargo · la adición del mismo nombre sí ·
+una Churrita con arequipe cuesta $10.000 exactos · un Family Box con sus tres
+salsas, $32.000 exactos · una adición de arequipe suma $1.500.
+
+> ⚠️ **El RECUBIERTO sigue sin sumarse**, a propósito: en La Churra es gratis y
+> añadirlo cambiaría lo que se cobra hoy. Si algún día un negocio cobra por él,
+> hay que tocarlo — y entonces será una decisión de negocio, no un descuido.
+
+## 🔴 Y el hallazgo que salió al escribir la prueba
+
+**El Mega Box no se puede completar nunca.** Lleva **cinco** salsas y el catálogo
+tiene **cuatro** opciones distintas; como `normalizarPedido` deduplica
+(`salsas.includes`), un cliente que pida dos de arequipe se queda en cuatro:
+
+```
+dudas: "MEGA BOX lleva 5 y hay 4"   →   totalCents: null   →   reconstruible: false
+```
+
+Con la Fase 2 encendida, **un Mega Box no se podría confirmar jamás**: el
+validador rechaza `confirmado sin total calculado`, así que el estado no se
+persiste y el pedido se queda dando vueltas.
+
+**No se corrigió aquí**: es validación, no precio, y los errores de dinero llevan
+rama propia. Hay una prueba que **fija el comportamiento actual** para que el día
+que se arregle se vea en el diff. Decisión pendiente del dueño: permitir salsas
+repetidas (lo natural: cinco salsas de cuatro sabores obliga a repetir) o cambiar
+el `maximo` del Mega Box.
+
 ## Qué se unifica
 
 Un solo punto de verdad, `grupoDeSalsas()`, y una regla nueva para el precio:

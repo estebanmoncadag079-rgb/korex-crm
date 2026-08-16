@@ -122,6 +122,16 @@ export function grupoDeSalsas(producto: ProductoDelCatalogo | undefined): Grupo 
   return grupoLlamado(producto, "salsa") ?? producto.grupos.find((g) => g.opciones.length > 0);
 }
 
+/**
+ * El grupo de las ADICIONES: lo que se cobra aparte.
+ *
+ * Sin red al primer grupo con opciones, al revés que las salsas: **confundirse
+ * aquí es cobrar de más**, y ante la duda se prefiere no cobrar nada.
+ */
+export function grupoDeAdiciones(producto: ProductoDelCatalogo | undefined): Grupo | undefined {
+  return grupoLlamado(producto, "adicion", "adición", "extra");
+}
+
 export function normalizarPedido(
   propuesto: EstadoPropuesto,
   catalogo: ProductoDelCatalogo[],
@@ -422,19 +432,44 @@ function buscarPorUnidades(
   return catalogo.find((p) => unidadesDe(p, unidades) === n);
 }
 
+/**
+ * Lo que se cobra aparte, **cada lista contra SU grupo**.
+ *
+ * 🔴 Hasta el 16-ago-2026 esto recorría TODOS los grupos y sumaba cualquier
+ * opción cuyo nombre coincidiera, sin mirar de cuál era. En La Churra los mismos
+ * nombres están en los dos sitios:
+ *
+ *   SALSAS   : arequipe · lechera · chocolate negro · chocolate blanco   ($0)
+ *   ADICIONES: … LECHERA $1.500 · AREQUIPE $1.500 · CHOCOLATE BLANCO $2.000
+ *
+ * Una Churrita con salsa de arequipe —incluida— habría pagado **$1.500 que
+ * nadie pidió**, y un Mega Box lleva cinco salsas. No llegó a ocurrir porque el
+ * grupo `ADICIONES` todavía no está cargado, pero se activaba con
+ * `cargar:opciones` sin que nada lo delatara.
+ *
+ * **La regla que deja esto cerrado**: ninguna función que calcule precios puede
+ * evaluar una opción sin saber a qué grupo pertenece.
+ *
+ * ⚠️ El RECUBIERTO no se suma, a propósito: en La Churra es gratis y añadirlo
+ * cambiaría lo que se cobra hoy. Anotado en
+ * [76-EL-MAPA-DE-LAS-SALSAS.md](../../../docs/korexia/76-EL-MAPA-DE-LAS-SALSAS.md).
+ */
 function sumaDeExtras(
   producto: ProductoDelCatalogo,
   salsas: string[],
   adiciones: string[]
 ): number {
-  let extra = 0;
-  for (const g of producto.grupos) {
-    for (const o of g.opciones) {
-      const pedida =
-        salsas.some((s) => llave(s) === llave(o.nombre)) ||
-        adiciones.some((a) => llave(a) === llave(o.nombre));
-      if (pedida) extra += o.precioExtraCents;
+  const deSuGrupo = (grupo: Grupo | undefined, pedidas: string[]): number => {
+    if (!grupo || pedidas.length === 0) return 0;
+    let extra = 0;
+    for (const o of grupo.opciones) {
+      if (pedidas.some((p) => llave(p) === llave(o.nombre))) extra += o.precioExtraCents;
     }
-  }
-  return extra;
+    return extra;
+  };
+
+  return (
+    deSuGrupo(grupoDeSalsas(producto), salsas) +
+    deSuGrupo(grupoDeAdiciones(producto), adiciones)
+  );
 }

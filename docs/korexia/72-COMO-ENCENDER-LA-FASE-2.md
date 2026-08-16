@@ -107,7 +107,8 @@ hallazgos; ninguno necesita migración. Los que bloquean el encendido:
 | 🔴 | **Tres logs volcaban datos de clientes YA en producción** (dos webhooks y el pipeline), sin relación con la Fase 2 | ✅ **corregido el 16-ago** — ver [74-REGLAS-DE-LOGS.md](74-REGLAS-DE-LOGS.md) |
 | 🟠 | `normalizar.ts:382` calcula las salsas por su cuenta, sin `grupoDeSalsas()` | 🔴 pendiente |
 | 🔴 | **`sumaDeExtras` cobraba la salsa incluida como si fuera adición** | ✅ **corregido el 16-ago** — ver [76](76-EL-MAPA-DE-LAS-SALSAS.md) |
-| 🔴 | **El Mega Box no se puede completar nunca**: lleva 5 salsas, hay 4 opciones distintas y el normalizador deduplica → sin total, sin confirmación posible | 🔴 pendiente, **decisión del dueño** |
+| 🔴 | ~~El Mega Box no se puede completar nunca~~ | ✅ **corregido el 16-ago**: las salsas se repiten (decisión del dueño) |
+| 🔴 | **Decisión pendiente sobre el modelo de las opciones**: el estado guarda nombres sueltos, no `(grupoId, opcionId)`, y tiene los grupos de La Churra cableados. Explica cinco de los últimos errores | 🔴 **del dueño** — ver [77](77-EL-MODELO-DE-LAS-OPCIONES.md) |
 | 🟠 | `leerAporte()` es código muerto y la doc dice que se usa | 🔴 pendiente |
 
 Y los recomendados: la instrumentación de `agent/profile` que se autodeclara, el

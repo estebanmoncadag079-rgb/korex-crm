@@ -321,6 +321,29 @@ Box que no se puede cerrar. **Ojo**: también vuelve el cobro de una sola agua.
 > La diferencia está en **qué se deduplica**: el catálogo es un conjunto, la
 > elección del cliente es una lista.
 
+### 01:50 · Auditoría del modelo de las opciones
+
+**Objetivo**: dejar de corregir síntomas y responder a una sola pregunta —
+*¿existe una separación explícita entre la definición del catálogo y la
+selección del cliente?* **Sin código, sin cambios.**
+**Archivos**: `77-EL-MODELO-DE-LAS-OPCIONES.md` (nuevo), `72`, `00-INDICE`,
+esta bitácora.
+**Riesgos**: ninguno técnico. El riesgo es **de decisión**: si se toca el modelo,
+hay que hacerlo antes de encender, porque después habrá conversaciones vivas
+encima de cada cambio de forma.
+**Evidencia**: **la respuesta es no.** El catálogo tiene ids, grupos y reglas; la
+selección son tres listas de nombres. Cinco de los últimos hallazgos se explican
+solos con eso. Y tres hallazgos nuevos: renombrar una opción rompe los pedidos en
+curso · **el estado tiene los grupos de La Churra cableados** · el recubierto es
+`string|null` y no podría representar un `max_select: 2`.
+**Reversión**: `git revert <sha>`; solo documentación.
+**Estado**: terminado — **decisión pendiente del dueño**.
+
+> 🔑 La frase que resume la noche entera: **el catálogo es una definición; el
+> pedido es una selección.** Hoy los dos se representan como listas de nombres, y
+> por eso se confunden. Los cinco errores no fueron cinco descuidos: eran el
+> mismo dato mal modelado, encontrado cinco veces.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

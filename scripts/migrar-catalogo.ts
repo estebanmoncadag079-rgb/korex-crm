@@ -155,6 +155,12 @@ for (const g of leido.grupos) {
   console.log(
     `  ${g.nombre} ${aQuien}${cuantas} ${g.minimo >= 1 ? "(obligatorio)" : "(opcional)"}:`
   );
+  /*
+   * Lo que el lector NO pudo deducir se dice aquí, y no en un comentario del
+   * código: este programa existe para que una persona revise antes de escribir,
+   * y una marca que no se imprime es una marca que no sirve.
+   */
+  if (g.revisar) console.log(`      🟠 REVISAR: ${g.revisar}`);
   for (const o of g.opciones) {
     const extra = o.precioExtraCents > 0 ? ` +$${(o.precioExtraCents / 100).toLocaleString("es-CO")}` : "";
     console.log(`      - ${o.nombre}${extra}`);

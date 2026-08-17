@@ -133,6 +133,11 @@ for (const grupoLeido of leido.grupos) {
       continue;
     }
 
+    // Igual que en `migrar-catalogo`: lo que el lector no pudo deducir se ve
+    // ANTES de escribir, no después de que el agente lo ofrezca mal.
+    if (grupoLeido.revisar) {
+      console.log(`  🟠 ${producto.name} · ${grupoLeido.nombre} — REVISAR: ${grupoLeido.revisar}`);
+    }
     const groupId = newId("productOptionGroup");
     sentencias.push(
       `INSERT INTO product_option_group (id, organization_id, product_id, name, min_select, max_select, position)\n` +

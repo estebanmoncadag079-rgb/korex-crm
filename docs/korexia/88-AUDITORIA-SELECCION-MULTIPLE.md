@@ -394,7 +394,7 @@ pedidos, citas y futuros verticales?*:
 
 | | Paso | Coste | ¿Decide alguien? |
 |---|---|---|---|
-| **0** | **G**: limpiar `sembrar.ts` | Bajo, sin migración | No. Es una regla ya escrita |
+| **0** | ✅ **G**: limpiar `sembrar.ts` — **hecho el 17-ago**, ver abajo | Bajo, sin migración | No. Es una regla ya escrita |
 | **1** | **Decidir el alcance**: ¿`items[]` en los dos verticales a la vez, o solo pedidos? | — | 🔴 **El dueño** |
 | **2** | **A + B + C + D**: el contrato nuevo, `SCHEMA_VERSION 4`, sin tocar tablas | Medio | No, si el paso 1 está decidido |
 | **3** | **H**: pluralizar la conducta y el flujo de la ficha | Bajo | No |
@@ -403,6 +403,73 @@ pedidos, citas y futuros verticales?*:
 
 **El paso 0 se puede hacer hoy sin decidir nada.** Del 1 en adelante, hace falta
 una decisión.
+
+---
+
+## ✅ Paso 0, hecho: el sembrador ya no sabe de comida
+
+**17-ago-2026.** Lo único del camino que no necesitaba una decisión.
+
+### Lo que decidía por palabras, y lo que decide ahora
+
+| | Antes | Ahora |
+|---|---|---|
+| **`maximo`** | `1` si el nombre contenía `recubiert\|azucar\|cobertura` | **El número que escriba el negocio** entre paréntesis: `(elige 1)`, `(máximo 2)`, `(hasta 3)`. Si no lo dice, todas |
+| **`minimo`** | `0` si contenía `adicion\|extra` **o** decía «opcional» | **`0` solo si dice «opcional»** — que es una palabra del idioma, no de un sector |
+| **Lista en el bloque de productos** | Se reconocía por empezar con `adiciones:` | **Por la forma**: `ENCABEZADO: a · b · c`, con varios elementos separados |
+
+### Y lo que no se sabe, se dice
+
+`GrupoLeido` tiene un campo nuevo, `revisar?: string`. Porque la verdad
+incómoda es esta: **de `RECUBIERTO: Azúcar-canela · Azúcar sola · Ambas · Sin
+azúcar` no se deduce que se elija uno.** Lo sabe quien conoce el negocio. El
+lector acertaba **por casualidad de vocabulario**.
+
+Ahora no adivina: marca el grupo y lo imprime donde se ve, en los dos scripts
+que escriben catálogos:
+
+```
+  RECUBIERTO [todos los productos] elige 4 (obligatorio):
+      🟠 REVISAR: no dice cuántas se eligen: queda en 4 (todas)
+```
+
+> Y se imprime **a propósito en los dos**. Una marca que se guarda en un campo y
+> no se enseña es un guardarraíl invisible — el proyecto ya tiene tres casos de
+> eso, todos con el mismo final.
+
+### Pruebas
+
+**761 en verde** (+6), `tsc` y `eslint` limpios. Las nuevas usan negocios que **no
+venden nada de comer**, para que la regla se defienda sola:
+
+| Prueba | Qué impide |
+|---|---|
+| *un taller: «Cobertura del seguro» NO se convierte en elección única* | Que `cobertura` vuelva a decidir |
+| *una papelería: «Extras» no queda opcional por llamarse así* | Que `extra` vuelva a decidir |
+| *pero «opcional» sí se respeta* | Que la limpieza se pase de frenada |
+| *un salón: `TONOS: Rubio · Castaño` no se toma por un producto* | Que solo se reconozca `adiciones:` |
+| *un producto con dos puntos en el nombre sigue siendo un producto* | Que la forma nueva se coma un producto real |
+
+Y **una prueba existente cambió de sentido**: la que exigía `RECUBIERTO → max 1`.
+Pasaba porque el lector lo daba por hecho. Ahora comprueba que **se marca en vez
+de adivinarse**, con el porqué escrito encima para quien la lea dentro de un año.
+
+### Impacto en producción: ninguno
+
+`leerCatalogoDeTexto` la llaman **dos scripts manuales** (`migrar-catalogo` y
+`cargar-opciones`) y **nada automático**: ni el alta de clientes, ni el pipeline,
+ni ninguna ruta. Los catálogos ya sembrados **no cambian**: La Churra conserva
+sus cuatro productos y su grupo `SALSA` tal cual.
+
+Lo que cambia es el resultado de **la próxima siembra**. Si alguien re-sembrara
+hoy el catálogo de La Churra, `RECUBIERTO` saldría con máximo 4 y **con la marca
+de revisar** — que es justo el momento en que una persona pone el 1 a mano, con
+el dato que solo ella tiene.
+
+### Reversión
+
+`git revert` del commit. Sin migración, sin datos que restaurar, sin bandera.
+Vuelve la lista de palabras y desaparece el campo `revisar`.
 
 ---
 

@@ -40,6 +40,22 @@ export type GrupoLeido = {
    * salsas en una Churrita es un pedido mal tomado.
    */
   producto: string | null;
+  /**
+   * Por qué hay que mirar este grupo antes de escribirlo. `undefined` = el texto
+   * lo dejaba claro.
+   *
+   * Existe porque **este lector no puede saberlo todo, y fingir que sí sale
+   * caro**. De `RECUBIERTO: Azúcar-canela · Azúcar sola · Ambas · Sin azúcar` no
+   * se deduce por ninguna parte que se elija UNO: eso lo sabe quien conoce el
+   * negocio, no un programa.
+   *
+   * Hasta el 17-ago-2026 se adivinaba con una lista de palabras
+   * —`recubiert|azucar|cobertura`, `adicion|extra`— dentro del núcleo. Acertaba
+   * con un negocio de comida por casualidad de vocabulario y decidía a ciegas
+   * para todos los demás: un taller que escribiera *"Cobertura del seguro"*
+   * recibía un grupo de máximo 1 sin haberlo pedido.
+   */
+  revisar?: string;
 };
 
 export type CatalogoLeido = {
@@ -92,6 +108,29 @@ function limpiarOpcion(crudo: string): string {
     .trim();
 }
 
+/**
+ * Cuántas opciones declara el encabezado que se pueden elegir. `null` = no lo dice.
+ *
+ * Lee lo que el negocio escribió entre paréntesis: `(elige 1)`, `(máximo 2)`,
+ * `(hasta 3)`, `(1)`. **Un número, no una palabra del sector** — así vale igual
+ * para un salón, un taller o una papelería.
+ *
+ * Se ignoran los paréntesis sin número, que son los que explican otra cosa:
+ * `(opcionales, se cobran aparte)`, `(los nombres van en MAYÚSCULAS)`.
+ */
+function cuantasDeclara(encabezado: string): number | null {
+  for (const parentesis of encabezado.match(/\([^)]*\)/g) ?? []) {
+    // Un precio no dice cuántas se eligen: "(desde $2.000)" no es "2.000 salsas".
+    if (/\$|\d[.,]\d{3}/.test(parentesis)) continue;
+    const n = parentesis.match(/\b(\d+)\b/);
+    if (n) {
+      const valor = Number(n[1]);
+      if (valor > 0) return valor;
+    }
+  }
+  return null;
+}
+
 export function leerCatalogoDeTexto(
   catalogo: string,
   variantes?: string
@@ -111,8 +150,19 @@ export function leerCatalogoDeTexto(
       continue;
     }
 
-    // Las adiciones sueltas dentro del catálogo van al bloque de opciones.
-    if (/^adiciones?\s*:/i.test(linea)) {
+    /*
+     * Una lista de opciones colada en el bloque de productos.
+     *
+     * Se reconoce por la FORMA, no por la palabra: `ENCABEZADO: a · b · c`, con
+     * varios elementos separados. Un producto es una línea suelta con su
+     * precio; esto es un grupo de opciones que el negocio escribió aquí en vez
+     * de en `variantes`. Va a `sinInterpretar` para que se vea y no se pierda.
+     *
+     * Antes esto era `/^adiciones?\s*:/`: la palabra de un negocio de comida
+     * decidiendo por todos. Un salón que escriba `TONOS: rubio · castaño`
+     * quedaba convertido en un producto llamado "TONOS".
+     */
+    if (/^[^:]{2,60}:\s*\S+\s*[·|]\s*\S+/.test(linea)) {
       sinInterpretar.push(linea);
       continue;
     }
@@ -212,21 +262,26 @@ export function leerCatalogoDeTexto(
       /*
        * CUÁNTAS puede elegir el cliente, que no siempre es "todas".
        *
-       * El recubierto es UNO: azúcar-canela o azúcar sola o ninguna, no las
-       * cuatro a la vez. Las adiciones son opcionales y puede llevarse las que
-       * quiera. Antes, `maximo` era siempre el número de opciones, así que un
-       * recubierto habría aceptado los cuatro — y el agente habría ofrecido
-       * "elige 4 recubiertos".
+       * Solo hay dos fuentes legítimas, y las dos son del negocio:
+       *   — el número que escriba: "RECUBIERTO (elige 1)", "SALSAS (máximo 2)"
+       *   — la palabra "opcional", que dice que se puede no llevar ninguna
+       *
+       * Lo que NO se hace es deducirlo del nombre del grupo. Cuando el texto no
+       * lo dice, **el máximo queda en «todas» y el grupo sale marcado para que
+       * lo mire una persona** — que es para lo que existe este lector.
        */
-      const esRecubierto = /recubiert|azucar|azúcar|cobertura/i.test(nombre);
-      const esAdicion = opcional || /adicion|adición|extra/i.test(nombre);
+      const declaradas = cuantasDeclara(encabezado);
 
       grupos.push({
         nombre,
-        minimo: esAdicion ? 0 : 1,
-        maximo: esRecubierto ? 1 : opciones.length,
+        minimo: opcional ? 0 : Math.min(1, declaradas ?? 1),
+        maximo: declaradas ?? opciones.length,
         opciones,
         producto: null, // formato "SALSAS: a · b · c" = aplica a todo
+        revisar:
+          declaradas === null && opciones.length > 1
+            ? `no dice cuántas se eligen: queda en ${opciones.length} (todas)`
+            : undefined,
       });
     }
   }

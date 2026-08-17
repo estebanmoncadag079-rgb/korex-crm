@@ -54,10 +54,33 @@ describe("RECUBIERTO", () => {
     ]);
   });
 
-  it("es UNO, no cuatro: min 1 y max 1", () => {
+  /*
+   * 🔴 ESTA PRUEBA CAMBIÓ DE SENTIDO EL 17-AGO-2026, y merece explicación.
+   *
+   * Antes exigía `max 1`, y pasaba: el lector traía una lista de palabras
+   * —`recubiert|azucar|cobertura`— que lo daba por hecho. Acertaba con este
+   * negocio por casualidad de vocabulario, y decidía a ciegas para todos los
+   * demás (regla 1 de 79-ARQUITECTURA-MULTIEMPRESA).
+   *
+   * Y la verdad incómoda es que **del texto no se deduce**: `RECUBIERTO:
+   * Azúcar-canela · Azúcar sola · Ambas · Sin azúcar` no dice en ninguna parte
+   * que se elija uno. Lo sabe quien conoce el negocio.
+   *
+   * Así que ahora no se adivina: se marca para que lo mire una persona, que es
+   * exactamente para lo que existe este lector — no escribe nada por su cuenta.
+   */
+  it("el texto NO dice cuántas se eligen, así que no se adivina: se marca", () => {
     const g = leido().grupos.find((x) => x.nombre === "RECUBIERTO")!;
+    expect(g.maximo).toBe(4); // todas, que es lo neutro
+    expect(g.revisar).toContain("no dice cuántas");
+  });
+
+  it("y si el negocio SÍ lo escribe, se respeta el número", () => {
+    const g = leerCatalogoDeTexto("", "RECUBIERTO (elige 1): Azúcar · Canela · Ambas")
+      .grupos.find((x) => x.nombre === "RECUBIERTO")!;
     expect(g.minimo).toBe(1);
     expect(g.maximo).toBe(1);
+    expect(g.revisar).toBeUndefined();
   });
 
   it("el punto final no se queda pegado", () => {
@@ -96,5 +119,50 @@ describe("nada se pierde por el camino", () => {
     const r = leido();
     expect(r.grupos.map((g) => g.nombre).sort()).toEqual(["ADICIONES", "RECUBIERTO", "SALSAS"]);
     expect(r.sinInterpretar).toEqual([]);
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * EL LECTOR NO SABE DE COMIDA (paso 0 de 88-AUDITORIA-SELECCION-MULTIPLE).
+ *
+ * Este archivo es el sembrador de catálogos de TODA la plataforma. Hasta el
+ * 17-ago decidía el mínimo y el máximo de los grupos de cualquier negocio con
+ * las palabras de uno solo. Estas pruebas usan negocios que no venden nada de
+ * comer: si alguna vuelve a rojo, es que el vocabulario de un sector se ha
+ * metido otra vez en el núcleo.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("cualquier negocio, no solo uno de comida", () => {
+  it("un taller: «Cobertura del seguro» NO se convierte en elección única", () => {
+    // La palabra «cobertura» daba `max 1` a quien no lo había pedido.
+    const g = leerCatalogoDeTexto("", "COBERTURA DEL SEGURO: Total · Parcial · Contra terceros")
+      .grupos.find((x) => x.nombre === "COBERTURA DEL SEGURO")!;
+    expect(g.maximo).toBe(3);
+    expect(g.revisar).toBeDefined();
+  });
+
+  it("una papelería: «Extras» no queda opcional por llamarse así", () => {
+    // `/adicion|extra/` ponía `minimo: 0` sin que el negocio dijera nada.
+    const g = leerCatalogoDeTexto("", "EXTRAS: Anillado · Plastificado")
+      .grupos.find((x) => x.nombre === "EXTRAS")!;
+    expect(g.minimo).toBe(1);
+  });
+
+  it("pero «opcional», que es del idioma y no de un sector, sí se respeta", () => {
+    const g = leerCatalogoDeTexto("", "GRABADO (opcional): Iniciales · Fecha").grupos[0]!;
+    expect(g.minimo).toBe(0);
+  });
+
+  it("un salón: una lista de opciones en el bloque de productos no se toma por un producto", () => {
+    // Antes solo se reconocía si empezaba por «adiciones».
+    const r = leerCatalogoDeTexto("TONOS: Rubio · Castaño · Negro", "");
+    expect(r.productos).toEqual([]);
+    expect(r.sinInterpretar).toEqual(["TONOS: Rubio · Castaño · Negro"]);
+  });
+
+  it("y un producto de verdad con dos puntos en el nombre sigue siendo un producto", () => {
+    const r = leerCatalogoDeTexto("Combo: familiar — $32.000", "");
+    expect(r.productos.map((p) => p.nombre)).toEqual(["Combo: familiar"]);
   });
 });

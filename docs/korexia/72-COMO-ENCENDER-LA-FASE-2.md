@@ -10,15 +10,19 @@
 
 ---
 
-> # 🔴 FASE 2 CONGELADA (17-ago-2026)
+> # ✅ DESCONGELADA — y el orden, decidido (17-ago-2026, tarde)
 >
-> **No se enciende, no se carga nada en La Churra y no se corrige ningún bug
-> específico suyo** hasta terminar la generalización del modelo.
+> La generalización que la congeló **está hecha**: pasos 1, 2, 1.5 y 3A. El
+> núcleo ya no sabe qué es una salsa, ni una dirección, ni si un negocio reparte.
 >
-> La lista de abajo **sigue siendo válida**, pero se ejecuta DESPUÉS de los
-> cuatro pasos de [79-ARQUITECTURA-MULTIEMPRESA.md](79-ARQUITECTURA-MULTIEMPRESA.md).
-> Las tareas 4 y 5 (cargar opciones, limpiar «Ambas») quedan expresamente
-> detenidas: el modelo que las valida está a punto de cambiar.
+> **Decisión del dueño**: se enciende **primero el vertical de PEDIDOS**, y el
+> paso 4 (recursos y reservas) va después. No son dos negocios: son **dos
+> modelos** — pedidos es *selección + confirmación*; citas es *selección +
+> reserva de recursos + disponibilidad*. La Churra valida el núcleo nuevo; el
+> salón validará el motor de reservas. **No a la vez.**
+>
+> ⚠️ **Todo lo construido esta semana sigue sin verse con un cliente real.** Ese
+> es justamente el motivo de encender.
 
 ---
 
@@ -39,70 +43,50 @@ corre exactamente como antes: no lee estado, no lo escribe y no emite métricas.
 
 ---
 
-## Las tareas, numeradas
+## El camino de encendido, al 17-ago por la tarde
 
-`P` = **escribe en producción** · `L` = se hace en local, sin tocar la base.
+Verificado en producción hoy:
 
-### 🔴 Bloqueantes — sin esto no se enciende
+| | |
+|---|---|
+| `conversation_state` | **0 filas** — la ventana de cambiar el contrato sigue abierta |
+| Banderas | `prompt` en los cuatro |
+| La Churra | `catalog_source = tabla`, vertical `pedidos`, **sin `cierre` en su ficha** |
 
-| # | Tarea | ¿Escribe? |
-|---|---|---|
-| 1 | **Verificar el código de hoy**: `pnpm test` y el typecheck. Las métricas y `grupoDeSalsas` están escritos pero **no se han ejecutado ni una vez** | **L** |
-| 2 | **Desplegar** ese cambio: commit → push → `git archive`+`scp` a la carpeta de EasyPanel → Desplegar → verificar **dentro** del contenedor | **L** (+ el botón) |
-| 3 | **`pnpm probar:estado`**: la prueba de extremo a extremo contra Postgres real, sobre un cliente que **se crea y se borra en la misma corrida**. No toca a ningún cliente vivo | **P** (efímero, se limpia solo) |
-| 4 | **Cargar `RECUBIERTO` y `ADICIONES`** en La Churra: simulación → comparar el catálogo renderizado antes/después → `--aplicar`. 40 INSERT · 0 UPDATE · 0 DELETE | **P** |
-| 5 | **Borrar «Ambas»** del texto de la ficha y recompilar el prompt | **P** |
-| 6 | **Un banco de escenarios que sirva** para un negocio de pedidos. El actual está escrito con los productos de Lis (*"el precio del Cremoso 12 oz"*, *"Lis NO acepta efectivo"*) y contra churros da falsos negativos | **L** para escribirlo · **P** para correrlo |
-| 7 | **Encender la bandera en un cliente efímero** de pedidos y recorrer un pedido completo | **P** (efímero) |
-| 8 | **La revisión a ojo del dueño** sobre ese pedido completo. Criterio 8 de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md), y no lo puede hacer el asistente | — |
-| 9 | **Los 8 criterios de encendido** de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md), verificados uno a uno sobre ese cliente | **P** (lectura) |
-
-### 🟠 Recomendadas — no bloquean, pero se pagan caras después
+### 🔴 Bloqueantes, en orden
 
 | # | Tarea | ¿Escribe? |
 |---|---|---|
-| 10 | **El nombre de la salsa en la ficha**: la tabla dice `chocolate negro`, la ficha `CHOCOLATE`. La tabla es la canónica | **P** |
-| 11 | **Precios del saludo escritos a mano**: hoy un precio vive en la fila de `product` **y** en el primer mensaje de la ficha | **P** |
-| 12 | **El formato horario**: el agente dice `09:30` y la regla nueva pide `9:30 a. m.` | **L** |
-| 13 | **`.set({ ...body.data })`** en 3 rutas: hoy lo contiene Zod, frágil ante el próximo campo | **L** |
-| 14 | **Pantalla de catálogo**: sin ella un cliente no puede cambiar su propio precio | **L** |
+| 1 | **`pnpm test` + typecheck + lint** sobre lo de esta semana | L |
+| 2 | **Desplegar.** Aplica sola la migración `0023` (columna + el `UPDATE` de 1 fila) | L + el botón |
+| 3 | **`pnpm migrar:requisitos`** — simular, revisar la lista, aplicar. **Sin esto ningún pedido se confirma**: el validador se niega si la ficha no los declara | **P** |
+| 4 | **`pnpm probar:estado`** — extremo a extremo, cliente que se crea y se borra solo | P (efímero) |
+| 5 | **La medición de la regla 13, UNA sola vez**, con los dos cambios de prompt dentro (pasos 1 y 1.5). Comparar con la línea base del 15-ago | P (lectura + llamadas al modelo) |
+| 6 | **Un banco de escenarios de pedidos** — el actual está escrito con los productos de Lis | L + P |
+| 7 | **Encender en un cliente efímero** y recorrer un pedido entero | P (efímero) |
+| 8 | **La revisión a ojo del dueño.** Criterio 8 de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md) | — |
+| 9 | Cargar `RECUBIERTO` y `ADICIONES` en La Churra, comparando el catálogo antes/después | **P** |
+| 10 | Los 8 criterios de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md), uno a uno | P |
 
-### ⚪ Opcionales — cuando haya motivo, no antes
+**El orden importa**: del 1 al 8 no toca a ningún cliente real. La **9** es la
+primera que La Churra nota, y por eso va después de que el dueño haya visto un
+pedido completo.
 
-| # | Tarea | ¿Escribe? |
-|---|---|---|
-| 15 | Tabla de métricas en vez de logs. **Solo cuando se sepa qué se pregunta** al leerlos | **L** |
-| 16 | RLS: hoy el aislamiento depende de `scoped()` en cada consulta | **P** |
-| 17 | Meter a **Lis** en el sistema de fichas. Regla 9: es **la última**, siempre | **P** |
-| 18 | La columna `unidades`. Medida: arreglaba **1 caso de 60**. Descartada a propósito | **P** |
+### 🟠 Recomendadas, no bloqueantes
 
-> 🔴 **Y por encima de todo esto, sin relación con la Fase 2**: la contraseña del
-> superadmin sigue pendiente desde el 31-jul.
+`leerAporte()` sigue muerta (decidir: conectarla o borrarla) · `tsconfig`
+excluye `scripts/` · el nombre de la salsa en la ficha (`CHOCOLATE` →
+`chocolate negro`) · los precios escritos a mano en el saludo · el `"0"` del
+reinicio, que sigue clavado · `faltantesDeLaFicha` decide con `ficha.vertical`
+antes de normalizar · los tres `.set({ ...body.data })` · instrumentar
+`api/kb/[id]`.
+
+### ⏳ Después de encender
+
+Paso 3B (opciones en `service`) · paso 4a/4b/4c (recursos y reservas) · el día 1
+del salón.
 
 ---
-
-## El camino mínimo, en orden
-
-El orden no es cosmético: **está puesto para que todo lo que se pueda descubrir
-en un cliente de mentira se descubra antes de tocar el que factura.**
-
-```
-1 y 2  →  verificar y desplegar el código de hoy        (nadie se entera)
-  3    →  pnpm probar:estado                            (cliente efímero, se borra)
-  6    →  escribir el banco de un negocio de pedidos    (local)
-  7    →  encender la bandera en el cliente efímero     (nadie real)
-  8    →  el dueño mira un pedido completo              (la única puerta humana)
-  4,5  →  cargar opciones y limpiar «Ambas» en La Churra
-  9    →  los 8 criterios, sobre datos reales
-  →       decidir si se enciende en La Churra
-```
-
-**La 4 va casi al final a propósito.** Es la única tarea de esta lista que
-cambia lo que un cliente real ve **en el turno siguiente y sin desplegar**:
-`renderCatalogoDePedidos` pinta cualquier grupo que encuentre en las tablas, así
-que en cuanto existan `RECUBIERTO` y `ADICIONES` aparecen en el prompt de La
-Churra con sus precios y su `(opcional)`. Todo lo demás se puede probar sin que
-nadie lo note.
 
 ---
 

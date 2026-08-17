@@ -415,6 +415,26 @@ sido peor que no tocarlo.
 > 🔑 La prueba que lo demuestra no es de churros: un producto `MANICURA` con un
 > grupo `ESMALTE` —que ningún código conoce— valida, resuelve y cobra bien.
 
+### 17-ago, 02:30 · El orden decidido: pedidos primero
+
+**Objetivo**: cerrar la semana de generalización y dejar escrito el camino de
+encendido con el estado real, no con el de hace dos días.
+**Archivos**: `72-COMO-ENCENDER` (descongelado y reescrito), esta bitácora.
+**Sin código.**
+**Riesgos**: el de no hacerlo — `72` seguía describiendo un sistema anterior a
+los pasos 1, 2, 1.5 y 3A, y era el documento que alguien seguiría al retomar.
+**Evidencia**: verificado hoy en producción — `conversation_state` con **0
+filas**, los cuatro clientes en `prompt`, La Churra con `catalog_source=tabla` y
+**sin `cierre` en su ficha**. Gate: 747 pruebas, `tsc` y `eslint` limpios.
+**Reversión**: `git revert <sha>`; solo documentación.
+**Estado**: terminado.
+
+> 🔑 La decisión del dueño, y su razón: **no son dos negocios, son dos
+> modelos.** Pedidos es *selección + confirmación*; citas es *selección +
+> reserva de recursos + disponibilidad*. La Churra valida el núcleo nuevo; el
+> salón validará el motor de reservas. Ponerlos en producción a la vez sería
+> estrenar dos cosas distintas el mismo día.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

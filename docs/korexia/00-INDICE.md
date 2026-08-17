@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [87-PEDIDOS-MULTIPRODUCTO.md](87-PEDIDOS-MULTIPRODUCTO.md) | 🛑 **EL PASO 3.6, QUE BLOQUEA EL ENCENDIDO.** El carrito que nunca existió: el modelo actual en código, el inventario contado (10 archivos, 21 accesos, 39 usos), el estado propuesto con `items[]` y las cuatro respuestas. **La migración es gratis hoy —0 filas— y deja de serlo con el primer cliente encendido.** Aquí nace la regla 10 |
+
 | [86-DOS-PRODUCTOS-EN-UN-PEDIDO.md](86-DOS-PRODUCTOS-EN-UN-PEDIDO.md) | 🔴 **LO QUE BLOQUEA EL ENCENDIDO DE LA CHURRA.** Una prueba real pidió dos productos y el agente preguntó lo que ya le habían dicho. Tres hallazgos: el estado solo sabe sostener UN producto, los nombres de la tabla y los del prompt no coinciden, y BESTIES no admite repetir en la base aunque el prompt del negocio diga que sí |
 
 | [85-PROBAR-ESTADO.md](85-PROBAR-ESTADO.md) | **Los 12 criterios de salida** de la prueba de extremo a extremo, escritos ANTES de ejecutarla: siete de pedidos, cinco de citas, dos clientes efímeros. Y 🔴 el hallazgo de que `tsconfig` excluye `scripts/`, así que los programas que escriben en producción no se comprueban |

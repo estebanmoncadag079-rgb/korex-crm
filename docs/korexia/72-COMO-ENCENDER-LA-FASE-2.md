@@ -55,22 +55,36 @@ Verificado en producción hoy:
 
 ### 🔴 Bloqueantes, en orden
 
+> **🛑 DETENIDO EL 17-AGO, DESPUÉS DEL PASO 4.** Una prueba real por WhatsApp
+> pidió dos productos en un mensaje y destapó que **el estado solo sabe sostener
+> uno** ([87](87-PEDIDOS-MULTIPRODUCTO.md)). El camino sigue siendo válido, pero
+> **no se reanuda hasta cerrar el paso 3.6**: encender ahora significaría poner
+> en producción un backend que no puede representar la mitad de un pedido real.
+>
+> Y hay una razón de coste, no solo de calidad: `conversation_state` tiene **0
+> filas**, así que cambiar la forma del estado hoy **es gratis y reversible con
+> un `git revert`**. Con el primer cliente encendido, deja de serlo.
+
 | # | Tarea | ¿Escribe? |
 |---|---|---|
-| 1 | **`pnpm test` + typecheck + lint** sobre lo de esta semana | L |
-| 2 | **Desplegar.** Aplica sola la migración `0023` (columna + el `UPDATE` de 1 fila) | L + el botón |
-| 3 | **`pnpm migrar:requisitos`** — simular, revisar la lista, aplicar. **Sin esto ningún pedido se confirma**: el validador se niega si la ficha no los declara | **P** |
-| 4 | **`pnpm probar:estado`** — extremo a extremo, cliente que se crea y se borra solo | P (efímero) |
-| 5 | **La medición de la regla 13, UNA sola vez**, con los dos cambios de prompt dentro (pasos 1 y 1.5). Comparar con la línea base del 15-ago | P (lectura + llamadas al modelo) |
-| 6 | **Un banco de escenarios de pedidos** — el actual está escrito con los productos de Lis | L + P |
+| 1 | ✅ **`pnpm test` + typecheck + lint** sobre lo de esta semana | L |
+| 2 | ✅ **Desplegar.** Aplica sola la migración `0023` (columna + el `UPDATE` de 1 fila) | L + el botón |
+| 3 | ✅ **`pnpm migrar:requisitos`** — simular, revisar la lista, aplicar. **Sin esto ningún pedido se confirma**: el validador se niega si la ficha no los declara | **P** |
+| 3.5 | ✅ **Blindar el modelo de la ficha** ([84](84-EL-MODELO-DE-LA-FICHA.md)) | L |
+| 4 | ✅ **`pnpm probar:estado`** — 41 comprobaciones, dos clientes efímeros, los dos verticales ([85](85-PROBAR-ESTADO.md)) | P (efímero) |
+| **3.6** | 🛑 **PEDIDO MULTIPRODUCTO** — auditado en [87](87-PEDIDOS-MULTIPRODUCTO.md), **sin decidir**. Bloquea todo lo de abajo | — |
+| 4.1 | 🔴 **Alinear los nombres del catálogo con el prompt** de La Churra, y cargar `RECUBIERTO` y `ADICIONES`. Hoy la tabla dice `chocolate negro` y el prompt `CHOCOLATE`: toda propuesta con «chocolate» se rechazaría ([86](86-DOS-PRODUCTOS-EN-UN-PEDIDO.md)) | **P** |
+| 4.2 | 🔴 **`permite_repeticion = true`** en los cuatro grupos `SALSA`. La migración 0023 solo arregló el Mega Box: era aritmética, y la regla es del negocio | **P** |
+| 5 | **La medición de la regla 13, UNA sola vez**, con los cambios de prompt dentro. Comparar con la línea base del 15-ago | P (lectura + llamadas al modelo) |
+| 6 | **Un banco de escenarios de pedidos** — el actual está escrito con los productos de Lis, y **ninguno de los 26 pide dos productos** | L + P |
 | 7 | **Encender en un cliente efímero** y recorrer un pedido entero | P (efímero) |
 | 8 | **La revisión a ojo del dueño.** Criterio 8 de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md) | — |
-| 9 | Cargar `RECUBIERTO` y `ADICIONES` en La Churra, comparando el catálogo antes/después | **P** |
-| 10 | Los 8 criterios de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md), uno a uno | P |
+| 9 | Los 8 criterios de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md), uno a uno | P |
 
-**El orden importa**: del 1 al 8 no toca a ningún cliente real. La **9** es la
-primera que La Churra nota, y por eso va después de que el dueño haya visto un
-pedido completo.
+**El orden importa**: del 1 al 8 no toca a ningún cliente real. Las **4.1** y
+**4.2** son las primeras que La Churra nota — y ahora van **antes** de la
+medición, porque medir contra un catálogo que contradice al prompt sería gastar
+la única toma en un dato que no vale.
 
 ### 🟠 Recomendadas, no bloqueantes
 

@@ -94,6 +94,14 @@ replantea.**
    citas** — y si el segundo todavía no puede probarse en vivo, contra su
    equivalente en pruebas. Es la regla que habría evitado que las salsas de un
    negocio acabaran dentro del núcleo.
+10. ⛔ **Ningún flujo del CRM puede asumir que un pedido contiene un único
+    producto.** Aplica al núcleo, al prompt, a la ficha, al cuestionario, a las
+    pruebas y a los escenarios. Un flujo que solo sepa sostener un producto **no
+    está terminado**, aunque funcione para el negocio que lo pidió.
+
+    Nació el 17-ago de una conversación real ([87](87-PEDIDOS-MULTIPRODUCTO.md)),
+    y conviene recordar de dónde: **no la pidió un cliente**. La pidió alguien
+    que hizo lo más normal del mundo — pedir dos cosas de una vez.
 
 ## Las tres decisiones
 
@@ -128,7 +136,9 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | **1** | **La selección genérica.** Solo eso. Sin tocar citas | ✅ **hecho el 17-ago** |
 | **1.5** | **`entrega` fuera del núcleo**: los requisitos los declara cada negocio | ✅ **hecho el 17-ago** ([81](81-REQUISITOS-DECLARATIVOS.md)) |
 | **2** | **Un solo dueño para el vertical** | ✅ **hecho el 17-ago** |
-| **3a** | `permiteRepeticion` + tipo de dominio común (`Ofrecible`). **Sin migración** | 🔄 auditado ([82](82-EL-CATALOGO-AL-CRM.md)) |
+| **3a** | `permiteRepeticion` + tipo de dominio común (`Ofrecible`). **Sin migración** | ✅ **hecho el 17-ago** ([82](82-EL-CATALOGO-AL-CRM.md)) |
+| **3.5** | **Blindar el modelo de la ficha**: una transformada nunca se persiste | ✅ **hecho el 17-ago** ([84](84-EL-MODELO-DE-LA-FICHA.md)) |
+| **3.6** | 🛑 **PEDIDO MULTIPRODUCTO.** `items[]`: el estado solo sabe sostener UN producto y un cliente real ya pidió dos. **Bloquea el encendido** | 🔄 **auditado, sin decidir** ([87](87-PEDIDOS-MULTIPRODUCTO.md)) |
 | **3b** | **Grupos de opciones para `service`.** Primera migración con datos vivos | ⬜ |
 | **4a** | Disponibilidad genérica (`recursoIds`), **sin tocar tablas** | 🔄 auditado ([83](83-RECURSOS-Y-RESERVAS.md)) |
 | **4b** | `recurso` + `reserva_recurso` y el solape movido. **La migración más cara del proyecto** | ⬜ |

@@ -70,7 +70,7 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 |---|---|---|
 | **1** | **La selección genérica.** Solo eso. Sin tocar citas | ✅ **hecho el 17-ago** |
 | **1.5** | 🔴 **`entrega` fuera del núcleo**: los requisitos de cierre los declara cada negocio. Auditado en [80](80-EL-CONCEPTO-DE-ENTREGA.md) | ⬜ **y obliga a hacer el 2 antes** |
-| **2** | **Un solo dueño para el vertical**: hoy son dos (`appointmentsEnabled` y `ficha.vertical`), y existe código para comprobar que no se contradigan — que es la señal del problema | ⬜ |
+| **2** | **Un solo dueño para el vertical** | ✅ **hecho el 17-ago** |
 | **3** | **Opciones en los servicios.** Un salón no puede describir *manicura → con esmalte · diseño sencillo · diseño elaborado*: hoy acaba en texto libre del prompt | ⬜ |
 | **4** | **Citas entra en la Fase 2** | ⬜ |
 | **5** | Solo entonces, **encender** | ⬜ |
@@ -132,6 +132,50 @@ estar en dos con precios distintos — que es exactamente el cobro doble del
 16-ago, ahora imposible: sin grupo y con ambigüedad, **se pregunta**.
 
 ---
+
+## Paso 2, hecho: una sola fuente para el vertical (17-ago)
+
+Había dos, y podían contradecirse:
+
+| Fuente | Qué gobernaba | Quién la escribe |
+|---|---|---|
+| `agent_profile.appointments_enabled` | **Los permisos**: 8 rutas devuelven 403 si está en `false`. Y el pipeline | `provisioning` al dar de alta · `/admin` después |
+| `ficha.vertical` | **El prompt**: el cierre, el catálogo, el horario | El cuestionario del cliente · `/admin` |
+
+Existía un aviso para cuando discrepaban, **y ese aviso era la señal del
+problema**: un negocio con la ficha de citas y la columna en `false` tendría un
+agente prometiendo *"te agendo"* mientras la API rechaza la reserva con un 403.
+El cliente se queda esperando una cita que nadie creó.
+
+### Manda la COLUMNA, y la razón de peso es de seguridad
+
+`api/onboarding` va con `withAuth`, **no con admin**: lo llama el propio
+cliente. Si mandara la ficha, cualquier cliente **se activaría un vertical que
+no contrató** editando su cuestionario. Un permiso no puede depender de un JSON
+que edita quien lo usa.
+
+A eso se suma que el vertical **es lo que se contrata** —lo escribe quien lo
+vende— y que en este proyecto **lo derivado se recompila**
+([68](68-UN-DUENO-POR-DATO.md)).
+
+`ficha.vertical` no desaparece: **pasa a ser una copia derivada**, como
+`producto.nombre` en el estado. Se normaliza al escribir, así que ya no puede
+contradecir a la columna.
+
+### Cómo quedó
+
+- `@/server/vertical` — un módulo de 3 funciones. **El único sitio que traduce**
+  `appointments_enabled` a un vertical, para que el día del tercero se toque uno.
+- `generarPerfil(ficha, { vertical })` — el vertical entra por `opciones`, igual
+  que `catalogoEnTabla`, cuyo comentario ya decía *"lo decide la columna, no la
+  ficha"*. **El precedente estaba escrito desde el 15-ago.**
+- `aplicarFicha` **corrige** la ficha en vez de avisar, y lo registra.
+- La **vista previa** de `/admin` usa el vertical contratado: el sitio donde se
+  revisa un prompt es justo donde no puede mentir.
+
+> ⚠️ **Sigue siendo un booleano.** Un tercer vertical no cabe en
+> `appointments_enabled` y pedirá una columna de texto — una migración. El
+> módulo existe para que ese día sea un solo cambio.
 
 ## 🔴 Lo que queda CONGELADO
 

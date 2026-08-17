@@ -4,6 +4,7 @@ import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
 import { normalizarHora } from "@/lib/hora";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
+import { verticalDe } from "@/server/vertical";
 import {
   fusionarFicha,
   serializarComoEstaba,
@@ -170,7 +171,7 @@ export async function aplicarFicha(
     guardada[0]?.hoursOpen?.trim() && guardada[0]?.hoursClose?.trim()
   );
 
-  const { ficha, conservadas } = fusionarFicha(
+  const { ficha: fichaFusionada, conservadas } = fusionarFicha(
     fichaCruda,
     fichaEntrante,
     opciones?.puedeEscribir ?? ["negocio"]
@@ -186,31 +187,34 @@ export async function aplicarFicha(
    * prompt pasó de 17.355 a 18.053 caracteres, con la carta duplicada (una en
    * el texto y otra que el pipeline inyecta desde las tablas).
    */
-  const perfil = generarPerfil(ficha, {
-    catalogoEnTabla: guardada[0]?.catalogSource === "tabla",
-  });
-
-  /*
-   * ¿Coincide lo que dice la ficha con lo que la agencia contrató?
-   *
-   * Antes esto no se preguntaba: se sobrescribía `appointmentsEnabled` con lo
-   * que dijera la ficha. Ahora se compara y, si difieren, se devuelve el aviso
-   * para que alguien lo mire — que es lo que se hace con un desacuerdo entre
-   * dos fuentes, en vez de dejar ganar a la última que escribe.
-   */
+  // Qué contrató este negocio: es lo que manda.
   const antes = await db
     .select({ appointmentsEnabled: schema.agentProfile.appointmentsEnabled })
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
-  const contratadoConCitas = antes[0]?.appointmentsEnabled ?? false;
-  const fichaDiceCitas = ficha.vertical === "citas";
+  /*
+   * EL VERTICAL LO DECIDE LA COLUMNA, no la ficha (ver `@/server/vertical`).
+   *
+   * Antes esto solo AVISABA de la discrepancia y seguía adelante con lo que
+   * dijera la ficha, así que un negocio podía acabar con un agente prometiendo
+   * *"te agendo"* mientras la API rechazaba la reserva con un 403. Ahora la
+   * ficha se corrige y se registra: `vertical` pasa a ser una copia derivada.
+   */
+  const contratado = verticalDe(antes[0]?.appointmentsEnabled);
   const avisoDeVertical =
-    contratadoConCitas === fichaDiceCitas
+    fichaFusionada.vertical === contratado
       ? undefined
-      : fichaDiceCitas
-        ? "La ficha dice que este negocio agenda citas, pero en /admin no tiene el vertical de citas activado."
-        : "En /admin este negocio tiene el vertical de citas activado, pero su ficha no es de citas.";
+      : `La ficha decía «${fichaFusionada.vertical}» y este negocio tiene contratado «${contratado}». ` +
+        "Manda lo contratado: se corrigió la ficha. Si es un error, cámbialo en /admin.";
+  /** La ficha con su copia del vertical ya corregida. */
+  const ficha = { ...fichaFusionada, vertical: contratado };
+
+  const perfil = generarPerfil(ficha, {
+    catalogoEnTabla: guardada[0]?.catalogSource === "tabla",
+    vertical: contratado,
+  });
+
 
   const preguntas = (ficha.preguntasFrecuentes ?? []).filter(
     (p) => p.pregunta.trim() && p.respuesta.trim()

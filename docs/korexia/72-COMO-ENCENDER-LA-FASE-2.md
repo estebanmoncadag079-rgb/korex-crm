@@ -122,6 +122,7 @@ hallazgos; ninguno necesita migración. Los que bloquean el encendido:
 | 🔴 | ~~El Mega Box no se puede completar nunca~~ | ✅ **corregido el 16-ago**: las salsas se repiten (decisión del dueño) |
 | 🔴 | **El `"0"` del reinicio sigue clavado**: `matchesReinicio` acepta el parámetro pero el pipeline no se lo pasa. Con la Fase 2 encendida, un `0` borra el pedido en **cualquier** cliente | 🔴 pendiente (tarea 2C) — ver [78](78-CAMBIAR-EL-MODELO-IMPACTO.md) |
 | 🔴 | **Decisión pendiente sobre el modelo de las opciones**: el estado guarda nombres sueltos, no `(grupoId, opcionId)`, y tiene los grupos de La Churra cableados. Explica cinco de los últimos errores | 🔴 **del dueño** — ver [77](77-EL-MODELO-DE-LAS-OPCIONES.md) |
+| 🟠 | **`faltantesDeLaFicha` decide con `ficha.vertical`**, y en `/admin` se llama ANTES de normalizar: una ficha incoherente pasaría la validación y reventaría al generar el prompt | 🔴 pendiente, caso borde |
 | 🟠 | `leerAporte()` es código muerto y la doc dice que se usa | 🔴 pendiente — **confirmado el 17-ago**: sigue sin llamarlo nadie |
 | 🔴 | **`tsconfig` excluye `scripts/`**: el typecheck no los mira, y así `probar-estado.ts` —tarea bloqueante 3— estuvo roto con el gate en verde | 🔴 pendiente |
 | 🟠 | **`medir-extraccion.ts` sigue con el contrato viejo**, a propósito: se rehace con la medición de la regla 13 | 🔴 pendiente |

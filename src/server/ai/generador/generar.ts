@@ -1,3 +1,4 @@
+import type { Vertical } from "@/server/vertical";
 import {
   CIERRE,
   CIERRE_CITAS,
@@ -49,12 +50,13 @@ function vinetas(items: string[] | undefined): string | null {
 /** Lo que el negocio vende y a qué precio. */
 function queOfrece(
   ficha: FichaDelNegocio,
+  vertical: Vertical,
   opciones?: { catalogoEnTabla?: boolean }
 ): string | null {
   // En el vertical de citas el catálogo llega aparte, desde la tabla `service`,
   // ya con precios y duraciones: repetirlo aquí sería una fuente de verdad
   // duplicada y la primera en quedarse vieja.
-  if (ficha.vertical === "citas") return null;
+  if (vertical === "citas") return null;
   // Y desde el 15-ago-2026, lo mismo en pedidos para quien ya tiene su catálogo
   // en `product`: el pipeline lo renderiza fresco en cada turno. Dejarlo también
   // aquí es exactamente la doble fuente que este cambio viene a quitar.
@@ -104,12 +106,12 @@ function comoRecibe(ficha: FichaDelNegocio): string | null {
 }
 
 /** Cómo le pagan. */
-function comoPagan(ficha: FichaDelNegocio): string {
+function comoPagan(ficha: FichaDelNegocio, vertical: Vertical): string {
   const { pago } = ficha;
   // Un salón no tiene "pedidos" que dejar en firme, tiene citas. El vocabulario
   // de pedidos colándose en el vertical de citas ya se había visto en las
   // pruebas del 7-ago-2026 ("gracias por tu compra" en un salón de belleza).
-  const loQueSeDejaEnFirme = ficha.vertical === "citas" ? "la cita" : "el pedido";
+  const loQueSeDejaEnFirme = vertical === "citas" ? "la cita" : "el pedido";
   return bloques(
     "## Cómo te pagan",
     `Formas de pago: ${pago.formas.trim()}`,
@@ -136,8 +138,20 @@ export function generarPerfil(
    * pipeline se lo inyecta fresco en cada turno, así que el prompt NO debe
    * llevarlo. Lo decide `agent_profile.catalog_source`, no la ficha.
    */
-  opciones?: { catalogoEnTabla?: boolean }
+  opciones?: {
+    catalogoEnTabla?: boolean;
+    /**
+     * El vertical CONTRATADO, que sale de `agent_profile.appointments_enabled`
+     * — no de la ficha (ver `@/server/vertical`).
+     *
+     * Se cae a `ficha.vertical` solo cuando no se pasa, que es el caso de las
+     * herramientas fuera de línea (`simular:ficha`, `regenerar:flota`). Todo lo
+     * que corre en producción lo pasa.
+     */
+    vertical?: Vertical;
+  }
 ): PerfilGenerado {
+  const vertical: Vertical = opciones?.vertical ?? (ficha.vertical as Vertical);
   const faltan = faltantesDeLaFicha(ficha);
   if (faltan.length > 0) {
     throw new Error(
@@ -152,16 +166,16 @@ export function generarPerfil(
     `Eres la voz de **${ficha.nombre.trim()}**${ficha.ubicacion?.trim() ? ` (${ficha.ubicacion.trim()})` : ""} en WhatsApp. ${ficha.queVende.trim()}`,
     ESTILO,
     `**El tono de este negocio:** ${ficha.tono.trim()}`,
-    meta(ficha.vertical),
-    ficha.vertical === "citas"
+    meta(vertical),
+    vertical === "citas"
       ? "# Lo que ofreces y cómo te pagan"
       : "# Lo que ofreces y cómo se recibe",
-    queOfrece(ficha, opciones),
+    queOfrece(ficha, vertical, opciones),
     // En un salón no hay nada que entregar: el bloque de domicilios acababa
     // diciéndole "no hacemos domicilios, ofrécele recoger" a quien viene a que
     // le hagan las pestañas.
-    ficha.vertical === "citas" ? null : comoRecibe(ficha),
-    comoPagan(ficha),
+    vertical === "citas" ? null : comoRecibe(ficha),
+    comoPagan(ficha, vertical),
     ficha.regalos?.trim()
       ? bloques(
           "## Regalos",
@@ -189,10 +203,10 @@ export function generarPerfil(
     vinetas(ficha.reglasPropias)
       ? `## Reglas propias de este negocio\n\nEstas reglas **mandan sobre todo lo anterior**. Si alguna contradice el orden de preguntas o la forma de escribir que te dije más arriba, haz lo que dice esta sección: son las de este negocio en concreto.\n\n${vinetas(ficha.reglasPropias)}`
       : null,
-    ficha.vertical === "citas" ? CIERRE_CITAS : CIERRE,
+    vertical === "citas" ? CIERRE_CITAS : CIERRE,
     // Solo en pedidos: una cita fuera de hora no se "reagenda sola", se pide
     // para un día que el propio catálogo de horarios ya limita.
-    ficha.vertical === "citas" ? null : FUERA_DE_HORARIO,
+    vertical === "citas" ? null : FUERA_DE_HORARIO,
     NUNCA,
     NO_ENCAJA,
     // Lo propio del negocio se añade al final del bloque universal, no lo

@@ -2,6 +2,8 @@ import { z } from "zod";
 import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
 import { aplicarFicha } from "@/server/ai/generador/aplicar";
 import { faltantesDeLaFicha } from "@/server/ai/generador/ficha";
+import { appointmentsEnabledFor } from "@/server/appointments/queries";
+import { verticalDe } from "@/server/vertical";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import { findOrganization } from "@/server/admin/clients";
 
@@ -91,9 +93,17 @@ export const POST = withPlatformAdmin(
       );
     }
 
-    // Vista previa: generar y devolver, sin tocar la base.
+    /*
+     * Vista previa: generar y devolver, sin tocar la base.
+     *
+     * Con el vertical CONTRATADO, no con el que diga la ficha: si no, la vista
+     * previa enseñaría un prompt distinto del que se va a guardar — y el sitio
+     * donde se revisa un prompt es justo donde no puede mentir.
+     */
     if (new URL(req.url).searchParams.get("vistaPrevia")) {
-      const perfil = generarPerfil(body.data.ficha);
+      const perfil = generarPerfil(body.data.ficha, {
+        vertical: verticalDe(await appointmentsEnabledFor(id)),
+      });
       return Response.json({ vistaPrevia: true, perfil });
     }
 

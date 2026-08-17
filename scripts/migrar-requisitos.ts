@@ -31,7 +31,12 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
-import { leerFicha } from "@/server/ai/generador/leer-ficha";
+import {
+  aSecciones,
+  camposSinDueño,
+  esPorSecciones,
+  leerFicha,
+} from "@/server/ai/generador/leer-ficha";
 import {
   requisitosDe,
   requisitosSugeridos,
@@ -59,6 +64,16 @@ for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
 
 const soloEste = process.argv[2]?.startsWith("org_") ? process.argv[2] : undefined;
 const aplicar = process.argv.includes("--aplicar");
+/**
+ * Devuelve a las secciones una ficha que se guardó aplanada.
+ *
+ * Existe por un error real del 17-ago: la primera versión de este script leyó
+ * con `leerFicha` —que aplana— y guardó eso, destruyendo el modelo por secciones
+ * de dos fichas. Repararlo NO es solo convertir: `aSecciones` reparte por una
+ * lista escrita a mano y **tira lo que no esté en ella**, así que aquí se
+ * comprueba la ida y la vuelta antes de escribir una sola fila.
+ */
+const repararForma = process.argv.includes("--reparar-forma");
 
 async function main() {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
@@ -79,12 +94,86 @@ async function main() {
 
   let migradas = 0;
   for (const p of objetivo) {
+    /*
+     * ⚠️ `leerFicha` APLANA: devuelve la ficha lista para el generador, sin sus
+     * secciones. Guardar eso tal cual **destruye el modelo por secciones** —que
+     * es lo que impide que el cuestionario del cliente pise lo que escribió la
+     * agencia— y pasó de verdad el 17-ago con estas dos fichas. Por eso se
+     * mira la forma ORIGINAL y se devuelve en la misma.
+     */
+    const original = (() => {
+      try {
+        return JSON.parse(p.ficha ?? "");
+      } catch {
+        return null;
+      }
+    })();
+    const guardarPorSecciones = esPorSecciones(original);
     const cruda = leerFicha(p.ficha);
     if (!cruda) {
       console.log(`— ${p.organizationId}: sin ficha (prompt manual). Se salta.`);
       continue;
     }
     const ficha = cruda as unknown as FichaDelNegocio;
+
+    if (repararForma) {
+      if (guardarPorSecciones) {
+        console.log(`✔ ${p.organizationId}: ya está por secciones. No se toca.`);
+        continue;
+      }
+      const sinDueño = camposSinDueño(ficha);
+      const enSecciones = aSecciones(ficha);
+      /*
+       * Se compara el CONTENIDO, no la serialización: al repartir por secciones
+       * y volver a juntar, el orden de las claves cambia y `JSON.stringify` las
+       * daba por distintas siendo idénticas. Con las claves ordenadas, la
+       * comparación dice lo que se quiere saber — si se perdió algo.
+       */
+      const canonico = (o: unknown): string =>
+        JSON.stringify(o, (_k, v) =>
+          v && typeof v === "object" && !Array.isArray(v)
+            ? Object.fromEntries(Object.entries(v as object).sort(([a], [b]) => a.localeCompare(b)))
+            : v
+        );
+      const iguales = canonico(leerFicha(JSON.stringify(enSecciones))) === canonico(cruda);
+
+      console.log(`
+▸ ${p.organizationId}`);
+      console.log(`    campos sin dueño : ${sinDueño.length ? sinDueño.join(", ") : "ninguno"}`);
+      console.log(`    ida y vuelta     : ${iguales ? "IDÉNTICA" : "⚠️ DISTINTA"}`);
+
+      if (sinDueño.length || !iguales) {
+        console.log("    ⛔ NO se repara: la conversión perdería algo.");
+        continue;
+      }
+      if (!aplicar) {
+        migradas++;
+        continue;
+      }
+      await conRegistro(
+        {
+          tabla: "agent_profile",
+          registro: p.organizationId,
+          leerFila: async () => {
+            const [f] = await db
+              .select()
+              .from(schema.agentProfile)
+              .where(eq(schema.agentProfile.organizationId, p.organizationId));
+            return (f as unknown as Record<string, unknown>) ?? null;
+          },
+          declarados: ["ficha", "updatedAt"],
+          proceso: "migrar:requisitos --reparar-forma",
+          actor: "script:migrar-requisitos",
+        },
+        async () =>
+          db
+            .update(schema.agentProfile)
+            .set({ ficha: JSON.stringify(enSecciones), updatedAt: new Date() })
+            .where(eq(schema.agentProfile.organizationId, p.organizationId))
+      );
+      migradas++;
+      continue;
+    }
 
     if (requisitosDe(ficha)) {
       console.log(`✔ ${p.organizationId}: ya los declara. No se toca.`);
@@ -102,7 +191,10 @@ async function main() {
       continue;
     }
 
-    const nueva = JSON.stringify({ ...cruda, cierre: { requisitos: sugeridos } });
+    const conCierre = { ...cruda, cierre: { requisitos: sugeridos } } as FichaDelNegocio;
+    const nueva = JSON.stringify(
+      guardarPorSecciones ? aSecciones(conCierre) : conCierre
+    );
     await conRegistro(
       {
         tabla: "agent_profile",

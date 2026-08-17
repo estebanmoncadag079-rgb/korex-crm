@@ -212,7 +212,7 @@ describe("lo que el backend le recuerda al modelo", () => {
       totalCents: 1000000,
     };
     const texto = comoTexto(e, CHURRITA, REQUISITOS);
-    expect(texto).toContain("el celular: ya la dio");
+    expect(texto).toContain("el celular: ya está");
     expect(texto).not.toContain("3001234567"); // el dato no se repite en el prompt
     expect(texto).toContain("$10.000");
   });

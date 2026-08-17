@@ -155,7 +155,7 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
     expect(texto).toContain("REVISIÓN DE FRENOS");
     expect(texto).toContain("tipo de pastilla: cerámica");
     // La placa es `documento`: se dice que ya la dio, no se repite el dato.
-    expect(texto).toContain("la placa del vehículo: ya la dio");
+    expect(texto).toContain("la placa del vehículo: ya está");
     expect(texto).not.toContain("ABC123");
   });
 });

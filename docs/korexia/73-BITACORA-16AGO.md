@@ -479,6 +479,42 @@ escrita al lado.
 > y falla en Lis, no habremos construido una plataforma — habremos automatizado
 > La Churra.**
 
+### 17-ago, 08:20 · `migrar:requisitos` aplicado — y el error que cometí al aplicarlo
+
+**Objetivo**: escribir los requisitos de cierre en las fichas, prerrequisito del
+encendido. **Primera escritura en datos de producción de toda la semana.**
+**Archivos**: `scripts/migrar-requisitos.ts` · `ai/generador/leer-ficha.ts`
+(`cierre` a la sección `flujo`) · `ai/generador/ficha.ts` y `orders/extraer.ts`
+(las etiquetas) · 2 pruebas.
+**Riesgos**: se materializó uno, ver abajo.
+**Evidencia**: La Churra con 3 requisitos, el salón con 1, el prompt de ambos
+intacto (17.312 y 6.888 caracteres), `schema_version: 2` restaurado.
+**Reversión**: quitar `cierre` del JSON de las dos fichas; mientras la Fase 2
+siga apagada, nadie los lee.
+**Estado**: terminado, con el desvío corregido.
+
+> 🔴 **Rompí el modelo por secciones, y lo cuento entero.**
+>
+> El script leía con `leerFicha()` —que **aplana** la ficha a propósito, para
+> dársela al generador— y guardaba **eso**. Resultado: las dos fichas perdieron
+> `schema_version`, `negocio`, `flujo` y `politicas`, que es exactamente el
+> modelo construido el 15-ago para que el cuestionario del cliente no pise lo que
+> escribió la agencia.
+>
+> Lo destapó una verificación de rutina: `vertical` salió vacío al consultarlo
+> por su sección.
+>
+> **Lo que impidió que fuera peor**: al reparar, el guardarraíl de ida y vuelta
+> se negó a escribir dos veces —`aSecciones` reparte por una lista escrita a
+> mano y **tira lo que no esté en ella**—. La primera negativa era un falso
+> positivo mío (comparaba serializaciones y el orden de las claves cambia); la
+> segunda comparación, ya por contenido, dio **IDÉNTICA** y cero campos sin
+> dueño. Solo entonces se escribió.
+>
+> 🔑 **La lección, y es vieja**: `leerFicha` no devuelve la ficha, devuelve **una
+> lectura de la ficha**. Guardar lo que te dio un lector es la forma más rápida
+> de perder lo que el lector no necesitaba.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

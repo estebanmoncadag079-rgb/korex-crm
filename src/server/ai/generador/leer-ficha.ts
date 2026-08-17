@@ -39,7 +39,7 @@ export const SECCIONES = {
     "preguntasFrecuentes",
   ],
   /** Lo que ajusta el operador: el orden y las palabras de la conversación. */
-  flujo: ["reglasPropias", "saludoInicial"],
+  flujo: ["reglasPropias", "saludoInicial", "cierre"],
   /**
    * Las reglas que se escriben **después de un incidente**: cuándo pasar a una
    * persona y qué no se puede prometer nunca (salud, por ejemplo).

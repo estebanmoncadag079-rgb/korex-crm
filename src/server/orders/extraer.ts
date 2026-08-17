@@ -154,7 +154,13 @@ export function comoTexto(
     const valor = estado.datos[r.id];
     if (!valor?.trim()) continue;
     const personal = r.tipo !== "texto";
-    partes.push(personal ? `${r.etiqueta}: ya la dio` : `${r.etiqueta}: ${valor}`);
+    /*
+     * "ya está" y no "ya la dio": la etiqueta la escribe cada negocio y puede
+     * ser masculina, femenina o plural. Un texto con género dentro se rompe con
+     * la primera etiqueta que no lo comparta — "el celular de contacto: ya la
+     * dio".
+     */
+    partes.push(personal ? `${r.etiqueta}: ya está` : `${r.etiqueta}: ${valor}`);
   }
 
   const falta = loQueFalta(estado, producto, requisitos);

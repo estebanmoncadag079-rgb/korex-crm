@@ -300,11 +300,11 @@ export function requisitosDe(ficha: FichaDelNegocio): Requisito[] | undefined {
  */
 export function requisitosSugeridos(ficha: FichaDelNegocio): Requisito[] {
   const sugeridos: Requisito[] = [
-    { id: "nombre", tipo: "texto", etiqueta: "¿a nombre de quién?", obligatorio: true },
+    { id: "nombre", tipo: "texto", etiqueta: "el nombre de quien lo pide", obligatorio: true },
   ];
   if (ficha.vertical === "pedidos") {
     sugeridos.push(
-      { id: "telefono", tipo: "telefono", etiqueta: "un celular de contacto", obligatorio: true },
+      { id: "telefono", tipo: "telefono", etiqueta: "el celular de contacto", obligatorio: true },
       {
         id: "direccion",
         tipo: "direccion",

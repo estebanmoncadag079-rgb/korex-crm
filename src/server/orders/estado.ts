@@ -18,6 +18,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
+import type { Requisito } from "@/server/ai/generador/ficha";
 import { normalizarPedido, type EstadoPropuesto, type OpcionElegida } from "./normalizar";
 import type { Actor } from "@/server/registro-de-cambios";
 import { paraLog } from "@/server/registro-de-cambios";
@@ -26,12 +27,17 @@ import { paraLog } from "@/server/registro-de-cambios";
  * La forma del estado. Cambiarla obliga a subir `SCHEMA_VERSION`.
  *
  * **v2 (17-ago-2026)**: las tres listas con nombre de La Churra —`salsas`,
- * `recubierto`, `adiciones`— se sustituyen por una `seleccion` genérica. Se pudo
- * hacer sin migración porque `conversation_state` estaba **vacía**: 0 filas y 0
- * organizaciones, verificado en producción ese día. Con un solo pedido vivo, el
- * mismo cambio habría significado perderlo.
+ * `recubierto`, `adiciones`— se sustituyen por una `seleccion` genérica.
+ *
+ * **v3 (17-ago-2026)**: `entrega{nombre,telefono,direccion}` —los datos de un
+ * negocio que reparte a domicilio— se sustituye por `datos`, indexado por los
+ * requisitos que declara cada ficha.
+ *
+ * Las dos se pudieron hacer sin migración porque `conversation_state` estaba
+ * **vacía**: 0 filas y 0 organizaciones, verificado en producción ese día. Con
+ * un solo pedido vivo, el mismo cambio habría significado perderlo.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export type EstadoDelPedido = {
   schema_version: number;
@@ -51,11 +57,13 @@ export type EstadoDelPedido = {
    * son dos salsas, que es como pide la gente.
    */
   seleccion: OpcionElegida[];
-  entrega: {
-    nombre: string | null;
-    telefono: string | null;
-    direccion: string | null;
-  };
+  /**
+   * Lo que el negocio pidió para poder cerrar, indexado por el `id` de su
+   * requisito. **Todo este bloque es dato personal**: es lo que el cliente
+   * cuenta sobre sí mismo, así que el registro de cambios lo trata como tal sin
+   * necesidad de una lista de campos que alguien tenga que mantener.
+   */
+  datos: Record<string, string | null>;
   /** Lo calcula el servidor. NUNCA el número que diga el modelo. */
   totalCents: number | null;
   /** Texto libre: el modelo devuelve etiquetas que ningún enum previó. */
@@ -69,7 +77,7 @@ export function estadoVacio(): EstadoDelPedido {
     schema_version: SCHEMA_VERSION,
     producto: { id: null, nombre: null, cantidad: 1 },
     seleccion: [],
-    entrega: { nombre: null, telefono: null, direccion: null },
+    datos: {},
     totalCents: null,
     paso: "sin pedido",
     confirmado: false,
@@ -104,7 +112,9 @@ export type Validacion = {
 export function validarPropuesta(
   propuesta: PropuestaDelModelo,
   catalogo: ProductoDelCatalogo[],
-  unidadesPorProducto?: Record<string, number>
+  unidadesPorProducto?: Record<string, number>,
+  /** Lo que ESTE negocio pide para cerrar. Sale de su ficha, no de aquí. */
+  requisitos: Requisito[] = []
 ): Validacion {
   const rechazos: string[] = [];
 
@@ -113,12 +123,11 @@ export function validarPropuesta(
       producto: propuesta.producto,
       cantidad: propuesta.cantidad,
       opciones: propuesta.opciones ?? [],
-      nombre: propuesta.nombre,
-      telefono: propuesta.telefono,
-      direccion: propuesta.direccion,
+      datos: propuesta.datos ?? {},
     },
     catalogo,
-    unidadesPorProducto
+    unidadesPorProducto,
+    requisitos
   );
 
   /*
@@ -146,11 +155,7 @@ export function validarPropuesta(
       cantidad: Number.isInteger(cantidad) && cantidad >= 1 ? cantidad : 1,
     },
     seleccion: r.estado.seleccion,
-    entrega: {
-      nombre: propuesta.nombre ?? null,
-      telefono: propuesta.telefono ?? null,
-      direccion: propuesta.direccion ?? null,
-    },
+    datos: propuesta.datos ?? {},
     totalCents: r.estado.totalCents,
     // `paso` llega como número cuando el prompt del negocio numera sus mensajes.
     paso: String(propuesta.paso ?? "sin pedido"),
@@ -167,9 +172,16 @@ export function validarPropuesta(
   if (confirmado) {
     if (!estado.producto.id) rechazos.push("confirmado sin producto resuelto");
     if (estado.totalCents === null) rechazos.push("confirmado sin total calculado");
-    if (!estado.entrega.nombre?.trim()) rechazos.push("confirmado sin nombre");
-    if (!estado.entrega.telefono?.trim()) rechazos.push("confirmado sin teléfono");
-    if (!estado.entrega.direccion?.trim()) rechazos.push("confirmado sin dirección");
+    /*
+     * Y lo que pida el negocio, ni más ni menos. Antes eran tres `if` con
+     * nombre, teléfono y dirección dentro del validador del núcleo: un salón
+     * que no entrega nada no podía confirmar una cita jamás.
+     */
+    for (const r of requisitos) {
+      if (r.obligatorio && !estado.datos[r.id]?.trim()) {
+        rechazos.push(`confirmado sin ${r.etiqueta}`);
+      }
+    }
   }
 
   /*
@@ -289,9 +301,9 @@ function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
     "producto.nombre": e.producto.nombre,
     "producto.cantidad": e.producto.cantidad,
     seleccion: e.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`).join(", "),
-    "entrega.nombre": e.entrega.nombre,
-    "entrega.telefono": e.entrega.telefono,
-    "entrega.direccion": e.entrega.direccion,
+    // Una clave por dato recogido: `datos.telefono`, `datos.mesa`… Todas
+    // personales, porque el bloque entero lo es.
+    ...Object.fromEntries(Object.entries(e.datos).map(([id, v]) => [`datos.${id}`, v])),
     totalCents: e.totalCents,
     paso: e.paso,
     confirmado: e.confirmado,

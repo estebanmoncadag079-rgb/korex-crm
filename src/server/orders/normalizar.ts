@@ -19,6 +19,7 @@
  *   con certeza, lo dice — no adivina. Adivinar es cobrar de más.
  */
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
+import type { Requisito } from "@/server/ai/generador/ficha";
 
 /**
  * Una opción tal como la propone el modelo: **por nombre, nunca por id**.
@@ -70,10 +71,18 @@ export type EstadoPropuesto = {
    * **Es una lista, no un conjunto**: `[arequipe, arequipe]` son dos salsas.
    */
   opciones: OpcionPropuesta[];
-  /** Los tres datos de entrega. Sin ellos el pedido no se puede despachar. */
-  nombre?: string | null;
-  telefono?: string | null;
-  direccion?: string | null;
+  /**
+   * Lo que el cliente ha ido dando de lo que su negocio pide para cerrar,
+   * indexado por el `id` del requisito.
+   *
+   * Sustituye a `nombre` / `telefono` / `direccion` (17-ago-2026): eran los tres
+   * datos de un negocio que entrega a domicilio, escritos dentro del núcleo. Un
+   * salón arrastraba una dirección que nadie iba a darle.
+   *
+   * **Nunca se interpreta solo**: sin los `Requisito` de la ficha no se sabe
+   * cuál falta, cuál es obligatorio ni cómo se llama.
+   */
+  datos: Record<string, string | null>;
 };
 
 export type Correccion = {
@@ -152,7 +161,12 @@ export function normalizarPedido(
    * es irresoluble para el backend. Se recibe como parámetro, y su ausencia se
    * declara como duda en lugar de fingir que no existe el problema.
    */
-  unidadesPorProducto?: Record<string, number>
+  unidadesPorProducto?: Record<string, number>,
+  /**
+   * Qué pide ESTE negocio para cerrar, en su orden. Sale de la ficha
+   * (`requisitosDe`), nunca de una lista escrita aquí.
+   */
+  requisitos: Requisito[] = []
 ): Resultado {
   const correcciones: Correccion[] = [];
   const dudas: Duda[] = [];
@@ -462,10 +476,8 @@ export function normalizarPedido(
    * 1` que no esté completo es algo que falta, se llame *salsas*, *tamaño* o
    * *diseño de uñas*.
    *
-   * ⚠️ Los tres datos de entrega siguen aquí, y **siguen siendo lo de La
-   * Churra**: un salón no entrega nada a domicilio. Convertirlos en
-   * configuración es el paso 3 de
-   * [79-ARQUITECTURA-MULTIEMPRESA.md](../../../docs/korexia/79-ARQUITECTURA-MULTIEMPRESA.md).
+   * Y los datos de cierre salen de los REQUISITOS que declara el negocio: ni
+   * este archivo ni ninguno del núcleo sabe qué es un teléfono.
    */
   const faltaParaCerrar: string[] = [];
   if (!producto) faltaParaCerrar.push("presentación");
@@ -476,9 +488,12 @@ export function normalizarPedido(
       if (elegidas < g.minimo) faltaParaCerrar.push(g.nombre.toLowerCase());
     }
   }
-  if (!propuesto.nombre?.trim()) faltaParaCerrar.push("nombre");
-  if (!propuesto.telefono?.trim()) faltaParaCerrar.push("teléfono");
-  if (!propuesto.direccion?.trim()) faltaParaCerrar.push("dirección");
+  for (const r of requisitos) {
+    if (!r.obligatorio) continue;
+    // La ETIQUETA, no el id: es lo que se le enseña a alguien, y `loQueFalta`
+    // usa la misma. Dos formas de nombrar lo mismo es como empiezan los líos.
+    if (!propuesto.datos?.[r.id]?.trim()) faltaParaCerrar.push(r.etiqueta);
+  }
 
   return {
     faltaParaCerrar,

@@ -19,6 +19,40 @@
 
 import { normalizarHora } from "@/lib/hora";
 
+/**
+ * Un dato que el negocio necesita reunir antes de cerrar.
+ *
+ * **Es del CRM, no del núcleo.** El backend no sabe —ni tiene por qué— que un
+ * pedido a domicilio necesita una dirección o que una cita necesita un nombre:
+ * lo declara cada negocio, y el núcleo se limita a exigir lo declarado.
+ *
+ * Antes esto eran tres campos escritos dentro del validador
+ * (`nombre`, `telefono`, `direccion`), así que un salón —que no entrega nada—
+ * arrastraba una dirección que nadie iba a dar.
+ */
+export type Requisito = {
+  /** Con el que se guarda el valor. Estable: cambiarlo pierde lo ya recogido. */
+  id: string;
+  /**
+   * Qué ES el dato. Hoy sirve al prompt y al log; **todavía no valida formato**
+   * —hoy no se valida ninguno—, y prometerlo sin hacerlo sería peor que no
+   * declararlo.
+   */
+  tipo: "texto" | "telefono" | "direccion" | "email" | "documento";
+  /** Cómo se le pide al cliente, con las palabras del negocio. */
+  etiqueta: string;
+  /** Sin él no se puede confirmar. */
+  obligatorio: boolean;
+  /**
+   * Solo hace falta si este campo de la ficha es cierto. Es una REFERENCIA,
+   * no una expresión: sin operadores ni comparaciones. Un mini-lenguaje de
+   * condiciones acaba siendo un intérprete dentro del CRM.
+   *
+   * Ej.: `"entrega.haceDomicilios"`.
+   */
+  soloSi?: string;
+};
+
 /** Cómo entrega el negocio lo que vende. */
 export type Entrega = {
   /** ¿Hace domicilios? Si es `false`, el resto de este bloque se ignora. */
@@ -91,6 +125,16 @@ export type FichaDelNegocio = {
    * `pedidos` cierra ventas; `citas` agenda en el calendario.
    */
   vertical: "pedidos" | "citas";
+
+  /**
+   * Qué hay que reunir para cerrar, en el orden en que se pide.
+   *
+   * Opcional **solo por compatibilidad**: los negocios dados de alta antes del
+   * 17-ago-2026 no lo traen, y reescribir sus fichas para desplegar una
+   * refactorización sería tocar datos de producción por comodidad. Cuando falta,
+   * `requisitosDe()` devuelve los de su vertical.
+   */
+  cierre?: { requisitos: Requisito[] };
 
   // ── 2. Qué ofrece y a qué precio ───────────────────────────────────────────
   /**
@@ -210,4 +254,60 @@ export function faltantesDeLaFicha(ficha: Partial<FichaDelNegocio>): string[] {
     faltan.push("quién paga el domicilio y cuándo");
   }
   return faltan;
+}
+
+/**
+ * Los requisitos de cierre de un negocio, ya resueltos.
+ *
+ * ⚠️ **Aquí vive el único valor por defecto de todo esto, y es deuda
+ * declarada.** Los cuatro negocios dados de alta antes del 17-ago-2026 no
+ * traen `cierre` en su ficha; sin este respaldo, desplegar el cambio los
+ * dejaría cerrando pedidos sin pedir un nombre ni un teléfono. La alternativa
+ * era reescribir cuatro fichas de producción para poder refactorizar, que es
+ * exactamente lo que este proyecto no hace.
+ *
+ * **Vive en la ficha —el CRM— y no en el núcleo**: `estado.ts`, `normalizar.ts`,
+ * `extraer.ts` y `pipeline.ts` no saben qué es un teléfono. Y se borra el día
+ * que las cuatro fichas declaren lo suyo: entonces esta función se queda solo
+ * con la primera línea.
+ */
+export function requisitosDe(ficha: FichaDelNegocio): Requisito[] {
+  const declarados = ficha.cierre?.requisitos;
+  if (declarados?.length) return declarados.filter((r) => aplica(r, ficha));
+
+  const porDefecto: Requisito[] =
+    ficha.vertical === "citas"
+      ? [{ id: "nombre", tipo: "texto", etiqueta: "¿a nombre de quién?", obligatorio: true }]
+      : [
+          { id: "nombre", tipo: "texto", etiqueta: "¿a nombre de quién?", obligatorio: true },
+          {
+            id: "telefono",
+            tipo: "telefono",
+            etiqueta: "un celular de contacto",
+            obligatorio: true,
+          },
+          {
+            id: "direccion",
+            tipo: "direccion",
+            etiqueta: "la dirección de entrega",
+            obligatorio: true,
+            soloSi: "entrega.haceDomicilios",
+          },
+        ];
+  return porDefecto.filter((r) => aplica(r, ficha));
+}
+
+/**
+ * ¿Hace falta este requisito para ESTE negocio?
+ *
+ * `soloSi` es una referencia a un campo de la ficha —`"entrega.haceDomicilios"`—
+ * y se lee tal cual. Sin operadores: en cuanto se admite `!=` o `&&`, esto deja
+ * de ser configuración y pasa a ser un lenguaje que alguien tiene que mantener.
+ */
+function aplica(requisito: Requisito, ficha: FichaDelNegocio): boolean {
+  if (!requisito.soloSi) return true;
+  const valor = requisito.soloSi
+    .split(".")
+    .reduce<unknown>((obj, clave) => (obj as Record<string, unknown>)?.[clave], ficha);
+  return Boolean(valor);
 }

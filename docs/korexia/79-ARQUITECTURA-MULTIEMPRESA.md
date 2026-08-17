@@ -69,7 +69,7 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | Paso | Qué | Estado |
 |---|---|---|
 | **1** | **La selección genérica.** Solo eso. Sin tocar citas | ✅ **hecho el 17-ago** |
-| **1.5** | 🔴 **`entrega` fuera del núcleo**: los requisitos de cierre los declara cada negocio | 🔄 **auditado** ([81](81-REQUISITOS-DECLARATIVOS.md)), sin implementar |
+| **1.5** | **`entrega` fuera del núcleo**: los requisitos los declara cada negocio | ✅ **hecho el 17-ago** ([81](81-REQUISITOS-DECLARATIVOS.md)) |
 | **2** | **Un solo dueño para el vertical** | ✅ **hecho el 17-ago** |
 | **3** | **Opciones en los servicios.** Un salón no puede describir *manicura → con esmalte · diseño sencillo · diseño elaborado*: hoy acaba en texto libre del prompt | ⬜ |
 | **4** | **Citas entra en la Fase 2** | ⬜ |

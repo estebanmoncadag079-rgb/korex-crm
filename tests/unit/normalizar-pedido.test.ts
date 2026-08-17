@@ -57,6 +57,7 @@ const vacio = {
   producto: null,
   cantidad: null,
   opciones: [] as { grupo?: string | null; opcion: string }[],
+  datos: {} as Record<string, string | null>,
 };
 
 /** Azúcar sintáctico para las pruebas: `sal("arequipe","arequipe")`. */
@@ -247,10 +248,23 @@ describe("el flujo completo del pedido", () => {
 
   const rec = (n: string) => [{ grupo: "RECUBIERTO", opcion: n }];
 
+  /** Lo que este negocio pide para cerrar. Sale de SU ficha, no del núcleo. */
+  const REQUISITOS = [
+    { id: "nombre", tipo: "texto" as const, etiqueta: "nombre", obligatorio: true },
+    { id: "telefono", tipo: "telefono" as const, etiqueta: "teléfono", obligatorio: true },
+    { id: "direccion", tipo: "direccion" as const, etiqueta: "dirección", obligatorio: true },
+  ];
+
   it("dice todo lo que falta, y los nombres los pone el CATÁLOGO", () => {
-    const r = normalizarPedido({ ...vacio, producto: "churrita" }, CARTA_COMPLETA, UNIDADES);
-    // "salsa" y "recubierto" salen de `grupos[].nombre`, no de una lista escrita
-    // en el código: un salón vería aquí "esmalte" o "diseño".
+    const r = normalizarPedido(
+      { ...vacio, producto: "churrita" },
+      CARTA_COMPLETA,
+      UNIDADES,
+      REQUISITOS
+    );
+    // NADA de esto está escrito en el núcleo: "salsa" y "recubierto" salen de
+    // `grupos[].nombre`, y los tres últimos, de los requisitos de la ficha. Un
+    // salón vería aquí "esmalte" y "a nombre de quién".
     expect(r.faltaParaCerrar).toEqual(["salsa", "recubierto", "nombre", "teléfono", "dirección"]);
   });
 
@@ -260,12 +274,11 @@ describe("el flujo completo del pedido", () => {
         producto: "churrita",
         cantidad: 1,
         opciones: [...sal("arequipe"), ...rec("azúcar-canela"), ...adi("botella de agua")],
-        nombre: "Andrea",
-        telefono: "3001234567",
-        direccion: "Cra 5 #10-20",
+        datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #10-20" },
       },
       CARTA_COMPLETA,
-      UNIDADES
+      UNIDADES,
+      REQUISITOS
     );
     expect(r.faltaParaCerrar).toEqual([]);
     expect(r.estado.totalCents).toBe(1200000); // $10.000 + $2.000 de la botella

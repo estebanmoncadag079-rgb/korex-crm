@@ -14,6 +14,7 @@
  * lo vuelvo a pedir"* sin que el prompt tenga que suplicarlo.
  */
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
+import type { Requisito } from "@/server/ai/generador/ficha";
 import type { EstadoDelPedido } from "./estado";
 
 export type Aporte = {
@@ -46,9 +47,10 @@ const CAMPOS: { campo: string; leer: (e: EstadoDelPedido) => unknown }[] = [
   // Lo elegido va como una sola entrada: los grupos los pone el negocio, no
   // este archivo. Antes había una línea por grupo de La Churra.
   { campo: "opciones", leer: (e) => e.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`) },
-  { campo: "nombre", leer: (e) => e.entrega.nombre },
-  { campo: "telefono", leer: (e) => e.entrega.telefono },
-  { campo: "direccion", leer: (e) => e.entrega.direccion },
+  // Los datos de cierre NO están aquí: los declara cada negocio y entran por
+  // `requisitos`. Poner una lista fija sería devolver al núcleo lo que el CRM
+  // acaba de recuperar.
+  { campo: "datos", leer: (e) => e.datos },
   { campo: "confirmado", leer: (e) => e.confirmado },
 ];
 
@@ -92,7 +94,9 @@ export function leerAporte(
 export function loQueFalta(
   estado: EstadoDelPedido,
   /** El producto del catálogo, con SUS grupos. `undefined` = aún sin elegir. */
-  producto?: ProductoDelCatalogo
+  producto?: ProductoDelCatalogo,
+  /** Lo que este negocio pide para cerrar, en su orden. */
+  requisitos: Requisito[] = []
 ): string[] {
   const falta: string[] = [];
   if (!estado.producto.id) {
@@ -108,9 +112,10 @@ export function loQueFalta(
       if (elegidas < g.minimo) falta.push(g.nombre.toLowerCase());
     }
   }
-  if (!estado.entrega.nombre?.trim()) falta.push("nombre");
-  if (!estado.entrega.telefono?.trim()) falta.push("teléfono");
-  if (!estado.entrega.direccion?.trim()) falta.push("dirección");
+  // En el orden en que el negocio los declaró: ese orden ES la configuración.
+  for (const r of requisitos) {
+    if (r.obligatorio && !estado.datos[r.id]?.trim()) falta.push(r.etiqueta);
+  }
   return falta;
 }
 
@@ -122,7 +127,8 @@ export function loQueFalta(
  */
 export function comoTexto(
   estado: EstadoDelPedido,
-  producto?: ProductoDelCatalogo
+  producto?: ProductoDelCatalogo,
+  requisitos: Requisito[] = []
 ): string {
   if (!estado.producto.id && estado.seleccion.length === 0) return "";
 
@@ -139,11 +145,19 @@ export function comoTexto(
   for (const [grupo, nombres] of porGrupo) {
     partes.push(`${grupo.toLowerCase()}: ${nombres.join(", ")}`);
   }
-  if (estado.entrega.nombre) partes.push(`nombre: ${estado.entrega.nombre}`);
-  if (estado.entrega.telefono) partes.push("teléfono: ya lo dio");
-  if (estado.entrega.direccion) partes.push("dirección: ya la dio");
+  /*
+   * Lo ya recogido, con la etiqueta del negocio. Un dato personal no se repite
+   * en el prompt —solo se dice que ya está—; el resto sí, porque el modelo
+   * necesita poder resumirlo.
+   */
+  for (const r of requisitos) {
+    const valor = estado.datos[r.id];
+    if (!valor?.trim()) continue;
+    const personal = r.tipo !== "texto";
+    partes.push(personal ? `${r.etiqueta}: ya la dio` : `${r.etiqueta}: ${valor}`);
+  }
 
-  const falta = loQueFalta(estado, producto);
+  const falta = loQueFalta(estado, producto, requisitos);
   const total =
     estado.totalCents === null
       ? ""

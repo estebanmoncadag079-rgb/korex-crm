@@ -135,8 +135,50 @@ paso 4.
 
 ---
 
+## ✅ Implementado el 17-ago
+
+```ts
+// ANTES — los datos de un negocio que reparte, dentro del núcleo
+entrega: { nombre: string|null; telefono: string|null; direccion: string|null }
+
+// AHORA — lo que declare cada ficha
+datos: Record<string, string | null>          // en el estado
+Requisito { id, tipo, etiqueta, obligatorio, soloSi? }   // en la ficha (CRM)
+```
+
+`SCHEMA_VERSION` **2 → 3**.
+
+### Las cuatro restricciones, cumplidas
+
+**1. `datos` no es un contenedor sin contexto.** El `Requisito` es una entidad
+explícita, y **nada interpreta `datos` sin ellos**: `validarPropuesta`,
+`normalizarPedido`, `loQueFalta` y `comoTexto` los reciben. Se sigue pudiendo
+responder qué falta (los `obligatorio` vacíos, en el orden declarado), qué es
+personal (**todo el bloque**, por definición), qué pide el prompt (las
+`etiqueta`) y qué sale en los logs (`datos.<id>`, clasificado por bloque).
+
+**2. Los requisitos son del CRM.** No hay ninguna lista de campos en
+`extraer.ts`, `estado.ts`, `normalizar.ts` ni `pipeline.ts` — el barrido lo
+confirma: cero apariciones de `telefono` o `direccion` en los cuatro.
+
+> 🔴 **Con una excepción, declarada y no escondida**: `requisitosDe()` en
+> `ficha.ts` tiene un valor por defecto por vertical. Vive en el CRM y no en el
+> núcleo, pero **es una lista de campos y hay que llamarla por su nombre**. Está
+> ahí porque las cuatro fichas de producción no declaran `cierre`, y sin ella el
+> despliegue las dejaría cerrando pedidos sin pedir un nombre. **Se borra el día
+> que las cuatro fichas declaren lo suyo.**
+
+**3. Un tercer vertical, demostrado.** `tests/unit/tercer-vertical.test.ts`: un
+**taller de reparaciones** que vende una revisión con opciones (tipo de
+pastilla, urgencia) y necesita **la placa del vehículo** y un número de orden —
+ni dirección, ni teléfono, ni nombre. Cinco pruebas, y **ninguna línea del
+núcleo sabe qué es una placa**. Pasaron a la primera.
+
+**4. La medición de la regla 13**: pendiente de ejecución, **una sola vez**, con
+los dos cambios de prompt dentro (paso 1 y paso 1.5).
+
 ## Estado
 
-**Auditoría terminada. Nada implementado.** Ningún acoplamiento nuevo entre el
+**Auditoría terminada e implementada.** Ningún acoplamiento nuevo entre el
 núcleo y un negocio concreto apareció durante el análisis: el único que queda es
 el que este paso viene a quitar.

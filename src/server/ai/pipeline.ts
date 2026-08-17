@@ -52,6 +52,8 @@ import {
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
 import { resumirTexto } from "@/server/registro-de-cambios";
+import { leerFicha } from "@/server/ai/generador/leer-ficha";
+import { requisitosDe, type FichaDelNegocio, type Requisito } from "@/server/ai/generador/ficha";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
@@ -545,6 +547,11 @@ export async function runAgentTurn(
   const estadoEstructurado = !profile.appointmentsEnabled && profile.stateSource === "backend";
   let bloqueDeEstado: string | undefined;
   let estadoGuardado: EstadoDelPedido | null = null;
+  /**
+   * Qué pide ESTE negocio para cerrar. Sale de su ficha; el núcleo no tiene ni
+   * una lista de campos. Vacío = no hay ficha (Lis, con prompt manual).
+   */
+  let requisitos: Requisito[] = [];
 
   if (estadoEstructurado) {
     const productos = await catalogoDePedidosQuery(organizationId);
@@ -565,8 +572,12 @@ export async function runAgentTurn(
        * "cuántas salsas lleva" y se lo pasaba a `comoTexto` como un número —el
        * grupo de un negocio concreto, dentro del núcleo.
        */
+      const fichaDelNegocio = leerFicha(profile.ficha);
+      requisitos = fichaDelNegocio ? requisitosDe(fichaDelNegocio as FichaDelNegocio) : [];
       const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
-      if (estadoGuardado) bloqueDeEstado = comoTexto(estadoGuardado, delPedido);
+      if (estadoGuardado) {
+        bloqueDeEstado = comoTexto(estadoGuardado, delPedido, requisitos);
+      }
     }
   }
 
@@ -602,7 +613,7 @@ export async function runAgentTurn(
   // Regla 10: el tiempo de extracción se mide sobre la llamada que trae la
   // propuesta, no sobre el turno entero. Con el estado apagado no se mide nada.
   const t0 = estadoEstructurado ? Date.now() : 0;
-  const conEstado = estadoEstructurado ? await chatJsonConEstado(messages) : null;
+  const conEstado = estadoEstructurado ? await chatJsonConEstado(messages, requisitos) : null;
   const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
   const propuestaDelTurno = conEstado?.propuesta;
@@ -620,6 +631,7 @@ export async function runAgentTurn(
       conversationId: conversation.id,
       propuesta: propuestaDelTurno,
       msModelo,
+      requisitos,
     });
   }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
@@ -1624,6 +1636,7 @@ async function guardarEstadoPropuesto(entrada: {
   conversationId: string;
   propuesta: PropuestaDelModelo | undefined;
   msModelo?: number;
+  requisitos: Requisito[];
 }): Promise<void> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
@@ -1652,7 +1665,7 @@ async function guardarEstadoPropuesto(entrada: {
 
   try {
     const productos = await catalogoDePedidosQuery(entrada.organizationId);
-    const v = validarPropuesta(entrada.propuesta, productos);
+    const v = validarPropuesta(entrada.propuesta, productos, undefined, entrada.requisitos);
     if (!v.ok) {
       metrica("rechazado", { validacion: v });
       return;
@@ -1680,7 +1693,8 @@ async function guardarEstadoPropuesto(entrada: {
  * puede relajar el contrato que ya funciona.
  */
 async function chatJsonConEstado(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  requisitos: Requisito[] = []
 ): Promise<{ resultado: ChatJsonResult<AgentActionType>; propuesta?: PropuestaDelModelo }> {
   const EsquemaConEstado = z
     .object({ estado: z.record(z.string(), z.unknown()).optional() })
@@ -1693,7 +1707,13 @@ async function chatJsonConEstado(
       content:
         'Además de la acción, añade al MISMO objeto JSON una clave "estado" con el pedido tal como va: ' +
         '{"producto": …, "cantidad": …, "opciones": [{"grupo": …, "opcion": …}], ' +
-        '"nombre": …, "telefono": …, "direccion": …, "paso": …, "confirmado": false}. ' +
+        `"datos": {${requisitos.map((r) => `"${r.id}": …`).join(", ")}}, ` +
+        '"paso": …, "confirmado": false}. ' +
+        (requisitos.length
+          ? `En "datos" va lo que este negocio necesita para cerrar: ` +
+            requisitos.map((r) => `${r.id} (${r.etiqueta})`).join(", ") +
+            ". "
+          : "") +
         'En "opciones" va CADA cosa que el cliente eligió del catálogo, una entrada por elección ' +
         'y en el orden en que las dijo: si pide dos veces lo mismo, van DOS entradas. ' +
         '"grupo" es el título bajo el que aparece en el catálogo (SALSAS, TAMAÑO, ADICIONES…): ' +

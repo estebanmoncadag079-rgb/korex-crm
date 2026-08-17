@@ -47,11 +47,16 @@ const propuesta = (p: Partial<Parameters<typeof validarPropuesta>[0]> = {}) => (
   producto: "churrita",
   cantidad: 1,
   opciones: sal("arequipe"),
-  nombre: null,
-  telefono: null,
-  direccion: null,
+  datos: {} as Record<string, string | null>,
   ...p,
 });
+
+/** Lo que pide un negocio de pedidos con domicilio. Sale de SU ficha. */
+const REQUISITOS = [
+  { id: "nombre", tipo: "texto" as const, etiqueta: "el nombre", obligatorio: true },
+  { id: "telefono", tipo: "telefono" as const, etiqueta: "el celular", obligatorio: true },
+  { id: "direccion", tipo: "direccion" as const, etiqueta: "la dirección", obligatorio: true },
+];
 
 describe("el backend resuelve, no el modelo", () => {
   it("guarda el ID del producto, no solo el nombre que dijo el modelo", () => {
@@ -123,30 +128,28 @@ describe("estados imposibles", () => {
     producto: "churrita",
     cantidad: 1,
     opciones: sal("arequipe"),
-    nombre: "Andrea",
-    telefono: "3001234567",
-    direccion: "Cra 5 #10-20",
+    datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #10-20" },
     confirmado: true,
   };
 
   it("confirmado sin producto → RECHAZO", () => {
-    const v = validarPropuesta({ ...completo, producto: null }, CARTA, UNIDADES);
+    const v = validarPropuesta({ ...completo, producto: null }, CARTA, UNIDADES, REQUISITOS);
     expect(v.ok).toBe(false);
     expect(v.rechazos.join(" ")).toContain("sin producto");
   });
 
   it("confirmado sin teléfono → RECHAZO", () => {
-    const v = validarPropuesta({ ...completo, telefono: null }, CARTA, UNIDADES);
+    const v = validarPropuesta({ ...completo, datos: { ...completo.datos, telefono: null } }, CARTA, UNIDADES, REQUISITOS);
     expect(v.ok).toBe(false);
-    expect(v.rechazos.join(" ")).toContain("sin teléfono");
+    expect(v.rechazos.join(" ")).toContain("el celular");
   });
 
   it("confirmado sin dirección → RECHAZO", () => {
-    expect(validarPropuesta({ ...completo, direccion: "  " }, CARTA, UNIDADES).ok).toBe(false);
+    expect(validarPropuesta({ ...completo, datos: { ...completo.datos, direccion: "  " } }, CARTA, UNIDADES, REQUISITOS).ok).toBe(false);
   });
 
   it("un pedido completo y confirmado SÍ pasa", () => {
-    const v = validarPropuesta(completo, CARTA, UNIDADES);
+    const v = validarPropuesta(completo, CARTA, UNIDADES, REQUISITOS);
     expect(v.ok).toBe(true);
     expect(v.estado.confirmado).toBe(true);
     expect(v.estado.totalCents).toBe(1000000);
@@ -192,7 +195,12 @@ describe("lo que el backend le recuerda al modelo", () => {
       ...estadoVacio(),
       producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
     };
-    expect(loQueFalta(e, CHURRITA)).toEqual(["salsa", "nombre", "teléfono", "dirección"]);
+    expect(loQueFalta(e, CHURRITA, REQUISITOS)).toEqual([
+      "salsa",
+      "el nombre",
+      "el celular",
+      "la dirección",
+    ]);
   });
 
   it("el bloque del prompt no repite el teléfono, solo dice que ya lo tiene", () => {
@@ -200,11 +208,11 @@ describe("lo que el backend le recuerda al modelo", () => {
       ...estadoVacio(),
       producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
       seleccion: elegidas("arequipe"),
-      entrega: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5" },
+      datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5" },
       totalCents: 1000000,
     };
-    const texto = comoTexto(e, CHURRITA);
-    expect(texto).toContain("teléfono: ya lo dio");
+    const texto = comoTexto(e, CHURRITA, REQUISITOS);
+    expect(texto).toContain("el celular: ya la dio");
     expect(texto).not.toContain("3001234567"); // el dato no se repite en el prompt
     expect(texto).toContain("$10.000");
   });
@@ -273,7 +281,7 @@ describe("las métricas de la regla 10", () => {
 
   it("NO vuelca lo que escribió el cliente: solo el nombre del campo", () => {
     const v = validarPropuesta(
-      propuesta({ nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #4-3" }),
+      propuesta({ datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #4-3" } }),
       CARTA,
       UNIDADES
     );

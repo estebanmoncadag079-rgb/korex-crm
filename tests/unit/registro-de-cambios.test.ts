@@ -310,7 +310,9 @@ describe("qué significa cada dato, no cómo se llama", () => {
     expect(clasificar("agent_profile", "instructions")).toBe("negocio");
     expect(clasificar("agent_profile", "notifyPhones")).toBe("personal");
     expect(clasificar("conversation_state", "producto.id")).toBe("tecnico");
-    expect(clasificar("conversation_state", "entrega.direccion")).toBe("personal");
+    // Por bloque: `datos.<lo que declare el negocio>` hereda de `datos`.
+    expect(clasificar("conversation_state", "datos.direccion")).toBe("personal");
+    expect(clasificar("conversation_state", "datos.numeroDeMesa")).toBe("personal");
     expect(clasificar("kb_entry", "answer")).toBeNull();
   });
 

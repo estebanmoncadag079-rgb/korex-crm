@@ -65,9 +65,6 @@ const SECRETOS = [
  * oculto también, y ahí se pierde trazabilidad de negocio sin ganar privacidad.
  */
 const PERSONALES = [
-  "entrega.nombre",
-  "entrega.telefono",
-  "entrega.direccion",
   "notifyphones",
   "telefono",
   "direccion",
@@ -165,9 +162,15 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
      * caracteres— se volcara entero por no llegar al límite de longitud.
      */
     estado: "personal",
-    "entrega.nombre": "personal",
-    "entrega.telefono": "personal",
-    "entrega.direccion": "personal",
+    /*
+     * Los datos de cierre van por prefijo, no uno a uno: sus claves las declara
+     * cada negocio (`datos.telefono`, `datos.mesa`…) y una lista escrita aquí
+     * volvería a quedarse corta con el primer cliente que declare algo nuevo.
+     *
+     * TODO EL BLOQUE ES PERSONAL por definición: son datos que el cliente
+     * cuenta sobre sí mismo.
+     */
+    datos: "personal",
   },
   /** No es una tabla: son los campos de `registrarMetricaDeEstado`. */
   metrica: {
@@ -180,7 +183,15 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
 
 /** Qué es este campo, o `null` si nadie lo ha clasificado todavía. */
 export function clasificar(tabla: string, campo: string): Clase | null {
-  return CLASIFICACION[tabla]?.[campo] ?? null;
+  const directa = CLASIFICACION[tabla]?.[campo];
+  if (directa) return directa;
+  /*
+   * Los campos con prefijo se clasifican por su bloque: `datos.telefono` hereda
+   * de `datos`. Es lo que permite que un negocio declare un requisito nuevo sin
+   * que su valor acabe en el log por no estar en ninguna lista.
+   */
+  const bloque = campo.split(".")[0];
+  return bloque && bloque !== campo ? (CLASIFICACION[tabla]?.[bloque] ?? null) : null;
 }
 
 /** Las tablas que ya se pueden instrumentar. Para la prueba de la regla 11. */

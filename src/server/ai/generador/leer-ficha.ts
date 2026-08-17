@@ -59,6 +59,23 @@ export type FichaPorSecciones = {
 };
 
 /** ¿Viene ya por secciones? Lo dice el propio JSON, sin columna aparte. */
+/**
+ * Una ficha **aplanada**: la que devuelve `leerFicha`, lista para el generador.
+ *
+ * 🔴 **No es la ficha. Es una LECTURA de la ficha.** Le faltan las secciones
+ * —`negocio`, `flujo`, `politicas`— y su `schema_version`, porque el generador
+ * no los necesita. Persistirla tal cual **destruye el modelo por secciones**, y
+ * eso pasó de verdad el 17-ago con dos fichas de producción.
+ *
+ * La marca existe para que se vea en las firmas de qué se está hablando: nadie
+ * puede fabricar una `FichaAplanada` fuera de este módulo, así que cuando una
+ * función la recibe, se sabe de dónde viene.
+ *
+ * **Para guardar hay una sola puerta: `serializarComoEstaba()`.**
+ */
+declare const APLANADA: unique symbol;
+export type FichaAplanada = FichaDelNegocio & { readonly [APLANADA]: true };
+
 export function esPorSecciones(obj: unknown): obj is FichaPorSecciones {
   if (!obj || typeof obj !== "object") return false;
   const o = obj as Record<string, unknown>;
@@ -188,12 +205,15 @@ export function serializarComoEstaba(
 }
 
 /**
- * Lee la ficha guardada, venga como venga.
+ * Lee la ficha guardada, venga como venga, y la devuelve **APLANADA**.
+ *
+ * ⚠️ Lo que sale de aquí **no se guarda directamente**: para eso está
+ * `serializarComoEstaba()`, que la devuelve a la forma en que estaba.
  *
  * @returns `null` si no hay ficha (prompt manual, como Lis) o si el JSON está
  *   roto — que es lo mismo que había antes: no se toca a quien no se entiende.
  */
-export function leerFicha(cruda: string | null | undefined): FichaDelNegocio | null {
+export function leerFichaAplanada(cruda: string | null | undefined): FichaAplanada | null {
   if (!cruda?.trim()) return null;
   let obj: unknown;
   try {
@@ -201,6 +221,18 @@ export function leerFicha(cruda: string | null | undefined): FichaDelNegocio | n
   } catch {
     return null;
   }
-  if (esPorSecciones(obj)) return aplanar(obj);
-  return obj as FichaDelNegocio;
+  // El `as` vive AQUÍ y solo aquí: es el único punto que puede marcar una ficha
+  // como aplanada, y por eso el tipo significa algo fuera.
+  if (esPorSecciones(obj)) return aplanar(obj) as FichaAplanada;
+  return obj as FichaAplanada;
 }
+
+/**
+ * @deprecated Usa `leerFichaAplanada`, que dice lo que de verdad devuelve.
+ *
+ * El nombre viejo inducía a pensar que devolvía «la ficha», y por eso un script
+ * guardó su resultado tal cual y se llevó por delante el modelo por secciones
+ * de dos fichas de producción (17-ago-2026). Se conserva para no romper los
+ * scripts que ya lo usan.
+ */
+export const leerFicha = leerFichaAplanada;

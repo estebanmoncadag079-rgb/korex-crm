@@ -473,17 +473,69 @@ Vuelve la lista de palabras y desaparece el campo `revisar`.
 
 ---
 
-## Decisiones pendientes
+## 🔒 Las decisiones, tomadas y congeladas (17-ago-2026)
 
-1. **¿`items[]` entra en los dos verticales a la vez, o primero en pedidos?**
-   Hacerlo en los dos es más caro ahora y más barato en total. Hacerlo solo en
-   pedidos repite el trabajo — y es lo que ya pasó con `permiteRepeticion`.
-2. **¿El pedido debe existir como entidad?** Hoy es texto en una nota. Es la
-   diferencia entre un CRM que toma pedidos y uno que **los tiene**.
-3. **¿Se mantiene la exclusión de citas de la Fase 2?** Está marcada como *«deja
-   de ser aceptable»* desde el 17-ago y sigue en pie.
-4. **¿Cuántos elementos como máximo?** Un pedido de 40 ítems cabe en un `jsonb` y
-   no cabe en un prompt.
+### 1. `items[]` entra en LOS DOS VERTICALES A LA VEZ
+
+Decisión del dueño. Es más caro ahora y más barato en total, y evita repetir el
+trabajo — que es exactamente lo que pasó con `permiteRepeticion`: se arregló para
+el producto que no se podía cerrar y hubo que volver por los otros tres.
+
+**Consecuencia:** ningún paso de este camino se da mirando solo a pedidos. Cada
+uno se valida contra los dos verticales antes de darse por hecho (regla 9).
+
+### 2. El pedido NO se persiste como entidad. Se queda como está
+
+Decisión del dueño, con su razón:
+
+> *«Los pedidos no quedan registrados, las citas sí porque son programadas.»*
+
+Y es coherente: **una cita hay que recordarla porque va a pasar en el futuro**;
+un pedido se despacha hoy y se acabó. La asimetría entre los dos verticales deja
+de ser un defecto y pasa a ser una decisión.
+
+**Consecuencia que hay que tener presente:** lo que llega al equipo sigue siendo
+el `summary` —texto escrito por el modelo—. El backend sostendrá el pedido
+estructurado durante la conversación, pero al confirmar se convierte en prosa.
+Si algún día se quiere «cuánto vendió el negocio este mes», esta decisión es la
+que habría que revisar. **Hoy no hace falta.**
+
+### 3. Las citas entran en la Fase 2
+
+Se responde sola con la 1. Se levanta la exclusión de `pipeline.ts:547`, que
+llevaba desde el 17-ago marcada como *«deja de ser aceptable»* en la decisión 1
+de [79](79-ARQUITECTURA-MULTIEMPRESA.md).
+
+### 4. Un pedido lleva 40 elementos como máximo
+
+Decisión del dueño. Cabe en un `jsonb` y no cabe en un prompt, así que el número
+existe para proteger la plataforma, no para describir un negocio.
+
+> ⚠️ **Y por eso el tope es del núcleo y no de la ficha, que es la única
+> excepción a la regla de «las reglas del negocio se configuran en el CRM».** Se
+> deja dicho aquí para que dentro de seis meses nadie lo confunda con una regla
+> de negocio que se coló: no lo es. Un negocio no elige su límite técnico, igual
+> que no elige el tamaño máximo de una foto.
+>
+> Si algún día un cliente necesita 41, **eso sí es una conversación de negocio** —
+> y entonces el número se mueve a la ficha, no se sube a mano.
+
+---
+
+## El camino, con las decisiones dentro
+
+| | Paso | Qué entra | Estado |
+|---|---|---|---|
+| **0** | Limpiar `sembrar.ts` | — | ✅ **hecho** (`7b78a56`) |
+| **1** | Decidir el alcance | — | ✅ **hecho**: los dos verticales |
+| **2** | **El contrato nuevo**: `items[]`, opciones y cantidad por ítem, `datos` en la raíz, tope 40, `SCHEMA_VERSION 4` | A·B·C·D | ⬜ |
+| **3** | **Pluralizar la conducta común** y el flujo de la ficha | H | ⬜ |
+| **4** | **`reserva` en el ítem** y quitar la exclusión de citas | E·F | ⬜ |
+| **5** | Los bloqueantes de La Churra: nombres del catálogo y repetición | — | ⬜ |
+| **6** | Medición, banco de escenarios, encendido | — | ⬜ |
+
+**Descartado por decisión 2:** la entidad de pedido persistente (era la
+recomendación **I**).
 
 ---
 

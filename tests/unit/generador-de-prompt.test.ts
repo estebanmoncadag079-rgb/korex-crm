@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "@/server/ai/generador/ficha";
 import { generarPerfil } from "@/server/ai/generador/generar";
+import { CIERRE, CIERRE_CITAS, ESTILO, meta, NUNCA } from "@/server/ai/generador/conducta";
 
 /**
  * El generador de prompts (12-ago-2026).
@@ -129,7 +130,7 @@ describe("el prompt generado lleva las lecciones de todos", () => {
   it("exige el resumen y manda usar notify_order al confirmar", () => {
     expect(p.instructions).toMatch(/resumen es OBLIGATORIO/i);
     expect(p.instructions).toContain("notify_order");
-    expect(p.instructions).toMatch(/en la cocina no se entera nadie/i);
+    expect(p.instructions).toMatch(/en el negocio no se entera nadie/i);
   });
 
   it("prohíbe volver a preguntar lo que el cliente ya dijo", () => {
@@ -220,7 +221,7 @@ describe("se adapta al negocio sin dejar huecos", () => {
     expect(p.instructions).toMatch(/nunca la inventes/i);
 
     expect(p.instructions).not.toContain("notify_order");
-    expect(p.instructions).not.toContain("en la cocina no se entera nadie");
+    expect(p.instructions).not.toContain("en el negocio no se entera nadie");
     expect(p.instructions).not.toMatch(/MOMENTO 2/);
     // Ni domicilios ni "ofrécele recoger" a quien viene a que le hagan las uñas.
     expect(p.instructions).not.toMatch(/domicilio/i);
@@ -268,5 +269,69 @@ describe("se adapta al negocio sin dejar huecos", () => {
 
   it("sin reglas propias, no aparece la sección", () => {
     expect(generarPerfil(LIS).instructions).not.toContain("## Reglas propias");
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * LA CONDUCTA COMÚN NO SABE DE NINGÚN SECTOR (paso 3, 17-ago-2026).
+ *
+ * `conducta.ts` se lo lleva TODO cliente de VOCERO. Hasta hoy hablaba de
+ * salsas, toppings, sabores y de "en la cocina no se entera nadie" — el
+ * vocabulario de un negocio de comida dentro del prompt que comparten un salón
+ * de pestañas, una papelería y lo que venga.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("la conducta común es de todos, no de un sector", () => {
+  const TEXTOS = [ESTILO, CIERRE, CIERRE_CITAS, NUNCA, meta("pedidos"), meta("citas")];
+
+  it("ni una palabra de comida en el texto que se lleva cualquier negocio", () => {
+    const prohibidas = /salsa|churro|topping|arequipe|recubiert|cocina|sabor/i;
+    const culpables = TEXTOS.filter((t) => prohibidas.test(t));
+    expect(culpables).toEqual([]);
+  });
+
+  it("EL DETECTOR DETECTA: un texto con vocabulario de comida lo dispara", () => {
+    // Sin esta prueba, la de arriba estaría verde aunque el patrón no
+    // encontrara nada — que es como un guardarraíl deja de servir sin avisar.
+    expect(/salsa|churro|topping|arequipe|recubiert|cocina|sabor/i.test(
+      "pídele las salsas y el recubierto"
+    )).toBe(true);
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * Y SABE QUE UN PEDIDO PUEDE LLEVAR VARIAS COSAS.
+ *
+ * De nada sirve que el estado aguante tres productos si el agente los
+ * pregunta de uno en uno — que es lo que pasó de verdad el 17-ago.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("el agente sabe que se piden varias cosas a la vez", () => {
+  it("pedidos: dice que se apunten todas y se pregunte en UN mensaje", () => {
+    const t = meta("pedidos");
+    expect(t).toContain("VARIAS cosas");
+    expect(t).toMatch(/anótalo todo de una vez/i);
+    // Lo que falló: preguntar otra vez algo ya dicho al pasar a la otra cosa.
+    expect(t).toMatch(/no se lo vuelvas a preguntar/i);
+  });
+
+  it("pedidos: las opciones son de CADA cosa, y no se mezclan", () => {
+    const t = meta("pedidos");
+    expect(t).toContain("CADA cosa");
+    expect(t).toMatch(/no se mezclan/i);
+  });
+
+  it("citas: varios servicios son UNA visita, con su tiempo sumado", () => {
+    // La regla 9: lo mismo, comprobado en el otro vertical.
+    const t = meta("citas");
+    expect(t).toContain("VARIOS servicios");
+    expect(t).toMatch(/una sola visita/i);
+    expect(t).toMatch(/tiempo de todos juntos/i);
+  });
+
+  it("el resumen lleva una línea por cosa", () => {
+    expect(CIERRE).toMatch(/una línea por cosa/i);
   });
 });

@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [90-LA-CONDUCTA-EN-PLURAL.md](90-LA-CONDUCTA-EN-PLURAL.md) | **La otra mitad del paso 2**: de nada sirve que el estado aguante tres cosas si el agente las pregunta de una en una. La conducta común pluralizada en los DOS verticales —en citas, varios servicios son una visita con el tiempo sumado— y el vocabulario de comida que quedaba en el prompt que comparten todos |
+
 | [89-EL-CONTRATO-DE-LOS-ITEMS.md](89-EL-CONTRATO-DE-LOS-ITEMS.md) | **El contrato v4, implementado**: un pedido lleva `items[]`, cada uno con su cantidad y sus opciones; `datos` se queda en la raíz porque son del cliente. Con el tope de 40 que no recorta en silencio, la tolerancia deliberada con el formato viejo, y por qué las 34 pruebas de antes pasaron sin cambiar una sola expectativa |
 
 | [88-AUDITORIA-SELECCION-MULTIPLE.md](88-AUDITORIA-SELECCION-MULTIPLE.md) | 🔴 **LA AUDITORÍA UNIVERSAL, Y LA QUE MANDA SOBRE LA 87.** ¿Sostiene la arquitectura varios elementos en cualquier vertical? No — y el defecto está **duplicado en dos motores que no comparten código**. Tres hallazgos de fondo: **no existe la entidad Pedido** (33 tablas, ninguna), la Fase 2 sigue excluyendo citas, y quedan palabras de comida decidiendo en `sembrar.ts`. Con los tres escenarios y la recomendación validada contra los dos verticales |

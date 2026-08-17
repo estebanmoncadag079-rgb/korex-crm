@@ -180,7 +180,7 @@ resueltas: `datos` desde el paso 1.5, `recurso` en el paso 4.
 
 | | Qué | Coste |
 |---|---|---|
-| **3a** | `permiteRepeticion` en el grupo + unificar el tipo de dominio a `Ofrecible` + `catalogoDe()` por vertical | **Sin migración.** Todo en código y tipos |
+| **3a** | `permiteRepeticion` en el grupo + unificar el tipo de dominio a `Ofrecible` + `catalogoDe()` por vertical | **Una migración aditiva** (ver corrección abajo) |
 | **3b** | Grupos de opciones para `service` | **Migración de esquema.** La primera que toca datos vivos |
 
 El motivo de partirlo no es la prudencia: es que **3a se puede revertir con un
@@ -190,3 +190,97 @@ cuando llegue, el tipo de dominio y el render ya serán comunes.
 > **Y una advertencia sobre el orden general**: 3b es la primera migración de
 > esta serie con datos encima. La ventana de *"esto sale gratis"* que se ha
 > aprovechado tres veces **se cierra aquí**.
+
+
+---
+
+# Inventario del paso 3A (17-ago)
+
+## ⚠️ Corrección de la recomendación anterior
+
+Este documento decía que **3a no llevaba migración**. **Es falso**, y conviene
+decirlo antes que nada: `permiteRepeticion` es configuración del negocio, así
+que **se persiste**, y eso es una columna nueva en `product_option_group`.
+
+Es aditiva y con valor por defecto —de las baratas—, pero es una migración. La
+frase *"3a se revierte con un `git revert` y 3b no"* sigue siendo cierta solo a
+medias: revertir el código deja la columna, que es inofensiva.
+
+## 🔴 El hallazgo que cambia el plan: `false` reintroduce el bug del Mega Box
+
+Verificado hoy en producción:
+
+| Producto | `max_select` | Sabores distintos |
+|---|---|---|
+| CHURRITA | 1 | 4 |
+| BESTIES | 2 | 4 |
+| FAMILY BOX | 3 | 4 |
+| **MEGA BOX** | **5** | **4** |
+
+**Un Mega Box exige cinco salsas y el catálogo tiene cuatro.** Con
+`permiteRepeticion = false` por defecto, ese pedido **no se puede completar
+jamás** — que es exactamente el bug corregido el 16-ago, reintroducido por un
+valor por defecto.
+
+La decisión de negocio (`false`) **es la correcta**: repetir es la excepción. Lo
+que no se puede hacer es aplicarla y marcharse.
+
+### La salida, sin adivinar preferencias de nadie
+
+Que **la propia migración ponga `true` donde la repetición es matemáticamente
+obligatoria**: `max_select > (número de opciones del grupo)`. No es una
+preferencia, es aritmética — un grupo que pide más de las que tiene **solo** se
+puede completar repitiendo.
+
+Los demás grupos quedan en `false`, y quien quiera repetición la declara.
+
+## Las siete respuestas
+
+**1. ¿Qué archivos cambiarían?**
+
+| Archivo | Qué |
+|---|---|
+| `lib/db/schema.ts` + una migración | La columna `permite_repeticion` |
+| `catalog/queries.ts` | El tipo `Ofrecible`, `permiteRepeticion` en el grupo, y `catalogoDe(org)` que elige por vertical |
+| `orders/normalizar.ts` | **Validar la repetición** al construir la selección |
+| `catalog/render.ts` | Renombrar el tipo; el render no cambia |
+| `orders/estado.ts`, `orders/extraer.ts`, `ai/pipeline.ts` | Solo el nombre del tipo |
+| `catalog/sembrar.ts`, `scripts/migrar-catalogo.ts`, `cargar-opciones.ts` | El tipo, y decidir qué `permiteRepeticion` escriben al migrar |
+
+**2. ¿Qué contratos cambian?** `ProductoDelCatalogo` → **`Ofrecible`** ·
+`GrupoDeOpciones` gana `permiteRepeticion` · `catalogoDePedidos()` →
+**`catalogoDe()`**.
+
+**3. ¿Qué migraciones?** **Una, aditiva**:
+`ALTER TABLE product_option_group ADD COLUMN permite_repeticion boolean NOT NULL
+DEFAULT false`, más el `UPDATE` aritmético de arriba.
+
+**4. ¿Qué pruebas quedan obsoletas?** **Ninguna se borra.** El bloque *"las
+salsas se pueden repetir"* (8 pruebas) tendrá que declarar
+`permiteRepeticion: true` en su catálogo de prueba — que es precisamente lo que
+demuestra que la regla dejó de ser universal. Las otras cuatro coincidencias de
+la palabra *"repetir"* en `tests/` son de otros temas.
+
+**5. ¿Qué sigue acoplado a un catálogo de comida?** El parser `sembrar.ts`, los
+dos scripts de migración y el banco de escenarios. Ninguno es núcleo.
+
+**6. ¿Hay dependencia oculta entre `product` y `service`?** **No.** Un solo
+archivo toca las dos tablas —`seed/demo.ts`, el sembrador de la demo— y no las
+relaciona. Cada vertical vive en su lado, lo que hace **3b más barato de lo que
+parecía**.
+
+**7. ¿Dónde se asume repetición hoy?** En cinco puntos, todos consecuencia del
+16-ago: tres `seleccion.push` en `normalizar.ts` que no comprueban nada, y dos
+recuentos con `filter(...).length` en `normalizar.ts` y `extraer.ts`. **El
+recuento seguirá siendo correcto** con repetición prohibida; lo que falta es
+**negarse a añadir** la segunda.
+
+## Riesgos
+
+| | |
+|---|---|
+| 🔴 | **El Mega Box** (arriba). Sin el `UPDATE` aritmético, el cliente que factura pierde su producto más caro |
+| 🟠 | **La migración toca `product_option_group`**, tabla con datos vivos. Es aditiva, pero es la primera de la serie que no cae en tabla vacía |
+| 🟠 | **El rename es mecánico pero amplio**: `ProductoDelCatalogo` aparece en ~10 archivos. Sin riesgo funcional; sí de ruido en el diff |
+| 🟢 | **El núcleo** no cambia de forma: solo el nombre del tipo que ya recibía |
+| 🟢 | **`service` no se toca** en 3a |

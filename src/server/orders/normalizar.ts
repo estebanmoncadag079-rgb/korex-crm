@@ -20,12 +20,56 @@
  */
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 
+/**
+ * Una opción tal como la propone el modelo: **por nombre, nunca por id**.
+ *
+ * El LLM no ha visto un id en su vida y no debe verlo. Dice *"arequipe"* y, si
+ * puede, de qué grupo es; resolver eso contra el catálogo es trabajo del
+ * backend — exactamente lo que ya se hacía con el producto.
+ *
+ * `grupo` es opcional a propósito (regla 3: contratos tolerantes). Cuando falta
+ * y el nombre existe en más de un grupo, **no se adivina: se pregunta**.
+ */
+export type OpcionPropuesta = {
+  /** El nombre del grupo, si el modelo lo dijo. `"SALSAS"`, `"TAMAÑO"`… */
+  grupo?: string | null;
+  opcion: string;
+};
+
+/**
+ * Una opción ya resuelta contra el catálogo.
+ *
+ * Lleva los ids **y** el nombre y el precio del momento. Los ids son para
+ * operar; los otros dos son testimonio: si mañana el negocio renombra la opción
+ * o le cambia el precio, el pedido guardado **sigue siendo legible**. Es la
+ * misma decisión que ya se tomó con `producto.nombre`, aplicada un nivel abajo.
+ *
+ * ⚠️ `precioDeltaCents` **no se usa para calcular**: el total se recalcula
+ * siempre desde el catálogo (regla 2, el total lo pone el servidor). Está para
+ * poder responder *"¿cuánto se le cobró aquel día?"*.
+ */
+export type OpcionElegida = {
+  grupoId: string;
+  grupoNombre: string;
+  opcionId: string;
+  nombre: string;
+  precioDeltaCents: number;
+};
+
 export type EstadoPropuesto = {
   producto: string | null;
   cantidad: number | null;
-  salsas: string[];
-  recubierto: string | null;
-  adiciones: string[];
+  /**
+   * Todo lo que el cliente eligió, **en una sola lista y en su orden**.
+   *
+   * Sustituye a `salsas` / `recubierto` / `adiciones` (17-ago-2026): eran los
+   * grupos de UN negocio metidos en el núcleo, y con ellos un salón no tenía
+   * dónde poner *"con esmalte"*. Ver
+   * [79-ARQUITECTURA-MULTIEMPRESA.md](../../../docs/korexia/79-ARQUITECTURA-MULTIEMPRESA.md).
+   *
+   * **Es una lista, no un conjunto**: `[arequipe, arequipe]` son dos salsas.
+   */
+  opciones: OpcionPropuesta[];
   /** Los tres datos de entrega. Sin ellos el pedido no se puede despachar. */
   nombre?: string | null;
   telefono?: string | null;
@@ -50,9 +94,8 @@ export type EstadoNormalizado = {
   productoId: string | null;
   producto: string | null;
   cantidad: number;
-  salsas: string[];
-  recubierto: string | null;
-  adiciones: string[];
+  /** Lo elegido, resuelto y en orden. Una lista: las repeticiones se conservan. */
+  seleccion: OpcionElegida[];
   /** Lo suma el servidor a partir de la tabla. `null` = todavía no se puede. */
   totalCents: number | null;
 };
@@ -96,41 +139,6 @@ function unidadesQueMenciona(texto: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-type Grupo = ProductoDelCatalogo["grupos"][number];
-
-/** El grupo de opciones que se llama así. Se busca POR NOMBRE, no por posición. */
-export function grupoLlamado(
-  producto: ProductoDelCatalogo | undefined,
-  ...nombres: string[]
-): Grupo | undefined {
-  return producto?.grupos.find((g) => nombres.some((n) => llave(g.nombre).startsWith(llave(n))));
-}
-
-/**
- * El grupo de las SALSAS, que es el que dice cuántas lleva cada presentación.
- *
- * Vive aquí, exportado, porque **el pipeline necesita exactamente el mismo
- * criterio**: si allí se coge "el primer grupo con opciones" y aquí el que se
- * llama salsa, los dos discrepan el día que el catálogo tenga tres grupos —y ese
- * día llega con la carga de `RECUBIERTO` y `ADICIONES`—. Discrepar significaría
- * pedirle 1 salsa a un Mega Box, que lleva 5.
- *
- * El `??` es la red para el catálogo de un solo grupo, que es el de hoy.
- */
-export function grupoDeSalsas(producto: ProductoDelCatalogo | undefined): Grupo | undefined {
-  if (!producto) return undefined;
-  return grupoLlamado(producto, "salsa") ?? producto.grupos.find((g) => g.opciones.length > 0);
-}
-
-/**
- * El grupo de las ADICIONES: lo que se cobra aparte.
- *
- * Sin red al primer grupo con opciones, al revés que las salsas: **confundirse
- * aquí es cobrar de más**, y ante la duda se prefiere no cobrar nada.
- */
-export function grupoDeAdiciones(producto: ProductoDelCatalogo | undefined): Grupo | undefined {
-  return grupoLlamado(producto, "adicion", "adición", "extra");
-}
 
 export function normalizarPedido(
   propuesto: EstadoPropuesto,
@@ -199,8 +207,11 @@ export function normalizarPedido(
           a: `${comoOpcion.grupo.toLowerCase()}: ${crudo}`,
           regla: "es una opción, no una presentación",
         });
-        if (!propuesto.salsas.some((s) => llave(s) === llave(crudo))) {
-          propuesto = { ...propuesto, salsas: [...propuesto.salsas, crudo] };
+        if (!propuesto.opciones.some((o) => llave(o.opcion) === llave(crudo))) {
+          propuesto = {
+            ...propuesto,
+            opciones: [...propuesto.opciones, { grupo: comoOpcion.grupo, opcion: crudo }],
+          };
         }
         dudas.push({
           campo: "producto",
@@ -316,87 +327,114 @@ export function normalizarPedido(
    * ahora, porque el `includes` lo tapaba de rebote, es que no se pase del
    * máximo del producto.
    */
-  const salsas: string[] = [];
-  if (!producto) {
-    // Sin presentación no se pueden validar contra su grupo, pero lo que el
-    // cliente ya dijo NO se tira: se conserva para cuando elija.
-    for (const s of propuesto.salsas) {
-      if (opcionesConocidas.has(llave(s))) salsas.push(s);
-    }
-  }
-  if (producto) {
-    const grupo = grupoDeSalsas(producto);
-    const validas = new Map(
-      (grupo?.opciones ?? []).map((o) => [llave(o.nombre), o.nombre] as const)
-    );
-    for (const s of propuesto.salsas) {
-      const buena = validas.get(llave(s));
-      if (buena) {
-        if (buena !== s) {
-          correcciones.push({ campo: "salsas", de: s, a: buena, regla: "nombre de salsa normalizado" });
-        }
-        salsas.push(buena);
-      } else {
-        dudas.push({
-          campo: "salsas",
-          porque: `"${s}" no está entre las opciones de ${producto.nombre}`,
-          preguntar: `¿Cuál salsa desea? Hay: ${[...validas.values()].join(", ")}`,
-        });
-      }
-    }
-    // El "elige N" es del producto, no del grupo: una Churrita lleva 1 y un
-    // Mega Box 5. Faltar salsas no es un error, es un pedido a medias.
-    const cuantas = grupo?.maximo ?? 0;
-    if (grupo && salsas.length < cuantas) {
-      dudas.push({
-        campo: "salsas",
-        porque: `${producto.nombre} lleva ${cuantas} y hay ${salsas.length}`,
-        preguntar: `¿Cuál${cuantas - salsas.length > 1 ? "es" : ""} salsa${cuantas - salsas.length > 1 ? "s" : ""} desea?`,
-      });
-    }
-    /*
-     * Y pasarse tampoco vale.
-     *
-     * Antes esto no hacía falta: el `includes` recortaba de rebote cualquier
-     * exceso que fuera repetición. Ahora que las salsas se repiten a propósito,
-     * pedir siete en una Churrita es un pedido que nadie puede despachar. No se
-     * recorta en silencio —eso sería decidir por el cliente cuáles quitar—: se
-     * pregunta.
-     */
-    if (grupo && cuantas > 0 && salsas.length > cuantas) {
-      dudas.push({
-        campo: "salsas",
-        porque: `${producto.nombre} lleva ${cuantas} y pidió ${salsas.length}`,
-        preguntar: `Una ${producto.nombre} lleva ${cuantas} salsa${cuantas > 1 ? "s" : ""}. ¿Cuáles deja?`,
-      });
-    }
-  }
+  const seleccion: OpcionElegida[] = [];
 
-  // --- El recubierto -----------------------------------------------------
-  // Va aparte de las salsas porque es otra elección del flujo y con otras
-  // opciones (azúcar-canela, azúcar sola, sin azúcar). Si el catálogo todavía
-  // no lo tiene en tablas, se acepta lo que venga sin validarlo: no se puede
-  // rechazar contra una lista que no existe.
-  let recubierto = propuesto.recubierto;
-  const grupoRecubierto = grupoLlamado(producto, "recubierto", "azucar", "azúcar");
-  if (producto && grupoRecubierto && recubierto) {
-    const buena = grupoRecubierto.opciones.find((o) => llave(o.nombre) === llave(recubierto!));
-    if (buena) {
-      if (buena.nombre !== recubierto) {
+  if (producto) {
+    for (const propuesta of propuesto.opciones) {
+      const cruda = propuesta.opcion?.trim();
+      if (!cruda) continue;
+
+      /*
+       * Dónde vive esta opción. Si el modelo dijo el grupo, se busca ahí; si no,
+       * se busca en todos los del producto.
+       *
+       * 🔴 Y si aparece en MÁS DE UNO, **no se elige por el código**. En La
+       * Churra `AREQUIPE` está como salsa incluida y como adición de $1.500: de
+       * adivinar salía un cobro de más. Ante la ambigüedad, se pregunta.
+       */
+      const candidatos = producto.grupos
+        .filter((g) => (propuesta.grupo ? llave(g.nombre).startsWith(llave(propuesta.grupo)) : true))
+        .flatMap((g) =>
+          g.opciones.filter((o) => llave(o.nombre) === llave(cruda)).map((o) => ({ g, o }))
+        );
+
+      if (candidatos.length === 0) {
+        const todas = producto.grupos.flatMap((g) => g.opciones.map((o) => o.nombre));
+        dudas.push({
+          campo: propuesta.grupo ?? "opciones",
+          porque: `"${cruda}" no está entre las opciones de ${producto.nombre}`,
+          preguntar: todas.length
+            ? `¿Cuál desea? Hay: ${[...new Set(todas)].join(", ")}`
+            : `¿Qué desea de ${producto.nombre}?`,
+        });
+        continue;
+      }
+
+      if (candidatos.length > 1) {
+        dudas.push({
+          campo: propuesta.grupo ?? "opciones",
+          porque: `"${cruda}" está en ${candidatos.length} grupos de ${producto.nombre} y no se dijo cuál`,
+          preguntar: `¿"${cruda}" como ${candidatos.map((c) => c.g.nombre.toLowerCase()).join(" o como ")}?`,
+        });
+        continue;
+      }
+
+      const { g, o } = candidatos[0]!;
+      if (o.nombre !== cruda) {
         correcciones.push({
-          campo: "recubierto",
-          de: recubierto,
-          a: buena.nombre,
-          regla: "nombre de recubierto normalizado",
+          campo: g.nombre.toLowerCase(),
+          de: cruda,
+          a: o.nombre,
+          regla: "nombre de opción normalizado",
         });
       }
-      recubierto = buena.nombre;
-    } else {
-      dudas.push({
-        campo: "recubierto",
-        porque: `"${recubierto}" no está entre los recubiertos de la carta`,
-        preguntar: `¿Cuál recubierto desea? Hay: ${grupoRecubierto.opciones.map((o) => o.nombre).join(", ")}`,
+      seleccion.push({
+        grupoId: g.id,
+        grupoNombre: g.nombre,
+        opcionId: o.id,
+        nombre: o.nombre,
+        precioDeltaCents: o.precioExtraCents,
       });
+    }
+
+    /*
+     * Las reglas de CADA grupo, salidas del catálogo — ni un nombre en el código.
+     *
+     * Antes esto eran dos bloques escritos a mano, uno para las salsas y otro
+     * para el recubierto, con sus nombres dentro. Un salón con *"con esmalte"* o
+     * una pizzería con *"tamaño"* no cabían. Ahora se recorre lo que el negocio
+     * haya definido, sea lo que sea.
+     */
+    for (const g of producto.grupos) {
+      if (g.opciones.length === 0) continue;
+      const elegidas = seleccion.filter((s) => s.grupoId === g.id).length;
+      const etiqueta = g.nombre.toLowerCase();
+
+      if (elegidas < g.minimo) {
+        const faltan = g.minimo - elegidas;
+        dudas.push({
+          campo: etiqueta,
+          porque: `${producto.nombre} lleva ${g.minimo} de ${etiqueta} y hay ${elegidas}`,
+          preguntar: `¿Cuál${faltan > 1 ? "es" : ""} ${etiqueta} desea?`,
+        });
+      }
+      // Pasarse tampoco vale, y NO se recorta en silencio: elegir cuáles quitar
+      // es del cliente, no del backend.
+      if (g.maximo > 0 && elegidas > g.maximo) {
+        dudas.push({
+          campo: etiqueta,
+          porque: `${producto.nombre} lleva ${g.maximo} de ${etiqueta} y pidió ${elegidas}`,
+          preguntar: `Una ${producto.nombre} lleva ${g.maximo} de ${etiqueta}. ¿Cuáles deja?`,
+        });
+      }
+    }
+  } else {
+    /*
+     * Sin presentación elegida no hay grupos contra los que validar, pero lo que
+     * el cliente ya dijo NO se tira: se conserva sin resolver, para cuando
+     * elija. Las repeticiones también.
+     */
+    for (const propuesta of propuesto.opciones) {
+      const cruda = propuesta.opcion?.trim();
+      if (cruda && opcionesConocidas.has(llave(cruda))) {
+        seleccion.push({
+          grupoId: "",
+          grupoNombre: propuesta.grupo ?? "",
+          opcionId: "",
+          nombre: cruda,
+          precioDeltaCents: 0,
+        });
+      }
     }
   }
 
@@ -410,20 +448,32 @@ export function normalizarPedido(
         preguntar: "el equipo confirma el precio",
       });
     } else {
-      const extras = sumaDeExtras(producto, salsas, propuesto.adiciones);
+      // Se recorre LO ELEGIDO, no el catálogo: dos botellas de agua son dos.
+      const extras = seleccion.reduce((suma, s) => suma + s.precioDeltaCents, 0);
       totalCents = (producto.precioCents + extras) * cantidad;
     }
   }
 
-  // --- Qué falta para poder despachar ------------------------------------
-  // El flujo del negocio, en su orden: presentación → salsas → recubierto →
-  // datos de entrega. Las adiciones son opcionales y por eso no están aquí.
+  /*
+   * --- Qué falta para poder despachar ------------------------------------
+   *
+   * Sale del CATÁLOGO, no de una lista escrita a mano. Un grupo con `minimo >=
+   * 1` que no esté completo es algo que falta, se llame *salsas*, *tamaño* o
+   * *diseño de uñas*.
+   *
+   * ⚠️ Los tres datos de entrega siguen aquí, y **siguen siendo lo de La
+   * Churra**: un salón no entrega nada a domicilio. Convertirlos en
+   * configuración es el paso 3 de
+   * [79-ARQUITECTURA-MULTIEMPRESA.md](../../../docs/korexia/79-ARQUITECTURA-MULTIEMPRESA.md).
+   */
   const faltaParaCerrar: string[] = [];
   if (!producto) faltaParaCerrar.push("presentación");
   else {
-    const cuantasSalsas = grupoLlamado(producto, "salsa")?.maximo ?? 0;
-    if (salsas.length < cuantasSalsas) faltaParaCerrar.push("salsas");
-    if (grupoRecubierto && !recubierto) faltaParaCerrar.push("recubierto");
+    for (const g of producto.grupos) {
+      if (g.opciones.length === 0 || g.minimo < 1) continue;
+      const elegidas = seleccion.filter((s) => s.grupoId === g.id).length;
+      if (elegidas < g.minimo) faltaParaCerrar.push(g.nombre.toLowerCase());
+    }
   }
   if (!propuesto.nombre?.trim()) faltaParaCerrar.push("nombre");
   if (!propuesto.telefono?.trim()) faltaParaCerrar.push("teléfono");
@@ -435,9 +485,7 @@ export function normalizarPedido(
       productoId: producto?.id ?? null,
       producto: producto?.nombre ?? null,
       cantidad,
-      salsas,
-      recubierto,
-      adiciones: propuesto.adiciones,
+      seleccion,
       totalCents,
     },
     correcciones,
@@ -464,53 +512,3 @@ function buscarPorUnidades(
   return catalogo.find((p) => unidadesDe(p, unidades) === n);
 }
 
-/**
- * Lo que se cobra aparte, **cada lista contra SU grupo**.
- *
- * 🔴 Hasta el 16-ago-2026 esto recorría TODOS los grupos y sumaba cualquier
- * opción cuyo nombre coincidiera, sin mirar de cuál era. En La Churra los mismos
- * nombres están en los dos sitios:
- *
- *   SALSAS   : arequipe · lechera · chocolate negro · chocolate blanco   ($0)
- *   ADICIONES: … LECHERA $1.500 · AREQUIPE $1.500 · CHOCOLATE BLANCO $2.000
- *
- * Una Churrita con salsa de arequipe —incluida— habría pagado **$1.500 que
- * nadie pidió**, y un Mega Box lleva cinco salsas. No llegó a ocurrir porque el
- * grupo `ADICIONES` todavía no está cargado, pero se activaba con
- * `cargar:opciones` sin que nada lo delatara.
- *
- * **La regla que deja esto cerrado**: ninguna función que calcule precios puede
- * evaluar una opción sin saber a qué grupo pertenece.
- *
- * ⚠️ El RECUBIERTO no se suma, a propósito: en La Churra es gratis y añadirlo
- * cambiaría lo que se cobra hoy. Anotado en
- * [76-EL-MAPA-DE-LAS-SALSAS.md](../../../docs/korexia/76-EL-MAPA-DE-LAS-SALSAS.md).
- */
-function sumaDeExtras(
-  producto: ProductoDelCatalogo,
-  salsas: string[],
-  adiciones: string[]
-): number {
-  /*
-   * Se recorre lo PEDIDO, no el catálogo.
-   *
-   * Al revés —una vuelta por opción del catálogo— dos botellas de agua se
-   * cobraban como una: la opción coincidía y se sumaba **una sola vez**. Con la
-   * decisión del 16-ago de que las opciones se repiten, eso pasaba de detalle a
-   * cobro de menos.
-   */
-  const deSuGrupo = (grupo: Grupo | undefined, pedidas: string[]): number => {
-    if (!grupo || pedidas.length === 0) return 0;
-    let extra = 0;
-    for (const p of pedidas) {
-      const o = grupo.opciones.find((o) => llave(o.nombre) === llave(p));
-      if (o) extra += o.precioExtraCents;
-    }
-    return extra;
-  };
-
-  return (
-    deSuGrupo(grupoDeSalsas(producto), salsas) +
-    deSuGrupo(grupoDeAdiciones(producto), adiciones)
-  );
-}

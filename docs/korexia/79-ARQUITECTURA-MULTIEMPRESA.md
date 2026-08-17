@@ -68,11 +68,69 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 
 | Paso | Qué | Estado |
 |---|---|---|
-| **1** | **La selección genérica.** Solo eso. Sin tocar citas | 🔄 en curso |
+| **1** | **La selección genérica.** Solo eso. Sin tocar citas | ✅ **hecho el 17-ago** |
 | **2** | **Un solo dueño para el vertical**: hoy son dos (`appointmentsEnabled` y `ficha.vertical`), y existe código para comprobar que no se contradigan — que es la señal del problema | ⬜ |
 | **3** | **Opciones en los servicios.** Un salón no puede describir *manicura → con esmalte · diseño sencillo · diseño elaborado*: hoy acaba en texto libre del prompt | ⬜ |
 | **4** | **Citas entra en la Fase 2** | ⬜ |
 | **5** | Solo entonces, **encender** | ⬜ |
+
+## Las tres preguntas obligatorias
+
+Antes de dar por bueno cualquier desarrollo:
+
+1. **¿Funciona para un restaurante?**
+2. **¿Funciona para un salón de belleza?**
+3. **¿La configuración pertenece al CRM o está codificada en el backend?**
+
+Si una respuesta es negativa, **el cambio no se implementa**. No es una lista de
+comprobación amable: es la que habría impedido que la Fase 2 naciera con los
+grupos de un solo negocio dentro.
+
+---
+
+## Paso 1, hecho: el contrato nuevo (17-ago)
+
+```ts
+// antes — los grupos de UN negocio, dentro del núcleo
+salsas: string[] · recubierto: string | null · adiciones: string[]
+
+// ahora — lo que eligió el cliente, sea el negocio que sea
+seleccion: [{ grupoId, grupoNombre, opcionId, nombre, precioDeltaCents }]
+```
+
+**Lista con repetición, sin `cantidad`** (decisión del dueño). Dos de arequipe
+son dos elementos: `seleccion.length` cuenta, `> maxSelect` valida, recorrer y
+sumar cobra, y el orden se conserva solo. Con `cantidad` reaparecían cuatro
+preguntas —¿el máximo cuenta opciones o unidades?, ¿quién suma?, ¿quién
+valida?— que son justo las que producían los errores. `cantidad` se puede
+añadir después si un negocio la necesita; el camino contrario es mucho más caro.
+
+**Se guardan también `nombre` y `precioDeltaCents`**, como ya se hacía con el
+producto: si el negocio renombra la opción o le cambia el precio, el pedido
+guardado sigue siendo legible. ⚠️ El precio guardado **no se usa para
+calcular** —el total se recalcula siempre desde el catálogo—: es testimonio de
+lo que se cobró aquel día.
+
+### Lo que desapareció del núcleo
+
+`grupoDeSalsas` · `grupoDeAdiciones` · `grupoLlamado` · `sumaDeExtras` · el
+bloque del recubierto · `faltaParaCerrar` con su lista escrita a mano · las
+claves `salsas`/`recubierto`/`adiciones` de la clasificación de logs · y los
+tres campos del prompt de extracción.
+
+Ahora **todo sale del catálogo**: las reglas de cada grupo (`minimo`, `maximo`),
+sus nombres y sus precios. Una manicura con *ESMALTE* funciona sin tocar una
+línea — hay una prueba que lo comprueba con un catálogo de salón.
+
+### El prompt, y por qué el contrato con el modelo NO cambia de naturaleza
+
+El LLM sigue hablando **por nombres**, nunca por ids: dice
+`{"grupo": "SALSAS", "opcion": "arequipe"}` y el backend resuelve. Lo único que
+se le pide de más es **que nombre el grupo**, porque el mismo nombre puede
+estar en dos con precios distintos — que es exactamente el cobro doble del
+16-ago, ahora imposible: sin grupo y con ambigüedad, **se pregunta**.
+
+---
 
 ## 🔴 Lo que queda CONGELADO
 

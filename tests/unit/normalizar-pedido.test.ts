@@ -56,10 +56,12 @@ const UNIDADES = { CHURRITA: 6, BESTIES: 14, "FAMILY BOX": 22, "MEGA BOX": 34 };
 const vacio = {
   producto: null,
   cantidad: null,
-  salsas: [] as string[],
-  recubierto: null,
-  adiciones: [] as string[],
+  opciones: [] as { grupo?: string | null; opcion: string }[],
 };
+
+/** Azúcar sintáctico para las pruebas: `sal("arequipe","arequipe")`. */
+const sal = (...nombres: string[]) => nombres.map((n) => ({ grupo: "SALSA", opcion: n }));
+const adi = (...nombres: string[]) => nombres.map((n) => ({ grupo: "ADICIONES", opcion: n }));
 
 describe("unidades contra presentaciones", () => {
   // Decisión del dueño (15-ago-2026): ante la ambigüedad de unidades, el
@@ -68,7 +70,7 @@ describe("unidades contra presentaciones", () => {
   // levanta el backend, no una regla escrita en el prompt de cada cliente.
   it('"quiero 6 churros" NO son seis Churritas', () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "churros", cantidad: 6, salsas: ["arequipe"] },
+      { ...vacio, producto: "churros", cantidad: 6, opciones: sal("arequipe") },
       CARTA,
       UNIDADES
     );
@@ -103,7 +105,7 @@ describe("cantidades de presentaciones", () => {
         ...vacio,
         producto: "Family Box",
         cantidad: 2,
-        salsas: ["arequipe", "lechera", "chocolate negro"],
+        opciones: sal("arequipe", "lechera", "chocolate negro"),
       },
       CARTA,
       UNIDADES
@@ -116,7 +118,7 @@ describe("cantidades de presentaciones", () => {
 
   it("una presentación sin número es una", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["arequipe"] },
+      { ...vacio, producto: "churrita", opciones: sal("arequipe") },
       CARTA,
       UNIDADES
     );
@@ -128,19 +130,19 @@ describe("cantidades de presentaciones", () => {
 describe("opciones que llegan como si fueran productos", () => {
   it('"ponme una churrita con chocolate" separa presentación y salsa', () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita con chocolate negro", salsas: ["chocolate negro"] },
+      { ...vacio, producto: "churrita con chocolate negro", opciones: sal("chocolate negro") },
       CARTA,
       UNIDADES
     );
     expect(r.estado.producto).toBe("CHURRITA");
-    expect(r.estado.salsas).toEqual(["chocolate negro"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["chocolate negro"]);
     expect(r.reconstruible).toBe(true);
   });
 
   it('"chocolate" a secas es una salsa, y falta saber la presentación', () => {
     const r = normalizarPedido({ ...vacio, producto: "arequipe" }, CARTA, UNIDADES);
     expect(r.estado.producto).toBeNull();
-    expect(r.estado.salsas).toEqual(["arequipe"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["arequipe"]);
     expect(r.dudas.some((d) => d.preguntar.includes("presentación"))).toBe(true);
   });
 });
@@ -148,18 +150,18 @@ describe("opciones que llegan como si fueran productos", () => {
 describe("normaliza en vez de rechazar (regla 3)", () => {
   it("acepta mayúsculas, tildes y plural", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "Churritas", salsas: ["Arequipe"] },
+      { ...vacio, producto: "Churritas", opciones: sal("Arequipe") },
       CARTA,
       UNIDADES
     );
     expect(r.estado.producto).toBe("CHURRITA");
-    expect(r.estado.salsas).toEqual(["arequipe"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["arequipe"]);
     expect(r.reconstruible).toBe(true);
   });
 
   it("una salsa que no existe no tumba el pedido: se pregunta", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["fresa"] },
+      { ...vacio, producto: "churrita", opciones: sal("fresa") },
       CARTA,
       UNIDADES
     );
@@ -192,7 +194,7 @@ describe("el total lo calcula el servidor (regla 2)", () => {
       },
     ];
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["arequipe"], adiciones: ["botella de agua"] },
+      { ...vacio, producto: "churrita", opciones: [...sal("arequipe"), ...adi("botella de agua")] },
       conAdicion,
       UNIDADES
     );
@@ -202,7 +204,7 @@ describe("el total lo calcula el servidor (regla 2)", () => {
   it("sin precio cargado NO es gratis: se pregunta", () => {
     const sinPrecio: ProductoDelCatalogo[] = [{ ...CHURRITA, precioCents: null }];
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["arequipe"] },
+      { ...vacio, producto: "churrita", opciones: sal("arequipe") },
       sinPrecio,
       UNIDADES
     );
@@ -243,15 +245,13 @@ describe("el flujo completo del pedido", () => {
   };
   const CARTA_COMPLETA = [churritaCompleta];
 
-  it("dice todo lo que falta, en el orden del flujo", () => {
+  const rec = (n: string) => [{ grupo: "RECUBIERTO", opcion: n }];
+
+  it("dice todo lo que falta, y los nombres los pone el CATÁLOGO", () => {
     const r = normalizarPedido({ ...vacio, producto: "churrita" }, CARTA_COMPLETA, UNIDADES);
-    expect(r.faltaParaCerrar).toEqual([
-      "salsas",
-      "recubierto",
-      "nombre",
-      "teléfono",
-      "dirección",
-    ]);
+    // "salsa" y "recubierto" salen de `grupos[].nombre`, no de una lista escrita
+    // en el código: un salón vería aquí "esmalte" o "diseño".
+    expect(r.faltaParaCerrar).toEqual(["salsa", "recubierto", "nombre", "teléfono", "dirección"]);
   });
 
   it("un pedido con todo no deja nada pendiente, y el total lo suma el servidor", () => {
@@ -259,9 +259,7 @@ describe("el flujo completo del pedido", () => {
       {
         producto: "churrita",
         cantidad: 1,
-        salsas: ["arequipe"],
-        recubierto: "azúcar-canela",
-        adiciones: ["botella de agua"],
+        opciones: [...sal("arequipe"), ...rec("azúcar-canela"), ...adi("botella de agua")],
         nombre: "Andrea",
         telefono: "3001234567",
         direccion: "Cra 5 #10-20",
@@ -276,54 +274,55 @@ describe("el flujo completo del pedido", () => {
 
   it("el recubierto se valida contra la carta, no contra lo que suene bien", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["arequipe"], recubierto: "con miel" },
+      { ...vacio, producto: "churrita", opciones: [...sal("arequipe"), ...rec("con miel")] },
       CARTA_COMPLETA,
       UNIDADES
     );
-    expect(r.dudas.some((d) => d.campo === "recubierto")).toBe(true);
+    expect(r.dudas.some((d) => d.porque.includes("con miel"))).toBe(true);
     expect(r.reconstruible).toBe(false);
   });
 
-  it("mayúsculas y tildes en el recubierto se corrigen, no se rechazan", () => {
+  it("mayúsculas y tildes se corrigen en CUALQUIER grupo, no se rechazan", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["arequipe"], recubierto: "AZUCAR SOLA" },
+      { ...vacio, producto: "churrita", opciones: [...sal("arequipe"), ...rec("AZUCAR SOLA")] },
       CARTA_COMPLETA,
       UNIDADES
     );
-    expect(r.estado.recubierto).toBe("azúcar sola");
-    expect(r.dudas.some((d) => d.campo === "recubierto")).toBe(false);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toContain("azúcar sola");
+    expect(r.dudas).toEqual([]);
   });
 
-  it("sin el grupo en la tabla (como hoy), se acepta lo que venga sin inventar una lista", () => {
+  /*
+   * 🔴 El caso que costó el cobro doble del 16-ago: `lechera` está como SALSA
+   * (incluida) y como ADICIÓN ($1.500). Con el modelo viejo se sumaba sola.
+   */
+  it("la misma palabra en dos grupos: con grupo se resuelve, sin grupo se PREGUNTA", () => {
+    const conGrupo = normalizarPedido(
+      { ...vacio, producto: "churrita", opciones: [{ grupo: "SALSA", opcion: "lechera" }, ...rec("sin azúcar")] },
+      CARTA_COMPLETA,
+      UNIDADES
+    );
+    expect(conGrupo.estado.totalCents).toBe(1000000); // la salsa NO se cobra
+    expect(conGrupo.dudas).toEqual([]);
+
+    const sinGrupo = normalizarPedido(
+      { ...vacio, producto: "churrita", opciones: [{ opcion: "lechera" }, ...rec("sin azúcar")] },
+      CARTA_COMPLETA,
+      UNIDADES
+    );
+    expect(sinGrupo.dudas.some((d) => d.porque.includes("está en 2 grupos"))).toBe(true);
+    expect(sinGrupo.estado.totalCents).toBeNull(); // no se adivina, no se cobra
+  });
+
+  it("sin el grupo en la tabla (como hoy), no se exige para cerrar", () => {
     // CARTA no tiene grupo RECUBIERTO: es el estado real de producción.
     const r = normalizarPedido(
-      { ...vacio, producto: "churrita", salsas: ["arequipe"], recubierto: "azúcar-canela" },
+      { ...vacio, producto: "churrita", opciones: sal("arequipe") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.recubierto).toBe("azúcar-canela");
-    expect(r.dudas.some((d) => d.campo === "recubierto")).toBe(false);
-    // Y por eso tampoco puede exigirlo para cerrar.
     expect(r.faltaParaCerrar).not.toContain("recubierto");
-  });
-});
-
-describe("la pregunta obligatoria de la Fase 1.5", () => {
-  it("solo dice que puede reconstruir cuando no queda ninguna duda", () => {
-    const completo = normalizarPedido(
-      { ...vacio, producto: "besties", cantidad: 1, salsas: ["arequipe", "lechera"] },
-      CARTA,
-      UNIDADES
-    );
-    expect(completo.reconstruible).toBe(true);
-    expect(completo.estado.totalCents).toBe(2000000);
-
-    const aMedias = normalizarPedido(
-      { ...vacio, producto: "besties", cantidad: 1, salsas: ["arequipe"] },
-      CARTA,
-      UNIDADES
-    );
-    expect(aMedias.reconstruible).toBe(false);
+    expect(r.reconstruible).toBe(true);
   });
 });
 
@@ -367,7 +366,7 @@ describe("el precio: una salsa incluida no se cobra", () => {
 
   it("una Churrita con arequipe cuesta el precio de la Churrita, sin un peso más", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: sal("arequipe") },
       CARTA_CON,
       UNIDADES
     );
@@ -380,7 +379,7 @@ describe("el precio: una salsa incluida no se cobra", () => {
         ...vacio,
         producto: "FAMILY BOX",
         cantidad: 1,
-        salsas: ["arequipe", "lechera", "chocolate blanco"],
+        opciones: sal("arequipe", "lechera", "chocolate blanco"),
       },
       CARTA_CON,
       UNIDADES
@@ -400,12 +399,12 @@ describe("el precio: una salsa incluida no se cobra", () => {
         ...vacio,
         producto: "MEGA BOX",
         cantidad: 1,
-        salsas: ["arequipe", "lechera", "chocolate negro", "chocolate blanco", "arequipe"],
+        opciones: sal("arequipe", "lechera", "chocolate negro", "chocolate blanco", "arequipe"),
       },
       CARTA_CON,
       UNIDADES
     );
-    expect(r.estado.salsas).toHaveLength(5); // la quinta ya no se pierde
+    expect(r.estado.seleccion.map((o) => o.nombre)).toHaveLength(5); // la quinta ya no se pierde
     expect(r.dudas.some((d) => d.campo === "salsas")).toBe(false);
     expect(r.estado.totalCents).toBe(5000000); // $50.000 exactos, sin recargo
     expect(r.reconstruible).toBe(true);
@@ -417,8 +416,7 @@ describe("el precio: una salsa incluida no se cobra", () => {
         ...vacio,
         producto: "CHURRITA",
         cantidad: 1,
-        salsas: ["arequipe"],
-        adiciones: ["Botella de agua", "Botella de agua"],
+        opciones: [...sal("arequipe"), ...adi("Botella de agua", "Botella de agua")],
       },
       CARTA_CON,
       UNIDADES
@@ -428,7 +426,7 @@ describe("el precio: una salsa incluida no se cobra", () => {
 
   it("pero una ADICIÓN de arequipe sí se cobra: $1.500", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"], adiciones: ["AREQUIPE"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: [...sal("arequipe"), ...adi("AREQUIPE")] },
       CARTA_CON,
       UNIDADES
     );
@@ -437,30 +435,38 @@ describe("el precio: una salsa incluida no se cobra", () => {
 
   it("la misma palabra en los dos grupos: se cobra UNA vez, la de la adición", () => {
     const soloSalsa = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["lechera"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: sal("lechera") },
       CARTA_CON,
       UNIDADES
     );
     const salsaYAdicion = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["lechera"], adiciones: ["LECHERA"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: [...sal("lechera"), ...adi("LECHERA")] },
       CARTA_CON,
       UNIDADES
     );
     expect(salsaYAdicion.estado.totalCents! - soloSalsa.estado.totalCents!).toBe(150000);
   });
 
-  it("una adición que no existe en la carta no inventa un cargo", () => {
+  /*
+   * CAMBIO DE COMPORTAMIENTO (v2, 17-ago): antes una adición inexistente se
+   * ignoraba en silencio y el pedido se cerraba con su total. Ahora se
+   * pregunta. Es más correcto: si el cliente pidió caviar, cerrar como si no
+   * lo hubiera dicho es despacharle otra cosa.
+   */
+  it("una adición que no existe no inventa un cargo NI se ignora: se pregunta", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"], adiciones: ["caviar"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: [...sal("arequipe"), ...adi("caviar")] },
       CARTA_CON,
       UNIDADES
     );
-    expect(r.estado.totalCents).toBe(1000000);
+    expect(r.estado.seleccion.some((o) => o.nombre === "caviar")).toBe(false);
+    expect(r.dudas.some((d) => d.porque.includes("caviar"))).toBe(true);
+    expect(r.estado.totalCents).toBeNull();
   });
 
   it("y el extra se multiplica por la cantidad, como el producto", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 2, salsas: ["arequipe"], adiciones: ["Botella de agua"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 2, opciones: [...sal("arequipe"), ...adi("Botella de agua")] },
       CARTA_CON,
       UNIDADES
     );
@@ -482,22 +488,22 @@ describe("el precio: una salsa incluida no se cobra", () => {
 describe("las salsas se pueden repetir", () => {
   it("dos de arequipe en una Besties: se conservan las DOS", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["arequipe", "arequipe"] },
+      { ...vacio, producto: "BESTIES", cantidad: 1, opciones: sal("arequipe", "arequipe") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toEqual(["arequipe", "arequipe"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["arequipe", "arequipe"]);
     expect(r.dudas.some((d) => d.campo === "salsas")).toBe(false);
     expect(r.estado.totalCents).toBe(2000000); // $20.000, completo
   });
 
   it("Family Box: arequipe + arequipe + lechera", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "FAMILY BOX", cantidad: 1, salsas: ["arequipe", "arequipe", "lechera"] },
+      { ...vacio, producto: "FAMILY BOX", cantidad: 1, opciones: sal("arequipe", "arequipe", "lechera") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toEqual(["arequipe", "arequipe", "lechera"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["arequipe", "arequipe", "lechera"]);
     expect(r.reconstruible).toBe(true);
   });
 
@@ -507,12 +513,12 @@ describe("las salsas se pueden repetir", () => {
         ...vacio,
         producto: "MEGA BOX",
         cantidad: 1,
-        salsas: ["arequipe", "arequipe", "lechera", "chocolate negro", "chocolate blanco"],
+        opciones: sal("arequipe", "arequipe", "lechera", "chocolate negro", "chocolate blanco"),
       },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toHaveLength(5);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toHaveLength(5);
     expect(r.dudas.some((d) => d.campo === "salsas")).toBe(false);
     expect(r.estado.totalCents).toBe(5000000); // $50.000
     expect(r.reconstruible).toBe(true);
@@ -520,12 +526,12 @@ describe("las salsas se pueden repetir", () => {
 
   it("repetir NO altera el precio: las salsas van incluidas", () => {
     const unaSola = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: sal("arequipe") },
       CARTA,
       UNIDADES
     );
     const dosIguales = normalizarPedido(
-      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["arequipe", "arequipe"] },
+      { ...vacio, producto: "BESTIES", cantidad: 1, opciones: sal("arequipe", "arequipe") },
       CARTA,
       UNIDADES
     );
@@ -535,41 +541,42 @@ describe("las salsas se pueden repetir", () => {
 
   it("se corrige el nombre de CADA repetición, sin perder ninguna", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["Arequipe", "AREQUIPE"] },
+      { ...vacio, producto: "BESTIES", cantidad: 1, opciones: sal("Arequipe", "AREQUIPE") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toEqual(["arequipe", "arequipe"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["arequipe", "arequipe"]);
   });
 
   /* NEGATIVAS: repetir no es barra libre. */
   it("pasarse del máximo se pregunta, no se recorta en silencio", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "CHURRITA", cantidad: 1, salsas: ["arequipe", "arequipe", "lechera"] },
+      { ...vacio, producto: "CHURRITA", cantidad: 1, opciones: sal("arequipe", "arequipe", "lechera") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toHaveLength(3); // no se recorta por su cuenta
+    expect(r.estado.seleccion.map((o) => o.nombre)).toHaveLength(3); // no se recorta por su cuenta
     expect(r.dudas.some((d) => d.porque.includes("pidió 3"))).toBe(true);
     expect(r.estado.totalCents).toBeNull(); // y sin total no se puede confirmar
   });
 
   it("una salsa repetida que NO existe sigue siendo un rechazo", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: "BESTIES", cantidad: 1, salsas: ["mostaza", "mostaza"] },
+      { ...vacio, producto: "BESTIES", cantidad: 1, opciones: sal("mostaza", "mostaza") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toHaveLength(0);
-    expect(r.dudas.filter((d) => d.campo === "salsas").length).toBeGreaterThan(0);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toHaveLength(0);
+    // Dos veces: una duda por cada mostaza que no existe.
+    expect(r.dudas.filter((d) => d.porque.includes("mostaza")).length).toBe(2);
   });
 
   it("sin presentación elegida, las repeticiones también se conservan", () => {
     const r = normalizarPedido(
-      { ...vacio, producto: null, salsas: ["arequipe", "arequipe"] },
+      { ...vacio, producto: null, opciones: sal("arequipe", "arequipe") },
       CARTA,
       UNIDADES
     );
-    expect(r.estado.salsas).toEqual(["arequipe", "arequipe"]);
+    expect(r.estado.seleccion.map((o) => o.nombre)).toEqual(["arequipe", "arequipe"]);
   });
 });

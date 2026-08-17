@@ -14,7 +14,6 @@ import {
   type EstadoDelPedido,
 } from "@/server/orders/estado";
 import { comoTexto, leerAporte, loQueFalta } from "@/server/orders/extraer";
-import { grupoDeSalsas } from "@/server/orders/normalizar";
 
 const SALSAS = [
   { id: "o1", nombre: "chocolate negro", precioExtraCents: 0 },
@@ -32,12 +31,22 @@ const CHURRITA: ProductoDelCatalogo = {
 const CARTA = [CHURRITA];
 const UNIDADES = { CHURRITA: 6 };
 
+const sal = (...nombres: string[]) => nombres.map((n) => ({ grupo: "SALSA", opcion: n }));
+
+/** Lo mismo, pero ya resuelto: es lo que guarda el estado. */
+const elegidas = (...nombres: string[]) =>
+  nombres.map((n) => ({
+    grupoId: "g1",
+    grupoNombre: "SALSA",
+    opcionId: SALSAS.find((o) => o.nombre === n)!.id,
+    nombre: n,
+    precioDeltaCents: 0,
+  }));
+
 const propuesta = (p: Partial<Parameters<typeof validarPropuesta>[0]> = {}) => ({
   producto: "churrita",
   cantidad: 1,
-  salsas: ["arequipe"],
-  recubierto: null,
-  adiciones: [],
+  opciones: sal("arequipe"),
   nombre: null,
   telefono: null,
   direccion: null,
@@ -79,7 +88,7 @@ describe("corrupción deliberada", () => {
   });
 
   it("salsa incompatible con el producto → RECHAZO", () => {
-    const v = validarPropuesta(propuesta({ salsas: ["mostaza"] }), CARTA, UNIDADES);
+    const v = validarPropuesta(propuesta({ opciones: sal("mostaza") }), CARTA, UNIDADES);
     expect(v.ok).toBe(false);
     expect(v.rechazos.join(" ")).toContain("mostaza");
   });
@@ -113,9 +122,7 @@ describe("estados imposibles", () => {
   const completo = {
     producto: "churrita",
     cantidad: 1,
-    salsas: ["arequipe"],
-    recubierto: null,
-    adiciones: [],
+    opciones: sal("arequipe"),
     nombre: "Andrea",
     telefono: "3001234567",
     direccion: "Cra 5 #10-20",
@@ -158,18 +165,18 @@ describe("qué aportó el cliente en este turno", () => {
   };
 
   it("distingue lo nuevo de lo que cambia y de lo que permanece", () => {
-    const despues: EstadoDelPedido = { ...base, salsas: ["arequipe"] };
+    const despues: EstadoDelPedido = { ...base, seleccion: elegidas("arequipe") };
     const l = leerAporte(base, despues);
-    expect(l.nuevo.map((n) => n.campo)).toEqual(["salsas"]);
+    expect(l.nuevo.map((n) => n.campo)).toEqual(["opciones"]);
     expect(l.permanece).toContain("producto");
     expect(l.cambia).toEqual([]);
   });
 
   it("un cambio de opinión NO es información nueva", () => {
-    const antes: EstadoDelPedido = { ...base, salsas: ["arequipe"] };
-    const despues: EstadoDelPedido = { ...base, salsas: ["lechera"] };
+    const antes: EstadoDelPedido = { ...base, seleccion: elegidas("arequipe") };
+    const despues: EstadoDelPedido = { ...base, seleccion: elegidas("lechera") };
     const l = leerAporte(antes, despues);
-    expect(l.cambia.map((c) => c.campo)).toEqual(["salsas"]);
+    expect(l.cambia.map((c) => c.campo)).toEqual(["opciones"]);
     expect(l.nuevo).toEqual([]);
   });
 
@@ -185,25 +192,25 @@ describe("lo que el backend le recuerda al modelo", () => {
       ...estadoVacio(),
       producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
     };
-    expect(loQueFalta(e, 1)).toEqual(["salsas", "recubierto", "nombre", "teléfono", "dirección"]);
+    expect(loQueFalta(e, CHURRITA)).toEqual(["salsa", "nombre", "teléfono", "dirección"]);
   });
 
   it("el bloque del prompt no repite el teléfono, solo dice que ya lo tiene", () => {
     const e: EstadoDelPedido = {
       ...estadoVacio(),
       producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
-      salsas: ["arequipe"],
+      seleccion: elegidas("arequipe"),
       entrega: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5" },
       totalCents: 1000000,
     };
-    const texto = comoTexto(e, 1);
+    const texto = comoTexto(e, CHURRITA);
     expect(texto).toContain("teléfono: ya lo dio");
     expect(texto).not.toContain("3001234567"); // el dato no se repite en el prompt
     expect(texto).toContain("$10.000");
   });
 
   it("sin pedido en curso no inyecta nada: el prompt no engorda porque sí", () => {
-    expect(comoTexto(estadoVacio(), 1)).toBe("");
+    expect(comoTexto(estadoVacio(), CHURRITA)).toBe("");
   });
 });
 
@@ -301,10 +308,9 @@ describe("las métricas de la regla 10", () => {
   });
 });
 
-describe("el grupo de las salsas se busca por NOMBRE", () => {
-  // El catálogo tal como quedará DESPUÉS de cargar recubierto y adiciones: el
-  // orden deja de ser una garantía, y con él se caía "el primer grupo con
-  // opciones".
+describe("cada opción sabe de qué grupo es (modelo v2)", () => {
+  // El catálogo tal como queda con tres grupos: el orden deja de importar,
+  // porque ya no hay que adivinar nada.
   const CON_TRES_GRUPOS: ProductoDelCatalogo = {
     ...CHURRITA,
     grupos: [
@@ -321,25 +327,83 @@ describe("el grupo de las salsas se busca por NOMBRE", () => {
         nombre: "ADICIONES",
         minimo: 0,
         maximo: 5,
-        opciones: [{ id: "a1", nombre: "botella de agua", precioExtraCents: 200000 }],
+        opciones: [{ id: "a1", nombre: "lechera", precioExtraCents: 150000 }],
       },
     ],
   };
+  const CARTA_3 = [CON_TRES_GRUPOS];
 
-  it("elige SALSA aunque el recubierto vaya primero", () => {
-    expect(grupoDeSalsas(CON_TRES_GRUPOS)?.nombre).toBe("SALSA");
-    expect(grupoDeSalsas(CON_TRES_GRUPOS)?.maximo).toBe(5);
+  it("el recubierto primero ya no confunde a nadie: cada opción trae su grupo", () => {
+    const v = validarPropuesta(
+      {
+        ...propuesta(),
+        opciones: [
+          { grupo: "SALSA", opcion: "arequipe" },
+          { grupo: "RECUBIERTO", opcion: "azúcar-canela" },
+        ],
+      },
+      CARTA_3,
+      UNIDADES
+    );
+    const porGrupo = v.estado.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`);
+    expect(porGrupo).toEqual(["SALSA:arequipe", "RECUBIERTO:azúcar-canela"]);
   });
 
-  it("con un solo grupo sin nombre reconocible, la red sigue funcionando", () => {
-    const raro: ProductoDelCatalogo = {
+  it("una salsa incluida no se cobra aunque exista una adición con su nombre", () => {
+    const v = validarPropuesta(
+      {
+        ...propuesta(),
+        opciones: [
+          { grupo: "SALSA", opcion: "lechera" },
+          { grupo: "RECUBIERTO", opcion: "azúcar-canela" },
+        ],
+      },
+      CARTA_3,
+      UNIDADES
+    );
+    expect(v.estado.totalCents).toBe(1000000); // sin el +$1.500 de la adición
+  });
+
+  it("el nombre y el precio quedan guardados: el estado sigue legible mañana", () => {
+    const v = validarPropuesta(
+      {
+        ...propuesta(),
+        opciones: [
+          { grupo: "ADICIONES", opcion: "lechera" },
+          { grupo: "SALSA", opcion: "arequipe" },
+          { grupo: "RECUBIERTO", opcion: "azúcar-canela" },
+        ],
+      },
+      CARTA_3,
+      UNIDADES
+    );
+    const adicion = v.estado.seleccion.find((s) => s.grupoNombre === "ADICIONES")!;
+    expect(adicion.opcionId).toBe("a1");
+    expect(adicion.nombre).toBe("lechera");
+    expect(adicion.precioDeltaCents).toBe(150000);
+  });
+
+  it("un grupo que ningún código conoce funciona igual", () => {
+    const salon: ProductoDelCatalogo = {
       ...CHURRITA,
-      grupos: [{ id: "g9", nombre: "ACOMPAÑAMIENTO", minimo: 1, maximo: 2, opciones: SALSAS }],
+      nombre: "MANICURA",
+      grupos: [
+        {
+          id: "ge",
+          nombre: "ESMALTE",
+          minimo: 1,
+          maximo: 1,
+          opciones: [{ id: "e1", nombre: "con esmalte", precioExtraCents: 500000 }],
+        },
+      ],
     };
-    expect(grupoDeSalsas(raro)?.maximo).toBe(2);
-  });
-
-  it("sin producto no hay grupo, y no revienta", () => {
-    expect(grupoDeSalsas(undefined)).toBeUndefined();
+    const v = validarPropuesta(
+      { ...propuesta(), producto: "MANICURA", opciones: [{ grupo: "ESMALTE", opcion: "con esmalte" }] },
+      [salon],
+      {}
+    );
+    expect(v.ok).toBe(true);
+    expect(v.estado.seleccion[0]!.grupoNombre).toBe("ESMALTE");
+    expect(v.estado.totalCents).toBe(1000000 + 500000);
   });
 });

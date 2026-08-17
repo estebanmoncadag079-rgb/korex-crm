@@ -13,6 +13,7 @@
  * Esas tres respuestas son lo que permite decir *"ya me diste el teléfono, no te
  * lo vuelvo a pedir"* sin que el prompt tenga que suplicarlo.
  */
+import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import type { EstadoDelPedido } from "./estado";
 
 export type Aporte = {
@@ -42,9 +43,9 @@ function vacio(v: unknown): boolean {
 const CAMPOS: { campo: string; leer: (e: EstadoDelPedido) => unknown }[] = [
   { campo: "producto", leer: (e) => e.producto.nombre },
   { campo: "cantidad", leer: (e) => e.producto.cantidad },
-  { campo: "salsas", leer: (e) => e.salsas },
-  { campo: "recubierto", leer: (e) => e.recubierto },
-  { campo: "adiciones", leer: (e) => e.adiciones },
+  // Lo elegido va como una sola entrada: los grupos los pone el negocio, no
+  // este archivo. Antes había una línea por grupo de La Churra.
+  { campo: "opciones", leer: (e) => e.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`) },
   { campo: "nombre", leer: (e) => e.entrega.nombre },
   { campo: "telefono", leer: (e) => e.entrega.telefono },
   { campo: "direccion", leer: (e) => e.entrega.direccion },
@@ -88,11 +89,25 @@ export function leerAporte(
  * lleva escritas ("no vuelvas a preguntar lo que ya te dijeron"): el modelo deja
  * de tener que acordarse, porque se lo recuerda el servidor.
  */
-export function loQueFalta(estado: EstadoDelPedido, salsasQueLleva: number): string[] {
+export function loQueFalta(
+  estado: EstadoDelPedido,
+  /** El producto del catálogo, con SUS grupos. `undefined` = aún sin elegir. */
+  producto?: ProductoDelCatalogo
+): string[] {
   const falta: string[] = [];
-  if (!estado.producto.id) falta.push("presentación");
-  else if (estado.salsas.length < salsasQueLleva) falta.push("salsas");
-  if (estado.producto.id && !estado.recubierto) falta.push("recubierto");
+  if (!estado.producto.id) {
+    falta.push("presentación");
+  } else {
+    /*
+     * Los grupos obligatorios salen del catálogo del negocio — ni un nombre
+     * escrito aquí. Sirve igual para *salsas*, *tamaño* o *diseño de uñas*.
+     */
+    for (const g of producto?.grupos ?? []) {
+      if (g.opciones.length === 0 || g.minimo < 1) continue;
+      const elegidas = estado.seleccion.filter((s) => s.grupoId === g.id).length;
+      if (elegidas < g.minimo) falta.push(g.nombre.toLowerCase());
+    }
+  }
   if (!estado.entrega.nombre?.trim()) falta.push("nombre");
   if (!estado.entrega.telefono?.trim()) falta.push("teléfono");
   if (!estado.entrega.direccion?.trim()) falta.push("dirección");
@@ -105,21 +120,30 @@ export function loQueFalta(estado: EstadoDelPedido, salsasQueLleva: number): str
  * Corto a propósito: sustituye instrucciones, no las añade. Si esto crece, el
  * prompt vuelve a engordar y la Fase 2 habrá servido para nada.
  */
-export function comoTexto(estado: EstadoDelPedido, salsasQueLleva: number): string {
-  if (!estado.producto.id && estado.salsas.length === 0) return "";
+export function comoTexto(
+  estado: EstadoDelPedido,
+  producto?: ProductoDelCatalogo
+): string {
+  if (!estado.producto.id && estado.seleccion.length === 0) return "";
 
   const partes: string[] = [];
   if (estado.producto.nombre) {
     partes.push(`${estado.producto.cantidad} × ${estado.producto.nombre}`);
   }
-  if (estado.salsas.length) partes.push(`salsas: ${estado.salsas.join(", ")}`);
-  if (estado.recubierto) partes.push(`recubierto: ${estado.recubierto}`);
-  if (estado.adiciones.length) partes.push(`adiciones: ${estado.adiciones.join(", ")}`);
+  // Una línea por grupo, con el nombre que le puso el negocio.
+  const porGrupo = new Map<string, string[]>();
+  for (const s of estado.seleccion) {
+    const clave = s.grupoNombre || "opciones";
+    porGrupo.set(clave, [...(porGrupo.get(clave) ?? []), s.nombre]);
+  }
+  for (const [grupo, nombres] of porGrupo) {
+    partes.push(`${grupo.toLowerCase()}: ${nombres.join(", ")}`);
+  }
   if (estado.entrega.nombre) partes.push(`nombre: ${estado.entrega.nombre}`);
   if (estado.entrega.telefono) partes.push("teléfono: ya lo dio");
   if (estado.entrega.direccion) partes.push("dirección: ya la dio");
 
-  const falta = loQueFalta(estado, salsasQueLleva);
+  const falta = loQueFalta(estado, producto);
   const total =
     estado.totalCents === null
       ? ""

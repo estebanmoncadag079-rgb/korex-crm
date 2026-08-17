@@ -180,9 +180,7 @@ try {
     {
       producto: "churrita",
       cantidad: 1,
-      salsas: ["arequipe"],
-      recubierto: null,
-      adiciones: [],
+      opciones: [{ grupo: "SALSA", opcion: "arequipe" }],
       nombre: null,
       telefono: null,
       direccion: null,
@@ -209,10 +207,10 @@ try {
   // 4. Corrupción deliberada
   console.log("\n4. CORRUPCIÓN DELIBERADA (nada de esto debe persistirse)");
   const casos: [string, Parameters<typeof validarPropuesta>[0]][] = [
-    ["producto inexistente", { ...v.estado, producto: "PIZZA", cantidad: 1, salsas: [], recubierto: null, adiciones: [], nombre: null, telefono: null, direccion: null }],
-    ["salsa incompatible", { producto: "churrita", cantidad: 1, salsas: ["mostaza"], recubierto: null, adiciones: [], nombre: null, telefono: null, direccion: null }],
-    ["cantidad 0", { producto: "churrita", cantidad: 0, salsas: ["arequipe"], recubierto: null, adiciones: [], nombre: null, telefono: null, direccion: null }],
-    ["confirmado sin datos", { producto: "churrita", cantidad: 1, salsas: ["arequipe"], recubierto: null, adiciones: [], nombre: null, telefono: null, direccion: null, confirmado: true }],
+    ["producto inexistente", { producto: "PIZZA", cantidad: 1, opciones: [], nombre: null, telefono: null, direccion: null }],
+    ["salsa incompatible", { producto: "churrita", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "mostaza" }], nombre: null, telefono: null, direccion: null }],
+    ["cantidad 0", { producto: "churrita", cantidad: 0, opciones: [{ grupo: "SALSA", opcion: "arequipe" }], nombre: null, telefono: null, direccion: null }],
+    ["confirmado sin datos", { producto: "churrita", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }], nombre: null, telefono: null, direccion: null, confirmado: true }],
   ];
   for (const [nombre, mala] of casos) {
     const r = validarPropuesta(mala, catalogo);

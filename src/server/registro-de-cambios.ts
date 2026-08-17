@@ -148,9 +148,14 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     "producto.id": "tecnico",
     "producto.nombre": "negocio",
     "producto.cantidad": "negocio",
-    salsas: "negocio",
-    recubierto: "negocio",
-    adiciones: "negocio",
+    /*
+     * v2 (17-ago): una sola clave para todo lo elegido. Antes había una por
+     * grupo —`salsas`, `recubierto`, `adiciones`—, así que **la clasificación
+     * de un negocio concreto vivía en el módulo de registro del núcleo**: el
+     * día que un salón instrumentara `esmalte`, su valor habría salido como
+     * `<sin clasificar>` sin que nadie supiera por qué.
+     */
+    seleccion: "negocio",
     totalCents: "negocio",
     paso: "negocio",
     confirmado: "negocio",

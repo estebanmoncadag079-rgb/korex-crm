@@ -51,7 +51,6 @@ import {
   type EstadoDelPedido,
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
-import { grupoDeSalsas } from "@/server/orders/normalizar";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
@@ -546,7 +545,6 @@ export async function runAgentTurn(
   const estadoEstructurado = !profile.appointmentsEnabled && profile.stateSource === "backend";
   let bloqueDeEstado: string | undefined;
   let estadoGuardado: EstadoDelPedido | null = null;
-  let salsasQueLleva = 0;
 
   if (estadoEstructurado) {
     const productos = await catalogoDePedidosQuery(organizationId);
@@ -561,19 +559,14 @@ export async function runAgentTurn(
         await borrarEstado(conversation.id, { actor: "pipeline", proceso: "reinicio" });
       }
       estadoGuardado = await leerEstado(conversation.id);
-      const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
       /*
-       * El grupo de las salsas se pide POR NOMBRE, con el mismo criterio que
-       * `normalizarPedido` — no "el primer grupo con opciones".
-       *
-       * Aquí había una discrepancia con la Fase 1.5, que ya declaraba corregido
-       * ese patrón: mientras el catálogo tenga un solo grupo las dos formas dan
-       * lo mismo, pero **el día que se carguen RECUBIERTO y ADICIONES** este
-       * `find` puede devolver el recubierto (máximo 1) y el agente pedirle UNA
-       * salsa a un Mega Box, que lleva cinco.
+       * El producto entero, con SUS grupos: quien decide qué falta es el
+       * catálogo del negocio, no una línea escrita aquí. Antes esto calculaba
+       * "cuántas salsas lleva" y se lo pasaba a `comoTexto` como un número —el
+       * grupo de un negocio concreto, dentro del núcleo.
        */
-      salsasQueLleva = grupoDeSalsas(delPedido)?.maximo ?? 0;
-      if (estadoGuardado) bloqueDeEstado = comoTexto(estadoGuardado, salsasQueLleva);
+      const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
+      if (estadoGuardado) bloqueDeEstado = comoTexto(estadoGuardado, delPedido);
     }
   }
 
@@ -1699,8 +1692,12 @@ async function chatJsonConEstado(
       role: "system",
       content:
         'Además de la acción, añade al MISMO objeto JSON una clave "estado" con el pedido tal como va: ' +
-        '{"producto": …, "cantidad": …, "salsas": [], "recubierto": …, "adiciones": [], ' +
+        '{"producto": …, "cantidad": …, "opciones": [{"grupo": …, "opcion": …}], ' +
         '"nombre": …, "telefono": …, "direccion": …, "paso": …, "confirmado": false}. ' +
+        'En "opciones" va CADA cosa que el cliente eligió del catálogo, una entrada por elección ' +
+        'y en el orden en que las dijo: si pide dos veces lo mismo, van DOS entradas. ' +
+        '"grupo" es el título bajo el que aparece en el catálogo (SALSAS, TAMAÑO, ADICIONES…): ' +
+        "ponlo siempre que puedas, porque el mismo nombre puede estar en dos grupos con precios distintos. " +
         "Lo que el cliente aún no haya dicho va en null (o lista vacía). No inventes nada.",
     },
     ...messages.slice(1),

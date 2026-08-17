@@ -152,7 +152,9 @@ describe("qué se escribe y qué no", () => {
 
     it("NO se come el nombre del producto, que es dato de negocio", () => {
       expect(paraLog("conversation_state", "producto.nombre", "CHURRITA")).toBe("CHURRITA");
-      expect(paraLog("conversation_state", "salsas", "arequipe, lechera")).toBe("arequipe, lechera");
+      expect(paraLog("conversation_state", "seleccion", "SALSA:arequipe, SALSA:lechera")).toBe(
+        "SALSA:arequipe, SALSA:lechera"
+      );
     });
 
     it("NO se come un total, que es un número y no una persona", () => {

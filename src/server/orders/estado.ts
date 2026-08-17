@@ -18,12 +18,20 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
-import { normalizarPedido, type EstadoPropuesto } from "./normalizar";
+import { normalizarPedido, type EstadoPropuesto, type OpcionElegida } from "./normalizar";
 import type { Actor } from "@/server/registro-de-cambios";
 import { paraLog } from "@/server/registro-de-cambios";
 
-/** La forma del estado. Cambiarla obliga a subir `SCHEMA_VERSION`. */
-export const SCHEMA_VERSION = 1;
+/**
+ * La forma del estado. Cambiarla obliga a subir `SCHEMA_VERSION`.
+ *
+ * **v2 (17-ago-2026)**: las tres listas con nombre de La Churra —`salsas`,
+ * `recubierto`, `adiciones`— se sustituyen por una `seleccion` genérica. Se pudo
+ * hacer sin migración porque `conversation_state` estaba **vacía**: 0 filas y 0
+ * organizaciones, verificado en producción ese día. Con un solo pedido vivo, el
+ * mismo cambio habría significado perderlo.
+ */
+export const SCHEMA_VERSION = 2;
 
 export type EstadoDelPedido = {
   schema_version: number;
@@ -34,9 +42,15 @@ export type EstadoDelPedido = {
     nombre: string | null;
     cantidad: number;
   };
-  salsas: string[];
-  recubierto: string | null;
-  adiciones: string[];
+  /**
+   * Todo lo que el cliente eligió, **en una lista y en su orden**.
+   *
+   * Cada elemento sabe de qué grupo es, así que ya no hay nada que adivinar: es
+   * lo que hace **inexpresables** el cobro cruzado entre grupos y el "primer
+   * grupo con opciones". Y es una lista, no un conjunto: `[arequipe, arequipe]`
+   * son dos salsas, que es como pide la gente.
+   */
+  seleccion: OpcionElegida[];
   entrega: {
     nombre: string | null;
     telefono: string | null;
@@ -54,9 +68,7 @@ export function estadoVacio(): EstadoDelPedido {
   return {
     schema_version: SCHEMA_VERSION,
     producto: { id: null, nombre: null, cantidad: 1 },
-    salsas: [],
-    recubierto: null,
-    adiciones: [],
+    seleccion: [],
     entrega: { nombre: null, telefono: null, direccion: null },
     totalCents: null,
     paso: "sin pedido",
@@ -100,9 +112,7 @@ export function validarPropuesta(
     {
       producto: propuesta.producto,
       cantidad: propuesta.cantidad,
-      salsas: propuesta.salsas ?? [],
-      recubierto: propuesta.recubierto,
-      adiciones: propuesta.adiciones ?? [],
+      opciones: propuesta.opciones ?? [],
       nombre: propuesta.nombre,
       telefono: propuesta.telefono,
       direccion: propuesta.direccion,
@@ -135,9 +145,7 @@ export function validarPropuesta(
       nombre: r.estado.producto,
       cantidad: Number.isInteger(cantidad) && cantidad >= 1 ? cantidad : 1,
     },
-    salsas: r.estado.salsas,
-    recubierto: r.estado.recubierto,
-    adiciones: r.estado.adiciones,
+    seleccion: r.estado.seleccion,
     entrega: {
       nombre: propuesta.nombre ?? null,
       telefono: propuesta.telefono ?? null,
@@ -164,11 +172,13 @@ export function validarPropuesta(
     if (!estado.entrega.direccion?.trim()) rechazos.push("confirmado sin dirección");
   }
 
-  // Una salsa que no resolvió es una opción incompatible con ese producto.
+  /*
+   * Una opción que no resolvió es incompatible con ese producto — se llame como
+   * se llame su grupo. Antes esto miraba `d.campo === "salsas"`, que era el
+   * nombre de un grupo de UN negocio dentro del validador del núcleo.
+   */
   for (const d of r.dudas) {
-    if (d.campo === "salsas" && d.porque.includes("no está entre las opciones")) {
-      rechazos.push(d.porque);
-    }
+    if (d.porque.includes("no está entre las opciones")) rechazos.push(d.porque);
   }
 
   return {
@@ -278,9 +288,7 @@ function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
     "producto.id": e.producto.id,
     "producto.nombre": e.producto.nombre,
     "producto.cantidad": e.producto.cantidad,
-    salsas: e.salsas.join(", "),
-    recubierto: e.recubierto,
-    adiciones: e.adiciones.join(", "),
+    seleccion: e.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`).join(", "),
     "entrega.nombre": e.entrega.nombre,
     "entrega.telefono": e.entrega.telefono,
     "entrega.direccion": e.entrega.direccion,

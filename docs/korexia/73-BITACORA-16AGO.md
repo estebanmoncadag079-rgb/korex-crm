@@ -389,6 +389,32 @@ sigue funcionando cuando el negocio no vende comida?"*.
 > catálogo, agenda, API—; **la Fase 2 fue la única pieza que nació mirando a un
 > solo negocio**, y por eso concentró cinco de los últimos errores.
 
+### 17-ago, 00:40 · Paso 1 — la selección genérica
+
+**Objetivo**: sacar del núcleo los grupos de un solo negocio. `salsas`,
+`recubierto` y `adiciones` → `seleccion: [{grupoId, grupoNombre, opcionId,
+nombre, precioDeltaCents}]`, lista con repetición.
+**Archivos**: `orders/normalizar.ts` · `orders/estado.ts` (`SCHEMA_VERSION` → 2)
+· `orders/extraer.ts` · `ai/pipeline.ts` (enganches + **el prompt de
+extracción**) · `registro-de-cambios.ts` (clasificación) ·
+`scripts/probar-estado.ts` · 3 archivos de pruebas.
+**Riesgos**: (a) el prompt cambia donde el modelo medía 0 % de fallos — sigue
+siendo **por nombres** y tolerante, solo se le pide que nombre el grupo;
+(b) `SCHEMA_VERSION` 1→2, gratis hoy porque la tabla está vacía;
+(c) 🔴 **hallazgo: `tsconfig` excluye `scripts/`**, así que el typecheck no los
+mira y `probar-estado.ts` estaba roto sin que el gate se enterara.
+**Evidencia**: 729 pruebas en verde, `tsc` y `eslint` limpios. Desaparecen del
+núcleo `grupoDeSalsas`, `grupoDeAdiciones`, `grupoLlamado`, `sumaDeExtras` y el
+bloque del recubierto.
+**Reversión**: `git revert <sha>`. Vuelve el modelo con los grupos de La Churra
+dentro; **no hay dato que restaurar** porque `conversation_state` sigue vacía.
+**Estado**: terminado. `medir-extraccion.ts` **queda a propósito con el contrato
+viejo**: se rehace con la medición de la regla 13, y migrarlo a medias habría
+sido peor que no tocarlo.
+
+> 🔑 La prueba que lo demuestra no es de churros: un producto `MANICURA` con un
+> grupo `ESMALTE` —que ningún código conoce— valida, resuelve y cobra bien.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

@@ -106,7 +106,8 @@ export type Resultado = {
   dudas: Duda[];
   /**
    * Lo que le falta al pedido para poder despacharlo, en el orden del flujo del
-   * negocio: presentación → salsas → recubierto → datos de entrega.
+   * negocio: presentación → los grupos obligatorios de su catálogo → datos de
+   * entrega. Los nombres los pone cada negocio, no este archivo.
    *
    * Es distinto de `reconstruible`: un pedido puede estar entendido sin
    * ambigüedad (nada que preguntar de lo dicho) y aun así estar **a medias**.

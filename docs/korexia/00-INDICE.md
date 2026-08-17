@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [83-RECURSOS-Y-RESERVAS.md](83-RECURSOS-Y-RESERVAS.md) | 🔴 **Paso 4, auditado**: hoy una reserva solo puede tener UN recurso y el horario es del negocio, no de quien lo atiende. Con la clínica, el taller y la academia como prueba de que hacen falta dos a la vez — y la restricción de solape, que es la joya del diseño, atada a `staff_id` |
+
 | [82-EL-CATALOGO-AL-CRM.md](82-EL-CATALOGO-AL-CRM.md) | 🔴 **Paso 3, auditado**: el núcleo ya está listo — lo que falta es que un servicio pueda tener grupos como un producto. Con el hallazgo de por qué **el profesional NO es una opción** y por qué aquí se cierra la ventana de las migraciones gratis |
 
 | [81-REQUISITOS-DECLARATIVOS.md](81-REQUISITOS-DECLARATIVOS.md) | 🔴 **Cómo sacar «entrega» del núcleo**: los 26 puntos cableados, la estructura de requisitos que los sustituye, qué es del núcleo y qué del vertical, y por qué `fecha`/`hora` NO son datos sino un recurso |

@@ -73,7 +73,9 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | **2** | **Un solo dueño para el vertical** | ✅ **hecho el 17-ago** |
 | **3a** | `permiteRepeticion` + tipo de dominio común (`Ofrecible`). **Sin migración** | 🔄 auditado ([82](82-EL-CATALOGO-AL-CRM.md)) |
 | **3b** | **Grupos de opciones para `service`.** Primera migración con datos vivos | ⬜ |
-| **4** | **Citas entra en la Fase 2** | ⬜ |
+| **4a** | Disponibilidad genérica (`recursoIds`), **sin tocar tablas** | 🔄 auditado ([83](83-RECURSOS-Y-RESERVAS.md)) |
+| **4b** | `recurso` + `reserva_recurso` y el solape movido. **La migración más cara del proyecto** | ⬜ |
+| **4c** | Horario por recurso | ⬜ |
 | **5** | Solo entonces, **encender** | ⬜ |
 
 ## Las tres preguntas obligatorias

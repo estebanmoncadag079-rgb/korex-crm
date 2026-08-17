@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [85-PROBAR-ESTADO.md](85-PROBAR-ESTADO.md) | **Los 12 criterios de salida** de la prueba de extremo a extremo, escritos ANTES de ejecutarla: siete de pedidos, cinco de citas, dos clientes efímeros. Y 🔴 el hallazgo de que `tsconfig` excluye `scripts/`, así que los programas que escriben en producción no se comprueban |
+
 | [84-EL-MODELO-DE-LA-FICHA.md](84-EL-MODELO-DE-LA-FICHA.md) | 🔴 **Las dos representaciones de la ficha**, y por qué guardar la aplanada rompió dos fichas de producción. El inventario de las 7 escrituras, la regla —*una ficha transformada nunca se persiste*— y el guardarraíl que falló tres veces antes de servir |
 
 | [83-RECURSOS-Y-RESERVAS.md](83-RECURSOS-Y-RESERVAS.md) | 🔴 **Paso 4, auditado**: hoy una reserva solo puede tener UN recurso y el horario es del negocio, no de quien lo atiende. Con la clínica, el taller y la academia como prueba de que hacen falta dos a la vez — y la restricción de solape, que es la joya del diseño, atada a `staff_id` |

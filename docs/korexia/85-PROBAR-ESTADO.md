@@ -91,6 +91,59 @@ salón no debe preguntar.
 
 ---
 
+## El resultado: ✅ los 12 criterios, en verde
+
+**Ejecutado el 17-ago-2026 contra la base de producción.** `41` comprobaciones,
+todas en verde, y las tres del cierre:
+
+| | |
+|---|---|
+| **La flota** | `agent_profile` fila por fila, **idéntica** antes y después |
+| **Sin huérfanos** | Las 10 tablas contadas tras el borrado: cero |
+| **Sin restos** | Verificado aparte: 4 organizaciones (las reales), 4 banderas en `prompt`, **0 filas** en `conversation_state` |
+
+Lo que más importa de esa lista, en una línea cada uno:
+
+- **El pedido difícil se cierra.** Cinco salsas de cuatro sabores, y las cinco
+  se conservan: `arequipe` dos veces son dos.
+- **El cobro no se cruza.** $40.000 + una adición de $1.500 = **$41.500**. Con el
+  bug de antes habrían sido $43.000, porque el mismo nombre existe gratis en un
+  grupo y de pago en otro.
+- **Donde el grupo no permite repetir, se pregunta**: *«oreo ya está en tu
+  adiciones. ¿Querías otra distinta?»*. No adivina.
+- **No se confirma sin lo que pide la ficha**, ni —y esto es lo importante—
+  cuando la ficha **no ha declarado** nada: *«confirmado sin requisitos
+  declarados en la ficha del negocio»*.
+- **El salón no pide dirección ni teléfono.** Lo único que le falta antes de
+  elegir servicio es el servicio.
+- **El prompt no cambia** con los requisitos declarados. Byte a byte.
+- **Los datos personales no aparecen en los logs**: `datos.nombre`,
+  `datos.telefono` y `datos.direccion` salen como
+  `<personal · 10 caracteres · huella e325c97575c9>`.
+
+---
+
+## 🔴 Segundo hallazgo: la auditoría describía mal el contrato de las citas
+
+`calcularDisponibilidad` devuelve **`Record<hora, staffId[]>`** — la clave es la
+franja, el valor es quién la tiene libre. La auditoría del paso 4
+([83](83-RECURSOS-Y-RESERVAS.md)) decía `Record<staffId, string[]>`, **al revés**.
+
+Se descubrió aquí: la prueba leyó `huecos[staffId]`, obtuvo `undefined` y
+concluyó «0 franjas». **El código siempre estuvo bien**; el documento no.
+
+Y tiene una consecuencia que va más allá de una prueba mal escrita: el paso 4a
+está planificado como *«generalizar `staffIds` a `recursoIds`, un rename»*. Si
+alguien lo hace leyendo el documento, esperará una salida por recurso —y leer una
+clave que no existe **no falla: devuelve `undefined`**, que es indistinguible de
+una agenda llena. Es el mismo fallo silencioso que ya rechazó citas durante dos
+días con el salón vacío.
+
+Corregido en el documento **y en la firma de la función**, que es donde alguien
+lo va a mirar antes de tocarla.
+
+---
+
 ## 🔴 El hallazgo: `scripts/` no se comprueba
 
 Al preparar esta ejecución, el script **no compilaba**. Cuatro errores de tipo:

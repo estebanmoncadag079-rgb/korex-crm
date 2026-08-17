@@ -316,7 +316,12 @@ export function rangoDelDiaUtc(fecha: string): [Date, Date] | null {
 // ─── disponibilidad ──────────────────────────────────────────────────────
 
 /**
- * Slots libres por especialista para un día y una duración de servicio dados.
+ * Slots libres para un día y una duración de servicio dados.
+ *
+ * ⚠️ **Devuelve `Record<hora, staffId[]>`**, no lo contrario: la clave es la
+ * franja (`"09:30"`) y el valor, quiénes la tienen libre. Se dice aquí porque la
+ * auditoría del paso 4 lo describió al revés y una prueba leyó `huecos[staffId]`
+ * — que no falla, devuelve `undefined` y parece una agenda llena.
  *
  * Un slot es válido si: cae dentro del horario del negocio, el servicio
  * termina antes del cierre, no se solapa con ninguna cita existente de esa

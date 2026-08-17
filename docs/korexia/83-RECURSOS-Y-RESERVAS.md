@@ -33,7 +33,16 @@ martes y jueves"*, ni *"el elevador 2 está en mantenimiento los lunes"*.
 ### 3. ¿Dónde se valida la disponibilidad?
 
 `server/appointments/logic.ts` → **`calcularDisponibilidad({ staffIds, citas,
-duracionMin, hours, esHoy })`**, que devuelve `Record<staffId, string[]>`.
+duracionMin, hours, esHoy })`**, que devuelve **`Record<hora, staffId[]>`**: la
+clave es la franja (`"09:30"`) y el valor, quiénes la tienen libre.
+
+> ⚠️ **Corregido el 17-ago.** Aquí se escribió `Record<staffId, string[]>`, que
+> es justo al revés. Se descubrió al usarlo en `probar:estado`: la prueba leyó
+> `huecos[staffId]`, obtuvo `undefined` y dijo «0 franjas». El código siempre
+> estuvo bien. Importa para el paso 4a, que se planificó como un rename de
+> `staffIds` a `recursoIds`: **el valor de la salida también cambia de nombre**,
+> y quien lo consuma esperando lo que decía este documento se llevará un
+> `undefined` silencioso, no un error.
 
 **Es una función pura**, y esa es la mejor noticia de esta auditoría: la lógica
 ya está aislada del acceso a datos. Lo único que la ata al vertical es el

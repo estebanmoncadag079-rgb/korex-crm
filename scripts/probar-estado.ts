@@ -66,7 +66,18 @@ function envVar(name: string): string | undefined {
     return undefined;
   }
 }
-for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
+/*
+ * `getEnv()` valida el entorno ENTERO antes de dar el cliente de la base, así
+ * que hacen falta también las dos que este programa no usa. Van en el `.env`
+ * local como marcadores: si alguna vez se usaran de verdad, se vería.
+ */
+for (const n of [
+  "DATABASE_URL",
+  "ENCRYPTION_KEY",
+  "BETTER_AUTH_SECRET",
+  "APP_BASE_URL",
+  "META_WEBHOOK_VERIFY_TOKEN",
+]) {
   const v = envVar(n);
   if (v && !process.env[n]) process.env[n] = v;
 }
@@ -144,7 +155,7 @@ const FICHA_BASE = {
   horario: { abre: "9:30 AM", cierra: "6:30 PM", dias: [1, 2, 3, 4, 5] },
   pago: { formas: "efectivo", compruebaUnaPersona: true },
   saludoInicial: "Hola",
-  reglasPropias: "",
+  reglasPropias: [],
   preguntasFrecuentes: [],
   escalarSiempre: [],
   nuncaPrometer: [],
@@ -436,24 +447,40 @@ try {
   comprobar("pide exactamente lo que declaró: uno", reqCitas?.length === 1, reqCitas?.map((r) => r.id).join(", "));
   comprobar("NO pide dirección", !reqCitas?.some((r) => r.id === "direccion" || r.tipo === "direccion"));
   comprobar("NO pide teléfono", !reqCitas?.some((r) => r.id === "telefono" || r.tipo === "telefono"));
-  const soloNombre = { ...estadoVacio(), datos: { nombre: "Ana" } };
-  comprobar("con el nombre, no queda nada pendiente", loQueFalta(soloNombre, undefined, reqCitas).length === 0,
-    loQueFalta(soloNombre, undefined, reqCitas).join(" · "));
+  const catalogoCitas = await catalogoDe(orgCitas, "citas");
+  const servicio = catalogoCitas[0];
+  const citaElegida = {
+    ...estadoVacio(),
+    producto: { id: servicio?.id ?? null, nombre: servicio?.nombre ?? null, cantidad: 1 },
+    datos: { nombre: "Ana" },
+  };
+  comprobar("con el servicio y el nombre, no queda nada pendiente",
+    loQueFalta(citaElegida, servicio, reqCitas).length === 0,
+    loQueFalta(citaElegida, servicio, reqCitas).join(" · "));
+  const sinNada = { ...estadoVacio(), datos: { nombre: "Ana" } };
+  comprobar("y sin servicio elegido, lo único que falta es el servicio: nunca un dato personal",
+    loQueFalta(sinNada, undefined, reqCitas).length === 1,
+    loQueFalta(sinNada, undefined, reqCitas).join(" · "));
 
   console.log("\nB3. EL FLUJO DE CITAS SIGUE FUNCIONANDO");
-  const catalogoCitas = await catalogoDe(orgCitas, "citas");
   comprobar("el servicio se lee por el mismo camino que un producto",
-    catalogoCitas.length === 1 && catalogoCitas[0]?.nombre === "PESTAÑAS CLÁSICAS");
-  const huecos = calcularDisponibilidad({
-    staffIds: [idStaff], citas: [], duracionMin: 90,
-    hours: { open: "09:30", close: "18:30", days: "1,2,3,4,5" }, esHoy: false,
-  });
-  comprobar("hay huecos que ofrecer con la agenda vacía", (huecos[idStaff]?.length ?? 0) > 0, `${huecos[idStaff]?.length ?? 0} franjas`);
+    catalogoCitas.length === 1 && servicio?.nombre === "PESTAÑAS CLÁSICAS");
+  /*
+   * ⚠️ `calcularDisponibilidad` devuelve `Record<HORA, staffId[]>` — indexado por
+   * la hora, no por el profesional. La primera versión de esta prueba lo leyó al
+   * revés, dio «0 franjas» y el caso contrario pasó por la razón equivocada. La
+   * auditoría del paso 4 lo describía mal; corregido en 83-RECURSOS-Y-RESERVAS.
+   */
+  const horario = { open: "09:30", close: "18:30", days: "1,2,3,4,5" };
+  const huecos = calcularDisponibilidad({ staffIds: [idStaff], citas: [], duracionMin: 90, hours: horario, esHoy: false });
+  const franjas = Object.entries(huecos).filter(([, quienes]) => quienes.includes(idStaff));
+  comprobar("hay huecos que ofrecer con la agenda vacía", franjas.length > 0, `${franjas.length} franjas: ${franjas[0]?.[0]}…${franjas.at(-1)?.[0]}`);
   const ocupada = calcularDisponibilidad({
     staffIds: [idStaff], citas: [{ staffId: idStaff, startMin: 570, endMin: 1110 }], duracionMin: 90,
-    hours: { open: "09:30", close: "18:30", days: "1,2,3,4,5" }, esHoy: false,
+    hours: horario, esHoy: false,
   });
-  comprobar("y ninguno cuando el día está ocupado", (ocupada[idStaff]?.length ?? 0) === 0);
+  comprobar("y ninguno cuando el día entero está ocupado",
+    Object.values(ocupada).every((quienes) => !quienes.includes(idStaff)));
 
   console.log("\nB4. LOS REQUISITOS NO TOCAN EL PROMPT");
   /*

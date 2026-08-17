@@ -108,6 +108,7 @@ hallazgos; ninguno necesita migración. Los que bloquean el encendido:
 | 🟠 | `normalizar.ts:382` calcula las salsas por su cuenta, sin `grupoDeSalsas()` | 🔴 pendiente |
 | 🔴 | **`sumaDeExtras` cobraba la salsa incluida como si fuera adición** | ✅ **corregido el 16-ago** — ver [76](76-EL-MAPA-DE-LAS-SALSAS.md) |
 | 🔴 | ~~El Mega Box no se puede completar nunca~~ | ✅ **corregido el 16-ago**: las salsas se repiten (decisión del dueño) |
+| 🔴 | **El `"0"` del reinicio sigue clavado**: `matchesReinicio` acepta el parámetro pero el pipeline no se lo pasa. Con la Fase 2 encendida, un `0` borra el pedido en **cualquier** cliente | 🔴 pendiente (tarea 2C) — ver [78](78-CAMBIAR-EL-MODELO-IMPACTO.md) |
 | 🔴 | **Decisión pendiente sobre el modelo de las opciones**: el estado guarda nombres sueltos, no `(grupoId, opcionId)`, y tiene los grupos de La Churra cableados. Explica cinco de los últimos errores | 🔴 **del dueño** — ver [77](77-EL-MODELO-DE-LAS-OPCIONES.md) |
 | 🟠 | `leerAporte()` es código muerto y la doc dice que se usa | 🔴 pendiente |
 

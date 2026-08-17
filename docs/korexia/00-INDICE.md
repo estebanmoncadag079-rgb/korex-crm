@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [78-CAMBIAR-EL-MODELO-IMPACTO.md](78-CAMBIAR-EL-MODELO-IMPACTO.md) | 🔴 **Qué costaría cambiar el modelo**: 9 archivos, 61 aserciones, el prompt de extracción y la medición del 15-ago invalidada. Con la respuesta a las siete preguntas y el hallazgo de que **el `"0"` del reinicio sigue clavado** |
+
 | [77-EL-MODELO-DE-LAS-OPCIONES.md](77-EL-MODELO-DE-LAS-OPCIONES.md) | 🔴 **La causa raíz de cinco errores seguidos**: el catálogo es una definición con ids y reglas; la selección del cliente es una lista de nombres sueltos. Y tres hallazgos nuevos, entre ellos que **el estado tiene los grupos de La Churra cableados** |
 
 | [76-EL-MAPA-DE-LAS-SALSAS.md](76-EL-MAPA-DE-LAS-SALSAS.md) | 🔴 **Los 16 puntos que interpretan el catálogo**, y el hallazgo que salió del inventario: `sumaDeExtras` **cobra la salsa incluida como si fuera adición** porque mira las opciones sin mirar su grupo |

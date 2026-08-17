@@ -344,6 +344,33 @@ curso · **el estado tiene los grupos de La Churra cableados** · el recubierto 
 > por eso se confunden. Los cinco errores no fueron cinco descuidos: eran el
 > mismo dato mal modelado, encontrado cinco veces.
 
+### 17-ago, 00:10 · Informe de impacto del cambio de modelo
+
+**Objetivo**: responder con números, antes de tocar nada, qué costaría sustituir
+las tres listas de nombres por `seleccion: [{grupoId, opcionId, nombre}]`. El
+dueño eligió la opción 1 —cambiar el modelo antes de encender— y pidió el
+impacto exacto primero. **Sin código.**
+**Archivos**: `78-CAMBIAR-EL-MODELO-IMPACTO.md` (nuevo), `72`, `00-INDICE`,
+esta bitácora.
+**Riesgos identificados**: el mayor no es el código, son **dos**: (a) el prompt
+de extracción cambia justo donde el modelo medía **0 % de fallos**, y eso
+**invalida la medición del 15-ago** — la regla 13 obliga a repetirla; (b) el
+`SCHEMA_VERSION` sube a 2, que hoy es gratis y deja de serlo en cuanto haya un
+pedido vivo.
+**Evidencia**: 9 archivos de producción y 3 de pruebas · 61 aserciones a
+reescribir · `conversation_state` **verificada vacía en producción** (0 filas, 0
+orgs) · 3 de los 5 errores dejarían de ser expresables, 2 seguirían dependiendo
+de la disciplina.
+**Reversión**: `git revert <sha>`; solo documentación.
+**Estado**: terminado — **esperando la decisión de ejecutar**.
+
+> 🔴 **Hallazgo nuevo (el tercero de esta familia)**: `67-FASE-1.5` afirma que el
+> `"0"` del reinicio *"ya no está clavado: entra por parámetro"*. Entra por
+> parámetro… **y el único sitio que llama a `matchesReinicio` no se lo pasa**.
+> El efecto real es idéntico al de antes: con la Fase 2 encendida, un `0` borra
+> el pedido en **cualquier** negocio — incluido el de listas numeradas que la
+> propia doc pone como ejemplo de por qué se arregló.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

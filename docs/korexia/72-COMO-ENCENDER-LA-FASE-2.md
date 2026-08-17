@@ -95,10 +95,13 @@ validador exige requisitos declarados en la ficha, y ella no tiene ficha donde
 declararlos. `migrar:requisitos` la salta a propósito, y `migrar:catalogo`
 también —lee de la ficha—.
 
-**No es un fallo: es la regla 9** ([66](66-REGLAS-FASE-2.md)), *"Lis, siempre la
-última"*, que se decidió en agosto. Pero conviene tenerlo escrito: **validar el
-vertical de pedidos con los dos clientes exige antes darle a Lis su ficha y su
-catálogo en tablas**, que es trabajo de alta y no de arquitectura.
+**No es un fallo, y no es un bloqueante de este encendido.** El 17-ago se
+congeló el orden: **La Churra → Lashes Valen → Lis**, y Lis va la última **a
+propósito** ([79](79-ARQUITECTURA-MULTIEMPRESA.md)).
+
+Su valor no es ser el segundo cliente de pedidos: es ser **la prueba de que la
+arquitectura se replica**, y eso solo significa algo con los dos modelos ya
+estabilizados. **Este encendido valida pedidos con La Churra. Lis no entra.**
 
 ### ⏳ Después de encender
 

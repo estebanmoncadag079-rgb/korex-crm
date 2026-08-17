@@ -21,6 +21,30 @@ en dos verticales — y **ninguno de los dos tiene un solo cliente**:
 | **Pedidos** | La Churra · Lis Pastelería |
 | **Citas** | Lashes Valen |
 
+### 🔒 El orden, congelado (17-ago-2026)
+
+| | Cliente | Qué valida | Estado |
+|---|---|---|---|
+| **1** | **La Churra** | El flujo completo de pedidos, en real | 🟡 encendiéndose |
+| **2** | **Lashes Valen** | **La parte más compleja de toda la arquitectura**: recursos, profesionales, disponibilidad y reservas | ⏳ paso 4 |
+| **3** | **Lis Pastelería** | **La replicabilidad**: que VOCERO incorpore un negocio nuevo **sin tocar el núcleo** | ⏳ **al final, y a propósito** |
+
+> **Lis no vuelve a la hoja de ruta antes de tiempo.** Su valor no es ser el
+> segundo cliente de pedidos: es ser **la prueba de que la arquitectura se
+> replica**. Y esa prueba solo significa algo cuando los dos modelos —pedidos y
+> citas— ya estén estabilizados. Migrarla antes la convertiría en otro cliente
+> más que corregir, en vez de en la comprobación que cierra el proyecto.
+>
+> Si una funcionalidad va en La Churra y falla en Lis, **no habremos construido
+> una plataforma: habremos automatizado La Churra.** Por eso va la última, y por
+> eso importa.
+
+Lo que ya se sabe de Lis, para cuando llegue su turno: **su catálogo cabe en el
+modelo** —tiene precios y tamaños (`12 oz`, `16 oz`)—, pero **no tiene ficha y
+su prompt de 17.058 caracteres está escrito a mano**. Su alta es trabajo de
+alta, no de arquitectura, y habrá que decidir una sola cosa: si un tamaño es
+**otro producto** o **un grupo de opciones con recargo**.
+
 Eso cambia una cosa de fondo: el paso 4 **no es una mejora futura**. Es lo que
 le falta a un cliente que ya existe para correr sobre la misma arquitectura que
 acaba de construirse para pedidos.
@@ -62,7 +86,10 @@ replantea.**
 6. **Un cliente debe poder definir su metodología sin que nadie toque código.**
 7. La pregunta deja de ser *"¿cómo funciona La Churra?"* y pasa a ser **"¿cómo
    describe cualquier negocio lo que vende?"**
-8. **Ninguna decisión arquitectónica se justifica con un cliente concreto.**
+8. **Ningún cambio se implementa pensando en un cliente.** Todo cambio responde
+   antes a esta pregunta: **«¿puede usarlo cualquier negocio de VOCERO sin
+   modificar el núcleo?»** Si la respuesta es no, no entra.
+9. **Ninguna decisión arquitectónica se justifica con un cliente concreto.**
    Toda modificación se valida contra **al menos un cliente de pedidos y uno de
    citas** — y si el segundo todavía no puede probarse en vivo, contra su
    equivalente en pruebas. Es la regla que habría evitado que las salsas de un

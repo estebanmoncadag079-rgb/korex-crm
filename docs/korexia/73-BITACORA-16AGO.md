@@ -456,6 +456,29 @@ ficha que no existe.
 > salsas de un negocio acabaran dentro del núcleo — y la que esta semana se
 > cumplió sin saberlo, cada vez que una prueba usó una manicura o un taller.
 
+### 17-ago, 03:00 · El orden de los clientes, congelado
+
+**Objetivo**: fijar en qué orden entran los tres clientes, y dejarlo escrito
+donde nadie pueda adelantarlo sin querer.
+**Archivos**: `79` (el orden congelado y la regla 8), `72` (Lis fuera de este
+encendido), esta bitácora. **Sin código.**
+**Riesgos**: que alguien —yo mismo, en otra sesión— vuelva a meter a Lis en la
+hoja de ruta por parecer «el siguiente cliente de pedidos».
+**Evidencia**: el orden es **La Churra → Lashes Valen → Lis**, con su razón
+escrita al lado.
+**Reversión**: `git revert <sha>`; solo documentación.
+**Estado**: terminado.
+
+> 🔑 **Lis no va la última por prioridad: va la última por método.** Su valor no
+> es ser el segundo cliente de pedidos, es ser **la prueba de que la
+> arquitectura se replica** — y esa prueba solo significa algo con los dos
+> modelos ya estabilizados. Migrarla antes la convertiría en otro cliente que
+> corregir, en vez de en la comprobación que cierra el proyecto.
+>
+> Dicho del revés, que es como lo dijo el dueño: **si algo funciona en La Churra
+> y falla en Lis, no habremos construido una plataforma — habremos automatizado
+> La Churra.**
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

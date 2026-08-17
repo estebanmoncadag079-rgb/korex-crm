@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import { validarPropuesta } from "@/server/orders/estado";
 import { comoTexto, loQueFalta } from "@/server/orders/extraer";
-import type { Requisito } from "@/server/ai/generador/ficha";
+import { requisitosDe, type FichaDelNegocio, type Requisito } from "@/server/ai/generador/ficha";
 
 /** El catálogo del taller: un servicio con dos grupos de opciones. */
 const REPARACION: ProductoDelCatalogo = {
@@ -157,5 +157,77 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
     // La placa es `documento`: se dice que ya la dio, no se repite el dato.
     expect(texto).toContain("la placa del vehículo: ya la dio");
     expect(texto).not.toContain("ABC123");
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * EL GUARDARRAÍL de la preocupación del dueño (17-ago).
+ *
+ * `requisitosDe()` tuvo valores por defecto durante unas horas. La forma que
+ * tenían —una lista por vertical— acaba, con el tiempo, en:
+ *
+ *     if (vertical === "reparaciones") return [...];
+ *
+ * y con ello el conocimiento del negocio de vuelta en el código. Estas pruebas
+ * fallan el día que alguien lo reintroduzca.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("ningún vertical trae requisitos por defecto en el código", () => {
+  const sinDeclarar = (vertical: "pedidos" | "citas"): FichaDelNegocio =>
+    ({
+      nombre: "Cualquiera",
+      vertical,
+      queVende: "algo",
+      catalogo: "COSA — $1.000",
+      tono: "cercano",
+      horario: { abre: "9:00 AM", cierra: "6:00 PM", dias: [1, 2, 3] },
+      entrega: { haceDomicilios: true },
+      pago: { formas: "efectivo", compruebaUnaPersona: true },
+      saludoInicial: "Hola",
+      preguntasFrecuentes: [],
+      escalarSiempre: [],
+      nuncaPrometer: [],
+    }) as FichaDelNegocio;
+
+  it("una ficha que no los declara devuelve `undefined`, en CUALQUIER vertical", () => {
+    expect(requisitosDe(sinDeclarar("pedidos"))).toBeUndefined();
+    expect(requisitosDe(sinDeclarar("citas"))).toBeUndefined();
+  });
+
+  it("y sin declararlos, un pedido NO se confirma: falla ruidoso, no en silencio", () => {
+    const v = validarPropuesta(
+      {
+        producto: "revisión de frenos",
+        cantidad: 1,
+        opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "estándar" }],
+        datos: {},
+        confirmado: true,
+      },
+      [REPARACION],
+      {},
+      undefined // ← la ficha no los declara
+    );
+    expect(v.ok).toBe(false);
+    expect(v.rechazos.join(" ")).toContain("sin requisitos declarados");
+  });
+
+  it("pero declarar CERO requisitos sí es una decisión, y se respeta", () => {
+    const ficha = { ...sinDeclarar("pedidos"), cierre: { requisitos: [] } };
+    expect(requisitosDe(ficha)).toEqual([]);
+
+    const v = validarPropuesta(
+      {
+        producto: "revisión de frenos",
+        cantidad: 1,
+        opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "estándar" }],
+        datos: {},
+        confirmado: true,
+      },
+      [REPARACION],
+      {},
+      []
+    );
+    expect(v.ok).toBe(true);
   });
 });

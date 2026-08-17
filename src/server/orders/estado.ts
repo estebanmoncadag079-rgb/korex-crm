@@ -113,8 +113,13 @@ export function validarPropuesta(
   propuesta: PropuestaDelModelo,
   catalogo: ProductoDelCatalogo[],
   unidadesPorProducto?: Record<string, number>,
-  /** Lo que ESTE negocio pide para cerrar. Sale de su ficha, no de aquí. */
-  requisitos: Requisito[] = []
+  /**
+   * Lo que ESTE negocio pide para cerrar, de su ficha.
+   *
+   * `undefined` = **no lo ha declarado**, que no es lo mismo que no necesitar
+   * nada: se rechaza la confirmación en vez de darla por buena.
+   */
+  requisitos?: Requisito[]
 ): Validacion {
   const rechazos: string[] = [];
 
@@ -127,7 +132,7 @@ export function validarPropuesta(
     },
     catalogo,
     unidadesPorProducto,
-    requisitos
+    requisitos ?? []
   );
 
   /*
@@ -176,8 +181,16 @@ export function validarPropuesta(
      * Y lo que pida el negocio, ni más ni menos. Antes eran tres `if` con
      * nombre, teléfono y dirección dentro del validador del núcleo: un salón
      * que no entrega nada no podía confirmar una cita jamás.
+     *
+     * Un negocio que NO los ha declarado no cierra. Es deliberado: dar por
+     * bueno un pedido sin pedir nada, en silencio, es peor que negarse — y la
+     * ficha sin `cierre` es una configuración a medias, no una decisión.
+     * `cierre: { requisitos: [] }` sí es una decisión, y esa sí pasa.
      */
-    for (const r of requisitos) {
+    if (!requisitos) {
+      rechazos.push("confirmado sin requisitos declarados en la ficha del negocio");
+    }
+    for (const r of requisitos ?? []) {
       if (r.obligatorio && !estado.datos[r.id]?.trim()) {
         rechazos.push(`confirmado sin ${r.etiqueta}`);
       }

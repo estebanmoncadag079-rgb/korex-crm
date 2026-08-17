@@ -161,12 +161,10 @@ personal (**todo el bloque**, por definición), qué pide el prompt (las
 `extraer.ts`, `estado.ts`, `normalizar.ts` ni `pipeline.ts` — el barrido lo
 confirma: cero apariciones de `telefono` o `direccion` en los cuatro.
 
-> 🔴 **Con una excepción, declarada y no escondida**: `requisitosDe()` en
-> `ficha.ts` tiene un valor por defecto por vertical. Vive en el CRM y no en el
-> núcleo, pero **es una lista de campos y hay que llamarla por su nombre**. Está
-> ahí porque las cuatro fichas de producción no declaran `cierre`, y sin ella el
-> despliegue las dejaría cerrando pedidos sin pedir un nombre. **Se borra el día
-> que las cuatro fichas declaren lo suyo.**
+> ✅ **La excepción duró unas horas.** `requisitosDe()` tuvo valores por defecto
+> por vertical; el dueño señaló su destino —`if (vertical === "reparaciones")
+> return [...]` seis meses después, y con él el conocimiento del negocio de
+> vuelta en el código— y se resolvió de raíz el mismo día. Ver más abajo.
 
 **3. Un tercer vertical, demostrado.** `tests/unit/tercer-vertical.test.ts`: un
 **taller de reparaciones** que vende una revisión con opciones (tipo de
@@ -176,6 +174,36 @@ núcleo sabe qué es una placa**. Pasaron a la primera.
 
 **4. La medición de la regla 13**: pendiente de ejecución, **una sola vez**, con
 los dos cambios de prompt dentro (paso 1 y paso 1.5).
+
+## ✅ Resuelto: los defaults ya no viven en el código
+
+`requisitosDe()` devuelve **solo lo que declara la ficha**, y `undefined` si no
+lo declara. **Sin ramas por vertical, sin listas de campos.**
+
+Los cuatro clientes de agosto se resuelven con **`pnpm migrar:requisitos`**: un
+script con simulación por defecto que escribe `cierre.requisitos` en las fichas
+que no lo traen, instrumentado como todos los que tocan datos.
+
+> **La traducción vertical→requisitos existe una vez, en un script que se
+> ejecuta y se acaba** — no en una función que alguien amplía cada vez que entra
+> un vertical.
+
+Y el hueco se cierra por los dos lados:
+
+- **`undefined` no es `[]`.** *"No lo he declarado"* es una configuración a
+  medias; *"no necesito ninguno"* es una decisión. El validador **se niega a
+  confirmar** en el primer caso —`confirmado sin requisitos declarados en la
+  ficha`— y respeta el segundo. Dar por bueno un pedido sin pedir nada, en
+  silencio, es peor que negarse.
+- **Tres pruebas lo vigilan**: que una ficha sin declarar devuelve `undefined`
+  **en cualquier vertical** —esa falla el día que alguien añada un default—, que
+  sin declarar no se confirma, y que declarar cero sí se respeta.
+
+> ### La regla que queda escrita
+>
+> **Ningún vertical nuevo añade requisitos por defecto en el código.** Los cuatro
+> clientes de agosto fueron una excepción de compatibilidad, y se resolvió
+> **migrándolos, no programándolos**.
 
 ## Estado
 

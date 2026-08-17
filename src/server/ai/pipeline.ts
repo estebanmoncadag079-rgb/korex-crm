@@ -551,7 +551,7 @@ export async function runAgentTurn(
    * Qué pide ESTE negocio para cerrar. Sale de su ficha; el núcleo no tiene ni
    * una lista de campos. Vacío = no hay ficha (Lis, con prompt manual).
    */
-  let requisitos: Requisito[] = [];
+  let requisitos: Requisito[] | undefined;
 
   if (estadoEstructurado) {
     const productos = await catalogoDePedidosQuery(organizationId);
@@ -573,10 +573,10 @@ export async function runAgentTurn(
        * grupo de un negocio concreto, dentro del núcleo.
        */
       const fichaDelNegocio = leerFicha(profile.ficha);
-      requisitos = fichaDelNegocio ? requisitosDe(fichaDelNegocio as FichaDelNegocio) : [];
+      requisitos = fichaDelNegocio ? requisitosDe(fichaDelNegocio as FichaDelNegocio) : undefined;
       const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
       if (estadoGuardado) {
-        bloqueDeEstado = comoTexto(estadoGuardado, delPedido, requisitos);
+        bloqueDeEstado = comoTexto(estadoGuardado, delPedido, requisitos ?? []);
       }
     }
   }
@@ -613,7 +613,7 @@ export async function runAgentTurn(
   // Regla 10: el tiempo de extracción se mide sobre la llamada que trae la
   // propuesta, no sobre el turno entero. Con el estado apagado no se mide nada.
   const t0 = estadoEstructurado ? Date.now() : 0;
-  const conEstado = estadoEstructurado ? await chatJsonConEstado(messages, requisitos) : null;
+  const conEstado = estadoEstructurado ? await chatJsonConEstado(messages, requisitos ?? []) : null;
   const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
   const propuestaDelTurno = conEstado?.propuesta;
@@ -1636,7 +1636,7 @@ async function guardarEstadoPropuesto(entrada: {
   conversationId: string;
   propuesta: PropuestaDelModelo | undefined;
   msModelo?: number;
-  requisitos: Requisito[];
+  requisitos?: Requisito[];
 }): Promise<void> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.

@@ -35,7 +35,8 @@
     "convertir:ficha": "esbuild scripts/convertir-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-convertir-ficha.mjs --alias:@=./src --packages=external && node .tmp-convertir-ficha.mjs",
     "restaurar:horario": "esbuild scripts/restaurar-horario.ts --bundle --platform=node --format=esm --outfile=.tmp-restaurar-horario.mjs --alias:@=./src --packages=external && node .tmp-restaurar-horario.mjs",
     "probar:estado": "esbuild scripts/probar-estado.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-estado.mjs --alias:@=./src --packages=external && node .tmp-probar-estado.mjs",
-    "cargar:opciones": "esbuild scripts/cargar-opciones.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-opciones.mjs --alias:@=./src --packages=external && node .tmp-cargar-opciones.mjs"
+    "cargar:opciones": "esbuild scripts/cargar-opciones.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-opciones.mjs --alias:@=./src --packages=external && node .tmp-cargar-opciones.mjs",
+    "migrar:requisitos": "esbuild scripts/migrar-requisitos.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-requisitos.mjs --alias:@=./src --packages=external && node .tmp-migrar-requisitos.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

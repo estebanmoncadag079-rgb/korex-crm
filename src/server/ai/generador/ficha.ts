@@ -257,53 +257,66 @@ export function faltantesDeLaFicha(ficha: Partial<FichaDelNegocio>): string[] {
 }
 
 /**
- * Los requisitos de cierre de un negocio, ya resueltos.
+ * Los requisitos de cierre de un negocio. **Solo lo que declara su ficha.**
  *
- * ⚠️ **Aquí vive el único valor por defecto de todo esto, y es deuda
- * declarada.** Los cuatro negocios dados de alta antes del 17-ago-2026 no
- * traen `cierre` en su ficha; sin este respaldo, desplegar el cambio los
- * dejaría cerrando pedidos sin pedir un nombre ni un teléfono. La alternativa
- * era reescribir cuatro fichas de producción para poder refactorizar, que es
- * exactamente lo que este proyecto no hace.
+ * `undefined` = este negocio **no los ha declarado todavía**, que no es lo mismo
+ * que *"no necesita ninguno"* — para eso está `cierre: { requisitos: [] }`. La
+ * diferencia importa: el validador se niega a confirmar un pedido de un negocio
+ * sin declarar, en vez de darlo por bueno sin pedir nada.
  *
- * **Vive en la ficha —el CRM— y no en el núcleo**: `estado.ts`, `normalizar.ts`,
- * `extraer.ts` y `pipeline.ts` no saben qué es un teléfono. Y se borra el día
- * que las cuatro fichas declaren lo suyo: entonces esta función se queda solo
- * con la primera línea.
+ * ## Por qué aquí NO hay valores por defecto
+ *
+ * Los hubo, el 17-ago, para no romper a los cuatro clientes que no traían
+ * `cierre`. Duraron unas horas: eran una lista de campos por vertical, y esa
+ * forma tiene un destino conocido —
+ *
+ * ```ts
+ * if (vertical === "pedidos")      return [...];
+ * if (vertical === "citas")        return [...];
+ * if (vertical === "reparaciones") return [...];   // ← seis meses después
+ * ```
+ *
+ * — que es exactamente el conocimiento del negocio volviendo al código por la
+ * puerta de atrás. Se sustituyeron por `pnpm migrar:requisitos`, que escribe
+ * esos mismos requisitos **en las fichas, una sola vez y como dato**.
+ *
+ * > **Ningún vertical nuevo añade requisitos por defecto aquí.** Los cuatro
+ * > clientes de agosto fueron una excepción de compatibilidad, no una regla — y
+ * > se resolvió migrándolos, no programándolos.
  */
-export function requisitosDe(ficha: FichaDelNegocio): Requisito[] {
+export function requisitosDe(ficha: FichaDelNegocio): Requisito[] | undefined {
   const declarados = ficha.cierre?.requisitos;
-  if (declarados?.length) return declarados.filter((r) => aplica(r, ficha));
-
-  const porDefecto: Requisito[] =
-    ficha.vertical === "citas"
-      ? [{ id: "nombre", tipo: "texto", etiqueta: "¿a nombre de quién?", obligatorio: true }]
-      : [
-          { id: "nombre", tipo: "texto", etiqueta: "¿a nombre de quién?", obligatorio: true },
-          {
-            id: "telefono",
-            tipo: "telefono",
-            etiqueta: "un celular de contacto",
-            obligatorio: true,
-          },
-          {
-            id: "direccion",
-            tipo: "direccion",
-            etiqueta: "la dirección de entrega",
-            obligatorio: true,
-            soloSi: "entrega.haceDomicilios",
-          },
-        ];
-  return porDefecto.filter((r) => aplica(r, ficha));
+  if (!declarados) return undefined;
+  return declarados.filter((r) => aplica(r, ficha));
 }
 
 /**
- * ¿Hace falta este requisito para ESTE negocio?
+ * Los requisitos que le tocarían a una ficha que aún no los declara.
  *
- * `soloSi` es una referencia a un campo de la ficha —`"entrega.haceDomicilios"`—
- * y se lee tal cual. Sin operadores: en cuanto se admite `!=` o `&&`, esto deja
- * de ser configuración y pasa a ser un lenguaje que alguien tiene que mantener.
+ * ⚠️ **Esto NO lo usa el pipeline ni el validador**: existe solo para que
+ * `migrar:requisitos` proponga un punto de partida razonable, que una persona
+ * revisa antes de escribirlo. En cuanto la ficha lo tiene, esta función deja de
+ * mirarse — y el día que las cuatro estén migradas, se borra.
  */
+export function requisitosSugeridos(ficha: FichaDelNegocio): Requisito[] {
+  const sugeridos: Requisito[] = [
+    { id: "nombre", tipo: "texto", etiqueta: "¿a nombre de quién?", obligatorio: true },
+  ];
+  if (ficha.vertical === "pedidos") {
+    sugeridos.push(
+      { id: "telefono", tipo: "telefono", etiqueta: "un celular de contacto", obligatorio: true },
+      {
+        id: "direccion",
+        tipo: "direccion",
+        etiqueta: "la dirección de entrega",
+        obligatorio: true,
+        soloSi: "entrega.haceDomicilios",
+      }
+    );
+  }
+  return sugeridos.filter((r) => aplica(r, ficha));
+}
+
 function aplica(requisito: Requisito, ficha: FichaDelNegocio): boolean {
   if (!requisito.soloSi) return true;
   const valor = requisito.soloSi

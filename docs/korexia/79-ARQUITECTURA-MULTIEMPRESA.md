@@ -69,6 +69,7 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | Paso | Qué | Estado |
 |---|---|---|
 | **1** | **La selección genérica.** Solo eso. Sin tocar citas | ✅ **hecho el 17-ago** |
+| **1.5** | 🔴 **`entrega` fuera del núcleo**: los requisitos de cierre los declara cada negocio. Auditado en [80](80-EL-CONCEPTO-DE-ENTREGA.md) | ⬜ **y obliga a hacer el 2 antes** |
 | **2** | **Un solo dueño para el vertical**: hoy son dos (`appointmentsEnabled` y `ficha.vertical`), y existe código para comprobar que no se contradigan — que es la señal del problema | ⬜ |
 | **3** | **Opciones en los servicios.** Un salón no puede describir *manicura → con esmalte · diseño sencillo · diseño elaborado*: hoy acaba en texto libre del prompt | ⬜ |
 | **4** | **Citas entra en la Fase 2** | ⬜ |

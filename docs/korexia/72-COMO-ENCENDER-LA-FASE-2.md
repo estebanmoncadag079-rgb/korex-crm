@@ -10,6 +10,18 @@
 
 ---
 
+> # 🔴 FASE 2 CONGELADA (17-ago-2026)
+>
+> **No se enciende, no se carga nada en La Churra y no se corrige ningún bug
+> específico suyo** hasta terminar la generalización del modelo.
+>
+> La lista de abajo **sigue siendo válida**, pero se ejecuta DESPUÉS de los
+> cuatro pasos de [79-ARQUITECTURA-MULTIEMPRESA.md](79-ARQUITECTURA-MULTIEMPRESA.md).
+> Las tareas 4 y 5 (cargar opciones, limpiar «Ambas») quedan expresamente
+> detenidas: el modelo que las valida está a punto de cambiar.
+
+---
+
 ## El estado exacto, al 16-ago-2026
 
 | | |

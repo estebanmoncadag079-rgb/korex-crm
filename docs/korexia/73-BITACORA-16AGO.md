@@ -371,6 +371,24 @@ de la disciplina.
 > el pedido en **cualquier** negocio — incluido el de listas numeradas que la
 > propia doc pone como ejemplo de por qué se arregló.
 
+### 17-ago, 00:30 · Las tres decisiones, y la Fase 2 congelada
+
+**Objetivo**: registrar las decisiones arquitectónicas del dueño y **detener**
+todo lo que iba a construirse sobre el modelo viejo.
+**Archivos**: `79-ARQUITECTURA-MULTIEMPRESA.md` (nuevo), `72` (aviso de
+congelación arriba del todo), `00-INDICE`, esta bitácora. **Sin código.**
+**Riesgos**: el de no hacerlo — seguir corrigiendo `faltaParaCerrar()` habría
+sido trabajo tirado, porque esa función se rehace entera en el paso 1.
+**Evidencia**: la restricción que lo gobierna todo pasa a ser *"¿esta solución
+sigue funcionando cuando el negocio no vende comida?"*.
+**Reversión**: `git revert <sha>`; solo documentación.
+**Estado**: terminado.
+
+> 🔑 La frase que cambia el proyecto: **esto no se está construyendo para La
+> Churra.** La arquitectura ya era multivertical en el 80 % —ficha, conducta,
+> catálogo, agenda, API—; **la Fase 2 fue la única pieza que nació mirando a un
+> solo negocio**, y por eso concentró cinco de los últimos errores.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

@@ -435,6 +435,27 @@ filas**, los cuatro clientes en `prompt`, La Churra con `catalog_source=tabla` y
 > salón validará el motor de reservas. Ponerlos en producción a la vez sería
 > estrenar dos cosas distintas el mismo día.
 
+### 17-ago, 02:45 · Quién es quién, y la regla 8
+
+**Objetivo**: dejar escrito que **VOCERO es la plataforma** y que ninguno de los
+dos verticales tiene un solo cliente — pedidos son La Churra **y Lis**; citas,
+Lashes Valen.
+**Archivos**: `79` (las tres capas + la regla 8), `72` (el bloqueante de Lis),
+esta bitácora. **Sin código.**
+**Riesgos**: el de dar por validado el vertical de pedidos con un solo cliente.
+**Evidencia**: medido hoy — **Lis no tiene ficha, 0 productos en tabla y su
+prompt de 17.058 caracteres está escrito a mano**. Con la Fase 2 encendida no
+podría confirmar un pedido: el validador exige requisitos declarados en una
+ficha que no existe.
+**Reversión**: `git revert <sha>`; solo documentación.
+**Estado**: terminado.
+
+> 🔑 **La regla 8, del dueño**: ninguna decisión arquitectónica se justifica con
+> un cliente concreto; toda modificación se valida contra **al menos uno de
+> pedidos y uno de citas**. Es exactamente la regla que habría evitado que las
+> salsas de un negocio acabaran dentro del núcleo — y la que esta semana se
+> cumplió sin saberlo, cada vez que una prueba usó una manicura o un taller.
+
 ### 01:0x · La regla de documentación
 
 **Objetivo**: dejar escrita la regla del dueño y saldar la deuda de reversión de

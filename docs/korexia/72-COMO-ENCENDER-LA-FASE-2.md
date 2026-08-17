@@ -81,6 +81,25 @@ reinicio, que sigue clavado · `faltantesDeLaFicha` decide con `ficha.vertical`
 antes de normalizar · los tres `.set({ ...body.data })` · instrumentar
 `api/kb/[id]`.
 
+### 🔴 Y antes de dar por validado el vertical: **Lis no puede entrar todavía**
+
+Pedidos tiene **dos** clientes, y el segundo no está en condiciones. Medido hoy:
+
+| | Ficha | Productos en tabla | `catalog_source` | Prompt |
+|---|---|---|---|---|
+| La Churra | ✅ | 4 | `tabla` | 17.312 |
+| **Lis Pastelería** | ❌ **no tiene** | **0** | `prompt` | 17.058, **escrito a mano** |
+
+Con la Fase 2 encendida, **Lis no podría confirmar un solo pedido**: el
+validador exige requisitos declarados en la ficha, y ella no tiene ficha donde
+declararlos. `migrar:requisitos` la salta a propósito, y `migrar:catalogo`
+también —lee de la ficha—.
+
+**No es un fallo: es la regla 9** ([66](66-REGLAS-FASE-2.md)), *"Lis, siempre la
+última"*, que se decidió en agosto. Pero conviene tenerlo escrito: **validar el
+vertical de pedidos con los dos clientes exige antes darle a Lis su ficha y su
+catálogo en tablas**, que es trabajo de alta y no de arquitectura.
+
 ### ⏳ Después de encender
 
 Paso 3B (opciones en `service`) · paso 4a/4b/4c (recursos y reservas) · el día 1

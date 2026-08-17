@@ -11,6 +11,31 @@ recomendaciones: un cambio que las incumpla no entra.
 
 ---
 
+## Quién es quién
+
+**VOCERO es el CRM y la plataforma.** Los negocios son sus clientes, repartidos
+en dos verticales — y **ninguno de los dos tiene un solo cliente**:
+
+| | Clientes reales |
+|---|---|
+| **Pedidos** | La Churra · Lis Pastelería |
+| **Citas** | Lashes Valen |
+
+Eso cambia una cosa de fondo: el paso 4 **no es una mejora futura**. Es lo que
+le falta a un cliente que ya existe para correr sobre la misma arquitectura que
+acaba de construirse para pedidos.
+
+### Las tres capas
+
+| Núcleo compartido (VOCERO) | Vertical de pedidos | Vertical de citas |
+|---|---|---|
+| Catálogo · Selección · Datos · Estado · Validación · Confirmación · Registro | Productos · Grupos de opciones · Entrega · Domicilios | Servicios · **Recursos** · **Disponibilidad** · **Reservas** · **Profesionales** |
+
+Lo de la izquierda está hecho. Lo del centro, encendiéndose. **Lo de la derecha,
+en negrita, es el paso 4.**
+
+---
+
 ## La restricción que manda sobre todo
 
 > **Esta arquitectura NO se está construyendo para La Churra.** La Churra es el
@@ -37,6 +62,11 @@ replantea.**
 6. **Un cliente debe poder definir su metodología sin que nadie toque código.**
 7. La pregunta deja de ser *"¿cómo funciona La Churra?"* y pasa a ser **"¿cómo
    describe cualquier negocio lo que vende?"**
+8. **Ninguna decisión arquitectónica se justifica con un cliente concreto.**
+   Toda modificación se valida contra **al menos un cliente de pedidos y uno de
+   citas** — y si el segundo todavía no puede probarse en vivo, contra su
+   equivalente en pruebas. Es la regla que habría evitado que las salsas de un
+   negocio acabaran dentro del núcleo.
 
 ## Las tres decisiones
 

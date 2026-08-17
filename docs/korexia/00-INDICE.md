@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [82-EL-CATALOGO-AL-CRM.md](82-EL-CATALOGO-AL-CRM.md) | 🔴 **Paso 3, auditado**: el núcleo ya está listo — lo que falta es que un servicio pueda tener grupos como un producto. Con el hallazgo de por qué **el profesional NO es una opción** y por qué aquí se cierra la ventana de las migraciones gratis |
+
 | [81-REQUISITOS-DECLARATIVOS.md](81-REQUISITOS-DECLARATIVOS.md) | 🔴 **Cómo sacar «entrega» del núcleo**: los 26 puntos cableados, la estructura de requisitos que los sustituye, qué es del núcleo y qué del vertical, y por qué `fecha`/`hora` NO son datos sino un recurso |
 
 | [80-EL-CONCEPTO-DE-ENTREGA.md](80-EL-CONCEPTO-DE-ENTREGA.md) | 🔴 **El último acoplamiento del núcleo**: sigue dando por hecho que todo negocio entrega algo a domicilio. Y el hallazgo que lo cambia todo — **la ficha ya declara `haceDomicilios` y el validador no lo mira**, así que un negocio de solo recogida no podría cerrar un pedido |

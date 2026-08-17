@@ -30,7 +30,9 @@ const pres = (id: string, nombre: string, n: number): ProductoDelCatalogo => ({
   categoria: null,
   precioCents: 1000000,
   descripcion: null,
-  grupos: [{ id: `g${id}`, nombre: "SALSA", minimo: n, maximo: n, opciones: SALSAS }],
+  grupos: [
+    { id: `g${id}`, nombre: "SALSA", minimo: n, maximo: n, permiteRepeticion: true, opciones: SALSAS },
+  ],
 });
 const CARTA = [
   pres("p1", "CHURRITA", 1),

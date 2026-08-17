@@ -35,6 +35,7 @@ function presentacion(
         nombre: "SALSA",
         minimo: cuantasSalsas,
         maximo: cuantasSalsas,
+        permiteRepeticion: true,
         opciones: SALSAS,
       },
     ],
@@ -188,7 +189,7 @@ describe("el total lo calcula el servidor (regla 2)", () => {
             id: "g-ad",
             nombre: "ADICIONES",
             minimo: 0,
-            maximo: 5,
+            maximo: 5, permiteRepeticion: true,
             opciones: [{ id: "a1", nombre: "botella de agua", precioExtraCents: 200000 }],
           },
         ],
@@ -239,9 +240,9 @@ describe("el flujo completo del pedido", () => {
   const churritaCompleta: ProductoDelCatalogo = {
     ...CHURRITA,
     grupos: [
-      { id: "gs", nombre: "SALSA", minimo: 1, maximo: 1, opciones: SALSAS },
-      { id: "gr", nombre: "RECUBIERTO", minimo: 1, maximo: 1, opciones: RECUBIERTOS },
-      { id: "ga", nombre: "ADICIONES", minimo: 0, maximo: 5, opciones: ADICIONES },
+      { id: "gs", nombre: "SALSA", minimo: 1, maximo: 1, permiteRepeticion: true, opciones: SALSAS },
+      { id: "gr", nombre: "RECUBIERTO", minimo: 1, maximo: 1, permiteRepeticion: false, opciones: RECUBIERTOS },
+      { id: "ga", nombre: "ADICIONES", minimo: 0, maximo: 5, permiteRepeticion: true, opciones: ADICIONES },
     ],
   };
   const CARTA_COMPLETA = [churritaCompleta];
@@ -367,7 +368,15 @@ describe("el precio: una salsa incluida no se cobra", () => {
       ...base,
       grupos: [
         ...base.grupos,
-        { id: `ad-${base.id}`, nombre: "ADICIONES", minimo: 0, maximo: 5, opciones: ADICIONES },
+        {
+          id: `ad-${base.id}`,
+          nombre: "ADICIONES",
+          minimo: 0,
+          maximo: 5,
+          // Dos botellas de agua es un pedido legítimo.
+          permiteRepeticion: true,
+          opciones: ADICIONES,
+        },
       ],
     };
   }

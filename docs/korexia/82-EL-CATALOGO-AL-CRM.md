@@ -284,3 +284,62 @@ recuento seguirá siendo correcto** con repetición prohibida; lo que falta es
 | 🟠 | **El rename es mecánico pero amplio**: `ProductoDelCatalogo` aparece en ~10 archivos. Sin riesgo funcional; sí de ruido en el diff |
 | 🟢 | **El núcleo** no cambia de forma: solo el nombre del tipo que ya recibía |
 | 🟢 | **`service` no se toca** en 3a |
+
+
+---
+
+# ✅ Paso 3A, implementado (17-ago)
+
+## Qué se hizo
+
+```ts
+ProductoDelCatalogo → Ofrecible        // con `duracionMin?`, un alias deja vivo el nombre viejo
+GrupoDeOpciones.permiteRepeticion      // nuevo, por defecto false
+catalogoDe(org, vertical)              // la puerta única del catálogo
+```
+
+Y la regla, en el único sitio donde puede estar: **`normalizarPedido` pregunta
+al grupo**, no decide. Repetir donde no se puede **no se recorta en silencio**:
+se pregunta, porque quitar la segunda es decidir por el cliente cuál sobra.
+
+## La migración `0023_repeticion_por_grupo`
+
+```sql
+ALTER TABLE product_option_group
+  ADD COLUMN IF NOT EXISTS permite_repeticion boolean NOT NULL DEFAULT false;
+
+UPDATE product_option_group g
+SET permite_repeticion = true
+WHERE g.max_select > (SELECT COUNT(*) FROM product_option o WHERE o.group_id = g.id);
+```
+
+**Ni un nombre de producto, ni de grupo, ni de negocio.** Esta migración no sabe
+qué es una salsa: solo sabe que un grupo que exige más opciones de las que tiene
+únicamente se puede completar repitiendo.
+
+### Lo que hará al ejecutarse, medido hoy en producción
+
+| Grupo | `max_select` | Opciones | ¿Repetirá? |
+|---|---|---|---|
+| SALSA (Mega Box) | 5 | 4 | ✅ **sí** |
+| SALSA (Family Box) | 3 | 4 | no |
+| SALSA (Besties) | 2 | 4 | no |
+| SALSA (Churrita) | 1 | 4 | no |
+
+**4 grupos en total, 1 actualizado.** Y ese uno es exactamente el Mega Box —
+llegado por aritmética, no por una lista.
+
+## El efecto que se buscaba
+
+Al compilar, TypeScript señaló **19 fixtures** que tenían que declarar la regla.
+Eso es la prueba de que dejó de ser universal: antes nadie tenía que decir nada.
+
+## Lo que NO se tocó
+
+`service` y sus grupos (3B) · la reserva, los profesionales y las agendas
+(paso 4) · el parser de la ficha · los dos renderizadores.
+
+`catalogoDe()` **sí lee servicios** y los devuelve como `Ofrecible` con
+`grupos: []` — que es el estado real del esquema, no un `TODO` escondido. No
+toca agendas ni solapes, y hoy **nadie llama a esa rama**: se activará en el
+paso 4.

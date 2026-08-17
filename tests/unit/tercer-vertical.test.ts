@@ -34,7 +34,7 @@ const REPARACION: ProductoDelCatalogo = {
       id: "g_tipo",
       nombre: "TIPO DE PASTILLA",
       minimo: 1,
-      maximo: 1,
+      maximo: 1, permiteRepeticion: false,
       opciones: [
         { id: "t1", nombre: "estándar", precioExtraCents: 0 },
         { id: "t2", nombre: "cerámica", precioExtraCents: 8000000 },
@@ -44,7 +44,7 @@ const REPARACION: ProductoDelCatalogo = {
       id: "g_urgencia",
       nombre: "URGENCIA",
       minimo: 0,
-      maximo: 1,
+      maximo: 1, permiteRepeticion: false,
       opciones: [{ id: "u1", nombre: "mismo día", precioExtraCents: 3000000 }],
     },
   ],
@@ -229,5 +229,122 @@ describe("ningún vertical trae requisitos por defecto en el código", () => {
       []
     );
     expect(v.ok).toBe(true);
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * PASO 3A · La repetición es del CATÁLOGO, no del núcleo.
+ *
+ * Entre el 16 y el 17-ago fue una regla del núcleo DOS VECES: primero prohibida
+ * —y un Mega Box, cinco salsas de cuatro sabores, no se podía cerrar jamás— y
+ * luego universal, con lo que un salón admitía "esmaltado tradicional +
+ * tradicional". Las dos veces la decidió lo que necesitaba UN negocio.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("la repetición la declara cada grupo", () => {
+  /** Un grupo que NO admite repetir: es el valor por defecto. */
+  const CON_ESMALTE: ProductoDelCatalogo = {
+    id: "srv_manicura",
+    nombre: "MANICURA",
+    categoria: null,
+    precioCents: 4500000,
+    descripcion: null,
+    grupos: [
+      {
+        id: "g_esm",
+        nombre: "ESMALTADO",
+        minimo: 1,
+        maximo: 2,
+        permiteRepeticion: false,
+        opciones: [
+          { id: "e1", nombre: "tradicional", precioExtraCents: 0 },
+          { id: "e2", nombre: "semipermanente", precioExtraCents: 1500000 },
+        ],
+      },
+    ],
+  };
+
+  /** El mismo grupo, declarando que sí. */
+  const REPETIBLE: ProductoDelCatalogo = {
+    ...CON_ESMALTE,
+    grupos: [{ ...CON_ESMALTE.grupos[0]!, permiteRepeticion: true }],
+  };
+
+  it("sin declararlo, elegir dos veces lo mismo se PREGUNTA", () => {
+    const v = validarPropuesta(
+      {
+        producto: "manicura",
+        cantidad: 1,
+        opciones: [
+          { grupo: "ESMALTADO", opcion: "tradicional" },
+          { grupo: "ESMALTADO", opcion: "tradicional" },
+        ],
+        datos: {},
+      },
+      [CON_ESMALTE],
+      {},
+      []
+    );
+    expect(v.estado.seleccion).toHaveLength(1); // la segunda no entra
+    expect(v.dudas.some((d) => d.preguntar.includes("¿Querías otra distinta?"))).toBe(true);
+  });
+
+  it("declarándolo, las dos se conservan", () => {
+    const v = validarPropuesta(
+      {
+        producto: "manicura",
+        cantidad: 1,
+        opciones: [
+          { grupo: "ESMALTADO", opcion: "tradicional" },
+          { grupo: "ESMALTADO", opcion: "tradicional" },
+        ],
+        datos: {},
+      },
+      [REPETIBLE],
+      {},
+      []
+    );
+    expect(v.estado.seleccion).toHaveLength(2);
+    expect(v.dudas).toEqual([]);
+  });
+
+  it("dos opciones DISTINTAS del mismo grupo nunca fueron el problema", () => {
+    const v = validarPropuesta(
+      {
+        producto: "manicura",
+        cantidad: 1,
+        opciones: [
+          { grupo: "ESMALTADO", opcion: "tradicional" },
+          { grupo: "ESMALTADO", opcion: "semipermanente" },
+        ],
+        datos: {},
+      },
+      [CON_ESMALTE],
+      {},
+      []
+    );
+    expect(v.estado.seleccion).toHaveLength(2);
+    expect(v.dudas).toEqual([]);
+  });
+
+  it("y repetir donde no se puede NO se recorta en silencio: se cobra bien lo que quedó", () => {
+    const v = validarPropuesta(
+      {
+        producto: "manicura",
+        cantidad: 1,
+        opciones: [
+          { grupo: "ESMALTADO", opcion: "semipermanente" },
+          { grupo: "ESMALTADO", opcion: "semipermanente" },
+        ],
+        datos: {},
+      },
+      [CON_ESMALTE],
+      {},
+      []
+    );
+    // Una sola vez el recargo, y con la duda encima: sin total hasta aclararlo.
+    expect(v.estado.seleccion).toHaveLength(1);
+    expect(v.estado.totalCents).toBeNull();
   });
 });

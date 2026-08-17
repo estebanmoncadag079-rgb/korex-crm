@@ -165,6 +165,7 @@ try {
           nombre: "SALSA",
           minimo: 1,
           maximo: 1,
+          permiteRepeticion: true,
           opciones: [
             { id: "x", nombre: "arequipe", precioExtraCents: 0 },
             { id: "y", nombre: "lechera", precioExtraCents: 0 },

@@ -162,6 +162,13 @@
       "when": 1786969476151,
       "tag": "0022_estado_de_la_conversacion",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1787055876151,
+      "tag": "0023_repeticion_por_grupo",
+      "breakpoints": true
     }
   ]
 }

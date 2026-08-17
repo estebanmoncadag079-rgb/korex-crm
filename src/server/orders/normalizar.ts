@@ -393,6 +393,29 @@ export function normalizarPedido(
           regla: "nombre de opción normalizado",
         });
       }
+
+      /*
+       * ¿Ya la había elegido? Lo permite o no **su grupo**, no este archivo.
+       *
+       * Entre el 16 y el 17-ago esto fue una regla del núcleo dos veces: primero
+       * prohibida —y un Mega Box, cinco salsas de cuatro sabores, no se podía
+       * cerrar jamás— y luego universal, con lo que un salón admitía "esmaltado
+       * tradicional + tradicional". Las dos veces la decidió lo que necesitaba
+       * un solo negocio. Ahora lo dice el catálogo.
+       *
+       * Repetir donde no se puede **no se recorta en silencio**: se pregunta.
+       * Quitar por su cuenta la segunda es decidir por el cliente cuál sobra.
+       */
+      const yaEstaba = seleccion.some((sel) => sel.opcionId === o.id);
+      if (yaEstaba && !g.permiteRepeticion) {
+        dudas.push({
+          campo: g.nombre.toLowerCase(),
+          porque: `${o.nombre} ya estaba elegida y ${g.nombre.toLowerCase()} no admite repetir`,
+          preguntar: `${o.nombre} ya está en tu ${g.nombre.toLowerCase()}. ¿Querías otra distinta?`,
+        });
+        continue;
+      }
+
       seleccion.push({
         grupoId: g.id,
         grupoNombre: g.nombre,

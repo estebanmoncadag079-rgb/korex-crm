@@ -512,6 +512,18 @@ export const productOptionGroup = pgTable(
     minSelect: integer("min_select").notNull().default(0),
     /** "elige hasta 2 toppings". */
     maxSelect: integer("max_select").notNull().default(1),
+    /**
+     * ¿Puede el cliente elegir la misma opción dos veces?
+     *
+     * Lo declara el negocio, y **por defecto NO**: repetir es la excepción. Un
+     * Mega Box lleva cinco salsas de cuatro sabores y necesita repetir; un
+     * salón con "esmaltado: tradicional + tradicional" no significa nada.
+     *
+     * Hasta el 17-ago-2026 esto era una regla del núcleo —primero prohibida,
+     * luego universal—, decidida las dos veces por lo que necesitaba UN
+     * negocio.
+     */
+    permiteRepeticion: boolean("permite_repeticion").notNull().default(false),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },

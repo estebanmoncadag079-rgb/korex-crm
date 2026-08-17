@@ -26,7 +26,7 @@ const CHURRITA: ProductoDelCatalogo = {
   categoria: null,
   precioCents: 1000000,
   descripcion: null,
-  grupos: [{ id: "g1", nombre: "SALSA", minimo: 1, maximo: 1, opciones: SALSAS }],
+  grupos: [{ id: "g1", nombre: "SALSA", minimo: 1, maximo: 1, permiteRepeticion: true, opciones: SALSAS }],
 };
 const CARTA = [CHURRITA];
 const UNIDADES = { CHURRITA: 6 };
@@ -326,15 +326,15 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
         id: "g0",
         nombre: "RECUBIERTO",
         minimo: 1,
-        maximo: 1,
+        maximo: 1, permiteRepeticion: false,
         opciones: [{ id: "r1", nombre: "azúcar-canela", precioExtraCents: 0 }],
       },
-      { id: "g1", nombre: "SALSA", minimo: 1, maximo: 5, opciones: SALSAS },
+      { id: "g1", nombre: "SALSA", minimo: 1, maximo: 5, permiteRepeticion: true, opciones: SALSAS },
       {
         id: "g2",
         nombre: "ADICIONES",
         minimo: 0,
-        maximo: 5,
+        maximo: 5, permiteRepeticion: true,
         opciones: [{ id: "a1", nombre: "lechera", precioExtraCents: 150000 }],
       },
     ],
@@ -400,7 +400,7 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
           id: "ge",
           nombre: "ESMALTE",
           minimo: 1,
-          maximo: 1,
+          maximo: 1, permiteRepeticion: false,
           opciones: [{ id: "e1", nombre: "con esmalte", precioExtraCents: 500000 }],
         },
       ],

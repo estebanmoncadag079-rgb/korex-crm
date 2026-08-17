@@ -6,6 +6,14 @@
 
 **17-ago-2026. Auditoría, sin una línea de código.**
 
+> ⚠️ **SUPERADO POR [88](88-AUDITORIA-SELECCION-MULTIPLE.md), leer ese primero.**
+> Este documento audita el problema **en el vertical de pedidos**, y su propuesta
+> (`items[]` para pedidos) **no pasa la pregunta obligatoria de la regla 8**: en
+> citas no funcionaría igual, porque un elemento de citas necesita inicio, fin y
+> recurso, y `appointment.service_id` seguiría siendo único. Todo lo demás de
+> aquí —el modelo en código, los conteos, la migración gratuita— sigue siendo
+> válido y exacto.
+
 Una conversación real con La Churra pidió dos productos en un mensaje y el
 agente se contradijo dentro de su propia respuesta. La auditoría de
 [86](86-DOS-PRODUCTOS-EN-UN-PEDIDO.md) explicó **por qué contestó así**. Esta

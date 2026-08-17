@@ -42,11 +42,17 @@ function vacio(v: unknown): boolean {
 
 /** Los campos del estado que el cliente puede aportar, en orden del flujo. */
 const CAMPOS: { campo: string; leer: (e: EstadoDelPedido) => unknown }[] = [
-  { campo: "producto", leer: (e) => e.producto.nombre },
-  { campo: "cantidad", leer: (e) => e.producto.cantidad },
+  { campo: "producto", leer: (e) => e.items.map((i) => i.ofrecible.nombre) },
+  { campo: "cantidad", leer: (e) => e.items.map((i) => i.cantidad) },
   // Lo elegido va como una sola entrada: los grupos los pone el negocio, no
-  // este archivo. Antes había una línea por grupo de La Churra.
-  { campo: "opciones", leer: (e) => e.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`) },
+  // este archivo. Antes había una línea por grupo de La Churra. Y desde la v4
+  // se dice de qué ítem es cada una, o pedir dos veces lo mismo parecería un
+  // cambio de opinión.
+  {
+    campo: "opciones",
+    leer: (e) =>
+      e.items.flatMap((i, n) => i.seleccion.map((s) => `${n}·${s.grupoNombre}:${s.nombre}`)),
+  },
   // Los datos de cierre NO están aquí: los declara cada negocio y entran por
   // `requisitos`. Poner una lista fija sería devolver al núcleo lo que el CRM
   // acaba de recuperar.
@@ -93,26 +99,41 @@ export function leerAporte(
  */
 export function loQueFalta(
   estado: EstadoDelPedido,
-  /** El producto del catálogo, con SUS grupos. `undefined` = aún sin elegir. */
-  producto?: ProductoDelCatalogo,
+  /**
+   * El catálogo del negocio, con sus grupos. Desde la v4 es **la carta entera**
+   * y no un producto: un pedido puede llevar varios, y cada uno tiene los suyos.
+   */
+  catalogo: ProductoDelCatalogo[] = [],
   /** Lo que este negocio pide para cerrar, en su orden. */
   requisitos: Requisito[] = []
 ): string[] {
   const falta: string[] = [];
-  if (!estado.producto.id) {
-    falta.push("presentación");
-  } else {
+  const variosItems = estado.items.length > 1;
+
+  if (estado.items.length === 0) falta.push("presentación");
+  for (const item of estado.items) {
+    if (!item.ofrecible.id) {
+      falta.push("presentación");
+      continue;
+    }
     /*
      * Los grupos obligatorios salen del catálogo del negocio — ni un nombre
      * escrito aquí. Sirve igual para *salsas*, *tamaño* o *diseño de uñas*.
      */
-    for (const g of producto?.grupos ?? []) {
+    const ofrecible = catalogo.find((p) => p.id === item.ofrecible.id);
+    for (const g of ofrecible?.grupos ?? []) {
       if (g.opciones.length === 0 || g.minimo < 1) continue;
-      const elegidas = estado.seleccion.filter((s) => s.grupoId === g.id).length;
-      if (elegidas < g.minimo) falta.push(g.nombre.toLowerCase());
+      const elegidas = item.seleccion.filter((s) => s.grupoId === g.id).length;
+      if (elegidas < g.minimo) {
+        // Con varios ítems se dice de cuál: "salsas" dos veces seguidas no le
+        // dice a nadie qué preguntar.
+        const nombre = g.nombre.toLowerCase();
+        falta.push(variosItems ? `${nombre} de ${item.ofrecible.nombre}` : nombre);
+      }
     }
   }
   // En el orden en que el negocio los declaró: ese orden ES la configuración.
+  // Y son del PEDIDO: el nombre se pide una vez, lleve una cosa o cinco.
   for (const r of requisitos) {
     if (r.obligatorio && !estado.datos[r.id]?.trim()) falta.push(r.etiqueta);
   }
@@ -127,23 +148,34 @@ export function loQueFalta(
  */
 export function comoTexto(
   estado: EstadoDelPedido,
-  producto?: ProductoDelCatalogo,
+  catalogo: ProductoDelCatalogo[] = [],
   requisitos: Requisito[] = []
 ): string {
-  if (!estado.producto.id && estado.seleccion.length === 0) return "";
+  const conAlgo = estado.items.filter((i) => i.ofrecible.id || i.seleccion.length > 0);
+  if (conAlgo.length === 0) return "";
 
   const partes: string[] = [];
-  if (estado.producto.nombre) {
-    partes.push(`${estado.producto.cantidad} × ${estado.producto.nombre}`);
-  }
-  // Una línea por grupo, con el nombre que le puso el negocio.
-  const porGrupo = new Map<string, string[]>();
-  for (const s of estado.seleccion) {
-    const clave = s.grupoNombre || "opciones";
-    porGrupo.set(clave, [...(porGrupo.get(clave) ?? []), s.nombre]);
-  }
-  for (const [grupo, nombres] of porGrupo) {
-    partes.push(`${grupo.toLowerCase()}: ${nombres.join(", ")}`);
+  /*
+   * Una línea por ítem, con SUS opciones debajo del suyo.
+   *
+   * Hasta la v3 todo iba en una lista plana, y con dos productos el modelo veía
+   * `salsas: arequipe, chocolate, chocolate` sin saber de quién era cada una —
+   * que es exactamente lo que le hacía preguntar dos veces.
+   */
+  for (const item of conAlgo) {
+    const cabecera = item.ofrecible.nombre
+      ? `${item.cantidad} × ${item.ofrecible.nombre}`
+      : "(sin elegir todavía)";
+    // Una línea por grupo, con el nombre que le puso el negocio.
+    const porGrupo = new Map<string, string[]>();
+    for (const s of item.seleccion) {
+      const clave = s.grupoNombre || "opciones";
+      porGrupo.set(clave, [...(porGrupo.get(clave) ?? []), s.nombre]);
+    }
+    const opciones = [...porGrupo]
+      .map(([grupo, nombres]) => `${grupo.toLowerCase()}: ${nombres.join(", ")}`)
+      .join(" · ");
+    partes.push(opciones ? `${cabecera} (${opciones})` : cabecera);
   }
   /*
    * Lo ya recogido, con la etiqueta del negocio. Un dato personal no se repite
@@ -163,7 +195,7 @@ export function comoTexto(
     partes.push(personal ? `${r.etiqueta}: ya está` : `${r.etiqueta}: ${valor}`);
   }
 
-  const falta = loQueFalta(estado, producto, requisitos);
+  const falta = loQueFalta(estado, catalogo, requisitos);
   const total =
     estado.totalCents === null
       ? ""

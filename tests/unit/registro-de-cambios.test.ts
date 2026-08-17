@@ -151,7 +151,7 @@ describe("qué se escribe y qué no", () => {
     });
 
     it("NO se come el nombre del producto, que es dato de negocio", () => {
-      expect(paraLog("conversation_state", "producto.nombre", "CHURRITA")).toBe("CHURRITA");
+      expect(paraLog("conversation_state", "items.0.nombre", "CHURRITA")).toBe("CHURRITA");
       expect(paraLog("conversation_state", "seleccion", "SALSA:arequipe, SALSA:lechera")).toBe(
         "SALSA:arequipe, SALSA:lechera"
       );
@@ -309,7 +309,7 @@ describe("qué significa cada dato, no cómo se llama", () => {
   it("clasifica las cuatro clases, y admite no saber", () => {
     expect(clasificar("agent_profile", "instructions")).toBe("negocio");
     expect(clasificar("agent_profile", "notifyPhones")).toBe("personal");
-    expect(clasificar("conversation_state", "producto.id")).toBe("tecnico");
+    expect(clasificar("conversation_state", "items.0.id")).toBe("negocio");
     // Por bloque: `datos.<lo que declare el negocio>` hereda de `datos`.
     expect(clasificar("conversation_state", "datos.direccion")).toBe("personal");
     expect(clasificar("conversation_state", "datos.numeroDeMesa")).toBe("personal");

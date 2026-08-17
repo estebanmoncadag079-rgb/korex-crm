@@ -57,20 +57,42 @@ export type OpcionElegida = {
   precioDeltaCents: number;
 };
 
-export type EstadoPropuesto = {
-  producto: string | null;
+/**
+ * Un elemento del pedido: qué, cuánto y con qué opciones.
+ *
+ * **La unidad no es el producto: es la línea elegida.** Un cliente pide *"una
+ * Churrita con arequipe y un Besties con chocolate y chocolate"* en un solo
+ * mensaje, y eso son dos ítems con sus opciones cada uno — no un producto con
+ * cinco opciones sueltas de las que ya nadie sabe de quién son.
+ *
+ * Se llama `ofrecible` y no `producto` porque un servicio de un salón entra por
+ * aquí exactamente igual (ver `catalog/queries.ts`, tipo `Ofrecible`).
+ */
+export type ItemPropuesto = {
+  /** El nombre tal y como lo dijo el modelo. El backend lo resuelve. */
+  ofrecible: string | null;
   cantidad: number | null;
   /**
-   * Todo lo que el cliente eligió, **en una sola lista y en su orden**.
+   * Lo elegido para ESTE ítem, **en su orden**.
    *
-   * Sustituye a `salsas` / `recubierto` / `adiciones` (17-ago-2026): eran los
-   * grupos de UN negocio metidos en el núcleo, y con ellos un salón no tenía
-   * dónde poner *"con esmalte"*. Ver
-   * [79-ARQUITECTURA-MULTIEMPRESA.md](../../../docs/korexia/79-ARQUITECTURA-MULTIEMPRESA.md).
+   * Sustituye a `salsas` / `recubierto` / `adiciones` (17-ago): eran los grupos
+   * de UN negocio metidos en el núcleo, y con ellos un salón no tenía dónde
+   * poner *"con esmalte"*.
    *
    * **Es una lista, no un conjunto**: `[arequipe, arequipe]` son dos salsas.
    */
   opciones: OpcionPropuesta[];
+};
+
+export type EstadoPropuesto = {
+  /**
+   * Todo lo que lleva el pedido, **en el orden en que se pidió**.
+   *
+   * Sustituye a `producto` + `cantidad` + `opciones` sueltos en la raíz
+   * (17-ago-2026). Aquellos eran un pedido de un solo elemento, y el primer
+   * cliente real que probó la Fase 2 pidió dos cosas en el mismo mensaje.
+   */
+  items: ItemPropuesto[];
   /**
    * Lo que el cliente ha ido dando de lo que su negocio pide para cerrar,
    * indexado por el `id` del requisito.
@@ -99,13 +121,23 @@ export type Duda = {
   preguntar: string;
 };
 
-export type EstadoNormalizado = {
-  productoId: string | null;
-  producto: string | null;
+/** Un ítem ya resuelto contra el catálogo. */
+export type ItemNormalizado = {
+  ofrecibleId: string | null;
+  ofrecible: string | null;
   cantidad: number;
   /** Lo elegido, resuelto y en orden. Una lista: las repeticiones se conservan. */
   seleccion: OpcionElegida[];
-  /** Lo suma el servidor a partir de la tabla. `null` = todavía no se puede. */
+  /** Lo de ESTE ítem, con su cantidad ya multiplicada. `null` = no se puede aún. */
+  totalCents: number | null;
+};
+
+export type EstadoNormalizado = {
+  items: ItemNormalizado[];
+  /**
+   * La suma de los ítems. `null` si a alguno le falta el precio: **medio total
+   * es peor que ninguno**, porque parece un número bueno.
+   */
   totalCents: number | null;
 };
 
@@ -150,40 +182,42 @@ function unidadesQueMenciona(texto: string): number | null {
 }
 
 
-export function normalizarPedido(
-  propuesto: EstadoPropuesto,
+/**
+ * Cuántos elementos como máximo caben en un pedido.
+ *
+ * 🔒 Decisión del dueño (17-ago-2026). **Es un límite técnico, no una regla de
+ * negocio**, y por eso vive aquí y no en la ficha: 40 ítems caben de sobra en un
+ * `jsonb` y no caben en un prompt. Un negocio no elige su límite técnico, igual
+ * que no elige el tamaño máximo de una foto.
+ *
+ * El día que un cliente necesite 41, **eso sí es una conversación de negocio**:
+ * el número se muda a la ficha, no se sube a mano aquí.
+ */
+export const MAX_ITEMS = 40;
+
+/**
+ * Resuelve UN ítem contra el catálogo.
+ *
+ * Es, casi línea por línea, lo que hasta el 17-ago-2026 hacía `normalizarPedido`
+ * entera — porque el pedido *era* un ítem. Lo que cambió no es cómo se resuelve
+ * un elemento, sino que ahora se resuelven **todos**.
+ *
+ * Las correcciones y las dudas se acumulan en las listas del pedido: son de la
+ * conversación, no del ítem. Cuando importa de cuál vienen, el texto lo dice
+ * —lleva el nombre del ofrecible— y con eso basta para preguntar bien.
+ */
+function resolverItem(
+  propuesto: ItemPropuesto,
   catalogo: ProductoDelCatalogo[],
-  /**
-   * Cuántas unidades trae cada presentación (`{"churrita": 6}`).
-   *
-   * ⚠️ **Hoy la tabla `product` no guarda este dato** —`description` está
-   * vacío en los cuatro productos de La Churra— y sin él *"quiero 6 churros"*
-   * es irresoluble para el backend. Se recibe como parámetro, y su ausencia se
-   * declara como duda en lugar de fingir que no existe el problema.
-   */
-  unidadesPorProducto?: Record<string, number>,
-  /**
-   * Qué pide ESTE negocio para cerrar, en su orden. Sale de la ficha
-   * (`requisitosDe`), nunca de una lista escrita aquí.
-   */
-  requisitos: Requisito[] = []
-): Resultado {
-  const correcciones: Correccion[] = [];
-  const dudas: Duda[] = [];
-
-  const porNombre = new Map(catalogo.map((p) => [llave(p.nombre), p]));
-  const opcionesConocidas = new Map<string, { grupo: string; producto: string }>();
-  for (const p of catalogo) {
-    for (const g of p.grupos) {
-      for (const o of g.opciones) {
-        opcionesConocidas.set(llave(o.nombre), { grupo: g.nombre, producto: p.nombre });
-      }
-    }
-  }
-
+  porNombre: Map<string, ProductoDelCatalogo>,
+  opcionesConocidas: Map<string, { grupo: string; producto: string }>,
+  correcciones: Correccion[],
+  dudas: Duda[],
+  unidadesPorProducto?: Record<string, number>
+): ItemNormalizado {
   // --- El producto -------------------------------------------------------
   let producto: ProductoDelCatalogo | undefined;
-  const crudo = propuesto.producto?.trim() ?? "";
+  const crudo = propuesto.ofrecible?.trim() ?? "";
 
   if (crudo) {
     producto = porNombre.get(llave(crudo));
@@ -492,23 +526,118 @@ export function normalizarPedido(
     }
   }
 
+  return {
+    ofrecibleId: producto?.id ?? null,
+    ofrecible: producto?.nombre ?? null,
+    cantidad,
+    seleccion,
+    totalCents,
+  };
+}
+
+/**
+ * Lo que le falta a UN ítem, con los nombres que puso el negocio.
+ *
+ * Sale del CATÁLOGO, no de una lista escrita a mano: un grupo con `minimo >= 1`
+ * sin completar es algo que falta, se llame *salsas*, *tamaño* o *diseño de
+ * uñas*.
+ */
+function faltaDelItem(item: ItemNormalizado, catalogo: ProductoDelCatalogo[]): string[] {
+  const falta: string[] = [];
+  const ofrecible = catalogo.find((p) => p.id === item.ofrecibleId);
+  if (!ofrecible) return ["presentación"];
+  for (const g of ofrecible.grupos) {
+    if (g.opciones.length === 0 || g.minimo < 1) continue;
+    const elegidas = item.seleccion.filter((s) => s.grupoId === g.id).length;
+    if (elegidas < g.minimo) falta.push(g.nombre.toLowerCase());
+  }
+  return falta;
+}
+
+export function normalizarPedido(
+  propuesto: EstadoPropuesto,
+  catalogo: ProductoDelCatalogo[],
+  /**
+   * Cuántas unidades trae cada presentación (`{"churrita": 6}`).
+   *
+   * ⚠️ **Hoy la tabla `product` no guarda este dato** —`description` está
+   * vacío en los cuatro productos de La Churra— y sin él *"quiero 6 churros"*
+   * es irresoluble para el backend. Se recibe como parámetro, y su ausencia se
+   * declara como duda en lugar de fingir que no existe el problema.
+   */
+  unidadesPorProducto?: Record<string, number>,
+  /**
+   * Qué pide ESTE negocio para cerrar, en su orden. Sale de la ficha
+   * (`requisitosDe`), nunca de una lista escrita aquí.
+   */
+  requisitos: Requisito[] = []
+): Resultado {
+  const correcciones: Correccion[] = [];
+  const dudas: Duda[] = [];
+
+  const porNombre = new Map(catalogo.map((p) => [llave(p.nombre), p]));
+  const opcionesConocidas = new Map<string, { grupo: string; producto: string }>();
+  for (const p of catalogo) {
+    for (const g of p.grupos) {
+      for (const o of g.opciones) {
+        opcionesConocidas.set(llave(o.nombre), { grupo: g.nombre, producto: p.nombre });
+      }
+    }
+  }
+
+  /*
+   * El tope NO recorta en silencio: se queda con los primeros y se declara como
+   * duda. Tirar la mitad de un pedido sin decir nada es la peor forma de
+   * respetar un límite — el cliente creería que va completo.
+   */
+  const propuestos = propuesto.items ?? [];
+  const items = propuestos.slice(0, MAX_ITEMS).map((item) =>
+    resolverItem(item, catalogo, porNombre, opcionesConocidas, correcciones, dudas, unidadesPorProducto)
+  );
+  if (propuestos.length > MAX_ITEMS) {
+    dudas.push({
+      campo: "items",
+      porque: `el pedido trae ${propuestos.length} elementos y el máximo es ${MAX_ITEMS}`,
+      preguntar: `Solo puedo tomar ${MAX_ITEMS} cosas en un mismo pedido. ¿Lo dividimos en dos?`,
+    });
+  }
+  /*
+   * Un pedido sin ningún ítem no es un pedido vacío: es alguien que todavía no
+   * ha elegido. Se resuelve un ítem en blanco para que la pregunta salga igual
+   * que siempre — «¿cuál presentación desea?» — en vez de un silencio.
+   */
+  if (items.length === 0) {
+    items.push(
+      resolverItem(
+        { ofrecible: null, cantidad: null, opciones: [] },
+        catalogo, porNombre, opcionesConocidas, correcciones, dudas, unidadesPorProducto
+      )
+    );
+  }
+
+  /*
+   * El total del pedido: la suma de sus ítems.
+   *
+   * `null` en cuanto uno solo no se pueda calcular. **Medio total es peor que
+   * ninguno**, porque parece bueno y se le dice al cliente.
+   */
+  const totalCents = items.some((i) => i.totalCents === null)
+    ? null
+    : items.reduce((suma, i) => suma + (i.totalCents ?? 0), 0);
+
   /*
    * --- Qué falta para poder despachar ------------------------------------
    *
-   * Sale del CATÁLOGO, no de una lista escrita a mano. Un grupo con `minimo >=
-   * 1` que no esté completo es algo que falta, se llame *salsas*, *tamaño* o
-   * *diseño de uñas*.
-   *
-   * Y los datos de cierre salen de los REQUISITOS que declara el negocio: ni
-   * este archivo ni ninguno del núcleo sabe qué es un teléfono.
+   * Lo de cada ítem, y después los datos del cliente — que son **del pedido**,
+   * no de cada línea: el nombre y el teléfono se piden una vez aunque lleve
+   * cinco cosas. Los declara la ficha; ni este archivo ni ninguno del núcleo
+   * sabe qué es un teléfono.
    */
   const faltaParaCerrar: string[] = [];
-  if (!producto) faltaParaCerrar.push("presentación");
-  else {
-    for (const g of producto.grupos) {
-      if (g.opciones.length === 0 || g.minimo < 1) continue;
-      const elegidas = seleccion.filter((s) => s.grupoId === g.id).length;
-      if (elegidas < g.minimo) faltaParaCerrar.push(g.nombre.toLowerCase());
+  for (const item of items) {
+    for (const f of faltaDelItem(item, catalogo)) {
+      // Con varios ítems se dice de cuál, o «salsas» dos veces no ayuda a nadie.
+      faltaParaCerrar.push(items.length > 1 && item.ofrecible ? `${f} de ${item.ofrecible}` : f);
     }
   }
   for (const r of requisitos) {
@@ -520,13 +649,7 @@ export function normalizarPedido(
 
   return {
     faltaParaCerrar,
-    estado: {
-      productoId: producto?.id ?? null,
-      producto: producto?.nombre ?? null,
-      cantidad,
-      seleccion,
-      totalCents,
-    },
+    estado: { items, totalCents },
     correcciones,
     dudas,
     reconstruible: dudas.length === 0 && totalCents !== null,

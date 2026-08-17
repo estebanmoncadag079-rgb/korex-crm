@@ -265,11 +265,11 @@ try {
 
   console.log("\nA2. UN PEDIDO SENCILLO");
   const v1 = validarPropuesta(
-    { producto: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }], datos: {}, paso: "eligiendo_opciones" },
+    { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: {}, paso: "eligiendo_opciones" },
     catalogo, undefined, requisitos
   );
   comprobar("la propuesta válida pasa", v1.ok, v1.rechazos.join(" · "));
-  comprobar("el backend resuelve el productId", v1.estado.producto.id === idSencillo);
+  comprobar("el backend resuelve el productId", v1.estado.items[0]?.ofrecible.id === idSencillo);
   comprobar("el total lo calcula el servidor", v1.estado.totalCents === 1000000, "$10.000");
   await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: v1.estado, actor: "script:probar-estado", proceso: "probar:estado" });
   comprobar("se recupera lo guardado", mismoEstado(await leerEstado(convPedidos), v1.estado));
@@ -283,12 +283,12 @@ try {
     { grupo: "SALSAS", opcion: "frutos rojos" },
   ];
   const v2 = validarPropuesta(
-    { producto: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "arequipe" }], datos: {}, paso: "eligiendo_opciones" },
+    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "arequipe" }] }], datos: {}, paso: "eligiendo_opciones" },
     catalogo, undefined, requisitos
   );
   comprobar("cinco de cuatro sabores: se puede repetir donde el grupo lo permite", v2.ok, v2.rechazos.join(" · "));
-  comprobar("las cinco se conservan, no se deduplican", v2.estado.seleccion.filter((s) => s.grupoNombre === "SALSAS").length === 5);
-  comprobar("«arequipe» dos veces son dos, no una", v2.estado.seleccion.filter((s) => s.grupoNombre === "SALSAS" && s.nombre === "arequipe").length === 2);
+  comprobar("las cinco se conservan, no se deduplican", v2.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "SALSAS").length === 5);
+  comprobar("«arequipe» dos veces son dos, no una", v2.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "SALSAS" && s.nombre === "arequipe").length === 2);
   /*
    * $40.000 + UNA adición de $1.500. Las salsas del mismo nombre son gratis. Si
    * el cobro volviera a cruzarse entre grupos, aquí saldrían $43.000.
@@ -296,56 +296,56 @@ try {
   comprobar("cada grupo cobra lo suyo: no hay cobro cruzado", v2.estado.totalCents === 4150000, `$${(v2.estado.totalCents ?? 0) / 100}`);
 
   const v2b = validarPropuesta(
-    { producto: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "oreo" }, { grupo: "ADICIONES", opcion: "oreo" }], datos: {}, paso: "eligiendo_opciones" },
+    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "oreo" }, { grupo: "ADICIONES", opcion: "oreo" }] }], datos: {}, paso: "eligiendo_opciones" },
     catalogo, undefined, requisitos
   );
   comprobar("y donde el grupo NO lo permite, se pregunta en vez de adivinar",
-    !v2b.ok || v2b.estado.seleccion.filter((s) => s.grupoNombre === "ADICIONES").length < 2,
+    !v2b.ok || v2b.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "ADICIONES").length < 2,
     v2b.dudas?.[0]?.preguntar ?? v2b.rechazos[0] ?? "");
 
   console.log("\nA4. LO QUE FALTA PARA CERRAR");
-  const faltan = loQueFalta(v2.estado, caja, requisitos);
+  const faltan = loQueFalta(v2.estado, catalogo, requisitos);
   comprobar("pide los tres datos que declaró la ficha",
     (requisitos ?? []).every((r) => faltan.some((f) => f.includes(r.etiqueta))), faltan.join(" · "));
   const conNombre = { ...v2.estado, datos: { nombre: "Ana" } };
-  comprobar("y deja de pedir el que ya tiene", !loQueFalta(conNombre, caja, requisitos).some((f) => f.includes("el nombre")));
+  comprobar("y deja de pedir el que ya tiene", !loQueFalta(conNombre, catalogo, requisitos).some((f) => f.includes("el nombre")));
   comprobar("el resumen no inventa género ni trata al cliente de usted o de tú",
-    !/\b(la dio|lo dio|dió|usted)\b/i.test(comoTexto(conNombre, caja, requisitos)));
+    !/\b(la dio|lo dio|dió|usted)\b/i.test(comoTexto(conNombre, catalogo, requisitos)));
 
   console.log("\nA5. CONFIRMAR");
   const sinDatos = validarPropuesta(
-    { producto: "caja grande", cantidad: 1, opciones: cincoSalsas, datos: {}, confirmado: true },
+    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: cincoSalsas }], datos: {}, confirmado: true },
     catalogo, undefined, requisitos
   );
   comprobar("no se confirma sin los datos obligatorios", !sinDatos.ok || !sinDatos.estado.confirmado, sinDatos.rechazos[0] ?? "");
 
   const sinRequisitos = validarPropuesta(
-    { producto: "caja grande", cantidad: 1, opciones: cincoSalsas, datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true },
+    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: cincoSalsas }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true },
     catalogo
   );
   comprobar("ni cuando el negocio NO ha declarado qué pide", !sinRequisitos.ok || !sinRequisitos.estado.confirmado, sinRequisitos.rechazos[0] ?? "");
 
   const completo = validarPropuesta(
-    { producto: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "arequipe" }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true, paso: "confirmado" },
+    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "arequipe" }] }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true, paso: "confirmado" },
     catalogo, undefined, requisitos
   );
   comprobar("con todo lo que pide la ficha, SÍ se confirma", completo.ok && completo.estado.confirmado, completo.rechazos.join(" · "));
   comprobar("y el total sigue siendo el del servidor", completo.estado.totalCents === 4150000);
-  comprobar("no queda nada por pedir", loQueFalta(completo.estado, caja, requisitos).length === 0);
+  comprobar("no queda nada por pedir", loQueFalta(completo.estado, catalogo, requisitos).length === 0);
   await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: completo.estado, actor: "script:probar-estado", proceso: "probar:estado" });
 
   console.log("\nA6. CORRUPCIÓN DELIBERADA (nada de esto debe persistirse)");
   const guardadoBueno = await leerEstado(convPedidos);
   const casos: [string, Parameters<typeof validarPropuesta>[0]][] = [
-    ["producto inexistente", { producto: "PIZZA", cantidad: 1, opciones: [], datos: {} }],
-    ["opción que no existe en el grupo", { producto: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "mostaza" }], datos: {} }],
-    ["cantidad 0", { producto: "sencillo", cantidad: 0, opciones: [{ grupo: "SALSA", opcion: "arequipe" }], datos: {} }],
-    ["una opción de OTRO producto", { producto: "sencillo", cantidad: 1, opciones: [{ grupo: "ADICIONES", opcion: "oreo" }], datos: {} }],
-    ["confirmar con la mitad de los datos", { producto: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }], datos: { nombre: "Ana" }, confirmado: true }],
+    ["producto inexistente", { items: [{ ofrecible: "PIZZA", cantidad: 1, opciones: [] }], datos: {} }],
+    ["opción que no existe en el grupo", { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "mostaza" }] }], datos: {} }],
+    ["cantidad 0", { items: [{ ofrecible: "sencillo", cantidad: 0, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: {} }],
+    ["una opción de OTRO producto", { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "ADICIONES", opcion: "oreo" }] }], datos: {} }],
+    ["confirmar con la mitad de los datos", { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: { nombre: "Ana" }, confirmado: true }],
   ];
   for (const [nombre, mala] of casos) {
     const r = validarPropuesta(mala, catalogo, undefined, requisitos);
-    const rechazada = !r.ok || r.estado.producto.id === null || (r.dudas?.length ?? 0) > 0 || !r.estado.confirmado;
+    const rechazada = !r.ok || r.estado.items[0]?.ofrecible.id === null || (r.dudas?.length ?? 0) > 0 || !r.estado.confirmado;
     comprobar(nombre, rechazada, r.rechazos[0] ?? r.dudas?.[0]?.preguntar ?? "no resuelve el producto");
   }
   comprobar("el estado guardado sigue intacto tras los intentos", mismoEstado(await leerEstado(convPedidos), guardadoBueno));
@@ -365,8 +365,8 @@ try {
 
   console.log("\nA8. CONCURRENCIA (dos turnos a la vez sobre la misma conversación)");
   const dos: EstadoDelPedido[] = [
-    { ...estadoVacio(), producto: { id: idSencillo, nombre: "SENCILLO", cantidad: 1 }, paso: "turno-A" },
-    { ...estadoVacio(), producto: { id: idSencillo, nombre: "SENCILLO", cantidad: 2 }, paso: "turno-B" },
+    { ...estadoVacio(), items: [{ ofrecible: { id: idSencillo, nombre: "SENCILLO" }, cantidad: 1, seleccion: [], totalCents: 1000000 }], paso: "turno-A" },
+    { ...estadoVacio(), items: [{ ofrecible: { id: idSencillo, nombre: "SENCILLO" }, cantidad: 2, seleccion: [], totalCents: 2000000 }], paso: "turno-B" },
   ];
   await Promise.all(
     dos.map((e) => guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: e, actor: "script:probar-estado", proceso: "concurrencia" }))
@@ -377,9 +377,39 @@ try {
   // reemplazo completo tiene que dejar un estado coherente, no una mezcla.
   const coherente =
     tras !== null &&
-    ((tras.paso === "turno-A" && tras.producto.cantidad === 1) ||
-      (tras.paso === "turno-B" && tras.producto.cantidad === 2));
+    ((tras.paso === "turno-A" && tras.items[0]?.cantidad === 1) ||
+      (tras.paso === "turno-B" && tras.items[0]?.cantidad === 2));
   comprobar("gana uno de los dos ENTERO, sin mezclarse", coherente, `quedó ${tras?.paso}`);
+  await borrarEstado(convPedidos, { actor: "script:probar-estado", proceso: "limpieza" });
+
+  console.log("\nA9. DOS COSAS EN UN PEDIDO (el caso real del 17-ago)");
+  /*
+   * Un cliente pidió dos productos en un mensaje y el agente perdió la mitad.
+   * Aquí se comprueba contra la base de verdad que el estado los sostiene: cada
+   * uno con sus opciones, y el total sumando los dos.
+   */
+  const dosCosas = validarPropuesta(
+    {
+      items: [
+        { ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] },
+        { ofrecible: "caja grande", cantidad: 1, opciones: cincoSalsas },
+      ],
+      datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" },
+      confirmado: true,
+      paso: "confirmado",
+    },
+    catalogo,
+    undefined,
+    requisitos
+  );
+  comprobar("los dos caben, y el pedido se confirma", dosCosas.ok && dosCosas.estado.confirmado,
+    dosCosas.rechazos.join(" · "));
+  comprobar("cada uno con SUS opciones, sin mezclarse",
+    dosCosas.estado.items[0]?.seleccion.length === 1 && dosCosas.estado.items[1]?.seleccion.length === 5);
+  comprobar("el total es la SUMA de los dos", dosCosas.estado.totalCents === 1000000 + 4000000,
+    `$${(dosCosas.estado.totalCents ?? 0) / 100}`);
+  await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: dosCosas.estado, actor: "script:probar-estado", proceso: "probar:estado" });
+  comprobar("y vuelve de la base con sus DOS items", (await leerEstado(convPedidos))?.items.length === 2);
   await borrarEstado(convPedidos, { actor: "script:probar-estado", proceso: "limpieza" });
 
   /* ══════════════════════════════════════════════════════════════════════════
@@ -455,12 +485,12 @@ try {
     datos: { nombre: "Ana" },
   };
   comprobar("con el servicio y el nombre, no queda nada pendiente",
-    loQueFalta(citaElegida, servicio, reqCitas).length === 0,
-    loQueFalta(citaElegida, servicio, reqCitas).join(" · "));
+    loQueFalta(citaElegida, catalogoCitas, reqCitas).length === 0,
+    loQueFalta(citaElegida, catalogoCitas, reqCitas).join(" · "));
   const sinNada = { ...estadoVacio(), datos: { nombre: "Ana" } };
   comprobar("y sin servicio elegido, lo único que falta es el servicio: nunca un dato personal",
-    loQueFalta(sinNada, undefined, reqCitas).length === 1,
-    loQueFalta(sinNada, undefined, reqCitas).join(" · "));
+    loQueFalta(sinNada, catalogoCitas, reqCitas).length === 1,
+    loQueFalta(sinNada, catalogoCitas, reqCitas).join(" · "));
 
   console.log("\nB3. EL FLUJO DE CITAS SIGUE FUNCIONANDO");
   comprobar("el servicio se lee por el mismo camino que un producto",

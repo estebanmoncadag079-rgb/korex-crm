@@ -51,6 +51,7 @@ import {
   type EstadoDelPedido,
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
+import { MAX_ITEMS } from "@/server/orders/normalizar";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import { requisitosDe, type FichaDelNegocio, type Requisito } from "@/server/ai/generador/ficha";
@@ -567,16 +568,19 @@ export async function runAgentTurn(
       }
       estadoGuardado = await leerEstado(conversation.id);
       /*
-       * El producto entero, con SUS grupos: quien decide qué falta es el
+       * El catálogo ENTERO, con sus grupos: quien decide qué falta es el
        * catálogo del negocio, no una línea escrita aquí. Antes esto calculaba
        * "cuántas salsas lleva" y se lo pasaba a `comoTexto` como un número —el
        * grupo de un negocio concreto, dentro del núcleo.
+       *
+       * Y antes de la v4 era un `.find()` del producto del pedido: con dos
+       * productos resolvía el primero y **el segundo se quedaba sin grupos**,
+       * así que el modelo no veía que le faltaban sus opciones.
        */
       const fichaDelNegocio = leerFicha(profile.ficha);
       requisitos = fichaDelNegocio ? requisitosDe(fichaDelNegocio as FichaDelNegocio) : undefined;
-      const delPedido = productos.find((p) => p.id === estadoGuardado?.producto.id);
       if (estadoGuardado) {
-        bloqueDeEstado = comoTexto(estadoGuardado, delPedido, requisitos ?? []);
+        bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? []);
       }
     }
   }
@@ -1706,17 +1710,31 @@ async function chatJsonConEstado(
       role: "system",
       content:
         'Además de la acción, añade al MISMO objeto JSON una clave "estado" con el pedido tal como va: ' +
-        '{"producto": …, "cantidad": …, "opciones": [{"grupo": …, "opcion": …}], ' +
+        '{"items": [{"ofrecible": …, "cantidad": …, "opciones": [{"grupo": …, "opcion": …}]}], ' +
         `"datos": {${requisitos.map((r) => `"${r.id}": …`).join(", ")}}, ` +
         '"paso": …, "confirmado": false}. ' +
+        /*
+         * `items` es una LISTA porque un cliente pide varias cosas de una vez.
+         * Se insiste en el texto y no solo en el esquema: el primer cliente real
+         * que probó esto pidió dos cosas en un mensaje, y el agente acabó
+         * preguntando por separado las opciones de cada una.
+         *
+         * ⚠️ Y sin ejemplos con nombres: los de un negocio concreto no entran en
+         * el prompt que comparten todos (regla 1 de 79-ARQUITECTURA-MULTIEMPRESA).
+         * El catálogo de cada negocio va aparte, y de ahí saca los suyos.
+         */
+        'En "items" va UNA ENTRADA POR CADA COSA que pida, con sus propias opciones: ' +
+        "si pide dos cosas distintas en el mismo mensaje, son DOS entradas, cada una con lo suyo. " +
+        "Nunca juntes las opciones de dos cosas distintas en la misma entrada. " +
+        `Como mucho ${MAX_ITEMS}. ` +
         (requisitos.length
           ? `En "datos" va lo que este negocio necesita para cerrar: ` +
             requisitos.map((r) => `${r.id} (${r.etiqueta})`).join(", ") +
-            ". "
+            ". Son del pedido entero: se piden UNA vez, aunque lleve varias cosas. "
           : "") +
-        'En "opciones" va CADA cosa que el cliente eligió del catálogo, una entrada por elección ' +
+        'En "opciones" va CADA cosa que el cliente eligió del catálogo para ESE item, una entrada por elección ' +
         'y en el orden en que las dijo: si pide dos veces lo mismo, van DOS entradas. ' +
-        '"grupo" es el título bajo el que aparece en el catálogo (SALSAS, TAMAÑO, ADICIONES…): ' +
+        '"grupo" es el título bajo el que aparece esa opción en el catálogo: ' +
         "ponlo siempre que puedas, porque el mismo nombre puede estar en dos grupos con precios distintos. " +
         "Lo que el cliente aún no haya dicho va en null (o lista vacía). No inventes nada.",
     },

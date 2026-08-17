@@ -58,7 +58,7 @@ const REQUISITOS: Requisito[] = [
 
 describe("un vertical que nadie programó: taller de reparaciones", () => {
   it("valida sus opciones y cobra bien, sin saber qué es una pastilla", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
@@ -67,7 +67,7 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
           { grupo: "URGENCIA", opcion: "mismo día" },
         ],
         datos: { placa: "ABC123" },
-      },
+      }),
       [REPARACION],
       {},
       REQUISITOS
@@ -75,21 +75,21 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
 
     expect(v.ok).toBe(true);
     expect(v.estado.totalCents).toBe(12000000 + 8000000 + 3000000); // $230.000
-    expect(v.estado.seleccion.map((s) => s.grupoNombre)).toEqual([
+    expect(v.estado.items[0]!.seleccion.map((s) => s.grupoNombre)).toEqual([
       "TIPO DE PASTILLA",
       "URGENCIA",
     ]);
   });
 
   it("exige lo que el taller pide, y NADA de lo que pide una churrería", () => {
-    const sinPlaca = validarPropuesta(
+    const sinPlaca = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
         opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "estándar" }],
         datos: {},
         confirmado: true,
-      },
+      }),
       [REPARACION],
       {},
       REQUISITOS
@@ -103,14 +103,14 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
   });
 
   it("un requisito opcional no bloquea el cierre", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
         opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "estándar" }],
         datos: { placa: "ABC123" }, // sin `ordenSeguro`
         confirmado: true,
-      },
+      }),
       [REPARACION],
       {},
       REQUISITOS
@@ -119,19 +119,19 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
   });
 
   it("le dice al modelo qué falta con las palabras del TALLER", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
         opciones: [],
         datos: {},
-      },
+      }),
       [REPARACION],
       {},
       REQUISITOS
     );
 
-    const falta = loQueFalta(v.estado, REPARACION, REQUISITOS);
+    const falta = loQueFalta(v.estado, [REPARACION], REQUISITOS);
     expect(falta).toEqual(["tipo de pastilla", "la placa del vehículo"]);
     // `URGENCIA` es opcional (minimo 0) y `ordenSeguro` también: no se piden.
     expect(falta).not.toContain("urgencia");
@@ -139,19 +139,19 @@ describe("un vertical que nadie programó: taller de reparaciones", () => {
   });
 
   it("y el bloque del prompt habla de placas, no de salsas", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
         opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "cerámica" }],
         datos: { placa: "ABC123" },
-      },
+      }),
       [REPARACION],
       {},
       REQUISITOS
     );
 
-    const texto = comoTexto(v.estado, REPARACION, REQUISITOS);
+    const texto = comoTexto(v.estado, [REPARACION], REQUISITOS);
     expect(texto).toContain("REVISIÓN DE FRENOS");
     expect(texto).toContain("tipo de pastilla: cerámica");
     // La placa es `documento`: se dice que ya la dio, no se repite el dato.
@@ -196,14 +196,14 @@ describe("ningún vertical trae requisitos por defecto en el código", () => {
   });
 
   it("y sin declararlos, un pedido NO se confirma: falla ruidoso, no en silencio", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
         opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "estándar" }],
         datos: {},
         confirmado: true,
-      },
+      }),
       [REPARACION],
       {},
       undefined // ← la ficha no los declara
@@ -216,14 +216,14 @@ describe("ningún vertical trae requisitos por defecto en el código", () => {
     const ficha = { ...sinDeclarar("pedidos"), cierre: { requisitos: [] } };
     expect(requisitosDe(ficha)).toEqual([]);
 
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "revisión de frenos",
         cantidad: 1,
         opciones: [{ grupo: "TIPO DE PASTILLA", opcion: "estándar" }],
         datos: {},
         confirmado: true,
-      },
+      }),
       [REPARACION],
       {},
       []
@@ -272,7 +272,7 @@ describe("la repetición la declara cada grupo", () => {
   };
 
   it("sin declararlo, elegir dos veces lo mismo se PREGUNTA", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "manicura",
         cantidad: 1,
@@ -281,17 +281,17 @@ describe("la repetición la declara cada grupo", () => {
           { grupo: "ESMALTADO", opcion: "tradicional" },
         ],
         datos: {},
-      },
+      }),
       [CON_ESMALTE],
       {},
       []
     );
-    expect(v.estado.seleccion).toHaveLength(1); // la segunda no entra
+    expect(v.estado.items[0]!.seleccion).toHaveLength(1); // la segunda no entra
     expect(v.dudas.some((d) => d.preguntar.includes("¿Querías otra distinta?"))).toBe(true);
   });
 
   it("declarándolo, las dos se conservan", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "manicura",
         cantidad: 1,
@@ -300,17 +300,17 @@ describe("la repetición la declara cada grupo", () => {
           { grupo: "ESMALTADO", opcion: "tradicional" },
         ],
         datos: {},
-      },
+      }),
       [REPETIBLE],
       {},
       []
     );
-    expect(v.estado.seleccion).toHaveLength(2);
+    expect(v.estado.items[0]!.seleccion).toHaveLength(2);
     expect(v.dudas).toEqual([]);
   });
 
   it("dos opciones DISTINTAS del mismo grupo nunca fueron el problema", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "manicura",
         cantidad: 1,
@@ -319,17 +319,17 @@ describe("la repetición la declara cada grupo", () => {
           { grupo: "ESMALTADO", opcion: "semipermanente" },
         ],
         datos: {},
-      },
+      }),
       [CON_ESMALTE],
       {},
       []
     );
-    expect(v.estado.seleccion).toHaveLength(2);
+    expect(v.estado.items[0]!.seleccion).toHaveLength(2);
     expect(v.dudas).toEqual([]);
   });
 
   it("y repetir donde no se puede NO se recorta en silencio: se cobra bien lo que quedó", () => {
-    const v = validarPropuesta(
+    const v = validarPropuesta((
       {
         producto: "manicura",
         cantidad: 1,
@@ -338,13 +338,13 @@ describe("la repetición la declara cada grupo", () => {
           { grupo: "ESMALTADO", opcion: "semipermanente" },
         ],
         datos: {},
-      },
+      }),
       [CON_ESMALTE],
       {},
       []
     );
     // Una sola vez el recargo, y con la duda encima: sin total hasta aclararlo.
-    expect(v.estado.seleccion).toHaveLength(1);
+    expect(v.estado.items[0]!.seleccion).toHaveLength(1);
     expect(v.estado.totalCents).toBeNull();
   });
 });

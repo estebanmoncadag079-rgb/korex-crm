@@ -101,6 +101,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [89-EL-CONTRATO-DE-LOS-ITEMS.md](89-EL-CONTRATO-DE-LOS-ITEMS.md) | **El contrato v4, implementado**: un pedido lleva `items[]`, cada uno con su cantidad y sus opciones; `datos` se queda en la raíz porque son del cliente. Con el tope de 40 que no recorta en silencio, la tolerancia deliberada con el formato viejo, y por qué las 34 pruebas de antes pasaron sin cambiar una sola expectativa |
+
 | [88-AUDITORIA-SELECCION-MULTIPLE.md](88-AUDITORIA-SELECCION-MULTIPLE.md) | 🔴 **LA AUDITORÍA UNIVERSAL, Y LA QUE MANDA SOBRE LA 87.** ¿Sostiene la arquitectura varios elementos en cualquier vertical? No — y el defecto está **duplicado en dos motores que no comparten código**. Tres hallazgos de fondo: **no existe la entidad Pedido** (33 tablas, ninguna), la Fase 2 sigue excluyendo citas, y quedan palabras de comida decidiendo en `sembrar.ts`. Con los tres escenarios y la recomendación validada contra los dos verticales |
 
 | [87-PEDIDOS-MULTIPRODUCTO.md](87-PEDIDOS-MULTIPRODUCTO.md) | 🛑 **EL PASO 3.6, QUE BLOQUEA EL ENCENDIDO.** El carrito que nunca existió: el modelo actual en código, el inventario contado (10 archivos, 21 accesos, 39 usos), el estado propuesto con `items[]` y las cuatro respuestas. **La migración es gratis hoy —0 filas— y deja de serlo con el primer cliente encendido.** Aquí nace la regla 10 |

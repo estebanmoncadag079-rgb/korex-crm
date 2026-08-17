@@ -62,8 +62,8 @@ describe("el backend resuelve, no el modelo", () => {
   it("guarda el ID del producto, no solo el nombre que dijo el modelo", () => {
     const v = validarPropuesta(propuesta(), CARTA, UNIDADES);
     expect(v.ok).toBe(true);
-    expect(v.estado.producto.id).toBe("prod_churrita");
-    expect(v.estado.producto.nombre).toBe("CHURRITA");
+    expect(v.estado.items[0]?.ofrecible.id).toBe("prod_churrita");
+    expect(v.estado.items[0]?.ofrecible.nombre).toBe("CHURRITA");
   });
 
   it("el total lo calcula el servidor", () => {
@@ -81,7 +81,7 @@ describe("el backend resuelve, no el modelo", () => {
 describe("corrupción deliberada", () => {
   it("producto que no existe en la carta", () => {
     const v = validarPropuesta(propuesta({ producto: "PIZZA" }), CARTA, UNIDADES);
-    expect(v.estado.producto.id).toBeNull();
+    expect(v.estado.items[0]?.ofrecible.id).toBeNull();
     expect(v.dudas.some((d) => d.campo === "producto")).toBe(true);
   });
 
@@ -89,7 +89,7 @@ describe("corrupción deliberada", () => {
     // Aunque el modelo lo nombre bien, si no está en el catálogo de este
     // negocio no existe. Es la barrera contra la fuga entre clientes.
     const v = validarPropuesta(propuesta({ producto: "TORTA DE CHOCOLATE" }), CARTA, UNIDADES);
-    expect(v.estado.producto.id).toBeNull();
+    expect(v.estado.items[0]?.ofrecible.id).toBeNull();
   });
 
   it("salsa incompatible con el producto → RECHAZO", () => {
@@ -118,7 +118,7 @@ describe("corrupción deliberada", () => {
       CARTA,
       UNIDADES
     );
-    expect(v.estado.producto.cantidad).toBe(1);
+    expect(v.estado.items[0]!.cantidad).toBe(1);
     expect(v.dudas.some((d) => d.campo === "cantidad")).toBe(true);
   });
 });
@@ -161,14 +161,23 @@ describe("estados imposibles", () => {
   });
 });
 
+/** Lo elegido va DENTRO del ítem desde la v4, no en la raíz del pedido. */
+const conSeleccion = (
+  e: EstadoDelPedido,
+  seleccion: EstadoDelPedido["items"][number]["seleccion"]
+): EstadoDelPedido => ({
+  ...e,
+  items: e.items.map((i, n) => (n === 0 ? { ...i, seleccion } : i)),
+});
+
 describe("qué aportó el cliente en este turno", () => {
   const base: EstadoDelPedido = {
     ...estadoVacio(),
-    producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
+    items: [{ ofrecible: { id: "prod_churrita", nombre: "CHURRITA" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
   };
 
   it("distingue lo nuevo de lo que cambia y de lo que permanece", () => {
-    const despues: EstadoDelPedido = { ...base, seleccion: elegidas("arequipe") };
+    const despues: EstadoDelPedido = conSeleccion(base, elegidas("arequipe"));
     const l = leerAporte(base, despues);
     expect(l.nuevo.map((n) => n.campo)).toEqual(["opciones"]);
     expect(l.permanece).toContain("producto");
@@ -176,8 +185,8 @@ describe("qué aportó el cliente en este turno", () => {
   });
 
   it("un cambio de opinión NO es información nueva", () => {
-    const antes: EstadoDelPedido = { ...base, seleccion: elegidas("arequipe") };
-    const despues: EstadoDelPedido = { ...base, seleccion: elegidas("lechera") };
+    const antes: EstadoDelPedido = conSeleccion(base, elegidas("arequipe"));
+    const despues: EstadoDelPedido = conSeleccion(base, elegidas("lechera"));
     const l = leerAporte(antes, despues);
     expect(l.cambia.map((c) => c.campo)).toEqual(["opciones"]);
     expect(l.nuevo).toEqual([]);
@@ -193,9 +202,9 @@ describe("lo que el backend le recuerda al modelo", () => {
   it("dice qué falta, en el orden del flujo", () => {
     const e: EstadoDelPedido = {
       ...estadoVacio(),
-      producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
+      items: [{ ofrecible: { id: "prod_churrita", nombre: "CHURRITA" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
     };
-    expect(loQueFalta(e, CHURRITA, REQUISITOS)).toEqual([
+    expect(loQueFalta(e, [CHURRITA], REQUISITOS)).toEqual([
       "salsa",
       "el nombre",
       "el celular",
@@ -206,19 +215,25 @@ describe("lo que el backend le recuerda al modelo", () => {
   it("el bloque del prompt no repite el teléfono, solo dice que ya lo tiene", () => {
     const e: EstadoDelPedido = {
       ...estadoVacio(),
-      producto: { id: "prod_churrita", nombre: "CHURRITA", cantidad: 1 },
-      seleccion: elegidas("arequipe"),
+      items: [
+        {
+          ofrecible: { id: "prod_churrita", nombre: "CHURRITA" },
+          cantidad: 1,
+          seleccion: elegidas("arequipe"),
+          totalCents: 1000000,
+        },
+      ],
       datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5" },
       totalCents: 1000000,
     };
-    const texto = comoTexto(e, CHURRITA, REQUISITOS);
+    const texto = comoTexto(e, [CHURRITA], REQUISITOS);
     expect(texto).toContain("el celular: ya está");
     expect(texto).not.toContain("3001234567"); // el dato no se repite en el prompt
     expect(texto).toContain("$10.000");
   });
 
   it("sin pedido en curso no inyecta nada: el prompt no engorda porque sí", () => {
-    expect(comoTexto(estadoVacio(), CHURRITA)).toBe("");
+    expect(comoTexto(estadoVacio(), [CHURRITA])).toBe("");
   });
 });
 
@@ -353,7 +368,7 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
       CARTA_3,
       UNIDADES
     );
-    const porGrupo = v.estado.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`);
+    const porGrupo = v.estado.items[0]!.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`);
     expect(porGrupo).toEqual(["SALSA:arequipe", "RECUBIERTO:azúcar-canela"]);
   });
 
@@ -385,7 +400,7 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
       CARTA_3,
       UNIDADES
     );
-    const adicion = v.estado.seleccion.find((s) => s.grupoNombre === "ADICIONES")!;
+    const adicion = v.estado.items[0]!.seleccion.find((s) => s.grupoNombre === "ADICIONES")!;
     expect(adicion.opcionId).toBe("a1");
     expect(adicion.nombre).toBe("lechera");
     expect(adicion.precioDeltaCents).toBe(150000);
@@ -411,7 +426,7 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
       {}
     );
     expect(v.ok).toBe(true);
-    expect(v.estado.seleccion[0]!.grupoNombre).toBe("ESMALTE");
+    expect(v.estado.items[0]!.seleccion[0]!.grupoNombre).toBe("ESMALTE");
     expect(v.estado.totalCents).toBe(1000000 + 500000);
   });
 });

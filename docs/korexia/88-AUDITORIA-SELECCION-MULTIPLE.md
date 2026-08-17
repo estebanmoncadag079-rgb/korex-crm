@@ -528,7 +528,7 @@ existe para proteger la plataforma, no para describir un negocio.
 |---|---|---|---|
 | **0** | Limpiar `sembrar.ts` | — | ✅ **hecho** (`7b78a56`) |
 | **1** | Decidir el alcance | — | ✅ **hecho**: los dos verticales |
-| **2** | **El contrato nuevo**: `items[]`, opciones y cantidad por ítem, `datos` en la raíz, tope 40, `SCHEMA_VERSION 4` | A·B·C·D | ⬜ |
+| **2** | **El contrato nuevo**: `items[]`, opciones y cantidad por ítem, `datos` en la raíz, tope 40, `SCHEMA_VERSION 4` | A·B·C·D | ✅ **hecho** ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md)) |
 | **3** | **Pluralizar la conducta común** y el flujo de la ficha | H | ⬜ |
 | **4** | **`reserva` en el ítem** y quitar la exclusión de citas | E·F | ⬜ |
 | **5** | Los bloqueantes de La Churra: nombres del catálogo y repetición | — | ⬜ |

@@ -142,9 +142,16 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     schemaVersion: "tecnico",
     createdAt: "tecnico",
     updatedAt: "tecnico",
-    "producto.id": "tecnico",
-    "producto.nombre": "negocio",
-    "producto.cantidad": "negocio",
+    /*
+     * v4 (17-ago): las claves llevan la POSICIÓN del ítem —`items.0.nombre`,
+     * `items.1.seleccion`— porque un pedido lleva varios, y se clasifican **por
+     * prefijo**, igual que `datos`: `clasificar` hereda del primer tramo.
+     *
+     * Así un pedido de cinco cosas no obliga a escribir veinticinco líneas
+     * aquí, y el ítem nº 6 no sale `<sin clasificar>` el día que alguien pida
+     * uno más. Nada de esto es personal: es qué se pidió, no quién lo pidió.
+     */
+    items: "negocio",
     /*
      * v2 (17-ago): una sola clave para todo lo elegido. Antes había una por
      * grupo —`salsas`, `recubierto`, `adiciones`—, así que **la clasificación

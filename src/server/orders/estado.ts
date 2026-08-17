@@ -19,7 +19,13 @@ import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
-import { normalizarPedido, type EstadoPropuesto, type OpcionElegida } from "./normalizar";
+import {
+  normalizarPedido,
+  type EstadoPropuesto,
+  type ItemPropuesto,
+  type OpcionElegida,
+  type OpcionPropuesta,
+} from "./normalizar";
 import type { Actor } from "@/server/registro-de-cambios";
 import { paraLog } from "@/server/registro-de-cambios";
 
@@ -33,23 +39,30 @@ import { paraLog } from "@/server/registro-de-cambios";
  * negocio que reparte a domicilio— se sustituye por `datos`, indexado por los
  * requisitos que declara cada ficha.
  *
- * Las dos se pudieron hacer sin migración porque `conversation_state` estaba
+ * **v4 (17-ago-2026)**: `producto` —un objeto— y la `seleccion` de la raíz se
+ * sustituyen por `items[]`. Con un solo producto, *"una Churrita con arequipe y
+ * un Besties con chocolate"* no cabía: la mitad del pedido no tenía dónde
+ * existir, y las opciones de los dos caían en una lista donde ya no se sabía de
+ * quién era cada una.
+ *
+ * Las tres se pudieron hacer sin migración porque `conversation_state` estaba
  * **vacía**: 0 filas y 0 organizaciones, verificado en producción ese día. Con
- * un solo pedido vivo, el mismo cambio habría significado perderlo.
+ * un solo pedido vivo, el mismo cambio habría significado perderlo — y con el
+ * primer cliente encendido, esa ventana se cierra para siempre.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
-export type EstadoDelPedido = {
-  schema_version: number;
-  producto: {
-    /** Resuelto por el backend contra `product`. `null` = aún sin elegir. */
+/** Una línea del pedido: qué, cuánto y con qué opciones. */
+export type ItemDelPedido = {
+  ofrecible: {
+    /** Resuelto por el backend contra el catálogo. `null` = aún sin elegir. */
     id: string | null;
     /** Redundante a propósito: si el producto se borra, el estado sigue legible. */
     nombre: string | null;
-    cantidad: number;
   };
+  cantidad: number;
   /**
-   * Todo lo que el cliente eligió, **en una lista y en su orden**.
+   * Lo que el cliente eligió **para este ítem**, en una lista y en su orden.
    *
    * Cada elemento sabe de qué grupo es, así que ya no hay nada que adivinar: es
    * lo que hace **inexpresables** el cobro cruzado entre grupos y el "primer
@@ -57,6 +70,14 @@ export type EstadoDelPedido = {
    * son dos salsas, que es como pide la gente.
    */
   seleccion: OpcionElegida[];
+  /** Lo de este ítem, con su cantidad ya multiplicada. Lo calcula el servidor. */
+  totalCents: number | null;
+};
+
+export type EstadoDelPedido = {
+  schema_version: number;
+  /** Todo lo que lleva el pedido, en el orden en que se pidió. Máximo `MAX_ITEMS`. */
+  items: ItemDelPedido[];
   /**
    * Lo que el negocio pidió para poder cerrar, indexado por el `id` de su
    * requisito. **Todo este bloque es dato personal**: es lo que el cliente
@@ -75,8 +96,7 @@ export type EstadoDelPedido = {
 export function estadoVacio(): EstadoDelPedido {
   return {
     schema_version: SCHEMA_VERSION,
-    producto: { id: null, nombre: null, cantidad: 1 },
-    seleccion: [],
+    items: [],
     datos: {},
     totalCents: null,
     paso: "sin pedido",
@@ -84,11 +104,51 @@ export function estadoVacio(): EstadoDelPedido {
   };
 }
 
-/** Lo que el modelo propone, antes de que el backend decida nada. */
-export type PropuestaDelModelo = EstadoPropuesto & {
+/**
+ * Lo que el modelo propone, antes de que el backend decida nada.
+ *
+ * `items` es **opcional aquí y obligatorio en `EstadoPropuesto`**, y la
+ * diferencia importa: el contrato interno exige la lista, pero lo que llega de
+ * un modelo puede no traerla. `itemsDe` es la frontera entre las dos cosas.
+ */
+export type PropuestaDelModelo = Omit<EstadoPropuesto, "items"> & {
+  items?: ItemPropuesto[];
   paso?: string | number | null;
   confirmado?: boolean;
+  /**
+   * Un pedido de un solo elemento, como se pedía hasta la v3.
+   *
+   * **No es deuda: es tolerancia deliberada.** El modelo es un modelo, y por
+   * bien que se le explique el esquema alguna vez devolverá lo que devolvía
+   * antes — o lo que le parezca más natural para un pedido de una sola cosa.
+   * Convertirlo cuesta tres líneas; rechazarlo cuesta el turno de un cliente.
+   */
+  ofrecible?: string | null;
+  producto?: string | null;
+  cantidad?: number | null;
+  opciones?: OpcionPropuesta[];
 };
+
+/**
+ * Los ítems de una propuesta, venga en el formato que venga.
+ *
+ * Sé tolerante en lo que aceptas: si el modelo manda un producto suelto en la
+ * raíz, se convierte en un ítem en vez de tirar el turno.
+ */
+function itemsDe(propuesta: PropuestaDelModelo): ItemPropuesto[] {
+  if (propuesta.items?.length) return propuesta.items;
+  const suelto = propuesta.ofrecible ?? propuesta.producto;
+  if (suelto || propuesta.opciones?.length || propuesta.cantidad != null) {
+    return [
+      {
+        ofrecible: suelto ?? null,
+        cantidad: propuesta.cantidad ?? null,
+        opciones: propuesta.opciones ?? [],
+      },
+    ];
+  }
+  return [];
+}
 
 export type Validacion = {
   /** `false` = NO se persiste. */
@@ -123,13 +183,9 @@ export function validarPropuesta(
 ): Validacion {
   const rechazos: string[] = [];
 
+  const items = itemsDe(propuesta);
   const r = normalizarPedido(
-    {
-      producto: propuesta.producto,
-      cantidad: propuesta.cantidad,
-      opciones: propuesta.opciones ?? [],
-      datos: propuesta.datos ?? {},
-    },
+    { items, datos: propuesta.datos ?? {} },
     catalogo,
     unidadesPorProducto,
     requisitos ?? []
@@ -137,7 +193,7 @@ export function validarPropuesta(
 
   /*
    * La cantidad se valida sobre lo que PROPUSO EL MODELO, no sobre lo
-   * normalizado.
+   * normalizado, y **ítem por ítem**.
    *
    * `normalizarPedido` corrige a 1 cualquier cantidad menor —es lo correcto
    * para no tumbar una conversación—, pero eso significa que un `0` o un `-3`
@@ -145,21 +201,22 @@ export function validarPropuesta(
    * negativa no es un detalle de formato: es señal de que la extracción se
    * torció, y quiero enterarme el día que empiece a pasar.
    */
-  const cruda = propuesta.cantidad;
-  if (cruda !== null && cruda !== undefined && (!Number.isInteger(cruda) || cruda < 1)) {
-    rechazos.push(`cantidad inválida: ${cruda}`);
+  for (const item of items) {
+    const cruda = item.cantidad;
+    if (cruda !== null && cruda !== undefined && (!Number.isInteger(cruda) || cruda < 1)) {
+      rechazos.push(`cantidad inválida: ${cruda}`);
+    }
   }
-  const cantidad = Number(r.estado.cantidad);
 
   const confirmado = propuesta.confirmado === true;
   const estado: EstadoDelPedido = {
     schema_version: SCHEMA_VERSION,
-    producto: {
-      id: r.estado.productoId,
-      nombre: r.estado.producto,
-      cantidad: Number.isInteger(cantidad) && cantidad >= 1 ? cantidad : 1,
-    },
-    seleccion: r.estado.seleccion,
+    items: r.estado.items.map((i) => ({
+      ofrecible: { id: i.ofrecibleId, nombre: i.ofrecible },
+      cantidad: Number.isInteger(i.cantidad) && i.cantidad >= 1 ? i.cantidad : 1,
+      seleccion: i.seleccion,
+      totalCents: i.totalCents,
+    })),
     datos: propuesta.datos ?? {},
     totalCents: r.estado.totalCents,
     // `paso` llega como número cuando el prompt del negocio numera sus mensajes.
@@ -175,7 +232,12 @@ export function validarPropuesta(
    * proponerlo —dice que sí a todo— y el backend tiene que negarse.
    */
   if (confirmado) {
-    if (!estado.producto.id) rechazos.push("confirmado sin producto resuelto");
+    if (estado.items.length === 0) rechazos.push("confirmado sin nada pedido");
+    // TODOS los ítems, no el primero: un pedido a medias no se despacha mejor
+    // por tener resuelto lo primero que dijo el cliente.
+    if (estado.items.some((i) => !i.ofrecible.id)) {
+      rechazos.push("confirmado sin producto resuelto");
+    }
     if (estado.totalCents === null) rechazos.push("confirmado sin total calculado");
     /*
      * Y lo que pida el negocio, ni más ni menos. Antes eran tres `if` con
@@ -306,14 +368,21 @@ export async function borrarEstado(
   }
 }
 
-/** Aplana el estado a `producto.cantidad`, `entrega.telefono`… */
+/** Aplana el estado a `items.0.cantidad`, `datos.telefono`… */
 function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
   if (!e) return {};
   return {
-    "producto.id": e.producto.id,
-    "producto.nombre": e.producto.nombre,
-    "producto.cantidad": e.producto.cantidad,
-    seleccion: e.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`).join(", "),
+    // Una clave por ítem y campo, con su posición: así el registro de cambios
+    // dice CUÁL cambió en vez de "el pedido es distinto".
+    ...Object.fromEntries(
+      e.items.flatMap((i, n) => [
+        [`items.${n}.id`, i.ofrecible.id],
+        [`items.${n}.nombre`, i.ofrecible.nombre],
+        [`items.${n}.cantidad`, i.cantidad],
+        [`items.${n}.seleccion`, i.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`).join(", ")],
+        [`items.${n}.totalCents`, i.totalCents],
+      ])
+    ),
     // Una clave por dato recogido: `datos.telefono`, `datos.mesa`… Todas
     // personales, porque el bloque entero lo es.
     ...Object.fromEntries(Object.entries(e.datos).map(([id, v]) => [`datos.${id}`, v])),
@@ -408,7 +477,8 @@ export function registrarMetricaDeEstado(m: MetricaDeEstado): void {
       `resultado=${m.resultado} ` +
       `paso=${paraLog("metrica", "paso", v?.estado.paso ?? "-")} ` +
       `confirmado=${v?.estado.confirmado ?? "-"} ` +
-      `producto=${paraLog("metrica", "producto", v?.estado.producto.nombre ?? "-")} ` +
+      `items=${v?.estado.items.length ?? "-"} ` +
+      `producto=${paraLog("metrica", "producto", v?.estado.items.map((i) => i.ofrecible.nombre ?? "?").join("|") || "-")} ` +
       `total_cents=${v?.estado.totalCents ?? "-"} ` +
       `correcciones=${campos.length} ` +
       `campos_corregidos=${campos.length ? campos.join("|") : "-"} ` +

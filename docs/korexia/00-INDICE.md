@@ -101,6 +101,10 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [95-BITACORA-PASO1-ENCENDIDO-CHURRA.md](95-BITACORA-PASO1-ENCENDIDO-CHURRA.md) | **Paso 1 del encendido de La Churra, aplicado en producción**: repetición en SALSA y ADICIONES, la ficha corregida (chocolate negro/blanco), RECUBIERTO/ADICIONES cargados (40 filas), el banco de escenarios con su catálogo real y el caso que falló el 17-ago, y los 8 criterios del doc 69 revisados uno por uno |
+
+| [94-BITACORA-PERMITE-REPETICION-CRM.md](94-BITACORA-PERMITE-REPETICION-CRM.md) | **El paso 3B, primera pieza**: `permite repetir` sale del script y entra al CRM. La API filtrada por organización, la pantalla que avisa del grupo imposible de completar, y por qué las 5 pruebas de integración quedaron escritas pero SIN ejecutar |
+
 | [93-PENDIENTES-17AGO.md](93-PENDIENTES-17AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR.** Sustituye a la 70: los cuatro pasos medidos que separan a La Churra del encendido, el vertical de citas, la deuda viva y lo que no hay que volver a hacer |
 
 | [92-BITACORA-17AGO.md](92-BITACORA-17AGO.md) | **El relato del 17 de agosto**: las diez fases, los errores propios —dos fichas rotas, una prueba que pasó por la razón equivocada— y lo que aprendió el proyecto. Con la ventana que se cierra: es la última vez que cambiar el estado sale gratis |

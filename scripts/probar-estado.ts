@@ -182,47 +182,74 @@ try {
   orgPedidos = creadoA.organizationId;
   efimeros.push(orgPedidos);
 
-  // Un producto sencillo y uno que obliga a repetir: los dos casos del catálogo.
-  const idSencillo = newId("product");
-  const idCaja = newId("product");
-  await db.insert(schema.product).values([
-    { id: idSencillo, organizationId: orgPedidos, name: "SENCILLO", priceCents: 1000000, position: 0 },
-    { id: idCaja, organizationId: orgPedidos, name: "CAJA GRANDE", priceCents: 4000000, position: 1 },
-  ]);
+  // El catálogo REAL de La Churra, tal como quedó en producción tras el paso 1
+  // del encendido (18-ago-2026): cuatro presentaciones, cada una con SALSA
+  // (repite), RECUBIERTO (no repite) y ADICIONES (repite) — los mismos nombres,
+  // opciones y precios que ve el cliente. Ya no son "los 26 de Lis": son los
+  // churros de verdad.
+  const SALSAS = ["chocolate negro", "arequipe", "lechera", "chocolate blanco"];
+  const RECUBIERTOS = ["Azúcar-canela", "Azúcar sola", "Sin azúcar"];
+  const ADICIONES_OPCIONES = [
+    { nombre: "Salsa de CHOCOLATE NEGRO", precioExtraCents: 200000 },
+    { nombre: "Salsa de CHOCOLATE BLANCO", precioExtraCents: 200000 },
+    { nombre: "LECHERA", precioExtraCents: 150000 },
+    { nombre: "AREQUIPE", precioExtraCents: 150000 },
+    { nombre: "Botella de agua", precioExtraCents: 200000 },
+  ];
+  /** Cuántas salsas trae cada presentación: 1 · 2 · 3 · 5 — la última, más sabores de los que hay. */
+  const PRESENTACIONES = [
+    { nombre: "CHURRITA", precioCents: 1000000, salsas: 1 },
+    { nombre: "BESTIES", precioCents: 2000000, salsas: 2 },
+    { nombre: "FAMILY BOX", precioCents: 3200000, salsas: 3 },
+    { nombre: "MEGA BOX", precioCents: 5000000, salsas: 5 },
+  ] as const;
 
-  const gSalsaUnica = newId("productOptionGroup");
-  const gSalsasCaja = newId("productOptionGroup");
-  const gAdiciones = newId("productOptionGroup");
-  await db.insert(schema.productOptionGroup).values([
-    // 1 de 2: no hay nada que repetir.
-    { id: gSalsaUnica, organizationId: orgPedidos, productId: idSencillo, name: "SALSA", minSelect: 1, maxSelect: 1, position: 0 },
-    /*
-     * 5 opciones de 4 sabores: SOLO se puede completar repitiendo. Es el caso
-     * que dejó el pedido más caro sin poder cerrarse (16-ago). Lo declara el
-     * grupo — el núcleo no sabe qué es una salsa.
-     */
-    { id: gSalsasCaja, organizationId: orgPedidos, productId: idCaja, name: "SALSAS", minSelect: 5, maxSelect: 5, permiteRepeticion: true, position: 0 },
-    // Y un segundo grupo con un nombre de opción REPETIDO en el otro: el cobro cruzado.
-    { id: gAdiciones, organizationId: orgPedidos, productId: idCaja, name: "ADICIONES", minSelect: 0, maxSelect: 3, position: 1 },
-  ]);
-  await db.insert(schema.productOption).values([
-    { id: newId("productOption"), organizationId: orgPedidos, groupId: gSalsaUnica, name: "arequipe", priceDeltaCents: 0, position: 0 },
-    { id: newId("productOption"), organizationId: orgPedidos, groupId: gSalsaUnica, name: "lechera", priceDeltaCents: 0, position: 1 },
-    ...["arequipe", "lechera", "chocolate", "frutos rojos"].map((n, i) => ({
-      id: newId("productOption"), organizationId: orgPedidos, groupId: gSalsasCaja, name: n, priceDeltaCents: 0, position: i,
-    })),
-    // El MISMO nombre que una salsa gratis, aquí a $1.500. Cobrarlo dos veces era el bug.
-    { id: newId("productOption"), organizationId: orgPedidos, groupId: gAdiciones, name: "arequipe", priceDeltaCents: 150000, position: 0 },
-    { id: newId("productOption"), organizationId: orgPedidos, groupId: gAdiciones, name: "oreo", priceDeltaCents: 200000, position: 1 },
-  ]);
+  const idDe: Record<string, string> = {};
+  await db.insert(schema.product).values(
+    PRESENTACIONES.map((p, i) => {
+      const id = newId("product");
+      idDe[p.nombre] = id;
+      return { id, organizationId: orgPedidos, name: p.nombre, priceCents: p.precioCents, position: i };
+    })
+  );
+
+  const grupos: (typeof schema.productOptionGroup.$inferInsert)[] = [];
+  const opciones: (typeof schema.productOption.$inferInsert)[] = [];
+  for (const p of PRESENTACIONES) {
+    const productId = idDe[p.nombre]!;
+    const gSalsa = newId("productOptionGroup");
+    const gRecubierto = newId("productOptionGroup");
+    const gAdiciones = newId("productOptionGroup");
+    grupos.push(
+      // Cada presentación pide un número DISTINTO de salsas — nunca el núcleo.
+      { id: gSalsa, organizationId: orgPedidos, productId, name: "SALSA", minSelect: p.salsas, maxSelect: p.salsas, permiteRepeticion: true, position: 0 },
+      // No tiene sentido pedir azúcar-canela dos veces: no admite repetir.
+      { id: gRecubierto, organizationId: orgPedidos, productId, name: "RECUBIERTO", minSelect: 1, maxSelect: 1, permiteRepeticion: false, position: 1 },
+      // Se cobran aparte y SÍ se pueden repetir (18-ago): dos chocolates de adición son dos cobros.
+      { id: gAdiciones, organizationId: orgPedidos, productId, name: "ADICIONES", minSelect: 0, maxSelect: 5, permiteRepeticion: true, position: 2 }
+    );
+    opciones.push(
+      ...SALSAS.map((n, i) => ({ id: newId("productOption"), organizationId: orgPedidos, groupId: gSalsa, name: n, priceDeltaCents: 0, position: i })),
+      ...RECUBIERTOS.map((n, i) => ({ id: newId("productOption"), organizationId: orgPedidos, groupId: gRecubierto, name: n, priceDeltaCents: 0, position: i })),
+      // AREQUIPE y las dos CHOCOLATE están TAMBIÉN como salsa incluida: el mismo
+      // nombre en dos grupos, sin decir cuál, es la ambigüedad real de La Churra
+      // (91-CATALOGO-DE-LA-CHURRA.md).
+      ...ADICIONES_OPCIONES.map((o, i) => ({ id: newId("productOption"), organizationId: orgPedidos, groupId: gAdiciones, name: o.nombre, priceDeltaCents: o.precioExtraCents, position: i }))
+    );
+  }
+  await db.insert(schema.productOptionGroup).values(grupos);
+  await db.insert(schema.productOption).values(opciones);
+
+  const idChurrita = idDe["CHURRITA"]!;
+  const idMegaBox = idDe["MEGA BOX"]!;
 
   // Su ficha declara lo que pide para cerrar. Nada de esto vive en el código.
   await ponerFicha(orgPedidos, {
     ...FICHA_BASE,
     nombre: `PRUEBA pedidos ${marca}`,
     vertical: "pedidos",
-    queVende: "postres",
-    catalogo: "SENCILLO — $10.000",
+    queVende: "churros",
+    catalogo: "CHURRITA — $10.000",
     entrega: { haceDomicilios: true, quienPagaElDomicilio: "el cliente" },
     cierre: {
       requisitos: [
@@ -250,58 +277,72 @@ try {
    */
   const catalogo = await catalogoDe(orgPedidos, "pedidos");
   const requisitos = await requisitosGuardados(orgPedidos);
-  const caja = catalogo.find((p) => p.id === idCaja);
+  const megaBox = catalogo.find((p) => p.id === idMegaBox);
 
-  console.log("\nA1. EL CATÁLOGO LLEGA COMO ESTÁ EN LA BASE");
+  console.log("\nA1. EL CATÁLOGO LLEGA COMO ESTÁ EN LA BASE — LAS CUATRO PRESENTACIONES REALES");
   comprobar("el vertical se deduce en un solo sitio", verticalDe(false) === "pedidos");
-  comprobar("los dos productos, con sus grupos", catalogo.length === 2 && caja?.grupos.length === 2);
+  comprobar("las cuatro presentaciones, cada una con sus tres grupos", catalogo.length === 4 && megaBox?.grupos.length === 3);
   comprobar(
     "la regla de repetición viaja EN EL GRUPO, no en el núcleo",
-    caja?.grupos.find((g) => g.nombre === "SALSAS")?.permiteRepeticion === true &&
-      caja?.grupos.find((g) => g.nombre === "ADICIONES")?.permiteRepeticion === false
+    megaBox?.grupos.find((g) => g.nombre === "SALSA")?.permiteRepeticion === true &&
+      megaBox?.grupos.find((g) => g.nombre === "RECUBIERTO")?.permiteRepeticion === false &&
+      megaBox?.grupos.find((g) => g.nombre === "ADICIONES")?.permiteRepeticion === true
   );
   comprobar("los requisitos salen de la ficha, no de una constante", requisitos?.length === 3,
     requisitos?.map((r) => r.id).join(", "));
 
-  console.log("\nA2. UN PEDIDO SENCILLO");
+  console.log("\nA2. UN PEDIDO SENCILLO — SALSA Y RECUBIERTO EN EL MISMO MENSAJE");
   const v1 = validarPropuesta(
-    { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: {}, paso: "eligiendo_opciones" },
+    {
+      items: [{
+        ofrecible: "churrita", cantidad: 1,
+        opciones: [{ grupo: "SALSA", opcion: "arequipe" }, { grupo: "RECUBIERTO", opcion: "Azúcar-canela" }],
+      }],
+      datos: {}, paso: "eligiendo_opciones",
+    },
     catalogo, undefined, requisitos
   );
   comprobar("la propuesta válida pasa", v1.ok, v1.rechazos.join(" · "));
-  comprobar("el backend resuelve el productId", v1.estado.items[0]?.ofrecible.id === idSencillo);
+  comprobar("el backend resuelve el productId", v1.estado.items[0]?.ofrecible.id === idChurrita);
   comprobar("el total lo calcula el servidor", v1.estado.totalCents === 1000000, "$10.000");
   await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: v1.estado, actor: "script:probar-estado", proceso: "probar:estado" });
   comprobar("se recupera lo guardado", mismoEstado(await leerEstado(convPedidos), v1.estado));
 
-  console.log("\nA3. VARIOS GRUPOS A LA VEZ, Y LA REPETICIÓN");
+  console.log("\nA3. EL MEGA BOX: CINCO SALSAS DE CUATRO SABORES, Y LA ADICIÓN QUE SÍ SE REPITE");
   const cincoSalsas = [
-    { grupo: "SALSAS", opcion: "arequipe" },
-    { grupo: "SALSAS", opcion: "arequipe" },
-    { grupo: "SALSAS", opcion: "lechera" },
-    { grupo: "SALSAS", opcion: "chocolate" },
-    { grupo: "SALSAS", opcion: "frutos rojos" },
+    { grupo: "SALSA", opcion: "arequipe" },
+    { grupo: "SALSA", opcion: "arequipe" },
+    { grupo: "SALSA", opcion: "lechera" },
+    { grupo: "SALSA", opcion: "chocolate negro" },
+    { grupo: "SALSA", opcion: "chocolate blanco" },
   ];
+  const recubiertoBase = { grupo: "RECUBIERTO", opcion: "Azúcar-canela" };
   const v2 = validarPropuesta(
-    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "arequipe" }] }], datos: {}, paso: "eligiendo_opciones" },
+    { items: [{ ofrecible: "mega box", cantidad: 1, opciones: [...cincoSalsas, recubiertoBase, { grupo: "ADICIONES", opcion: "AREQUIPE" }] }], datos: {}, paso: "eligiendo_opciones" },
     catalogo, undefined, requisitos
   );
   comprobar("cinco de cuatro sabores: se puede repetir donde el grupo lo permite", v2.ok, v2.rechazos.join(" · "));
-  comprobar("las cinco se conservan, no se deduplican", v2.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "SALSAS").length === 5);
-  comprobar("«arequipe» dos veces son dos, no una", v2.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "SALSAS" && s.nombre === "arequipe").length === 2);
+  comprobar("las cinco se conservan, no se deduplican", v2.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "SALSA").length === 5);
+  comprobar("«arequipe» dos veces son dos, no una", v2.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "SALSA" && s.nombre === "arequipe").length === 2);
   /*
-   * $40.000 + UNA adición de $1.500. Las salsas del mismo nombre son gratis. Si
-   * el cobro volviera a cruzarse entre grupos, aquí saldrían $43.000.
+   * $50.000 + UNA adición de $1.500. Las salsas van incluidas y el recubierto
+   * también. Si el cobro volviera a cruzarse entre grupos, aquí saldrían
+   * $53.000 (dos AREQUIPE, salsa y adición confundidas).
    */
-  comprobar("cada grupo cobra lo suyo: no hay cobro cruzado", v2.estado.totalCents === 4150000, `$${(v2.estado.totalCents ?? 0) / 100}`);
+  comprobar("cada grupo cobra lo suyo: no hay cobro cruzado", v2.estado.totalCents === 5150000, `$${(v2.estado.totalCents ?? 0) / 100}`);
 
   const v2b = validarPropuesta(
-    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "oreo" }, { grupo: "ADICIONES", opcion: "oreo" }] }], datos: {}, paso: "eligiendo_opciones" },
+    { items: [{ ofrecible: "mega box", cantidad: 1, opciones: [...cincoSalsas, recubiertoBase, { grupo: "ADICIONES", opcion: "Botella de agua" }, { grupo: "ADICIONES", opcion: "Botella de agua" }] }], datos: {}, paso: "eligiendo_opciones" },
     catalogo, undefined, requisitos
   );
-  comprobar("y donde el grupo NO lo permite, se pregunta en vez de adivinar",
-    !v2b.ok || v2b.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "ADICIONES").length < 2,
-    v2b.dudas?.[0]?.preguntar ?? v2b.rechazos[0] ?? "");
+  // 18-ago: las adiciones pasaron a admitir repetir (reglasPropias: "sí se
+  // pueden repetir; pregúntale si quiere sumar otra"). Dos botellas de agua son
+  // dos cobros, no una duda.
+  comprobar("y donde el grupo SÍ lo permite, dos adiciones iguales se cobran las dos",
+    v2b.ok && v2b.estado.items[0]!.seleccion.filter((s) => s.grupoNombre === "ADICIONES").length === 2,
+    v2b.rechazos.join(" · ") || v2b.dudas?.[0]?.preguntar || "");
+  comprobar("y su total suma las dos botellas", v2b.estado.totalCents === 5000000 + 200000 * 2,
+    `$${(v2b.estado.totalCents ?? 0) / 100}`);
 
   console.log("\nA4. LO QUE FALTA PARA CERRAR");
   const faltan = loQueFalta(v2.estado, catalogo, requisitos);
@@ -314,23 +355,23 @@ try {
 
   console.log("\nA5. CONFIRMAR");
   const sinDatos = validarPropuesta(
-    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: cincoSalsas }], datos: {}, confirmado: true },
+    { items: [{ ofrecible: "mega box", cantidad: 1, opciones: [...cincoSalsas, recubiertoBase] }], datos: {}, confirmado: true },
     catalogo, undefined, requisitos
   );
   comprobar("no se confirma sin los datos obligatorios", !sinDatos.ok || !sinDatos.estado.confirmado, sinDatos.rechazos[0] ?? "");
 
   const sinRequisitos = validarPropuesta(
-    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: cincoSalsas }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true },
+    { items: [{ ofrecible: "mega box", cantidad: 1, opciones: [...cincoSalsas, recubiertoBase] }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true },
     catalogo
   );
   comprobar("ni cuando el negocio NO ha declarado qué pide", !sinRequisitos.ok || !sinRequisitos.estado.confirmado, sinRequisitos.rechazos[0] ?? "");
 
   const completo = validarPropuesta(
-    { items: [{ ofrecible: "caja grande", cantidad: 1, opciones: [...cincoSalsas, { grupo: "ADICIONES", opcion: "arequipe" }] }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true, paso: "confirmado" },
+    { items: [{ ofrecible: "mega box", cantidad: 1, opciones: [...cincoSalsas, recubiertoBase, { grupo: "ADICIONES", opcion: "AREQUIPE" }] }], datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" }, confirmado: true, paso: "confirmado" },
     catalogo, undefined, requisitos
   );
   comprobar("con todo lo que pide la ficha, SÍ se confirma", completo.ok && completo.estado.confirmado, completo.rechazos.join(" · "));
-  comprobar("y el total sigue siendo el del servidor", completo.estado.totalCents === 4150000);
+  comprobar("y el total sigue siendo el del servidor", completo.estado.totalCents === 5150000);
   comprobar("no queda nada por pedir", loQueFalta(completo.estado, catalogo, requisitos).length === 0);
   await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: completo.estado, actor: "script:probar-estado", proceso: "probar:estado" });
 
@@ -338,10 +379,13 @@ try {
   const guardadoBueno = await leerEstado(convPedidos);
   const casos: [string, Parameters<typeof validarPropuesta>[0]][] = [
     ["producto inexistente", { items: [{ ofrecible: "PIZZA", cantidad: 1, opciones: [] }], datos: {} }],
-    ["opción que no existe en el grupo", { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "mostaza" }] }], datos: {} }],
-    ["cantidad 0", { items: [{ ofrecible: "sencillo", cantidad: 0, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: {} }],
-    ["una opción de OTRO producto", { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "ADICIONES", opcion: "oreo" }] }], datos: {} }],
-    ["confirmar con la mitad de los datos", { items: [{ ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: { nombre: "Ana" }, confirmado: true }],
+    ["opción que no existe en el grupo", { items: [{ ofrecible: "churrita", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "mostaza" }] }], datos: {} }],
+    ["cantidad 0", { items: [{ ofrecible: "churrita", cantidad: 0, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: {} }],
+    // El caso REAL de La Churra (91-CATALOGO-DE-LA-CHURRA.md): "arequipe" es
+    // salsa incluida Y adición de $1.500 a la vez. Sin decir el grupo, no se
+    // adivina — se pregunta, para no cobrar de más.
+    ["«arequipe» sin grupo: ambigua entre SALSA y ADICIONES", { items: [{ ofrecible: "churrita", cantidad: 1, opciones: [{ opcion: "arequipe" }] }], datos: {} }],
+    ["confirmar con la mitad de los datos", { items: [{ ofrecible: "churrita", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] }], datos: { nombre: "Ana" }, confirmado: true }],
   ];
   for (const [nombre, mala] of casos) {
     const r = validarPropuesta(mala, catalogo, undefined, requisitos);
@@ -365,8 +409,8 @@ try {
 
   console.log("\nA8. CONCURRENCIA (dos turnos a la vez sobre la misma conversación)");
   const dos: EstadoDelPedido[] = [
-    { ...estadoVacio(), items: [{ ofrecible: { id: idSencillo, nombre: "SENCILLO" }, cantidad: 1, seleccion: [], totalCents: 1000000 }], paso: "turno-A" },
-    { ...estadoVacio(), items: [{ ofrecible: { id: idSencillo, nombre: "SENCILLO" }, cantidad: 2, seleccion: [], totalCents: 2000000 }], paso: "turno-B" },
+    { ...estadoVacio(), items: [{ ofrecible: { id: idChurrita, nombre: "CHURRITA" }, cantidad: 1, seleccion: [], totalCents: 1000000 }], paso: "turno-A" },
+    { ...estadoVacio(), items: [{ ofrecible: { id: idChurrita, nombre: "CHURRITA" }, cantidad: 2, seleccion: [], totalCents: 2000000 }], paso: "turno-B" },
   ];
   await Promise.all(
     dos.map((e) => guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: e, actor: "script:probar-estado", proceso: "concurrencia" }))
@@ -382,17 +426,26 @@ try {
   comprobar("gana uno de los dos ENTERO, sin mezclarse", coherente, `quedó ${tras?.paso}`);
   await borrarEstado(convPedidos, { actor: "script:probar-estado", proceso: "limpieza" });
 
-  console.log("\nA9. DOS COSAS EN UN PEDIDO (el caso real del 17-ago)");
+  console.log("\nA9. DOS PRODUCTOS EN UN PEDIDO — EL CASO REAL DEL 17-AGO");
   /*
-   * Un cliente pidió dos productos en un mensaje y el agente perdió la mitad.
-   * Aquí se comprueba contra la base de verdad que el estado los sostiene: cada
-   * uno con sus opciones, y el total sumando los dos.
+   * El caso que de verdad falló en producción (92-BITACORA-17AGO.md): un
+   * cliente escribió «Churrita arequipe / Besties chocolate y chocolate» y el
+   * agente perdió la mitad. Aquí van los mismos dos productos, con la MISMA
+   * repetición (dos chocolate negro en la Besties, que pide 2 salsas), contra
+   * la base de verdad.
    */
   const dosCosas = validarPropuesta(
     {
       items: [
-        { ofrecible: "sencillo", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }] },
-        { ofrecible: "caja grande", cantidad: 1, opciones: cincoSalsas },
+        { ofrecible: "churrita", cantidad: 1, opciones: [{ grupo: "SALSA", opcion: "arequipe" }, recubiertoBase] },
+        {
+          ofrecible: "besties", cantidad: 1,
+          opciones: [
+            { grupo: "SALSA", opcion: "chocolate negro" },
+            { grupo: "SALSA", opcion: "chocolate negro" },
+            recubiertoBase,
+          ],
+        },
       ],
       datos: { nombre: "Ana", telefono: "3001234567", direccion: "Cra 1 #2-3" },
       confirmado: true,
@@ -405,8 +458,10 @@ try {
   comprobar("los dos caben, y el pedido se confirma", dosCosas.ok && dosCosas.estado.confirmado,
     dosCosas.rechazos.join(" · "));
   comprobar("cada uno con SUS opciones, sin mezclarse",
-    dosCosas.estado.items[0]?.seleccion.length === 1 && dosCosas.estado.items[1]?.seleccion.length === 5);
-  comprobar("el total es la SUMA de los dos", dosCosas.estado.totalCents === 1000000 + 4000000,
+    dosCosas.estado.items[0]?.seleccion.length === 2 && dosCosas.estado.items[1]?.seleccion.length === 3);
+  comprobar("la repetición de la Besties también se conserva dentro del pedido múltiple",
+    dosCosas.estado.items[1]?.seleccion.filter((s) => s.nombre === "chocolate negro").length === 2);
+  comprobar("el total es la SUMA de los dos", dosCosas.estado.totalCents === 1000000 + 2000000,
     `$${(dosCosas.estado.totalCents ?? 0) / 100}`);
   await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: dosCosas.estado, actor: "script:probar-estado", proceso: "probar:estado" });
   comprobar("y vuelve de la base con sus DOS items", (await leerEstado(convPedidos))?.items.length === 2);

@@ -19,20 +19,33 @@ prompt no se ha regenerado.
 
 ## Para encender La Churra
 
-En orden. Los tres primeros están medidos y **listos para aplicar**; el plan
-completo con los datos reales está en [91](91-CATALOGO-DE-LA-CHURRA.md).
+> ✅ **18-ago: los puntos 1, 2 y 3 ya están aplicados en producción**, más un
+> cuarto que no estaba anotado aquí (la repetición también en ADICIONES).
+> Detalle completo, con lo que no coincidió con este documento al verificarlo
+> contra la base real, en
+> [95-BITACORA-PASO1-ENCENDIDO-CHURRA.md](95-BITACORA-PASO1-ENCENDIDO-CHURRA.md).
 
-| # | Qué | ¿Escribe? |
-|---|---|---|
-| 1 | `pnpm repeticion <org> SALSA --si --aplicar` — tres grupos pasan a admitir repetir | **producción** |
-| 2 | Corregir `CHOCOLATE` → `CHOCOLATE NEGRO` en la ficha (4 sitios) y añadir `(elige 1)` al recubierto | **producción** |
-| 3 | `pnpm cargar:opciones <org> --aplicar` — carga `RECUBIERTO` y `ADICIONES` | **producción** |
-| 4 | `pnpm regenerar:flota` — ⚠️ **aquí es cuando los clientes notan el trabajo del 17-ago** | **producción** |
-| 5 | La medición de la regla 13, **una sola vez**, contra la línea base del 15-ago | lectura + modelo |
-| 6 | Banco de escenarios de pedidos — los 26 actuales son de Lis y **ninguno pide dos cosas** | local |
-| 7 | Encender la bandera en un cliente efímero y recorrer un pedido entero | efímero |
-| 8 | La revisión a ojo del dueño | — |
-| 9 | Los 8 criterios de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md) | — |
+En orden. El plan original, con los datos reales, sigue en
+[91](91-CATALOGO-DE-LA-CHURRA.md) — aunque el punto 2 se ejecutó distinto de
+como estaba escrito ahí (ver el 95: la ficha ya había cambiado de formato).
+
+| # | Qué | ¿Escribe? | Estado |
+|---|---|---|---|
+| 1 | `pnpm repeticion <org> SALSA --si --aplicar` — cuatro grupos admiten repetir | **producción** | ✅ 18-ago |
+| 2 | Corregir `CHOCOLATE` → `CHOCOLATE NEGRO` en la ficha y añadir `RECUBIERTO (elige 1)` + `ADICIONES` a `variantes` | **producción** | ✅ 18-ago (`corregir-ficha-churra.ts`) |
+| 3 | `pnpm cargar:opciones <org> --aplicar` — carga `RECUBIERTO` y `ADICIONES` | **producción** | ✅ 18-ago (40 filas) |
+| 3.5 | *(no anotado antes)* `pnpm repeticion <org> ADICIONES --si --aplicar` — reglasPropias ya decía que sí se repiten | **producción** | ✅ 18-ago |
+| 4 | `pnpm regenerar:flota` — ⚠️ **aquí es cuando los clientes notan el trabajo del 17/18-ago** | **producción** | ⬜ decisión de Esteban |
+| 5 | La medición de la regla 13, **una sola vez**, contra la línea base del 15-ago | lectura + modelo | ⬜ saltada a propósito el 18-ago: exige regenerar el prompt |
+| 6 | Banco de escenarios de pedidos con el catálogo real de La Churra, con un caso de dos productos (regla 10) | local | ✅ 18-ago (53 comprobaciones, `probar-estado.ts`) |
+| 7 | Encender la bandera en un cliente efímero y recorrer un pedido entero | efímero | ✅ 18-ago, dentro del mismo banco |
+| 8 | La revisión a ojo del dueño | — | ⬜ solo la puede cerrar Esteban |
+| 9 | Los 8 criterios de [69](69-FASE-2-ESTADO-ESTRUCTURADO.md) | — | 🟠 6 de 8 verificables ya revisados; latencia y rollback contra el cliente real quedan pendientes de los puntos 4 y 5 |
+
+> **El paso 1 ya no obliga a usar el script.** Desde el 17-ago la repetición se
+> cambia en el CRM (Catálogo → Grupos de opciones). El script sigue siendo lo más
+> corto para los **cuatro** grupos SALSA de una vez
+> ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)).
 
 > **El paso 4 no necesita despliegue.** El prompt se genera en local y se guarda
 > en la base; producción lee lo guardado. Y trae **dos cambios a la vez**: los
@@ -66,7 +79,7 @@ se puede agendar de una vez.
 | | Qué | Desde |
 |---|---|---|
 | 🟠 | **`tsconfig` excluye `scripts/`** — los programas que escriben en producción no se comprueban. Uno llevaba dos días sin compilar | 17-ago |
-| 🟠 | **El paso 3B**: el CRM no tiene casilla para la repetición ni para el catálogo. `pnpm repeticion` es el puente y hay que borrarlo cuando exista | 17-ago |
+| 🟠 | **El paso 3B, a medias**: la casilla de la repetición **ya está en el CRM** (Catálogo → Grupos de opciones, [94](94-BITACORA-PERMITE-REPETICION-CRM.md)); falta el resto del catálogo —mínimos, máximos, opciones— y los grupos de `service`. `pnpm repeticion` se conserva **solo para el cambio en lote** | 17-ago |
 | 🟠 | **No existe la entidad Pedido** — decidido dejarlo así, pero queda anotado: sin ella no hay historial ni «cuánto vendió este mes» | 17-ago |
 | 🟠 | `leerAporte()` sigue sin usarse: conectarla o borrarla | 15-ago |
 | 🟠 | `medir-extraccion.ts` sigue en el contrato viejo — se rehará con la medición de la regla 13 | 16-ago |
@@ -96,6 +109,8 @@ ssh -i ~/.ssh/churrabot_key -f -N -L 15433:172.16.1.1:5433 root@2.25.159.117
 
 pnpm probar:estado          # 45 comprobaciones, dos clientes efímeros
 pnpm repeticion <org>       # ver los grupos y su regla de repetición
+                            # (CAMBIARLA ya se hace en el CRM: Catálogo →
+                            #  Grupos de opciones. El script queda para el lote)
 pnpm cargar:opciones <org>  # simula la carga de grupos que faltan
 pnpm regenerar:flota        # ⚠️ cambia el prompt de TODOS los clientes
 ```

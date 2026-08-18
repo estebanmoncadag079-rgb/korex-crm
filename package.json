@@ -37,7 +37,8 @@
     "repeticion": "esbuild scripts/repeticion.ts --bundle --platform=node --format=esm --outfile=.tmp-repeticion.mjs --alias:@=./src --packages=external && node .tmp-repeticion.mjs",
     "probar:estado": "esbuild scripts/probar-estado.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-estado.mjs --alias:@=./src --packages=external && node .tmp-probar-estado.mjs",
     "cargar:opciones": "esbuild scripts/cargar-opciones.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-opciones.mjs --alias:@=./src --packages=external && node .tmp-cargar-opciones.mjs",
-    "migrar:requisitos": "esbuild scripts/migrar-requisitos.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-requisitos.mjs --alias:@=./src --packages=external && node .tmp-migrar-requisitos.mjs"
+    "migrar:requisitos": "esbuild scripts/migrar-requisitos.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-requisitos.mjs --alias:@=./src --packages=external && node .tmp-migrar-requisitos.mjs",
+    "corregir:ficha-churra": "esbuild scripts/corregir-ficha-churra.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-ficha-churra.mjs --alias:@=./src --packages=external && node .tmp-corregir-ficha-churra.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

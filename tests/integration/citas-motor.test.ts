@@ -221,19 +221,31 @@ d("motor de citas (Postgres real)", () => {
     expect(largo["11:30"] ?? []).not.toContain(F.hilary);
   });
 
-  it("no ofrece un servicio que no termina antes de cerrar", async () => {
+  /**
+   * 18-ago-2026: caso real reportado por el dueño — "Press on" (120 min)
+   * rechazado a las 18:30 con el negocio cerrando a esa misma hora y la
+   * especialista libre toda la tarde. El cierre es el límite para EMPEZAR
+   * una cita, no para terminarla: un servicio largo agendado justo al
+   * cierre sigue después, y eso es lo que quiere el negocio.
+   */
+  it("un servicio puede empezar justo a la hora de cierre, y corre después si hace falta", async () => {
     await limpiarAgenda();
     const disp = await mod.disponibilidadReal({
       organizationId: ORG,
-      service: servicios[F.ruso]!,
+      service: servicios[F.ruso]!, // 150 min
       fecha: FECHA,
       hours: HOURS,
     });
-    // Cierra a las 20:00 y son 150 min: el último slot posible es 17:30.
-    expect(disp["17:30"] ?? []).toContain(F.hilary);
-    expect(disp["18:00"]).toBeUndefined();
-    const tarde = await agendar(F.ruso, "18:00", F.hilary);
-    expect(tarde.ok).toBe(false);
+    // Cierra a las 20:00: sigue ofreciéndose como último slot, no antes.
+    expect(disp["20:00"] ?? []).toContain(F.hilary);
+    expect(disp["20:30"]).toBeUndefined(); // después del cierre, ya no se ofrece
+    const tarde = await agendar(F.ruso, "20:00", F.hilary);
+    expect(tarde.ok).toBe(true);
+    if (tarde.ok) {
+      const minutos =
+        (tarde.appointment.endsAt.getTime() - tarde.appointment.startsAt.getTime()) / 60000;
+      expect(minutos).toBe(150); // corre hasta las 22:30, pasado el cierre
+    }
   });
 
   it("rechaza un día que el salón no atiende (domingo)", async () => {

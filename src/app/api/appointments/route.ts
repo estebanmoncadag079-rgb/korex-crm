@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
-import { horaAMin, normalizarFecha, ultimaHoraPosible } from "@/server/appointments/logic";
+import { normalizarFecha } from "@/server/appointments/logic";
 import {
   appointmentsEnabledFor,
   citasDelDia,
@@ -116,29 +116,12 @@ export const POST = withAuth(async (session, req: Request) => {
   });
 
   if (!resultado.ok) {
-    /*
-     * "sin_cupo" mezcla dos causas reales y distintas: que de verdad esté
-     * todo ocupado, o que el servicio no quepa antes del cierre — 120 min
-     * pedidos a la hora en que el negocio cierra no es un choque con nadie,
-     * es aritmética. El mensaje genérico ("ya está ocupado") hizo pensar que
-     * había un error el 18-ago-2026, con la especialista libre toda la
-     * tarde. Si la hora pedida es posterior a la última posible, se dice.
-     */
-    const ultima =
-      resultado.reason === "sin_cupo" ? ultimaHoraPosible(servicio.durationMin, hours) : null;
-    // Comparación en minutos, no de texto: "6:30" (sin cero) vs "18:30" se
-    // leería mal como cadena aunque las 6:30 AM sean antes, no después.
-    const noCabe =
-      ultima !== null &&
-      (horaAMin(body.data.hora) ?? -1) > (horaAMin(ultima) ?? Number.MAX_SAFE_INTEGER);
     return apiError(
       409,
       resultado.reason,
       resultado.reason === "fuera_de_horario"
         ? "Ese día u hora está fuera del horario del negocio"
-        : noCabe
-          ? `"${servicio.name}" dura ${servicio.durationMin} min y no alcanza a terminar antes de que cierre el negocio (${hours.close}). La última hora posible ese día es ${ultima}.`
-          : "Ese horario ya está ocupado para todas las que atienden ese servicio"
+        : "Ese horario ya está ocupado para todas las que atienden ese servicio"
     );
   }
 

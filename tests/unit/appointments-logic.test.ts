@@ -20,7 +20,6 @@ import {
   minAHora,
   normalizarFecha,
   rangoDelDiaUtc,
-  ultimaHoraPosible,
   utcAFechaHoraBogota,
   type ServiceRow,
 } from "@/server/appointments/logic";
@@ -226,7 +225,7 @@ describe("calcularDisponibilidad", () => {
     expect(disp).toEqual({});
   });
 
-  it("sin citas, ofrece la grilla completa de 30 min que le cabe al servicio", () => {
+  it("sin citas, ofrece la grilla completa hasta la hora de cierre", () => {
     const disp = calcularDisponibilidad({
       recursoIds: ["laura"],
       citas: [],
@@ -235,9 +234,16 @@ describe("calcularDisponibilidad", () => {
       esHoy: false,
     });
     expect(disp["09:00"]).toEqual(["laura"]);
-    // El último slot donde el servicio (60 min) termina antes o justo al cierre (17:00).
-    expect(disp["16:00"]).toEqual(["laura"]);
-    expect(disp["16:30"]).toBeUndefined();
+    /*
+     * El cierre (17:00) es el límite para EMPEZAR, no para terminar: un
+     * servicio de 60 min agendado a las 16:30 (o incluso a las 17:00, la
+     * hora exacta de cierre) sigue después — corregido el 18-ago-2026 tras
+     * un caso real: "Press on" de 120 min rechazado a la hora de cierre con
+     * la especialista libre toda la tarde.
+     */
+    expect(disp["16:30"]).toEqual(["laura"]);
+    expect(disp["17:00"]).toEqual(["laura"]);
+    expect(disp["17:30"]).toBeUndefined(); // después del cierre, ya no se ofrece
   });
 
   it("una cita existente bloquea los slots que se solapan", () => {
@@ -303,57 +309,36 @@ describe("calcularDisponibilidad", () => {
   });
 
   /**
-   * 18-ago-2026: `disponibilidadRealMultiple` (queries.ts) le pasa a esta
-   * misma función la SUMA de `durationMin` de todos los servicios de la
-   * visita ("manos y pies" → 45+45). La función no sabe ni le importa de
-   * dónde salió ese número — esta prueba confirma que sumarlo cambia la
-   * grilla exactamente como cambiaría con cualquier servicio largo.
+   * 18-ago-2026: corregida la regla del cierre (ver el docblock de
+   * `calcularDisponibilidad`) — la duración YA NO reduce el último hueco
+   * del día, porque el cierre solo limita cuándo EMPIEZA una cita, no
+   * cuándo termina. `disponibilidadRealMultiple` (queries.ts) le pasa a
+   * esta función la SUMA de `durationMin` de los servicios de la visita
+   * ("manos y pies" → 45+45); lo que sigue importando es el SOLAPE con
+   * citas YA agendadas, no la hora de cierre.
    */
-  it("una duración combinada de varios servicios reduce el último hueco del día", () => {
+  it("una duración combinada sigue chocando más con las citas existentes, pero ya no con el cierre", () => {
+    const citaExistente = [{ recursoId: "laura", startMin: 900, endMin: 930 }]; // 15:00–15:30
     const unServicio = calcularDisponibilidad({
       recursoIds: ["laura"],
-      citas: [],
+      citas: citaExistente,
       duracionMin: 45,
       hours: HOURS,
       esHoy: false,
     });
     const dosServicios = calcularDisponibilidad({
       recursoIds: ["laura"],
-      citas: [],
+      citas: citaExistente,
       duracionMin: 45 + 45, // "manos y pies": dos servicios de 45 min
       hours: HOURS,
       esHoy: false,
     });
-    expect(unServicio["16:00"]).toEqual(["laura"]); // 45 min: cabe hasta las 16:00
-    expect(dosServicios["16:00"]).toBeUndefined(); // 90 min: ya no cabe
-    expect(dosServicios["15:30"]).toEqual(["laura"]); // pero sí hasta las 15:30
-  });
-});
-
-/**
- * 18-ago-2026: un servicio de 120 min pedido a las 18:30, con el negocio
- * cerrando a esa misma hora, devolvía "ese horario ya está ocupado" —
- * indistinguible de un choque real, con la especialista libre toda la
- * tarde. Esta función es la que permite decir la causa real.
- */
-describe("ultimaHoraPosible", () => {
-  const HOURS = { open: "09:30", close: "18:30", days: "1,2,3,4,5,6" };
-
-  it("resta la duración del cierre", () => {
-    expect(ultimaHoraPosible(120, HOURS)).toBe("16:30");
-    expect(ultimaHoraPosible(30, HOURS)).toBe("18:00");
-  });
-
-  it("un servicio que dura exactamente hasta el cierre puede empezar al abrir", () => {
-    const cortoYLargo = { open: "09:00", close: "10:00", days: "1,2,3,4,5,6" };
-    expect(ultimaHoraPosible(60, cortoYLargo)).toBe("09:00");
-  });
-
-  it("un servicio más largo que la jornada entera no tiene hora posible", () => {
-    expect(ultimaHoraPosible(600, HOURS)).toBeNull();
-  });
-
-  it("con horario ilegible, no se puede calcular", () => {
-    expect(ultimaHoraPosible(60, { open: "9 AM", close: "tardecito", days: "1" })).toBeNull();
+    expect(unServicio["14:00"]).toEqual(["laura"]); // 45 min: termina 14:45, libre
+    expect(dosServicios["14:00"]).toBeUndefined(); // 90 min: se solaparía con la cita de las 15:00
+    // Las dos, sin embargo, siguen pudiendo empezar justo al cierre (17:00):
+    // caso real (18-ago-2026), "Press on" de 120 min rechazado a la hora
+    // de cierre con la especialista libre toda la tarde.
+    expect(unServicio["17:00"]).toEqual(["laura"]);
+    expect(dosServicios["17:00"]).toEqual(["laura"]);
   });
 });

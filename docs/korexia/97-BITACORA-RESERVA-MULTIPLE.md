@@ -6,8 +6,8 @@
 > Riesgos y lo que queda pendiente · Cómo revertir · §12 Ajustes tras la
 > auditoría (18-ago, mismo día) · §13 El calendario solo mostraba el
 > servicio principal (18-ago, primer cliente real) · §14 La cascada de
-> agenda solo comprobaba el servicio principal · §15 "Ese horario ya está
-> ocupado" cuando en realidad no cabía antes del cierre
+> agenda solo comprobaba el servicio principal · §15 el cierre bloqueaba
+> citas que sí debían caber (diagnóstico corregido en el mismo día)
 
 **18-ago-2026.** Cierre del paso 4 auditado el 17-ago en
 [88-AUDITORIA-SELECCION-MULTIPLE.md](88-AUDITORIA-SELECCION-MULTIPLE.md):
@@ -505,7 +505,7 @@ y `avisarACadaClienta`. El cambio de forma de `serviciosDeCitas` (de
 
 ---
 
-## 15 · "Ese horario ya está ocupado" cuando en realidad no cabía antes del cierre
+## 15 · "Ese horario ya está ocupado" — el cierre bloqueaba citas que sí debían caber
 
 **Reportado por el dueño el mismo día**, con capturas: desde el panel
 ("Nueva cita, por teléfono o en el local") intentó agendar "Press on"
@@ -513,52 +513,70 @@ y `avisarACadaClienta`. El cambio de forma de `serviciosDeCitas` (de
 para todas las que atienden ese servicio"* — con Laura visiblemente libre
 toda la tarde en el calendario de al lado.
 
-**Verificado contra la base antes de tocar nada**: el horario real de
-Lashes Valen es `09:30–18:30`. Un servicio de 120 min empezando a las
-18:30 terminaría a las 20:30, dos horas después de cerrar — **no había
-ningún error de disponibilidad**: la cita de verdad no cabe ese día a esa
-hora, sin importar quién esté libre. `crearCita`/`calcularDisponibilidad`
-lo rechazaron correctamente.
+### El primer diagnóstico fue INCORRECTO — queda anotado, no borrado
 
-**El problema real era el mensaje.** `crearCita` solo distingue dos
-motivos (`sin_cupo` | `fuera_de_horario`), y `fuera_de_horario` es
-exclusivamente sobre la FECHA (pasada, o un día que el negocio no
-atiende) — nunca sobre si un servicio largo cabe en lo que queda de
-jornada. Esa comprobación vive implícita dentro de
-`calcularDisponibilidad` (el slot ni se genera), así que del lado de
-afuera es indistinguible de "está todo ocupado". El mensaje genérico hizo
-parecer un bug lo que era aritmética correcta.
+La primera pasada de este arreglo (ver el historial de este archivo)
+asumió que `close` (18:30) era la hora límite para que un servicio
+**terminara**, y que rechazar un servicio de 120 min empezando justo al
+cierre era aritmética correcta — el "arreglo" de entonces solo mejoraba
+el MENSAJE de error (`ultimaHoraPosible`), sin tocar la regla.
 
-### Arreglo
+**El dueño corrigió la premisa**: en Lashes Valen (y, por extensión, en
+cualquier negocio de este vertical) `close` es la hora límite para
+**empezar** una cita, no para terminarla — cualquier servicio, sin
+importar su duración, se puede agendar hasta la hora de cierre, y corre
+después si hace falta. Es como de verdad trabaja un salón: la última
+clienta del día no se corta a la mitad porque el reloj marcó la hora.
 
-- `ultimaHoraPosible(duracionMin, hours)` nueva en `appointments/logic.ts`
-  (función pura, sin BD): la última hora a la que puede EMPEZAR un
-  servicio de esa duración para terminar antes del cierre — `null` si ni
-  empezando a la apertura alcanza a caber ese día.
-- `POST /api/appointments` (el panel manual, el único que expone esto:
-  el agente por WhatsApp solo ofrece horas que ya salieron de
-  `disponibilidadReal`, así que nunca pide una imposible): cuando
-  `crearCita` devuelve `sin_cupo`, comprueba si la hora pedida es
-  posterior a `ultimaHoraPosible` y, si es así, cambia el mensaje a algo
-  concreto — *""Press on" dura 120 min y no alcanza a terminar antes de
-  que cierre el negocio (18:30). La última hora posible ese día es
-  16:30."* Si no es ese el caso, se queda el mensaje genérico de siempre
-  (sí es un choque real).
+`ultimaHoraPosible` y su mensaje en `route.ts` (de la primera pasada) se
+**revirtieron por completo** — no tenían sentido una vez corregida la
+regla real, y dejarlos habría sido documentación de un diagnóstico
+equivocado disfrazada de arreglo.
+
+### El arreglo real: `calcularDisponibilidad` (appointments/logic.ts)
+
+Tres sitios exigían que el servicio TERMINARA antes del cierre; los tres
+pasan a exigir solo que EMPIECE antes o al cierre:
+
+```ts
+// antes: for (let t = open; t + input.duracionMin <= close; t += 30) ...
+for (let t = open; t <= close; t += 30) candidatos.add(t);
+
+// antes: if (c.endMin >= open && c.endMin + input.duracionMin <= close) ...
+if (c.endMin >= open && c.endMin <= close) candidatos.add(c.endMin);
+
+// antes: if (slotMin < open || slotMin + input.duracionMin > close) continue;
+if (slotMin < open || slotMin > close) continue;
+```
+
+Un solo cambio en la función pura arregla los tres consumidores
+(`disponibilidadReal`, `disponibilidadRealMultiple`,
+`proximasFechasConCupo(Multiple)`) sin tocarlos: exactamente por lo que
+esta lógica vive aislada en `appointments/logic.ts`, sin base de datos.
+
+**Lo que NO cambia**: el solape contra citas YA agendadas. Una visita
+larga sigue chocando con más horas de otras citas que una corta — eso es
+real e independiente de la hora de cierre.
 
 ### Pruebas
 
-`tests/unit/appointments-logic.test.ts`, 4 casos nuevos para
-`ultimaHoraPosible`: resta simple, un servicio que cabe justo empezando a
-la apertura, uno que ni así cabe (`null`), y horario ilegible (`null`).
-Sin prueba para la ruta (no existe cobertura previa de
-`/api/appointments/route.ts`, deuda preexistente, no ampliada aquí).
+- `tests/unit/appointments-logic.test.ts`: las dos pruebas que asumían la
+  regla vieja se reescribieron para la nueva ("ofrece la grilla completa
+  hasta la hora de cierre", "una duración combinada sigue chocando más
+  con las citas existentes, pero ya no con el cierre" — con una cita
+  existente de por medio para seguir probando que el solape sí importa).
+  Las 4 pruebas de `ultimaHoraPosible` se quitaron con la función.
+- `tests/integration/citas-motor.test.ts`: "no ofrece un servicio que no
+  termina antes de cerrar" se reescribió a "un servicio puede empezar
+  justo a la hora de cierre, y corre después si hace falta" —
+  agenda un Volumen Ruso (150 min) a las 20:00 (la hora de cierre) y
+  comprueba que se acepta y corre hasta las 22:30.
 
 **Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
-**808 passed, 73 skipped (881)**.
+**804 passed, 73 skipped (877)**.
 
 ### Cómo revertir
 
-Independiente del resto: quitar `ultimaHoraPosible` de `logic.ts` y el
-bloque `noCabe`/`ultima` de `route.ts`, dejando el mensaje genérico de
-antes. No toca el cálculo de disponibilidad real en ningún punto — es
-puramente el texto que ve un humano.
+Los tres `<=` de `calcularDisponibilidad` vuelven a `+ input.duracionMin
+<=`/`> close`. No toca el esquema ni ninguna cita ya agendada — es
+lógica pura de cálculo, sin estado.

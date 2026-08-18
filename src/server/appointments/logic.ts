@@ -336,35 +336,18 @@ export function rangoDelDiaUtc(fecha: string): [Date, Date] | null {
  * solo de nombre, para que sirva igual de "sala" o "equipo" el día que un
  * negocio lo declare (docs/korexia/83-RECURSOS-Y-RESERVAS.md).
  *
- * Un slot es válido si: cae dentro del horario del negocio, el servicio
- * termina antes del cierre, no se solapa con ninguna cita existente de ese
- * recurso, y (si es hoy) no quedó en el pasado. Candidatos: la grilla fija de
- * 30 minutos MÁS el instante justo en que termina cada cita existente — así
+ * Un slot es válido si: EMPIEZA dentro del horario del negocio (`close` es
+ * la última hora a la que se puede EMPEZAR, no una hora a la que todo tiene
+ * que estar terminado — un servicio largo agendado a la hora de cerrar
+ * sigue después, y eso es lo que quiere el negocio: verificado con el
+ * dueño el 18-ago-2026 tras un caso real, "Press on" de 120 min rechazado
+ * a las 18:30 con el negocio cerrando a esa hora y la especialista libre
+ * toda la tarde), no se solapa con ninguna cita existente de ese recurso, y
+ * (si es hoy) no quedó en el pasado. Candidatos: la grilla fija de 30
+ * minutos MÁS el instante justo en que termina cada cita existente — así
  * la agenda queda libre al minuto exacto en que se desocupa alguien, sin
  * esperar al siguiente redondeo de media hora.
  */
-/**
- * La última hora a la que se puede EMPEZAR un servicio de esta duración para
- * terminar antes del cierre — o `null` si el horario no se entiende.
- *
- * Existe para distinguir dos causas que `calcularDisponibilidad` funde en
- * una sola ("no hay hueco a esa hora"): que de verdad esté todo ocupado, o
- * que el servicio simplemente no quepa antes de cerrar. Caso real
- * (18-ago-2026): un servicio de 120 min pedido a las 18:30 con el negocio
- * cerrando a esa misma hora — Laura estaba libre toda la tarde, y el
- * mensaje "ese horario ya está ocupado" hizo pensar que había un error,
- * cuando la cita simplemente no cabía.
- */
-export function ultimaHoraPosible(duracionMin: number, hours: BusinessHours): string | null {
-  const open = horaAMin(hours.open ?? "");
-  const close = horaAMin(hours.close ?? "");
-  if (open === null || close === null) return null;
-  const ultima = close - duracionMin;
-  // Antes de que abra tampoco es una hora posible: un servicio que ni
-  // empezando a la apertura alcanza a terminar no cabe ningún día.
-  return ultima >= open ? minAHora(ultima) : null;
-}
-
 export function calcularDisponibilidad(input: {
   recursoIds: string[];
   citas: CitaDelDia[];
@@ -394,14 +377,14 @@ export function calcularDisponibilidad(input: {
   for (const recursoId of input.recursoIds) {
     const citasRecurso = input.citas.filter((c) => c.recursoId === recursoId);
     const candidatos = new Set<number>();
-    for (let t = open; t + input.duracionMin <= close; t += 30) candidatos.add(t);
+    for (let t = open; t <= close; t += 30) candidatos.add(t);
     for (const c of citasRecurso) {
-      if (c.endMin >= open && c.endMin + input.duracionMin <= close) {
+      if (c.endMin >= open && c.endMin <= close) {
         candidatos.add(c.endMin);
       }
     }
     for (const slotMin of [...candidatos].sort((a, b) => a - b)) {
-      if (slotMin < open || slotMin + input.duracionMin > close) continue;
+      if (slotMin < open || slotMin > close) continue;
       if (input.esHoy && slotMin < corte) continue;
       const libre = !citasRecurso.some(
         (c) => slotMin < c.endMin && slotMin + input.duracionMin > c.startMin

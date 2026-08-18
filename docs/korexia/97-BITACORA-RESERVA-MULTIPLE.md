@@ -649,3 +649,119 @@ Independiente del resto: en `calendario-dia.tsx`, devolver `dia` a
 en `appointments-client.tsx`, quitar el estado `dia` y volver a pedir
 `GET /api/appointments?status=X` sin fecha. Ninguno de los dos toca el
 servidor ni el esquema — es una capa de presentación.
+
+---
+
+## 17 · El AGENTE (no el backend) seguía rechazando citas a la hora de cierre
+
+**Reportado por el dueño con dos capturas de WhatsApp real**, después de
+desplegar el arreglo del §15: el backend ya aceptaba una cita de Press On
+a las 18:30 (verificado con un script que llamó a `crearCita` de verdad
+contra producción — ver más abajo), pero **el agente de WhatsApp seguía
+rechazándola**, inventando una regla que nadie escribió:
+
+> clienta: *"puedi agendar a las 6:30 pm"*
+> agente: *"Lo siento, hermosa, el horario de atención para agendar es
+> hasta las 6:30 PM. Las citas deben empezar antes de esa hora."*
+> clienta: *"a las 6:29?"*
+> agente: *"Jajaja, ¡casi! Las citas deben empezar como máximo a las
+> 5:30 PM para poder cerrar a las 6:30 PM."*
+
+### Diagnóstico: el modelo se inventó la regla, no la leyó de ningún lado
+
+Se leyó la conversación real directamente de la base de datos
+(`conversation` + `message`, filtrando por organización y fecha). Dos
+datos la delatan:
+
+1. La clienta **nunca nombró un servicio**, y el agente **nunca llamó
+   `consult_availability`** (no hay línea `[SISTEMA]` en la conversación).
+   El "5:30 PM" que citó no salió de ningún cálculo real — se lo inventó
+   sobre la marcha.
+2. Un grep de `src/server/ai/prompts.ts` contra "cerrar", "cierre",
+   "empezar antes", "termine antes" no encontró NINGÚN texto que dijera
+   esa regla. El modelo no la copió de una instrucción mal escrita: la
+   trajo de su propio conocimiento general de cómo "suele" funcionar un
+   negocio (agendar servicios que terminen antes del cierre es, en
+   efecto, lo más común) — exactamente el mismo tipo de suposición
+   razonable-pero-falsa que ya causó el error real del §15, solo que esta
+   vez viviendo en la cabeza del modelo, no en el código.
+
+**Lección**: arreglar la lógica del backend (§15) no basta cuando el
+modelo trae su propia intuición sobre el negocio. Si la regla real es la
+excepción a lo que "cualquier salón" haría, hay que decírselo de forma
+explícita — dos veces, en los dos lugares donde el modelo lee o razona
+sobre la hora de cierre.
+
+### Arreglo: la regla correcta, en los dos sitios donde el cierre aparece
+
+**1. `CONTRATO_DE_ACCIONES_CITAS`** (`prompts.ts`), nueva regla dura,
+justo donde ya viven las demás reglas de citas:
+
+> "El cierre del negocio es la hora límite para EMPEZAR una cita, NO para
+> terminarla: cualquier servicio, sin importar cuánto dure, se puede
+> agendar hasta la hora exacta de cierre — corre después si hace falta,
+> y eso está bien. JAMÁS le digas al cliente que un servicio 'no cabe',
+> 'no alcanza a terminar antes de cerrar' o que 'debe empezar antes de
+> tal hora para poder cerrar' [...]. La única forma de saber si un
+> horario está libre es consult_availability — nunca hagas tú la cuenta
+> de la hora de cierre menos la duración del servicio."
+
+**2. `horarioLegible`** (`prompts.ts`), que arma la línea "HORARIO DEL
+NEGOCIO" — la primera vez que el modelo lee la hora de cierre en TODO el
+prompt, y en este caso concreto la clienta preguntó por el horario ANTES
+de llegar a mencionar un servicio. Dejar la regla solo en el contrato de
+acciones (más abajo en el prompt) no bastó: el modelo ya se había
+formado la idea equivocada al leer "de 9:30 a 18:30" a secas. Ahora
+`horarioLegible` recibe un segundo parámetro `citas: boolean` — **derivado
+de `Boolean(input.appointments)` en `buildAgentSystemPrompt`, nunca
+hardcodeado** (el horario en sí sigue viniendo tal cual de `hours.open`/
+`hours.close`, configurados en el CRM — el CRM sigue siendo la única
+fuente de verdad, esto solo cambia cómo se EXPLICA ese dato) — y cuando
+es `true` añade, pegado a la misma línea:
+
+> "Para CITAS, esa hora de cierre es hasta cuándo se RECIBEN citas (el
+> límite para EMPEZARLAS), no la hora en que el servicio debe estar
+> terminado: se puede agendar hasta el cierre exacto y el servicio corre
+> después si hace falta."
+
+Es una capacidad genérica del vertical (categoría 2): ningún número de
+Lashes Valen quedó escrito en el prompt, cualquier negocio de citas con
+cualquier horario configurado en el CRM recibe la misma aclaración,
+construida a partir de SU propio `hours.close`.
+
+**De paso**, esta misma reescritura de `horarioLegible` responde al pedido
+del dueño de que el agente explique el horario como "abrimos a las 9:30,
+recibimos citas hasta las 6:30 pm" en vez de sonar a un cierre total: la
+frase nueva enmarca el cierre como límite de recepción de citas, no como
+un apagón del negocio — sin escribir esos números en ningún lado del
+código, siguen viniendo del horario real configurado para cada cliente.
+
+### Verificación del backend, aparte del prompt (previa a este arreglo)
+
+Antes de tocar el prompt se comprobó, con un script desechable que
+importó la función `crearCita` REAL y la corrió contra producción, que el
+backend sí acepta una cita de Press On (120 min) con Laura a las 18:30 —
+se creó la cita (`apt_hfy9nj4cusb9ffesbsji`, 120 minutos confirmados) y
+se canceló de inmediato en el mismo script. Esto descartó el backend como
+causa antes de mirar el prompt, y confirma que el arreglo del §15 sí
+quedó bien desplegado — el bug reportado en este §17 es exclusivamente de
+cómo razona el modelo, no de disponibilidad real.
+
+### Pruebas
+
+Sin cobertura automática posible: es texto de prompt que cambia el
+razonamiento de un modelo de lenguaje, no lógica determinista. Este
+proyecto no tiene "pruebas de alucinación" para casos puntuales fuera del
+Laboratorio de escenarios — queda pendiente para el dueño confirmar en
+WhatsApp real tras desplegar, igual que con cualquier ajuste de prompt.
+
+**Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
+**804 passed, 73 skipped (877)** — sin cambio en el conteo: es texto,
+ninguna prueba lo ejercita.
+
+### Cómo revertir
+
+Quitar la regla nueva de `CONTRATO_DE_ACCIONES_CITAS` y devolver
+`horarioLegible`/`estadoDelNegocio` a su firma de un solo parámetro
+(`hours`) sin `citas`. No toca esquema, no toca ninguna cita agendada —
+es texto de prompt puro.

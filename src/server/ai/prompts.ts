@@ -129,13 +129,27 @@ const DIAS_CORTOS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sáb
  * veces y "de 9 am a 6 pm" otra. Tres respuestas, tres horarios falsos, todos
  * dichos con total seguridad.
  */
-export function horarioLegible(hours: {
-  open: string | null;
-  close: string | null;
-  days: string | null;
-  openSunday?: string | null;
-  closeSunday?: string | null;
-}): string {
+export function horarioLegible(
+  hours: {
+    open: string | null;
+    close: string | null;
+    days: string | null;
+    openSunday?: string | null;
+    closeSunday?: string | null;
+  },
+  /**
+   * true = esta organización tiene el vertical de citas encendido.
+   *
+   * 18-ago-2026: el cliente preguntó "hasta qué horas tienes servicio" antes
+   * de nombrar ningún servicio, y el modelo —leyendo solo "de 9:30 a
+   * 18:30"— se inventó que las citas debían EMPEZAR antes del cierre para
+   * "alcanzar a terminar". La regla real (ver CONTRATO_DE_ACCIONES_CITAS)
+   * vive más abajo en el prompt, pero el dato de la hora se lee aquí
+   * primero: sin la aclaración en el mismo lugar, el modelo ya se había
+   * formado la idea equivocada antes de llegar al contrato.
+   */
+  citas = false
+): string {
   const dias = (hours.days ?? "")
     .split(",")
     .map((d) => Number(d.trim()))
@@ -161,9 +175,12 @@ export function horarioLegible(hours: {
     partes.push("domingo CERRADO");
   }
 
-  return partes.length
-    ? `HORARIO DEL NEGOCIO (di exactamente esto si te preguntan, no lo redondees ni lo cambies): ${partes.join(" · ")}.`
-    : "";
+  if (!partes.length) return "";
+
+  const base = `HORARIO DEL NEGOCIO (di exactamente esto si te preguntan, no lo redondees ni lo cambies): ${partes.join(" · ")}.`;
+  if (!citas) return base;
+
+  return `${base} Para CITAS, esa hora de cierre es hasta cuándo se RECIBEN citas (el límite para EMPEZARLAS), no la hora en que el servicio debe estar terminado: se puede agendar hasta el cierre exacto y el servicio corre después si hace falta.`;
 }
 
 export function businessStatus(
@@ -314,7 +331,11 @@ export function abreMasTardeHoy(
 }
 
 /** La hora y, si hay horario configurado, si el negocio atiende ahora mismo. */
-function estadoDelNegocio(profile: AgentProfile, now: Date = new Date()): string {
+function estadoDelNegocio(
+  profile: AgentProfile,
+  now: Date = new Date(),
+  citas = false
+): string {
   const hours = {
     open: profile.hoursOpen,
     close: profile.hoursClose,
@@ -325,7 +346,7 @@ function estadoDelNegocio(profile: AgentProfile, now: Date = new Date()): string
   // El horario va SIEMPRE, abierto o cerrado: sin él el modelo se lo inventa.
   const hora = [
     `Ahora mismo es ${nowForBusiness(now)} en Colombia (formato 24 h).`,
-    horarioLegible(hours),
+    horarioLegible(hours, citas),
   ]
     .filter(Boolean)
     .join(" ");
@@ -465,6 +486,17 @@ export const CONTRATO_DE_ACCIONES_CITAS = [
   '- {"action":"reschedule_appointment","servicio":"...","nuevaFecha":"DD/MM/AAAA","nuevaHora":"HH:MM","farewell":"opcional"} — cambia la fecha/hora de una cita activa del cliente para ese servicio (consulta antes la nueva fecha con consult_availability).',
   '- {"action":"cancel_appointment","servicio":"...","farewell":"opcional"} — cancela una cita activa del cliente para ese servicio.',
   "Reglas duras de citas:",
+  /*
+   * 18-ago-2026: sin esta línea, el modelo rechazó una cita a las 6:30 PM
+   * (justo la hora de cierre) inventando por su cuenta que "las citas deben
+   * empezar como máximo a las 5:30 PM para poder cerrar a las 6:30" — nunca
+   * llamó consult_availability, ni siquiera sabía qué servicio quería la
+   * clienta. No es un dato de este negocio: es una suposición razonable
+   * para CUALQUIER salón, y por eso el modelo la trae sola sin que nadie
+   * se la haya escrito. Hay que decirle explícitamente que aquí es al
+   * revés.
+   */
+  "- El cierre del negocio es la hora límite para EMPEZAR una cita, NO para terminarla: cualquier servicio, sin importar cuánto dure, se puede agendar hasta la hora exacta de cierre — corre después si hace falta, y eso está bien. JAMÁS le digas al cliente que un servicio \"no cabe\", \"no alcanza a terminar antes de cerrar\" o que \"debe empezar antes de tal hora para poder cerrar\": eso no es una regla de este negocio, y si lo dices estás rechazando una cita que sí se puede agendar. La única forma de saber si un horario está libre es consult_availability — nunca hagas tú la cuenta de la hora de cierre menos la duración del servicio.",
   '- "servicios" es una LISTA: casi siempre trae un solo nombre, pero si el cliente pide varios servicios EN LA MISMA VISITA ("manos y pies", "cejas y pestañas", en cualquier orden), van TODOS ahí — nunca emitas dos acciones separadas para una sola visita. Cada nombre debe ser el EXACTO de una fila del CATÁLOGO DE SERVICIOS de abajo; si el cliente da uno parecido, usa el más cercano, y si dudas entre dos, pregúntale cuál. En reschedule_appointment/cancel_appointment "servicio" sigue siendo uno solo: identifica una cita YA agendada, no lo que se quiere agendar.',
   "- Para pasar \"mañana\", \"el lunes\" o \"el 15\" a DD/MM/AAAA, usa el CALENDARIO que se te da abajo. NO lo calcules tú: ahí está cada fecha con su día de la semana ya resuelto.",
   "- Al ofrecer horarios, MÁXIMO 3 por mensaje, nunca la lista entera: en WhatsApp un muro de 15 horas no lo lee nadie. Elige los más cercanos a lo que pidió el cliente y dile que si ninguno le sirve tienes más.",
@@ -584,7 +616,7 @@ export function buildAgentSystemPrompt(input: {
   const stageNames = input.stages.map((s) => s.name).join(" | ");
   return [
     `Eres "${profile.name}", el asistente de WhatsApp de este negocio. Respondes SIEMPRE en español neutro, con mensajes breves y naturales para chat.`,
-    estadoDelNegocio(profile, input.now),
+    estadoDelNegocio(profile, input.now, Boolean(input.appointments)),
     profile.tone ? `Tono: ${profile.tone}` : null,
     profile.instructions ? `Instrucciones del negocio:\n${profile.instructions}` : null,
     profile.escalationRules

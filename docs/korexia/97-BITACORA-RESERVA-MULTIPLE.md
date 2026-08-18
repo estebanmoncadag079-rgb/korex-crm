@@ -429,6 +429,28 @@ consulta inline), quitar `serviceNames` de `AppointmentRow`, y en los dos
 componentes de React volver a pintar `serviceName` a secas. Nada de esto
 toca el esquema ni la reserva real — es una capa de lectura.
 
+### Refinamiento (18-ago, mismo día): el nombre completo seguía sin verse
+
+El arreglo de arriba trajo los nombres completos hasta el componente, pero
+`calendario-dia.tsx` seguía cortándolos con `truncate` (una sola línea,
+puntos suspensivos) en una columna de 160px — "Semipermanente + Semip…"
+en vez de completo. Reportado por el dueño con una captura del calendario
+real.
+
+Arreglo: la columna pasa de `w-40` (160px) a `w-48` (192px), y la línea
+del nombre del servicio pierde `truncate` a favor de `break-words
+leading-snug` (envuelve a varias líneas en vez de cortar). Solo esa
+línea — la hora y el nombre de la clienta se quedan en una sola línea,
+porque esas sí caben. Seguro porque estas tarjetas ya tienen alto de
+sobra: viene de la duración real de la cita, y una visita de dos
+servicios dura más, no menos.
+
+No se pudo verificar en un navegador en esta sesión (sin herramienta de
+captura disponible): el cambio se razonó contra el modelo de caja exacto
+(alto de la tarjeta en píxeles = minutos de duración) y se dejó listo
+para que el dueño lo confirme visualmente tras desplegar, como ya viene
+haciendo con cada cambio de este documento.
+
 ---
 
 ## 14 · La cascada de agenda solo comprobaba el servicio principal

@@ -288,7 +288,7 @@ export function CalendarioDia({
               {columnas.map((p) => {
                 const suyas = delDia.filter((c) => c.staffName === p.name);
                 return (
-                  <div key={p.id} className="w-40 shrink-0 border-r last:border-r-0">
+                  <div key={p.id} className="w-48 shrink-0 border-r last:border-r-0">
                     <div
                       className="flex items-center justify-center border-b px-2"
                       style={{ height: CABECERA }}
@@ -342,7 +342,19 @@ export function CalendarioDia({
                                     {hhmm(ini)}
                                     {alto >= 40 ? `–${hhmm(fin)}` : ""}
                                   </p>
-                                  <p className="truncate text-[11px]">{nombreDeLaVisita(c)}</p>
+                                  {/*
+                                    Sin `truncate`: una visita de "manos y
+                                    pies" no cabe en una sola línea de 176px,
+                                    y verla cortada ("Semipermanente +
+                                    Semip…") es justo lo que hace pensar que
+                                    la reserva quedó incompleta. Estas tarjetas
+                                    ya tienen alto de sobra (vienen de la
+                                    duración real de la cita), así que
+                                    envolver es seguro.
+                                  */}
+                                  <p className="break-words text-[11px] leading-snug">
+                                    {nombreDeLaVisita(c)}
+                                  </p>
                                   {c.contactName && alto >= 52 && (
                                     <p className="truncate text-[11px] text-text-3">
                                       {c.contactName}

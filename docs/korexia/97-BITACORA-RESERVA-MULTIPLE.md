@@ -765,3 +765,84 @@ Quitar la regla nueva de `CONTRATO_DE_ACCIONES_CITAS` y devolver
 `horarioLegible`/`estadoDelNegocio` a su firma de un solo parámetro
 (`hours`) sin `citas`. No toca esquema, no toca ninguna cita agendada —
 es texto de prompt puro.
+
+---
+
+## 18 · El modelo, ya corregido, encontró OTRA excusa para lo mismo
+
+**Reportado por el dueño con una captura nueva**, después de desplegar el
+§17: la clienta escribió *"puedo agendar a las 6:30 pm ?"* a las **2:51
+p.m.** (hora real de Colombia, con el negocio bien adentro de su horario
+9:30–18:30) y el agente contestó:
+
+> "Ay, hermosa, me encantaría poder, pero el horario máximo para agendar
+> una cita es a las 6:30 PM, y **en este momento ya es más tarde que
+> eso**. ¿Te gustaría que busquemos un espacio para mañana u otro día?"
+
+### Se descartó primero un bug real, no otra alucinación
+
+Antes de tocar el prompt había que descartar que el servidor estuviera de
+verdad calculando mal la hora — sería un bug distinto y más grave. Se
+verificó con TRES relojes independientes en el momento del reporte:
+`date -u` dentro del contenedor de producción, `select now()` contra la
+base de datos, y `new Date()` en Node local — los tres de acuerdo en
+"martes 18-ago, ~19:5x UTC" = **2:5x pm en Colombia**, dentro del horario.
+También se confirmó que el contenedor corre con `TZ` vacía y
+`Intl.DateTimeFormat().resolvedOptions().timeZone === "UTC"`, así que no
+hay una zona horaria mal configurada arrastrando el cálculo.
+
+(De paso, al leer la conversación con un script propio se encontró un
+desfase de 5 horas en los `created_at` — pero era un artefacto del propio
+script, corriendo en una laptop con huso horario de Bogotá contra
+columnas `timestamp` SIN zona: el driver de Postgres interpreta el valor
+naive con el huso LOCAL de quien lee, no con el de quien escribió. Dentro
+del contenedor —en UTC— esa lectura es correcta. No es un bug de la app;
+queda anotado para no repetir la confusión en la próxima sesión.)
+
+Con el servidor descartado, quedó claro: es el modelo, otra vez
+inventando, ahora con una mentira distinta a la del §17.
+
+### Causa: el recordatorio final no cubría esta frase concreta
+
+`recordatorioDelEstado` (`prompts.ts`) es el último bloque del prompt —
+a propósito, para que pese más que cualquier ejemplo de las instrucciones
+de arriba— y cuando el negocio está abierto YA decía, desde antes de esta
+sesión: *"Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren
+mañana o que el pedido queda reagendado."* El modelo encontró una frase
+que no está en esa lista, que no repite técnicamente ninguna de esas
+palabras ("ya es más tarde que eso"), para decir en el fondo lo mismo:
+que el negocio ya no atiende. La regla existía; la redacción no cubría
+la frase que el modelo inventó.
+
+### Arreglo
+
+`recordatorioDelEstado` gana el mismo parámetro `citas: boolean` que ya
+tienen `horarioLegible`/`estadoDelNegocio` (§17), derivado igual de
+`Boolean(input.appointments)`. Cuando el negocio está abierto Y la
+organización tiene citas, se añade al recordatorio:
+
+> "Con el negocio ABIERTO, tienes PROHIBIDO decir que 'ya es más tarde'
+> que la hora de cierre, que 'ya pasó' el horario para agendar hoy, o
+> cualquier frase equivalente: la hora real es la de 'Ahora mismo es...'
+> de arriba, y mientras el negocio esté abierto se puede agendar
+> cualquier horario libre de HOY, incluida la hora exacta de cierre."
+
+Con esto son ya TRES sitios del prompt sosteniendo la misma regla real
+(la hora de cierre es el límite para EMPEZAR, no para terminar, y no
+existe un "ya es tarde" mientras el negocio siga abierto): el contrato de
+acciones de citas (§17), la línea del horario (§17) y ahora el
+recordatorio final (§18) — el lugar que el propio código documenta como
+el de más peso porque es lo último que el modelo lee.
+
+### Pruebas
+
+Igual que el §17: sin cobertura automática posible, es texto de prompt.
+Pendiente de que el dueño lo confirme en WhatsApp real tras desplegar.
+
+**Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
+**804 passed, 73 skipped (877)**.
+
+### Cómo revertir
+
+Quitar el parámetro `citas` de `recordatorioDelEstado` y la frase nueva
+del caso "abierto". No toca esquema, no toca ninguna cita agendada.

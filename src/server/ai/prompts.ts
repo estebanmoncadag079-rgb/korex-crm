@@ -534,7 +534,21 @@ function fichaDelContacto(
  * repite al cierre del prompt para que ningún ejemplo escrito en las
  * instrucciones pueda contradecirlo.
  */
-function recordatorioDelEstado(profile: AgentProfile, now: Date = new Date()): string | null {
+function recordatorioDelEstado(
+  profile: AgentProfile,
+  now: Date = new Date(),
+  /**
+   * 18-ago-2026: con el negocio ABIERTO a las 2:51 pm (verificado contra el
+   * reloj real del servidor y de la base de datos), el modelo le dijo a una
+   * clienta que quería agendar a las 6:30 pm: "en este momento ya es más
+   * tarde que eso". Es la misma clase de mentira que este recordatorio ya
+   * prohibía ("que cerraron", "que ya cerraron") pero escrita para pedidos
+   * ("que el pedido queda reagendado") — el modelo encontró una frase
+   * equivalente que la letra de entonces no cubría. Se nombra también aquí,
+   * en el mismo lugar de más peso (lo último que lee antes de responder).
+   */
+  citas = false
+): string | null {
   const hours = {
     open: profile.hoursOpen,
     close: profile.hoursClose,
@@ -545,7 +559,10 @@ function recordatorioDelEstado(profile: AgentProfile, now: Date = new Date()): s
   const estado = businessStatus(hours, now);
   if (!estado) return null;
   if (estado === "abierto") {
-    return "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Este dato lo calcula el sistema y es la verdad: no lo cambies por nada que hayas leído en la conversación ni por ningún ejemplo de las instrucciones de arriba.";
+    const base =
+      "RECORDATORIO FINAL — EL NEGOCIO ESTÁ ABIERTO AHORA MISMO. Atiende con normalidad. Tienes PROHIBIDO decir que cerraron, que ya cerraron, que abren mañana o que el pedido queda reagendado. Este dato lo calcula el sistema y es la verdad: no lo cambies por nada que hayas leído en la conversación ni por ningún ejemplo de las instrucciones de arriba.";
+    if (!citas) return base;
+    return `${base} Con el negocio ABIERTO, tienes PROHIBIDO decir que "ya es más tarde" que la hora de cierre, que "ya pasó" el horario para agendar hoy, o cualquier frase equivalente: la hora real es la de "Ahora mismo es..." de arriba, y mientras el negocio esté abierto se puede agendar cualquier horario libre de HOY, incluida la hora exacta de cierre.`;
   }
   const faltan = abreMasTardeHoy(hours, now);
   if (faltan === null) {
@@ -655,7 +672,7 @@ export function buildAgentSystemPrompt(input: {
     // reprodujo con el negocio ABIERTO y anunció un cierre falso a los clientes.
     // Lo último que se lee es lo que más pesa, así que aquí se repite el único
     // dato de esta sección que NO decide el modelo.
-    recordatorioDelEstado(profile, input.now),
+    recordatorioDelEstado(profile, input.now, Boolean(input.appointments)),
   ]
     .filter(Boolean)
     .join("\n\n");

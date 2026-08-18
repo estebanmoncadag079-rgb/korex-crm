@@ -108,6 +108,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [98-BITACORA-CATALOGO-EN-PDF.md](98-BITACORA-CATALOGO-EN-PDF.md) | **El agente ya puede enviar catálogos en PDF, no solo fotos**: `send_image` decide imagen o documento por el `mimeType` real, sin que el modelo sepa la diferencia. `ycloudSendDocument`/`sendDocument` nuevos, `pnpm subir:media` como puente hasta que exista una pantalla de fotos post-onboarding. El catálogo de Lashes Valen (36 MB) se comprimió a 1,5 MB antes de subirlo — la base entera pesa ~16 MB |
+
 | [97-BITACORA-RESERVA-MULTIPLE.md](97-BITACORA-RESERVA-MULTIPLE.md) | **Selección múltiple en citas, implementado**: "manos y pies" en una sola visita. `ReservaDeCita` en la raíz del estado (no por ítem), `appointment_service` nueva, `resolverEspecialistaMultiple`/`crearCitaMultiple` sobre la intersección de recursos, `book_appointment` con `servicios[]` propio —desacoplado de la Fase 2, que hoy ningún cliente tiene encendida—. La migración `0025` escrita y revisada a mano, **sin ejecutar contra ninguna base** |
 
 | [96-BITACORA-RECURSOS-Y-RESERVAS.md](96-BITACORA-RECURSOS-Y-RESERVAS.md) | **El paso 4, implementado**: `staff_member`→`resource` (tipo libre), `appointment_resource` nueva (con el EXCLUDE de solape movido y su primer trigger), 12 funciones de `queries.ts` reescritas sin tocar `pipeline.ts` ni las rutas API. La migración `0024` escrita y revisada a mano, **sin ejecutar contra ninguna base** |

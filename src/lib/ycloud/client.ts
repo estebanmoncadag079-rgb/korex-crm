@@ -137,6 +137,44 @@ export async function ycloudSendImage(input: {
 }
 
 /**
+ * Envía un documento: un catálogo en PDF, cuando "una foto" no alcanza
+ * porque son varias páginas. Mismo mecanismo que `ycloudSendImage` — una
+ * URL pública que WhatsApp descarga —, con `filename` porque WhatsApp
+ * necesita un nombre de archivo para mostrar la burbuja del documento (una
+ * imagen no lo necesita, un documento sí).
+ */
+export async function ycloudSendDocument(input: {
+  from: string;
+  to: RecipientTarget;
+  /** URL pública del documento. Meta la descarga desde ahí. */
+  link: string;
+  /** Cómo se llama el archivo en la burbuja del chat, con extensión. */
+  filename: string;
+  caption?: string;
+  apiKey?: string | null;
+}): Promise<string> {
+  const key = resolveApiKey(input.apiKey);
+  if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
+  if (!/^https:\/\//i.test(input.link)) {
+    throw new Error(`El documento debe estar en una URL https pública: ${input.link}`);
+  }
+
+  return sendDirectly(
+    {
+      from: input.from,
+      ...recipientField(input.to),
+      type: "document",
+      document: {
+        link: input.link,
+        filename: input.filename,
+        ...(input.caption ? { caption: input.caption } : {}),
+      },
+    },
+    key
+  );
+}
+
+/**
  * Esperas entre reintentos de un fallo pasajero. Cortas a propósito: el
  * cliente está esperando la respuesta del negocio en WhatsApp, y un reintento
  * tardío se parece cada vez más a un mensaje duplicado.

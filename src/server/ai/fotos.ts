@@ -20,6 +20,8 @@ export type FotoDisponible = {
   id: string;
   etiqueta: string;
   kind: "producto" | "carta" | "otro";
+  /** Decide cómo se entrega: `image/*` como foto, `application/pdf` como documento. */
+  mimeType: string;
 };
 
 /** Lo que el negocio tiene cargado, para listárselo al agente en su prompt. */
@@ -32,6 +34,7 @@ export async function fotosDeLaOrganizacion(
       id: schema.mediaAsset.id,
       etiqueta: schema.mediaAsset.etiqueta,
       kind: schema.mediaAsset.kind,
+      mimeType: schema.mediaAsset.mimeType,
     })
     .from(schema.mediaAsset)
     .where(eq(schema.mediaAsset.organizationId, organizationId));
@@ -79,11 +82,15 @@ export function elegirFoto<T extends { etiqueta: string }>(
   return contiene.length === 1 ? contiene[0]! : null;
 }
 
-/** La foto completa (con sus bytes) por id, para servirla o enviarla. */
+/**
+ * El archivo por id, para servirlo o enviarlo. Incluye `mimeType`: es lo que
+ * decide si se manda como imagen o como documento — quien pide "el catálogo"
+ * no dice de qué tipo es, y el archivo mismo ya lo sabe.
+ */
 export async function fotoPorEtiqueta(
   organizationId: string,
   etiqueta: string
-): Promise<{ id: string; etiqueta: string } | null> {
+): Promise<FotoDisponible | null> {
   const fotos = await fotosDeLaOrganizacion(organizationId);
   return elegirFoto(fotos, etiqueta);
 }

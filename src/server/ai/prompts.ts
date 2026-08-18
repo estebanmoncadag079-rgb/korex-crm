@@ -367,7 +367,7 @@ export const CONTRATO_DE_ACCIONES = [
    * vez de `"etiqueta"` y después mandó la acción SIN ninguna de las dos. Las
    * fotos concretas sí van aparte y solo si existen (ver `fotosDisponibles`).
    */
-  '- {"action":"send_image","etiqueta":"<etiqueta EXACTA de la lista de fotos>","reply":"..."} — enviar una foto que el negocio tiene cargada. El campo se llama "etiqueta" y es OBLIGATORIO: sin él la foto no se envía. Solo puedes usar esta acción si arriba hay una lista de FOTOS QUE PUEDES ENVIAR, y solo con una etiqueta de esa lista, copiada tal cual.',
+  '- {"action":"send_image","etiqueta":"<etiqueta EXACTA de la lista de fotos>","reply":"..."} — enviar una foto (o un catálogo en PDF, si la etiqueta es de ese tipo) que el negocio tiene cargado. El campo se llama "etiqueta" y es OBLIGATORIO: sin él no se envía nada. Solo puedes usar esta acción si arriba hay una lista de FOTOS QUE PUEDES ENVIAR, y solo con una etiqueta de esa lista, copiada tal cual. Nunca necesitas saber si es una foto o un PDF: el sistema lo entrega bien solo.',
   "Reglas duras:",
   "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
   "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",

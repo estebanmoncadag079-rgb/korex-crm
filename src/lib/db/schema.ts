@@ -1106,7 +1106,12 @@ export const rateLimitHit = pgTable(
 );
 
 /**
- * Fotos que el agente puede ENVIAR: la de un producto, la carta, el local.
+ * Fotos y documentos que el agente puede ENVIAR: la de un producto, la
+ * carta, el local — o, desde el 18-ago-2026, un catálogo en PDF cuando "una
+ * foto" no alcanza porque son varias páginas de diseños. `mimeType` decide
+ * cómo se entrega (imagen o documento de WhatsApp); nadie declara la
+ * diferencia al subir el archivo, la tabla no distingue las dos cosas más
+ * que por su tipo real.
  *
  * **Por qué en la base y no en disco**: el contenedor del CRM no tiene ningún
  * volumen montado, así que todo lo que escriba dentro se borra en cada
@@ -1119,8 +1124,11 @@ export const rateLimitHit = pgTable(
  * en cada envío.
  *
  * **Escala**: una foto optimizada pesa ~200 KB; un salón con 46 servicios son
- * ~9 MB, y la base entera pesa 16 MB. Con 100 clientes habría que mudarlas a un
- * almacenamiento externo, pero la interfaz (`/api/media/[id]`) no cambiaría.
+ * ~9 MB, y la base entera pesa 16 MB. Un catálogo en PDF bien comprimido (10
+ * páginas de fotos, re-renderizadas a ~130 DPI) pesa ~1,5 MB — nada que ver
+ * con los 30-40 MB que pesa el original sin comprimir de una cámara de
+ * teléfono. Con 100 clientes habría que mudarlas a un almacenamiento
+ * externo, pero la interfaz (`/api/media/[id]`) no cambiaría.
  */
 export const mediaAsset = pgTable(
   "media_asset",
@@ -1130,20 +1138,21 @@ export const mediaAsset = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     /**
-     * Para qué sirve la foto:
+     * Para qué sirve:
      * `producto` — se manda cuando preguntan por ese artículo concreto.
-     * `carta`    — el menú completo, para quien pide "el menú".
+     * `carta`    — el menú/catálogo completo, para quien pide verlo todo.
      * `otro`     — el local, el equipo, lo que el negocio quiera.
      */
     kind: text("kind", { enum: ["producto", "carta", "otro"] }).notNull(),
     /**
-     * Con qué se relaciona, en palabras del negocio ("Volumen Ruso").
-     * Es lo que el agente compara para decidir qué foto mandar, así que se
-     * guarda tal como el cliente nombra sus productos.
+     * Con qué se relaciona, en palabras del negocio ("Volumen Ruso",
+     * "catálogo de diseños"). Es lo que el agente compara para decidir qué
+     * mandar, así que se guarda tal como el cliente nombra sus cosas.
      */
     etiqueta: text("etiqueta").notNull(),
+    /** Decide cómo se entrega: `image/*` como foto, `application/pdf` como documento. */
     mimeType: text("mime_type").notNull(),
-    /** La imagen en base64, sin el prefijo `data:`. */
+    /** El archivo en base64, sin el prefijo `data:`. */
     datos: text("datos").notNull(),
     /** Bytes reales del archivo, para poder medir sin descodificar. */
     tamano: integer("tamano").notNull(),

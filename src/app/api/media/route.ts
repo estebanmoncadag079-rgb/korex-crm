@@ -17,13 +17,22 @@ export const dynamic = "force-dynamic";
  */
 
 /**
- * 4 MB ya en base64 (unos 3 MB de foto). Sobra para una foto de producto y pone
- * un techo al peso de la base, que es donde viven: sin límite, unas cuantas
- * fotos de móvil sin comprimir engordarían el respaldo de cada 6 h.
+ * 8 MB ya en base64 (unos 6 MB de archivo). Antes eran 4 MB, pensados solo
+ * para una foto de producto; un catálogo en PDF (varias páginas de diseños)
+ * no cabe comprimido a mano por el navegador como sí se comprime una foto
+ * (`FotosDeProductos`), así que necesita más margen. Sigue poniendo un
+ * techo: sin límite, un PDF sin comprimir engordaría el respaldo de cada 6 h
+ * — un catálogo de 10 páginas bien comprimido pesa ~1,5 MB.
  */
-const MAX_BASE64 = 4_000_000;
+const MAX_BASE64 = 8_000_000;
 
-const TIPOS = ["image/jpeg", "image/png", "image/webp"];
+/**
+ * Fotos (para la vista previa rápida de un producto) y documentos (un
+ * catálogo en PDF, cuando "mándame una foto" no alcanza porque son varios
+ * diseños). El mismo mecanismo de envío decide cuál es cuál por el
+ * `mimeType` guardado — quien sube el archivo no declara la diferencia.
+ */
+const TIPOS = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
 const cuerpo = z.object({
   /** Cómo la nombra el negocio: es lo que el agente compara. */
@@ -57,7 +66,7 @@ export const POST = withAuth(async (session, req: Request) => {
     return apiError(
       415,
       "tipo_no_soportado",
-      "La foto debe ser JPG, PNG o WEBP."
+      "El archivo debe ser JPG, PNG, WEBP o PDF."
     );
   }
 

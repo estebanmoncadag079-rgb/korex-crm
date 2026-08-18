@@ -7,7 +7,7 @@ import { chatJson, type ChatJsonResult, type ChatMessage } from "@/lib/ai";
 import { z } from "zod";
 import { publish } from "@/server/events/bus";
 import { isWindowOpen } from "@/server/inbox/window";
-import { SendError, sendImage, sendText } from "@/server/inbox/send";
+import { SendError, sendDocument, sendImage, sendText } from "@/server/inbox/send";
 import {
   fotoPorEtiqueta,
   fotosDeLaOrganizacion,
@@ -1081,12 +1081,16 @@ export async function runAgentTurn(
       return action;
     }
     /*
-     * Mandar la foto que pidió el cliente.
+     * Mandar la foto (o el catálogo en PDF) que pidió el cliente.
      *
      * Se degrada a texto en TRES casos, y ninguno deja al cliente sin
-     * respuesta: si la foto no existe, si no se puede construir una URL
+     * respuesta: si el archivo no existe, si no se puede construir una URL
      * pública (falta `PUBLIC_MEDIA_BASE_URL`), o si el envío falla. Una foto
      * es un extra; quedarse mudo, no.
+     *
+     * El modelo sigue pidiendo `send_image` para las dos cosas — no sabe ni
+     * necesita saber si lo que hay detrás de una etiqueta es una imagen o un
+     * PDF de varias páginas. Lo decide `foto.mimeType`, no el modelo.
      */
     case "send_image": {
       // El modelo escribe `label` tanto como `etiqueta` (ver la nota del
@@ -1098,13 +1102,17 @@ export async function runAgentTurn(
 
       if (!foto || !url) {
         console.warn(
-          `[agente] no se pudo mandar la foto "${pedida}" (${!foto ? "no existe" : "sin URL pública"}); se responde con texto`
+          `[agente] no se pudo mandar "${pedida}" (${!foto ? "no existe" : "sin URL pública"}); se responde con texto`
         );
         if (action.reply) await deliverReply(conversation, action.reply);
         return action;
       }
 
-      await deliverImage(conversation, url, action.reply);
+      if (foto.mimeType === "application/pdf") {
+        await deliverDocument(conversation, url, foto.etiqueta, action.reply);
+      } else {
+        await deliverImage(conversation, url, action.reply);
+      }
       return action;
     }
     case "handoff": {
@@ -1480,6 +1488,37 @@ async function deliverImage(
     });
   } catch (err) {
     console.warn("[agente] falló el envío de la foto; se responde con texto:", err);
+    if (pie) await deliverReply(conversation, pie);
+  }
+}
+
+/**
+ * Manda un documento (un catálogo en PDF) con su pie. Mismo criterio que
+ * `deliverImage`: si falla, cae a texto y sigue — no deriva a una persona.
+ */
+async function deliverDocument(
+  conversation: Conversation,
+  url: string,
+  etiqueta: string,
+  pie?: string
+): Promise<void> {
+  if (conversation.isTest) {
+    await persistTestOutbound(conversation, `[documento: ${url}]${pie ? `\n${pie}` : ""}`);
+    return;
+  }
+  try {
+    await sendDocument({
+      conversationId: conversation.id,
+      organizationId: conversation.organizationId,
+      link: url,
+      // WhatsApp necesita un nombre de archivo para la burbuja; la etiqueta
+      // ya es cómo el negocio lo nombra ("catálogo de diseños").
+      filename: /\.pdf$/i.test(etiqueta) ? etiqueta : `${etiqueta}.pdf`,
+      caption: pie,
+      aiGenerated: true,
+    });
+  } catch (err) {
+    console.warn("[agente] falló el envío del documento; se responde con texto:", err);
     if (pie) await deliverReply(conversation, pie);
   }
 }

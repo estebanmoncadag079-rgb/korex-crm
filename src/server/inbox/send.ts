@@ -2,7 +2,12 @@ import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { graphRequest, resolveRecipient } from "@/lib/meta/client";
-import { isYcloudEnabled, ycloudSendImage, ycloudSendText } from "@/lib/ycloud/client";
+import {
+  isYcloudEnabled,
+  ycloudSendDocument,
+  ycloudSendImage,
+  ycloudSendText,
+} from "@/lib/ycloud/client";
 import { publish } from "@/server/events/bus";
 import { registrarUsoWhatsapp } from "@/server/usage";
 import { getCredentialsByOrg, type Credentials } from "@/server/whatsapp/credentials";
@@ -236,24 +241,32 @@ export async function callGraphSend(
  * implementa porque ningún cliente lo usa hoy; si alguno vuelve, saltará este
  * error en vez de mandar algo a medias.
  */
-export async function sendImage(input: {
-  conversationId: string;
-  organizationId: string;
-  /** URL pública https. Meta la descarga desde ahí. */
-  link: string;
-  caption?: string;
-  aiGenerated?: boolean;
-}): Promise<SendResult> {
+/**
+ * Lo que `sendImage` y `sendDocument` necesitan comprobar por igual antes de
+ * mandar cualquier archivo: que la conversación exista y sea de esta
+ * organización, que no sea del Laboratorio (FR-031), que la ventana de 24 h
+ * siga abierta, que haya credenciales de WhatsApp y un destinatario, y que
+ * haya por dónde mandarlo (hoy, solo YCloud).
+ */
+async function prepararEnvioDeMedia(
+  conversationId: string,
+  organizationId: string,
+  tipoParaError: string
+): Promise<{
+  contact: typeof schema.contact.$inferSelect;
+  to: NonNullable<ReturnType<typeof resolveRecipient>>;
+  credentials: Credentials;
+  clientApiKey: string | undefined;
+}> {
   const db = getDb();
-
   const rows = await db
     .select({ conversation: schema.conversation, contact: schema.contact })
     .from(schema.conversation)
     .innerJoin(schema.contact, eq(schema.conversation.contactId, schema.contact.id))
-    .where(eq(schema.conversation.id, input.conversationId))
+    .where(eq(schema.conversation.id, conversationId))
     .limit(1);
   const row = rows[0];
-  if (!row || row.conversation.organizationId !== input.organizationId) {
+  if (!row || row.conversation.organizationId !== organizationId) {
     throw new SendError("meta_error", "Conversación no encontrada");
   }
 
@@ -272,7 +285,7 @@ export async function sendImage(input: {
     );
   }
 
-  const credentials = await getCredentialsByOrg(input.organizationId);
+  const credentials = await getCredentialsByOrg(organizationId);
   if (!credentials) {
     throw new SendError("not_connected", "No hay número de WhatsApp conectado");
   }
@@ -295,9 +308,76 @@ export async function sendImage(input: {
   if (!clientApiKey && !isYcloudEnabled()) {
     throw new SendError(
       "meta_error",
-      "El envío de fotos solo está disponible por YCloud"
+      `El envío de ${tipoParaError} solo está disponible por YCloud`
     );
   }
+
+  return { contact: row.contact, to, credentials, clientApiKey };
+}
+
+/** Registra el mensaje saliente y publica el evento — igual para foto y documento. */
+async function registrarEnvioDeMedia(input: {
+  organizationId: string;
+  conversationId: string;
+  waMessageId: string;
+  type: "image" | "document";
+  text: string;
+  mediaUrl: string;
+  aiGenerated?: boolean;
+}): Promise<SendResult> {
+  const db = getDb();
+  const inserted = await db
+    .insert(schema.message)
+    .values({
+      id: newId("message"),
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      waMessageId: input.waMessageId,
+      direction: "out",
+      type: input.type,
+      text: input.text,
+      mediaUrl: input.mediaUrl,
+      status: "pending",
+      aiGenerated: input.aiGenerated ?? false,
+    })
+    .returning();
+  const message = inserted[0]!;
+
+  await registrarUsoWhatsapp({
+    organizationId: input.organizationId,
+    tipo: input.type,
+    ref: input.waMessageId,
+  });
+
+  await db
+    .update(schema.conversation)
+    .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.conversation.id, input.conversationId));
+
+  publish(input.organizationId, {
+    type: "message.new",
+    data: {
+      conversationId: input.conversationId,
+      message: serializeMessage(message),
+    },
+  });
+
+  return { messageId: message.id };
+}
+
+export async function sendImage(input: {
+  conversationId: string;
+  organizationId: string;
+  /** URL pública https. Meta la descarga desde ahí. */
+  link: string;
+  caption?: string;
+  aiGenerated?: boolean;
+}): Promise<SendResult> {
+  const { to, credentials, clientApiKey } = await prepararEnvioDeMedia(
+    input.conversationId,
+    input.organizationId,
+    "fotos"
+  );
 
   let waMessageId: string;
   try {
@@ -315,43 +395,65 @@ export async function sendImage(input: {
     );
   }
 
-  const inserted = await db
-    .insert(schema.message)
-    .values({
-      id: newId("message"),
-      organizationId: input.organizationId,
-      conversationId: input.conversationId,
-      waMessageId,
-      direction: "out",
-      type: "image",
-      // El pie queda como texto del mensaje para que la bandeja muestre algo
-      // legible: una fila vacía con "image" no le dice nada a quien la lee.
-      text: input.caption ?? "[foto]",
-      mediaUrl: input.link,
-      status: "pending",
-      aiGenerated: input.aiGenerated ?? false,
-    })
-    .returning();
-  const message = inserted[0]!;
-
-  await registrarUsoWhatsapp({
+  return registrarEnvioDeMedia({
     organizationId: input.organizationId,
-    tipo: "image",
-    ref: waMessageId,
+    conversationId: input.conversationId,
+    waMessageId,
+    type: "image",
+    // El pie queda como texto del mensaje para que la bandeja muestre algo
+    // legible: una fila vacía con "image" no le dice nada a quien la lee.
+    text: input.caption ?? "[foto]",
+    mediaUrl: input.link,
+    aiGenerated: input.aiGenerated,
   });
+}
 
-  await db
-    .update(schema.conversation)
-    .set({ lastMessageAt: new Date(), updatedAt: new Date() })
-    .where(eq(schema.conversation.id, input.conversationId));
+/**
+ * Envía un documento: un catálogo en PDF, cuando lo que pide el cliente son
+ * varios diseños a la vez y no un producto suelto. Mismo camino que
+ * `sendImage` — la URL pública que YCloud descarga —, con `filename` porque
+ * un documento necesita nombre de archivo en la burbuja del chat.
+ */
+export async function sendDocument(input: {
+  conversationId: string;
+  organizationId: string;
+  /** URL pública https. Meta la descarga desde ahí. */
+  link: string;
+  /** Cómo se llama el archivo en la burbuja del chat, con extensión. */
+  filename: string;
+  caption?: string;
+  aiGenerated?: boolean;
+}): Promise<SendResult> {
+  const { to, credentials, clientApiKey } = await prepararEnvioDeMedia(
+    input.conversationId,
+    input.organizationId,
+    "documentos"
+  );
 
-  publish(input.organizationId, {
-    type: "message.new",
-    data: {
-      conversationId: input.conversationId,
-      message: serializeMessage(message),
-    },
+  let waMessageId: string;
+  try {
+    waMessageId = await ycloudSendDocument({
+      from: credentials.displayPhoneNumber ?? "",
+      to,
+      link: input.link,
+      filename: input.filename,
+      caption: input.caption,
+      apiKey: clientApiKey,
+    });
+  } catch (err) {
+    throw new SendError(
+      "meta_error",
+      err instanceof Error ? err.message : "Error enviando el documento por YCloud"
+    );
+  }
+
+  return registrarEnvioDeMedia({
+    organizationId: input.organizationId,
+    conversationId: input.conversationId,
+    waMessageId,
+    type: "document",
+    text: input.caption ?? `[documento: ${input.filename}]`,
+    mediaUrl: input.link,
+    aiGenerated: input.aiGenerated,
   });
-
-  return { messageId: message.id };
 }

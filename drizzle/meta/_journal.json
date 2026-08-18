@@ -176,6 +176,13 @@
       "when": 1787142276151,
       "tag": "0024_recursos_y_reservas",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787228676151,
+      "tag": "0025_reserva_multiple",
+      "breakpoints": true
     }
   ]
 }

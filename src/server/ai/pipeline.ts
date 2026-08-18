@@ -27,21 +27,23 @@ import {
   normalizarFecha,
   utcAFechaHoraBogota,
   type BusinessHours,
+  type ServiceRow,
 } from "@/server/appointments/logic";
 import {
   cancelarCita,
   catalogoParaPrompt,
   citasActivasDeContacto,
-  crearCita,
-  disponibilidadReal,
+  crearCitaMultiple,
+  disponibilidadRealMultiple,
   estaEntreLosOfrecidos,
   limpiarOfrecidos,
-  proximasFechasConCupo,
+  proximasFechasConCupoMultiple,
   registrarOfrecidos,
   reprogramarCita,
-  resolverEspecialista,
+  resolverEspecialistaMultiple,
 } from "@/server/appointments/queries";
-import { catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
+import { catalogoDe, catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
+import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
   guardarEstado,
@@ -249,19 +251,37 @@ async function resolverConsultaDisponibilidad(
   now?: Date,
   conversationId?: string
 ): Promise<string> {
-  const servicio = buscarServicio(services, action.servicio);
-  if (!servicio) {
-    const nombres = services.map((s) => s.name).join(", ") || "(sin servicios configurados)";
-    return `[SISTEMA] No encontré "${action.servicio}" en el catálogo. Servicios reales: ${nombres}. Pregúntale al cliente cuál de estos quiere.`;
+  /*
+   * Uno o varios servicios en la MISMA visita ("manos y pies tradicional"):
+   * cada nombre se resuelve por separado contra el catálogo, con el mismo
+   * `buscarServicio` de siempre — no hay un segundo matcher para esto.
+   */
+  const resueltos: ServiceRow[] = [];
+  for (const nombre of action.servicios) {
+    const servicio = buscarServicio(services, nombre);
+    if (!servicio) {
+      const nombresCatalogo =
+        services.map((s) => s.name).join(", ") || "(sin servicios configurados)";
+      return `[SISTEMA] No encontré "${nombre}" en el catálogo. Servicios reales: ${nombresCatalogo}. Pregúntale al cliente cuál de estos quiere.`;
+    }
+    resueltos.push(servicio);
   }
-  const enCatalogo = services.find((s) => s.id === servicio.id);
-  if (!enCatalogo?.staffNames.length) {
-    return `[SISTEMA] "${servicio.name}" no tiene especialista asignado todavía: no se puede agendar. Dile al cliente que ese servicio no está disponible para agendar por ahora.`;
+  const nombreVisita = resueltos.map((s) => s.name).join(" + ");
+
+  for (const servicio of resueltos) {
+    const enCatalogo = services.find((s) => s.id === servicio.id);
+    if (!enCatalogo?.staffNames.length) {
+      return `[SISTEMA] "${servicio.name}" no tiene especialista asignado todavía: no se puede agendar. Dile al cliente que ese servicio no está disponible para agendar por ahora.`;
+    }
   }
 
-  const resuelto = await resolverEspecialista(organizationId, servicio.id, action.especialista);
+  const serviceIds = resueltos.map((s) => s.id);
+  const resuelto = await resolverEspecialistaMultiple(organizationId, serviceIds, action.especialista);
   if (!resuelto.ok) {
-    return `[SISTEMA] "${action.especialista}" no atiende "${servicio.name}". Quienes SÍ lo atienden: ${resuelto.opciones.join(", ")}. Ofrécele solo esas opciones.`;
+    if (!resuelto.opciones.length) {
+      return `[SISTEMA] Nadie atiende esa combinación de servicios (${nombreVisita}) a la vez. Dile al cliente que agende esos servicios por separado, o pregúntale si quiere solo uno.`;
+    }
+    return `[SISTEMA] "${action.especialista}" no atiende "${nombreVisita}". Quienes SÍ atienden esa combinación: ${resuelto.opciones.join(", ")}. Ofrécele solo esas opciones.`;
   }
 
   if (action.fecha) {
@@ -269,9 +289,9 @@ async function resolverConsultaDisponibilidad(
     if (!esFechaValida(fecha, hours, now)) {
       return `[SISTEMA] "${fecha}" no es una fecha agendable (ya pasó o el negocio no atiende ese día). Pídele otra fecha.`;
     }
-    const disp = await disponibilidadReal({
+    const disp = await disponibilidadRealMultiple({
       organizationId,
-      service: servicio,
+      services: resueltos,
       fecha,
       staffIdPreferido: resuelto.staffId,
       hours,
@@ -279,42 +299,42 @@ async function resolverConsultaDisponibilidad(
     });
     const horas = Object.keys(disp).sort();
     if (!horas.length) {
-      return `[SISTEMA] No hay horarios libres para "${servicio.name}" el ${fecha}. Ofrece otra fecha.`;
+      return `[SISTEMA] No hay horarios libres para "${nombreVisita}" el ${fecha}. Ofrece otra fecha.`;
     }
     await anotarOfrecidos(
       organizationId,
       conversationId,
-      servicio.id,
+      serviceIds[0]!,
       horas.map((hora) => ({ fecha, hora }))
     );
     const lista = horas.map((h) => horaAAmPm(h)).join(", ");
     return (
-      `[SISTEMA] Horarios REALES disponibles para "${servicio.name}" el ${fecha}: ${lista}. ` +
+      `[SISTEMA] Horarios REALES disponibles para "${nombreVisita}" el ${fecha}: ${lista}. ` +
       `Solo estos horarios se pueden agendar. ${COMO_OFRECER}`
     );
   }
 
-  const proximas = await proximasFechasConCupo({
+  const proximas = await proximasFechasConCupoMultiple({
     organizationId,
-    service: servicio,
+    services: resueltos,
     staffIdPreferido: resuelto.staffId,
     hours,
     now,
   });
   if (!proximas.length) {
-    return `[SISTEMA] No encontré cupos próximos para "${servicio.name}". Dile al cliente que lo confirmas con el equipo.`;
+    return `[SISTEMA] No encontré cupos próximos para "${nombreVisita}". Dile al cliente que lo confirmas con el equipo.`;
   }
   await anotarOfrecidos(
     organizationId,
     conversationId,
-    servicio.id,
+    serviceIds[0]!,
     proximas.flatMap((p) => p.horarios.map((hora) => ({ fecha: p.fecha, hora })))
   );
   const texto = proximas
     .map((p) => `${p.fecha}: ${p.horarios.map(horaAAmPm).join(", ")}`)
     .join(" | ");
   return (
-    `[SISTEMA] Próximas fechas con cupo para "${servicio.name}": ${texto}. ` +
+    `[SISTEMA] Próximas fechas con cupo para "${nombreVisita}": ${texto}. ` +
     `Solo estos horarios se pueden agendar. ${COMO_OFRECER}`
   );
 }
@@ -503,10 +523,20 @@ export async function runAgentTurn(
   };
   const estado = businessStatus(hours, opts?.now);
 
+  /**
+   * Fuente única del vertical (docs/korexia/79-ARQUITECTURA-MULTIEMPRESA.md):
+   * de aquí en adelante todo el archivo pregunta por `vertical`, nunca por la
+   * columna cruda. `verticalDe`/`contrataCitas` son el único sitio que sabrá
+   * de un tercer vertical el día que exista uno — antes de esto, seis `if`
+   * de este mismo archivo seguían leyendo `profile.appointmentsEnabled`
+   * directo, y esa promesa de "un solo sitio" estaba a medias.
+   */
+  const vertical = verticalDe(profile.appointmentsEnabled);
+
   // El catálogo de servicios solo se carga (y solo se le ofrece al modelo) si
   // esta organización tiene el vertical de citas encendido: así el prompt de
   // La Churra y Lis no crece con acciones que jamás van a usar.
-  const services: CatalogEntry[] = profile.appointmentsEnabled
+  const services: CatalogEntry[] = contrataCitas(vertical)
     ? await catalogoParaPrompt(organizationId)
     : [];
 
@@ -523,7 +553,7 @@ export async function runAgentTurn(
    * blanco: una migración a medias no puede tumbar a un cliente.
    */
   let catalogoDePedidos: string | undefined;
-  if (!profile.appointmentsEnabled && profile.catalogSource === "tabla") {
+  if (!contrataCitas(vertical) && profile.catalogSource === "tabla") {
     const productos = await catalogoDePedidosQuery(organizationId);
     if (productos.length > 0) {
       catalogoDePedidos = renderCatalogoDePedidos(productos);
@@ -544,8 +574,15 @@ export async function runAgentTurn(
    *
    * El "0" reinicia ANTES de llamar al modelo, igual que el handoff: es una
    * decisión determinista del servidor, no algo que se le pida al LLM.
+   *
+   * Hasta el 17-ago-2026 esto llevaba además `!profile.appointmentsEnabled`:
+   * la Fase 2 estaba vedada a citas. `items[]`/`reserva` ya son genéricos
+   * (docs/korexia/88-AUDITORIA-SELECCION-MULTIPLE.md, paso 4) y NINGÚN
+   * cliente real tiene hoy `appointmentsEnabled` + `stateSource='backend'` a
+   * la vez, así que levantar la exclusión no cambia el comportamiento de
+   * nadie todavía — solo dice de dónde sale el catálogo cuando algún día sí.
    */
-  const estadoEstructurado = !profile.appointmentsEnabled && profile.stateSource === "backend";
+  const estadoEstructurado = profile.stateSource === "backend";
   let bloqueDeEstado: string | undefined;
   let estadoGuardado: EstadoDelPedido | null = null;
   /**
@@ -555,7 +592,7 @@ export async function runAgentTurn(
   let requisitos: Requisito[] | undefined;
 
   if (estadoEstructurado) {
-    const productos = await catalogoDePedidosQuery(organizationId);
+    const productos = await catalogoDe(organizationId, vertical);
     if (productos.length === 0) {
       // Sin catálogo en tablas no hay nada contra lo que validar: se cae al
       // comportamiento de siempre en vez de inventarse un pedido.
@@ -580,7 +617,7 @@ export async function runAgentTurn(
       const fichaDelNegocio = leerFicha(profile.ficha);
       requisitos = fichaDelNegocio ? requisitosDe(fichaDelNegocio as FichaDelNegocio) : undefined;
       if (estadoGuardado) {
-        bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? []);
+        bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? [], vertical);
       }
     }
   }
@@ -594,7 +631,7 @@ export async function runAgentTurn(
         stages,
         contact: contactRows[0],
         now: opts?.now,
-        appointments: profile.appointmentsEnabled ? { catalog: services } : undefined,
+        appointments: contrataCitas(vertical) ? { catalog: services } : undefined,
         catalogoDePedidos,
         estadoDelPedido: bloqueDeEstado,
         fotos,
@@ -617,7 +654,9 @@ export async function runAgentTurn(
   // Regla 10: el tiempo de extracción se mide sobre la llamada que trae la
   // propuesta, no sobre el turno entero. Con el estado apagado no se mide nada.
   const t0 = estadoEstructurado ? Date.now() : 0;
-  const conEstado = estadoEstructurado ? await chatJsonConEstado(messages, requisitos ?? []) : null;
+  const conEstado = estadoEstructurado
+    ? await chatJsonConEstado(messages, requisitos ?? [], vertical)
+    : null;
   const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
   const propuestaDelTurno = conEstado?.propuesta;
@@ -636,6 +675,7 @@ export async function runAgentTurn(
       propuesta: propuestaDelTurno,
       msModelo,
       requisitos,
+      vertical,
     });
   }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
@@ -759,7 +799,7 @@ export async function runAgentTurn(
    */
   const ACCIONES_QUE_AGENDAN = ["book_appointment", "reschedule_appointment"];
   if (
-    profile.appointmentsEnabled &&
+    contrataCitas(vertical) &&
     !ACCIONES_QUE_AGENDAN.includes(action.action) &&
     textosAlCliente(action).some(anunciaCitaAgendada)
   ) {
@@ -952,7 +992,7 @@ export async function runAgentTurn(
    * Solo en pedidos: en un salón el precio de un servicio es fijo y sale del
    * catálogo, no de una suma.
    */
-  if (!profile.appointmentsEnabled) {
+  if (!contrataCitas(vertical)) {
     if (
       noDioElTotal({
         mensajesDelCliente: pendientesDelCliente,
@@ -985,7 +1025,7 @@ export async function runAgentTurn(
   }
 
   const falloDeResumen =
-    action.action === "notify_order" || profile.appointmentsEnabled
+    action.action === "notify_order" || contrataCitas(vertical)
       ? null
       : resumenMalArmado(textosAlCliente(action).join(" "));
   if (falloDeResumen) {
@@ -1113,23 +1153,33 @@ export async function runAgentTurn(
       return action;
     }
     case "book_appointment": {
-      const servicio = buscarServicio(services, action.servicio);
-      if (!servicio) {
-        await deliverReply(
-          conversation,
-          "No identifiqué ese servicio, ¿me confirmas cuál del catálogo quieres agendar?"
-        );
-        return action;
+      // Uno o varios servicios en la misma visita: cada nombre se resuelve
+      // por separado contra el catálogo, con el mismo buscarServicio de
+      // siempre — todo o nada, igual que items[] en pedidos.
+      const servicios: ServiceRow[] = [];
+      for (const nombre of action.servicios) {
+        const s = buscarServicio(services, nombre);
+        if (!s) {
+          await deliverReply(
+            conversation,
+            "No identifiqué ese servicio, ¿me confirmas cuál del catálogo quieres agendar?"
+          );
+          return action;
+        }
+        servicios.push(s);
       }
-      const resuelto = await resolverEspecialista(
+      const nombreVisita = servicios.map((s) => s.name).join(" + ");
+      const resuelto = await resolverEspecialistaMultiple(
         organizationId,
-        servicio.id,
+        servicios.map((s) => s.id),
         action.especialista
       );
       if (!resuelto.ok) {
         await deliverReply(
           conversation,
-          `Para "${servicio.name}" atienden: ${resuelto.opciones.join(", ")}. ¿Con quién prefieres?`
+          resuelto.opciones.length
+            ? `Para "${nombreVisita}" atienden: ${resuelto.opciones.join(", ")}. ¿Con quién prefieres?`
+            : `Nadie atiende "${nombreVisita}" junto en la misma cita. ¿Prefieres agendarlos por separado?`
         );
         return action;
       }
@@ -1165,10 +1215,10 @@ export async function runAgentTurn(
         return action;
       }
 
-      const resultado = await crearCita({
+      const resultado = await crearCitaMultiple({
         organizationId,
         contactId: conversation.contactId,
-        service: servicio,
+        services: servicios,
         fecha,
         hora: action.hora,
         staffIdPreferido: resuelto.staffId,
@@ -1187,12 +1237,12 @@ export async function runAgentTurn(
           resultado.reason === "sin_cupo" &&
           (await citasActivasDeContacto(organizationId, conversation.contactId)).some(
             (c) =>
-              c.serviceId === servicio.id &&
+              c.serviceId === servicios[0]!.id &&
               utcAFechaHoraBogota(c.startsAt).fecha === fecha &&
               utcAFechaHoraBogota(c.startsAt).hora === action.hora
           );
         const msg = suya
-          ? `Tranquila, esa cita ya está confirmada: *${servicio.name}* el ${fecha} a las ${horaAAmPm(action.hora)}. ¡Te esperamos!`
+          ? `Tranquila, esa cita ya está confirmada: *${nombreVisita}* el ${fecha} a las ${horaAAmPm(action.hora)}. ¡Te esperamos!`
           : resultado.reason === "fuera_de_horario"
             ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
             : "Ese horario ya no está disponible. ¿Qué otra hora prefieres?";
@@ -1204,9 +1254,9 @@ export async function runAgentTurn(
       await avisarYConfirmar({
         conversation,
         organizationId,
-        confirmacion: `✅ Quedaste agendada: *${servicio.name}* el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
-        nota: `Cita agendada: ${servicio.name} · ${fecha} ${action.hora} · ${resultado.staffName}`,
-        avisoEquipo: `📅 Nueva cita: ${servicio.name} el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
+        confirmacion: `✅ Quedaste agendada: *${nombreVisita}* el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
+        nota: `Cita agendada: ${nombreVisita} · ${fecha} ${action.hora} · ${resultado.staffName}`,
+        avisoEquipo: `📅 Nueva cita: ${nombreVisita} el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
         farewell: action.farewell,
       });
       return action;
@@ -1641,6 +1691,7 @@ async function guardarEstadoPropuesto(entrada: {
   propuesta: PropuestaDelModelo | undefined;
   msModelo?: number;
   requisitos?: Requisito[];
+  vertical: Vertical;
 }): Promise<void> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
@@ -1668,7 +1719,7 @@ async function guardarEstadoPropuesto(entrada: {
   }
 
   try {
-    const productos = await catalogoDePedidosQuery(entrada.organizationId);
+    const productos = await catalogoDe(entrada.organizationId, entrada.vertical);
     const v = validarPropuesta(entrada.propuesta, productos, undefined, entrada.requisitos);
     if (!v.ok) {
       metrica("rechazado", { validacion: v });
@@ -1698,11 +1749,23 @@ async function guardarEstadoPropuesto(entrada: {
  */
 async function chatJsonConEstado(
   messages: ChatMessage[],
-  requisitos: Requisito[] = []
+  requisitos: Requisito[] = [],
+  vertical: Vertical = "pedidos"
 ): Promise<{ resultado: ChatJsonResult<AgentActionType>; propuesta?: PropuestaDelModelo }> {
   const EsquemaConEstado = z
     .object({ estado: z.record(z.string(), z.unknown()).optional() })
     .passthrough();
+
+  // Solo memoria entre turnos (Fase 2): lo que de verdad reserva es la
+  // acción book_appointment con su propio "servicios[]", no este bloque —
+  // ver docs/korexia/88-AUDITORIA-SELECCION-MULTIPLE.md, sección 6 y 8.
+  const bloqueReserva =
+    vertical === "citas"
+      ? ' Si el negocio es de citas, añade también "reserva": {"fecha": …, "hora": …, ' +
+        '"especialista": …} con lo que el cliente haya dicho de cuándo y con quién — texto libre, ' +
+        "nunca inventes un id. Es UNA sola reserva para toda la visita, aunque \"items\" lleve varios " +
+        'servicios ("manos y pies" son dos items, una sola reserva).'
+      : "";
 
   const bruto = await chatJson(EsquemaConEstado, [
     ...messages.slice(0, 1),
@@ -1712,7 +1775,9 @@ async function chatJsonConEstado(
         'Además de la acción, añade al MISMO objeto JSON una clave "estado" con el pedido tal como va: ' +
         '{"items": [{"ofrecible": …, "cantidad": …, "opciones": [{"grupo": …, "opcion": …}]}], ' +
         `"datos": {${requisitos.map((r) => `"${r.id}": …`).join(", ")}}, ` +
-        '"paso": …, "confirmado": false}. ' +
+        '"paso": …, "confirmado": false}.' +
+        bloqueReserva +
+        " " +
         /*
          * `items` es una LISTA porque un cliente pide varias cosas de una vez.
          * Se insiste en el texto y no solo en el esquema: el primer cliente real

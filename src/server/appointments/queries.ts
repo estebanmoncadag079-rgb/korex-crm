@@ -126,6 +126,54 @@ async function staffIdsForService(
 }
 
 /**
+ * Quiénes atienden TODOS los servicios de una visita a la vez — la
+ * intersección, no la unión. Es el caso real de un salón pequeño: una sola
+ * especialista hace manos, pies, cejas y pestañas seguidas, y una reserva
+ * multiservicio solo puede caer en quien las cubra todas.
+ *
+ * Una consulta, reducción en memoria: para un salón con un puñado de
+ * especialistas y servicios no vale la pena una segunda ida a la base por
+ * cada servicio pedido.
+ */
+async function staffIdsForServices(
+  organizationId: string,
+  serviceIds: string[]
+): Promise<string[]> {
+  if (!serviceIds.length) return [];
+  const db = getDb();
+  const rows = await db
+    .select({
+      staffId: schema.resourceService.resourceId,
+      serviceId: schema.resourceService.serviceId,
+    })
+    .from(schema.resourceService)
+    .innerJoin(
+      schema.resource,
+      eq(schema.resource.id, schema.resourceService.resourceId)
+    )
+    .where(
+      scoped(
+        schema.resourceService.organizationId,
+        organizationId,
+        and(
+          inArray(schema.resourceService.serviceId, serviceIds),
+          eq(schema.resource.type, "persona"),
+          isNull(schema.resource.archivedAt)
+        )
+      )
+    );
+  const porRecurso = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const set = porRecurso.get(r.staffId) ?? new Set<string>();
+    set.add(r.serviceId);
+    porRecurso.set(r.staffId, set);
+  }
+  return [...porRecurso.entries()]
+    .filter(([, servicios]) => serviceIds.every((id) => servicios.has(id)))
+    .map(([staffId]) => staffId);
+}
+
+/**
  * Filtra una lista de serviceIds a los que de verdad existen EN ESTA
  * organización. Sin esto, `staff_service` (cuyas FK no atan organization_id a
  * nivel de constraint) podría enlazar a un especialista con el servicio de
@@ -419,7 +467,90 @@ export async function resolverEspecialista(
   return { ok: true, staffId: match.id };
 }
 
+/**
+ * Igual que `resolverEspecialista`, pero para una visita de varios
+ * servicios: el candidato tiene que atenderlos TODOS (`staffIdsForServices`),
+ * no solo uno. `opciones: []` cuando NADIE cubre esa combinación completa —
+ * distinto de "el nombre que dio el cliente no calza", que si hay candidatos
+ * sigue devolviendo sus nombres para que el agente pregunte con quién.
+ */
+export async function resolverEspecialistaMultiple(
+  organizationId: string,
+  serviceIds: string[],
+  nombre?: string | null
+): Promise<{ ok: true; staffId: string | null } | { ok: false; opciones: string[] }> {
+  const candidatos = await staffIdsForServices(organizationId, serviceIds);
+  if (!candidatos.length) return { ok: false, opciones: [] };
+  if (!nombre?.trim()) return { ok: true, staffId: null };
+
+  const db = getDb();
+  const rows = await db
+    .select({ id: schema.resource.id, name: schema.resource.name })
+    .from(schema.resource)
+    .where(
+      scoped(
+        schema.resource.organizationId,
+        organizationId,
+        and(inArray(schema.resource.id, candidatos), eq(schema.resource.type, "persona"))
+      )
+    );
+  const q = nombre.trim().toLowerCase();
+  const match =
+    rows.find((r) => r.name.toLowerCase() === q) ??
+    rows.find((r) => r.name.toLowerCase().includes(q));
+  if (!match) return { ok: false, opciones: rows.map((r) => r.name) };
+  return { ok: true, staffId: match.id };
+}
+
 // ── disponibilidad ─────────────────────────────────────────────────────────
+
+/**
+ * Lo que comparten `disponibilidadReal` y `disponibilidadRealMultiple`: leer
+ * las citas del día de un grupo de recursos y reducirlas a minutos-desde-
+ * medianoche. Sin joins: organizationId/resourceId/startsAt/endsAt/status ya
+ * están todos en la fila de appointment_resource (paso 4, 18-ago-2026).
+ */
+async function citasDelDiaDeRecursos(
+  organizationId: string,
+  staffIds: string[],
+  fecha: string,
+  excluirAppointmentId?: string
+): Promise<{ inicio: Date; citas: CitaDelDia[] } | null> {
+  const rango = rangoDelDiaUtc(fecha);
+  if (!rango) return null;
+  const [inicio, fin] = rango;
+
+  const db = getDb();
+  const rows = await db
+    .select({
+      appointmentId: schema.appointmentResource.appointmentId,
+      resourceId: schema.appointmentResource.resourceId,
+      startsAt: schema.appointmentResource.startsAt,
+      endsAt: schema.appointmentResource.endsAt,
+    })
+    .from(schema.appointmentResource)
+    .where(
+      scoped(
+        schema.appointmentResource.organizationId,
+        organizationId,
+        and(
+          inArray(schema.appointmentResource.resourceId, staffIds),
+          gte(schema.appointmentResource.startsAt, inicio),
+          lt(schema.appointmentResource.startsAt, fin),
+          inArray(schema.appointmentResource.status, [...CITAS_ACTIVAS])
+        )
+      )
+    );
+
+  const citas: CitaDelDia[] = rows
+    .filter((r) => r.appointmentId !== excluirAppointmentId)
+    .map((r) => ({
+      recursoId: r.resourceId,
+      startMin: Math.round((r.startsAt.getTime() - inicio.getTime()) / 60000),
+      endMin: Math.round((r.endsAt.getTime() - inicio.getTime()) / 60000),
+    }));
+  return { inicio, citas };
+}
 
 export async function disponibilidadReal(input: {
   organizationId: string;
@@ -436,51 +567,91 @@ export async function disponibilidadReal(input: {
     : await staffIdsForService(input.organizationId, input.service.id);
   if (!staffIds.length) return {};
 
-  const rango = rangoDelDiaUtc(input.fecha);
-  if (!rango) return {};
-  const [inicio, fin] = rango;
-
-  const db = getDb();
-  // Sin joins: organizationId/resourceId/startsAt/endsAt/status ya están
-  // todos en la fila de appointment_resource (paso 4, 18-ago-2026).
-  const rows = await db
-    .select({
-      appointmentId: schema.appointmentResource.appointmentId,
-      resourceId: schema.appointmentResource.resourceId,
-      startsAt: schema.appointmentResource.startsAt,
-      endsAt: schema.appointmentResource.endsAt,
-    })
-    .from(schema.appointmentResource)
-    .where(
-      scoped(
-        schema.appointmentResource.organizationId,
-        input.organizationId,
-        and(
-          inArray(schema.appointmentResource.resourceId, staffIds),
-          gte(schema.appointmentResource.startsAt, inicio),
-          lt(schema.appointmentResource.startsAt, fin),
-          inArray(schema.appointmentResource.status, [...CITAS_ACTIVAS])
-        )
-      )
-    );
-
-  const citas: CitaDelDia[] = rows
-    .filter((r) => r.appointmentId !== input.excluirAppointmentId)
-    .map((r) => ({
-      recursoId: r.resourceId,
-      startMin: Math.round((r.startsAt.getTime() - inicio.getTime()) / 60000),
-      endMin: Math.round((r.endsAt.getTime() - inicio.getTime()) / 60000),
-    }));
+  const dia = await citasDelDiaDeRecursos(
+    input.organizationId,
+    staffIds,
+    input.fecha,
+    input.excluirAppointmentId
+  );
+  if (!dia) return {};
 
   const now = input.now ?? new Date();
   return calcularDisponibilidad({
     recursoIds: staffIds,
-    citas,
+    citas: dia.citas,
     duracionMin: input.service.durationMin,
     hours: input.hours,
     esHoy: esFechaDeHoy(input.fecha, now),
     minutosAhoraSiEsHoy: partesEnNegocio(now).minutos,
   });
+}
+
+/**
+ * Igual que `disponibilidadReal`, pero para una visita de varios servicios:
+ * los recursos válidos son quienes los atienden TODOS
+ * (`staffIdsForServices`), y la duración es la SUMA de sus `durationMin` —
+ * `calcularDisponibilidad` no sabe ni le importa si ese número viene de uno o
+ * de tres servicios, así que no cambia.
+ */
+export async function disponibilidadRealMultiple(input: {
+  organizationId: string;
+  services: ServiceRow[];
+  fecha: string;
+  staffIdPreferido?: string | null;
+  hours: BusinessHours;
+  now?: Date;
+  excluirAppointmentId?: string;
+}): Promise<Record<string, string[]>> {
+  const staffIds = input.staffIdPreferido
+    ? [input.staffIdPreferido]
+    : await staffIdsForServices(
+        input.organizationId,
+        input.services.map((s) => s.id)
+      );
+  if (!staffIds.length) return {};
+
+  const dia = await citasDelDiaDeRecursos(
+    input.organizationId,
+    staffIds,
+    input.fecha,
+    input.excluirAppointmentId
+  );
+  if (!dia) return {};
+
+  const duracionMin = input.services.reduce((acc, s) => acc + s.durationMin, 0);
+  const now = input.now ?? new Date();
+  return calcularDisponibilidad({
+    recursoIds: staffIds,
+    citas: dia.citas,
+    duracionMin,
+    hours: input.hours,
+    esHoy: esFechaDeHoy(input.fecha, now),
+    minutosAhoraSiEsHoy: partesEnNegocio(now).minutos,
+  });
+}
+
+/** Lo que comparten `proximasFechasConCupo` y su variante multiservicio: recorrer los días y quedarse con los que tienen algo libre. */
+async function fechasConCupo(
+  hours: BusinessHours,
+  now: Date,
+  maxFechas: number,
+  maxDias: number,
+  dispDelDia: (fecha: string) => Promise<Record<string, string[]>>
+): Promise<{ fecha: string; horarios: string[] }[]> {
+  const hoy = partesEnNegocio(now);
+  const resultado: { fecha: string; horarios: string[] }[] = [];
+
+  for (let i = 0; i <= maxDias && resultado.length < maxFechas; i++) {
+    const d = new Date(Date.UTC(hoy.y, hoy.m - 1, hoy.d + i, 12));
+    const fecha = `${String(d.getUTCDate()).padStart(2, "0")}/${String(
+      d.getUTCMonth() + 1
+    ).padStart(2, "0")}/${d.getUTCFullYear()}`;
+    if (!esFechaValida(fecha, hours, now)) continue;
+    const disp = await dispDelDia(fecha);
+    const horarios = Object.keys(disp).sort();
+    if (horarios.length) resultado.push({ fecha, horarios });
+  }
+  return resultado;
 }
 
 export async function proximasFechasConCupo(input: {
@@ -492,30 +663,40 @@ export async function proximasFechasConCupo(input: {
   maxFechas?: number;
   maxDiasAdelante?: number;
 }): Promise<{ fecha: string; horarios: string[] }[]> {
-  const maxFechas = input.maxFechas ?? 5;
-  const maxDias = input.maxDiasAdelante ?? 14;
   const now = input.now ?? new Date();
-  const hoy = partesEnNegocio(now);
-  const resultado: { fecha: string; horarios: string[] }[] = [];
-
-  for (let i = 0; i <= maxDias && resultado.length < maxFechas; i++) {
-    const d = new Date(Date.UTC(hoy.y, hoy.m - 1, hoy.d + i, 12));
-    const fecha = `${String(d.getUTCDate()).padStart(2, "0")}/${String(
-      d.getUTCMonth() + 1
-    ).padStart(2, "0")}/${d.getUTCFullYear()}`;
-    if (!esFechaValida(fecha, input.hours, now)) continue;
-    const disp = await disponibilidadReal({
+  return fechasConCupo(input.hours, now, input.maxFechas ?? 5, input.maxDiasAdelante ?? 14, (fecha) =>
+    disponibilidadReal({
       organizationId: input.organizationId,
       service: input.service,
       fecha,
       staffIdPreferido: input.staffIdPreferido,
       hours: input.hours,
       now,
-    });
-    const horarios = Object.keys(disp).sort();
-    if (horarios.length) resultado.push({ fecha, horarios });
-  }
-  return resultado;
+    })
+  );
+}
+
+/** Igual que `proximasFechasConCupo`, pero para una visita de varios servicios. */
+export async function proximasFechasConCupoMultiple(input: {
+  organizationId: string;
+  services: ServiceRow[];
+  staffIdPreferido?: string | null;
+  hours: BusinessHours;
+  now?: Date;
+  maxFechas?: number;
+  maxDiasAdelante?: number;
+}): Promise<{ fecha: string; horarios: string[] }[]> {
+  const now = input.now ?? new Date();
+  return fechasConCupo(input.hours, now, input.maxFechas ?? 5, input.maxDiasAdelante ?? 14, (fecha) =>
+    disponibilidadRealMultiple({
+      organizationId: input.organizationId,
+      services: input.services,
+      fecha,
+      staffIdPreferido: input.staffIdPreferido,
+      hours: input.hours,
+      now,
+    })
+  );
 }
 
 // ── reservar / reprogramar / cancelar ──────────────────────────────────────
@@ -608,10 +789,127 @@ export async function crearCita(input: {
   return { ok: true, appointment: row, staffName: staffRows[0]?.name ?? "el equipo" };
 }
 
+/**
+ * Igual que `crearCita`, pero para una visita de varios servicios en el
+ * mismo bloque de tiempo ("manos y pies tradicional"). `appointment.service_id`
+ * sigue siendo NOT NULL y único — se queda con el PRIMERO de la lista, en el
+ * orden en que el cliente los pidió, y pasa a significar "el servicio
+ * principal de la visita". Nada de lo que hoy hace `innerJoin` contra él
+ * necesita tocarse: la lista completa vive en `appointment_service`.
+ */
+export async function crearCitaMultiple(input: {
+  organizationId: string;
+  contactId: string;
+  services: ServiceRow[];
+  fecha: string;
+  hora: string;
+  staffIdPreferido?: string | null;
+  hours: BusinessHours;
+  now?: Date;
+}): Promise<
+  | { ok: true; appointment: Appointment; staffName: string }
+  | { ok: false; reason: "sin_cupo" | "fuera_de_horario" }
+> {
+  if (!esFechaValida(input.fecha, input.hours, input.now)) {
+    return { ok: false, reason: "fuera_de_horario" };
+  }
+  const disp = await disponibilidadRealMultiple({
+    organizationId: input.organizationId,
+    services: input.services,
+    fecha: input.fecha,
+    staffIdPreferido: input.staffIdPreferido,
+    hours: input.hours,
+    now: input.now,
+  });
+  const candidatos = disp[input.hora];
+  if (!candidatos?.length) return { ok: false, reason: "sin_cupo" };
+
+  const staffId: string =
+    input.staffIdPreferido && candidatos.includes(input.staffIdPreferido)
+      ? input.staffIdPreferido
+      : candidatos[0]!;
+
+  const duracionMin = input.services.reduce((acc, s) => acc + s.durationMin, 0);
+  const startsAt = bogotaAUtc(input.fecha, input.hora)!;
+  const endsAt = new Date(startsAt.getTime() + duracionMin * 60000);
+  const primero = input.services[0]!;
+
+  const db = getDb();
+  let row: Appointment;
+  try {
+    // Misma transacción que crearCita, con una fila appointment_service por
+    // servicio además de la cita y su recurso. El EXCLUDE sigue viviendo en
+    // appointment_resource y protege el bloque de tiempo completo sin saber
+    // cuántos servicios contiene.
+    //
+    // ⚠️ appointment.service_id (abajo) y la fila de appointment_service con
+    // position=0 representan el MISMO hecho por partida doble, y no hay
+    // trigger que los mantenga sincronizados (a diferencia de
+    // appointment_resource, que sí lo tiene). La única defensa hoy es que
+    // esta es la ÚNICA función que escribe las dos tablas, en la misma
+    // transacción y desde el mismo valor (`primero`). Si algún día se agrega
+    // una función que edite los servicios de una cita ya creada, tiene que
+    // actualizar ambas — o las dos fuentes divergen sin que nada lo avise.
+    row = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(schema.appointment)
+        .values({
+          id: newId("appointment"),
+          organizationId: input.organizationId,
+          contactId: input.contactId,
+          serviceId: primero.id,
+          startsAt,
+          endsAt,
+          status: "pendiente",
+        })
+        .returning();
+      const nueva = inserted[0];
+      if (!nueva) throw new Error("No se pudo crear la cita");
+
+      await tx.insert(schema.appointmentService).values(
+        input.services.map((s, i) => ({
+          id: newId("appointmentService"),
+          organizationId: input.organizationId,
+          appointmentId: nueva.id,
+          serviceId: s.id,
+          position: i,
+          durationMin: s.durationMin,
+        }))
+      );
+
+      await tx.insert(schema.appointmentResource).values({
+        id: newId("appointmentResource"),
+        organizationId: input.organizationId,
+        appointmentId: nueva.id,
+        resourceId: staffId,
+        startsAt,
+        endsAt,
+        status: "pendiente",
+      });
+      return nueva;
+    });
+  } catch (e) {
+    if (esSolape(e)) return { ok: false, reason: "sin_cupo" };
+    throw e;
+  }
+
+  const staffRows = await db
+    .select({ name: schema.resource.name })
+    .from(schema.resource)
+    .where(eq(schema.resource.id, staffId));
+  return { ok: true, appointment: row, staffName: staffRows[0]?.name ?? "el equipo" };
+}
+
 export type CitaActiva = {
   id: string;
   serviceId: string;
   serviceName: string;
+  /**
+   * TODOS los servicios de la visita, en el orden pedido — incluye el
+   * principal. Para citas de antes de este cambio (o creadas sin
+   * `appointment_service`) es `[serviceName]`, igual que se comportaba antes.
+   */
+  serviceNames: string[];
   staffId: string;
   staffName: string;
   startsAt: Date;
@@ -624,7 +922,7 @@ export async function citasActivasDeContacto(
   contactId: string
 ): Promise<CitaActiva[]> {
   const db = getDb();
-  return db
+  const base = await db
     .select({
       id: schema.appointment.id,
       serviceId: schema.appointment.serviceId,
@@ -652,6 +950,40 @@ export async function citasActivasDeContacto(
       )
     )
     .orderBy(asc(schema.appointment.startsAt));
+  if (!base.length) return base.map((c) => ({ ...c, serviceNames: [c.serviceName] }));
+
+  // Segunda consulta, liviana: solo para las citas de este contacto, no toda
+  // la tabla. Sin esto, "cancela mi cita de pies" nunca encontraría una
+  // visita cuyo servicio PRINCIPAL es "Manicure" pero que también trae pedicure.
+  const extra = await db
+    .select({
+      appointmentId: schema.appointmentService.appointmentId,
+      serviceName: schema.service.name,
+    })
+    .from(schema.appointmentService)
+    .innerJoin(schema.service, eq(schema.service.id, schema.appointmentService.serviceId))
+    .where(
+      scoped(
+        schema.appointmentService.organizationId,
+        organizationId,
+        inArray(
+          schema.appointmentService.appointmentId,
+          base.map((c) => c.id)
+        )
+      )
+    )
+    .orderBy(asc(schema.appointmentService.position));
+
+  const porCita = new Map<string, string[]>();
+  for (const e of extra) {
+    const arr = porCita.get(e.appointmentId) ?? [];
+    arr.push(e.serviceName);
+    porCita.set(e.appointmentId, arr);
+  }
+  return base.map((c) => ({
+    ...c,
+    serviceNames: porCita.get(c.id)?.length ? porCita.get(c.id)! : [c.serviceName],
+  }));
 }
 
 export async function reprogramarCita(input: {
@@ -680,9 +1012,27 @@ export async function reprogramarCita(input: {
     return { ok: false, reason: "sin_cupo" };
   }
 
-  const startsAt = bogotaAUtc(input.nuevaFecha, input.nuevaHora)!;
-  const endsAt = new Date(startsAt.getTime() + input.service.durationMin * 60000);
   const db = getDb();
+  // La visita puede llevar varios servicios (appointment_service): sin sumar
+  // sus duraciones, reprogramar truncaría el bloque a la del primero y
+  // dejaría el resto de la visita sin protección contra el doble cupo.
+  // Fallback a la duración simple para citas creadas antes de este cambio.
+  const serviciosDeLaCita = await db
+    .select({ durationMin: schema.appointmentService.durationMin })
+    .from(schema.appointmentService)
+    .where(
+      scoped(
+        schema.appointmentService.organizationId,
+        input.organizationId,
+        eq(schema.appointmentService.appointmentId, input.appointmentId)
+      )
+    );
+  const duracionMin = serviciosDeLaCita.length
+    ? serviciosDeLaCita.reduce((acc, s) => acc + s.durationMin, 0)
+    : input.service.durationMin;
+
+  const startsAt = bogotaAUtc(input.nuevaFecha, input.nuevaHora)!;
+  const endsAt = new Date(startsAt.getTime() + duracionMin * 60000);
   try {
     await db
       .update(schema.appointment)

@@ -15,22 +15,22 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const chatJson = vi.fn();
 vi.mock("@/lib/ai", () => ({ chatJson: (...args: unknown[]) => chatJson(...args) }));
 
-const resolverEspecialista = vi.fn();
-const crearCita = vi.fn();
+const resolverEspecialistaMultiple = vi.fn();
+const crearCitaMultiple = vi.fn();
 const reprogramarCita = vi.fn();
 const cancelarCita = vi.fn();
 const citasActivasDeContacto = vi.fn();
 const catalogoParaPrompt = vi.fn();
 
 vi.mock("@/server/appointments/queries", () => ({
-  resolverEspecialista: (...a: unknown[]) => resolverEspecialista(...a),
-  crearCita: (...a: unknown[]) => crearCita(...a),
+  resolverEspecialistaMultiple: (...a: unknown[]) => resolverEspecialistaMultiple(...a),
+  crearCitaMultiple: (...a: unknown[]) => crearCitaMultiple(...a),
   reprogramarCita: (...a: unknown[]) => reprogramarCita(...a),
   cancelarCita: (...a: unknown[]) => cancelarCita(...a),
   citasActivasDeContacto: (...a: unknown[]) => citasActivasDeContacto(...a),
   catalogoParaPrompt: (...a: unknown[]) => catalogoParaPrompt(...a),
-  disponibilidadReal: vi.fn(),
-  proximasFechasConCupo: vi.fn(),
+  disponibilidadRealMultiple: vi.fn(),
+  proximasFechasConCupoMultiple: vi.fn(),
   // Sin horarios ofrecidos en la conversación, la reserva pasa igual que
   // antes (ver `estaEntreLosOfrecidos`): estos casos prueban el despacho.
   estaEntreLosOfrecidos: () => Promise.resolve({ ok: true }),
@@ -138,8 +138,8 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
   beforeEach(() => {
     vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
     chatJson.mockReset();
-    resolverEspecialista.mockReset();
-    crearCita.mockReset();
+    resolverEspecialistaMultiple.mockReset();
+    crearCitaMultiple.mockReset();
     reprogramarCita.mockReset();
     cancelarCita.mockReset();
     citasActivasDeContacto.mockReset();
@@ -157,24 +157,24 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
       ok: true,
       data: {
         action: "book_appointment",
-        servicio: "corte de cabello",
+        servicios: ["corte de cabello"],
         fecha: "2026-08-10",
         hora: "10:00",
       },
       raw: "{}",
     });
-    resolverEspecialista.mockResolvedValue({ ok: true, staffId: null });
-    crearCita.mockResolvedValue({ ok: true, staffName: "Ana" });
+    resolverEspecialistaMultiple.mockResolvedValue({ ok: true, staffId: null });
+    crearCitaMultiple.mockResolvedValue({ ok: true, staffName: "Ana" });
 
     const { runAgentTurn } = await import("@/server/ai/pipeline");
     const action = await runAgentTurn("cv_citas");
 
     expect(action?.action).toBe("book_appointment");
-    expect(crearCita).toHaveBeenCalledTimes(1);
+    expect(crearCitaMultiple).toHaveBeenCalledTimes(1);
     // El modelo manda ISO y el servidor la normaliza a DD/MM/AAAA antes de
     // tocar la base. Antes llegaba SIN normalizar y `esFechaValida` la leía
     // como día "2026" → "esa fecha ya pasó" (bug del 7-ago-2026).
-    expect(crearCita.mock.calls[0]![0]).toMatchObject({
+    expect(crearCitaMultiple.mock.calls[0]![0]).toMatchObject({
       organizationId: "org_1",
       contactId: "ct_1",
       fecha: "10/08/2026",

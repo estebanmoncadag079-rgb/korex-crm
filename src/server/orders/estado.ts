@@ -49,8 +49,15 @@ import { paraLog } from "@/server/registro-de-cambios";
  * **vacía**: 0 filas y 0 organizaciones, verificado en producción ese día. Con
  * un solo pedido vivo, el mismo cambio habría significado perderlo — y con el
  * primer cliente encendido, esa ventana se cierra para siempre.
+ *
+ * **v5 (18-ago-2026)**: se añade `reserva`, opcional y solo para citas — el
+ * paso 4 de [88-AUDITORIA-SELECCION-MULTIPLE.md](../../../docs/korexia/88-AUDITORIA-SELECCION-MULTIPLE.md),
+ * pendiente desde el 17-ago. Va en la RAÍZ del estado, no dentro de cada
+ * ítem: los ejemplos reales ("manos y pies", "cejas y pestañas") son siempre
+ * una sola visita — un bloque de tiempo, un recurso — igual que `datos` ya es
+ * del pedido entero y no se duplica por ítem.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Una línea del pedido: qué, cuánto y con qué opciones. */
 export type ItemDelPedido = {
@@ -74,6 +81,24 @@ export type ItemDelPedido = {
   totalCents: number | null;
 };
 
+/**
+ * Cuándo y con quién — SOLO para el vertical de citas. Una reserva para
+ * TODA la visita, no una por ítem: si el cliente pide "manos y pies", los
+ * dos `items[]` comparten esta misma reserva.
+ */
+export type ReservaDeCita = {
+  /** DD/MM/AAAA, igual que `appointments/logic.ts`. */
+  fecha: string | null;
+  /** HH:MM. */
+  hora: string | null;
+  /** Suma de `durationMin` de los servicios YA RESUELTOS. Lo calcula el servidor. */
+  duracionMin: number | null;
+  /** Resuelto por el backend contra `resourceService`. El modelo nunca ve ids. */
+  recursoId: string | null;
+  /** Redundante a propósito, igual que `ofrecible.nombre`. */
+  recursoNombre: string | null;
+};
+
 export type EstadoDelPedido = {
   schema_version: number;
   /** Todo lo que lleva el pedido, en el orden en que se pidió. Máximo `MAX_ITEMS`. */
@@ -85,6 +110,12 @@ export type EstadoDelPedido = {
    * necesidad de una lista de campos que alguien tenga que mantener.
    */
   datos: Record<string, string | null>;
+  /**
+   * Cuándo y con quién, si esta organización es de citas. `undefined`/`null`
+   * para pedidos — igual que `Ofrecible.duracionMin` no existe para un
+   * producto que no dura.
+   */
+  reserva?: ReservaDeCita | null;
   /** Lo calcula el servidor. NUNCA el número que diga el modelo. */
   totalCents: number | null;
   /** Texto libre: el modelo devuelve etiquetas que ningún enum previó. */
@@ -98,6 +129,7 @@ export function estadoVacio(): EstadoDelPedido {
     schema_version: SCHEMA_VERSION,
     items: [],
     datos: {},
+    reserva: null,
     totalCents: null,
     paso: "sin pedido",
     confirmado: false,
@@ -127,6 +159,15 @@ export type PropuestaDelModelo = Omit<EstadoPropuesto, "items"> & {
   producto?: string | null;
   cantidad?: number | null;
   opciones?: OpcionPropuesta[];
+  /**
+   * Lo que el modelo entiende de fecha/hora/especialista — texto libre, nunca
+   * ids. El backend es quien resuelve `recursoId` contra el catálogo real.
+   */
+  reserva?: {
+    fecha?: string | null;
+    hora?: string | null;
+    especialista?: string | null;
+  } | null;
 };
 
 /**
@@ -209,6 +250,25 @@ export function validarPropuesta(
   }
 
   const confirmado = propuesta.confirmado === true;
+  /*
+   * `reserva` solo existe si el MODELO la mandó — y solo se la pide
+   * `chatJsonConEstado` a organizaciones de citas (ver pipeline.ts). Un
+   * pedido nunca la trae, así que se queda en `null` sin que este validador
+   * necesite saber de qué vertical es: lo decide la forma del dato, igual
+   * que el resto de este archivo.
+   */
+  const reserva: ReservaDeCita | null = propuesta.reserva
+    ? {
+        fecha: propuesta.reserva.fecha ?? null,
+        hora: propuesta.reserva.hora ?? null,
+        // El backend los resuelve fuera de este validador puro: la duración
+        // sale de sumar servicios ya resueltos y el recurso, de buscarlo
+        // contra la base — ninguno de los dos cabe en una función sin BD.
+        duracionMin: null,
+        recursoId: null,
+        recursoNombre: propuesta.reserva.especialista ?? null,
+      }
+    : null;
   const estado: EstadoDelPedido = {
     schema_version: SCHEMA_VERSION,
     items: r.estado.items.map((i) => ({
@@ -218,6 +278,7 @@ export function validarPropuesta(
       totalCents: i.totalCents,
     })),
     datos: propuesta.datos ?? {},
+    reserva,
     totalCents: r.estado.totalCents,
     // `paso` llega como número cuando el prompt del negocio numera sus mensajes.
     paso: String(propuesta.paso ?? "sin pedido"),
@@ -239,6 +300,11 @@ export function validarPropuesta(
       rechazos.push("confirmado sin producto resuelto");
     }
     if (estado.totalCents === null) rechazos.push("confirmado sin total calculado");
+    // Solo aplica a citas: `reserva` no existe en absoluto para un pedido
+    // (ver el comentario de arriba), así que este `if` nunca se dispara ahí.
+    if (estado.reserva && (!estado.reserva.fecha?.trim() || !estado.reserva.hora?.trim())) {
+      rechazos.push("confirmado sin fecha/hora de la cita");
+    }
     /*
      * Y lo que pida el negocio, ni más ni menos. Antes eran tres `if` con
      * nombre, teléfono y dirección dentro del validador del núcleo: un salón
@@ -386,6 +452,11 @@ function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
     // Una clave por dato recogido: `datos.telefono`, `datos.mesa`… Todas
     // personales, porque el bloque entero lo es.
     ...Object.fromEntries(Object.entries(e.datos).map(([id, v]) => [`datos.${id}`, v])),
+    "reserva.fecha": e.reserva?.fecha ?? null,
+    "reserva.hora": e.reserva?.hora ?? null,
+    "reserva.duracionMin": e.reserva?.duracionMin ?? null,
+    "reserva.recursoId": e.reserva?.recursoId ?? null,
+    "reserva.recursoNombre": e.reserva?.recursoNombre ?? null,
     totalCents: e.totalCents,
     paso: e.paso,
     confirmado: e.confirmado,

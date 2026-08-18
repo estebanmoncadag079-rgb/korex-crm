@@ -24,6 +24,7 @@ const prefixes = {
   resourceService: "rsv",
   appointment: "apt",
   appointmentResource: "aptr",
+  appointmentService: "apts",
   offeredSlot: "ofs",
   webhookEvent: "whev",
   agentJob: "job",

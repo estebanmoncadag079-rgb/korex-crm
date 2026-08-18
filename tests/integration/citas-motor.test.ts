@@ -486,4 +486,125 @@ d("motor de citas (Postgres real)", () => {
       if (!r.ok) expect(r.reason).toBe("no_existe");
     });
   });
+
+  /**
+   * Selección múltiple en citas (18-ago-2026, docs/korexia/88-AUDITORIA-
+   * SELECCION-MULTIPLE.md paso 4): "manos y pies" son DOS servicios en una
+   * sola visita, un solo bloque de tiempo. Lo que protege esta sección es que
+   * el bloque completo —no solo el del primer servicio— queda reservado.
+   */
+  describe("reserva de varios servicios en una misma visita", () => {
+    // Retiro (30 min) + Efecto Natural (120 min) = 150 min de visita.
+    async function agendarMultiple(hora: string, staffId?: string, contactId = F.contacto) {
+      return mod.crearCitaMultiple({
+        organizationId: ORG,
+        contactId,
+        services: [servicios[F.retiro]!, servicios[F.natural]!],
+        fecha: FECHA,
+        hora,
+        staffIdPreferido: staffId ?? null,
+        hours: HOURS,
+      });
+    }
+
+    it("la duración de la visita es la SUMA de sus servicios, no la del primero", async () => {
+      await limpiarAgenda();
+      const r = await agendarMultiple("09:00", F.hilary);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const minutos = (r.appointment.endsAt.getTime() - r.appointment.startsAt.getTime()) / 60000;
+      expect(minutos).toBe(150); // 30 + 120, no los 30 del primer servicio (appointment.service_id)
+    });
+
+    it("guarda una fila appointment_service por servicio, en el orden pedido", async () => {
+      await limpiarAgenda();
+      const r = await agendarMultiple("09:00", F.hilary);
+      if (!r.ok) throw new Error("no se pudo preparar la prueba");
+
+      const { eq, asc } = await import("drizzle-orm");
+      const filas = await db
+        .select()
+        .from(schema.appointmentService)
+        .where(eq(schema.appointmentService.appointmentId, r.appointment.id))
+        .orderBy(asc(schema.appointmentService.position));
+      expect(filas).toHaveLength(2);
+      expect(filas[0]).toMatchObject({ serviceId: F.retiro, position: 0, durationMin: 30 });
+      expect(filas[1]).toMatchObject({ serviceId: F.natural, position: 1, durationMin: 120 });
+    });
+
+    it("bloquea TODO el bloque combinado: un choque a mitad de la visita también se rechaza", async () => {
+      await limpiarAgenda();
+      const primera = await agendarMultiple("09:00", F.hilary); // 09:00 → 11:30
+      expect(primera.ok).toBe(true);
+
+      // 10:00 está DENTRO del bloque de 150 min, pero fuera de los 30 min del
+      // primer servicio (appointment.service_id): si algo solo protegiera el
+      // primero, este choque pasaría colado.
+      const enMedio = await agendar(F.retiro, "10:00", F.hilary, FECHA, F.contacto2);
+      expect(enMedio.ok).toBe(false);
+      if (!enMedio.ok) expect(enMedio.reason).toBe("sin_cupo");
+    });
+
+    it("libera el hueco exactamente cuando termina el bloque combinado (11:30, no a los 30 min del primer servicio)", async () => {
+      await limpiarAgenda();
+      await agendarMultiple("09:00", F.hilary);
+      const disp = await mod.disponibilidadRealMultiple({
+        organizationId: ORG,
+        services: [servicios[F.retiro]!, servicios[F.natural]!],
+        fecha: FECHA,
+        staffIdPreferido: F.hilary,
+        hours: HOURS,
+      });
+      expect(disp["09:30"] ?? []).not.toContain(F.hilary); // dentro del bloque
+      expect(disp["11:00"] ?? []).not.toContain(F.hilary); // sigue dentro
+      expect(disp["11:30"] ?? []).toContain(F.hilary); // justo al terminar
+    });
+
+    /**
+     * El bug que este cambio corrige: `reprogramarCita` calculaba `endsAt`
+     * con la duración de un solo servicio. Sin el arreglo, mover esta visita
+     * habría dejado los últimos 120 min del bloque sin protección.
+     */
+    it("reprogramar una visita multiservicio conserva la duración COMBINADA, no la del primer servicio", async () => {
+      await limpiarAgenda();
+      const creada = await agendarMultiple("09:00", F.hilary);
+      if (!creada.ok) throw new Error("no se pudo preparar la prueba");
+
+      const movida = await mod.reprogramarCita({
+        organizationId: ORG,
+        appointmentId: creada.appointment.id,
+        // A propósito, el primer servicio SOLO (30 min): si el arreglo no
+        // sumara appointment_service, esto truncaría la reserva a 30 min.
+        service: servicios[F.retiro]!,
+        staffId: F.hilary,
+        nuevaFecha: FECHA,
+        nuevaHora: "14:00",
+        hours: HOURS,
+      });
+      expect(movida.ok).toBe(true);
+
+      const { eq } = await import("drizzle-orm");
+      const filas = await db
+        .select()
+        .from(schema.appointment)
+        .where(eq(schema.appointment.id, creada.appointment.id));
+      const cita = filas[0]!;
+      expect((cita.endsAt.getTime() - cita.startsAt.getTime()) / 60000).toBe(150);
+
+      // Y el EXCLUDE (appointment_resource) protege el bloque completo en la
+      // nueva hora: 14:00–16:30, no solo 14:00–14:30.
+      const choque = await agendar(F.retiro, "15:00", F.hilary, FECHA, F.contacto2);
+      expect(choque.ok).toBe(false);
+    });
+
+    it("citasActivasDeContacto trae TODOS los servicios de la visita, no solo el principal", async () => {
+      await limpiarAgenda();
+      const creada = await agendarMultiple("09:00", F.hilary);
+      if (!creada.ok) throw new Error("no se pudo preparar la prueba");
+
+      const activas = await mod.citasActivasDeContacto(ORG, F.contacto);
+      const visita = activas.find((a) => a.id === creada.appointment.id);
+      expect(visita?.serviceNames).toEqual(["Retiro de extensiones", "Efecto Natural"]);
+    });
+  });
 });

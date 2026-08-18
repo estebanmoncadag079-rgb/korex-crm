@@ -71,6 +71,23 @@ describe("encontrarCitaActiva (mismo emparejamiento, sobre citas activas)", () =
   it("sin citas activas, nunca encuentra nada", () => {
     expect(encontrarCitaActiva([], "semipermanente")).toBeUndefined();
   });
+
+  /**
+   * 18-ago-2026: una visita puede llevar varios servicios ("manos y pies").
+   * `serviceName` sigue siendo solo el PRINCIPAL — "cancela mi cita de pies"
+   * tiene que encontrarla igual, buscando también en `serviceNames`.
+   */
+  it("encuentra por un servicio secundario de una visita multiservicio", () => {
+    const conVarios = [
+      { id: "cit_3", serviceName: "Semipermanente", serviceNames: ["Semipermanente", "Pedicure"] },
+      { id: "cit_4", serviceName: "Volumen Ruso", serviceNames: ["Volumen Ruso"] },
+    ];
+    expect(encontrarCitaActiva(conVarios, "pedicure")?.id).toBe("cit_3");
+  });
+
+  it("sin serviceNames, se comporta exactamente igual que antes (solo serviceName)", () => {
+    expect(encontrarCitaActiva(ACTIVAS, "semipermanente")?.id).toBe("cit_1");
+  });
 });
 
 describe("conversión de horas", () => {
@@ -282,5 +299,32 @@ describe("calcularDisponibilidad", () => {
       esHoy: false,
     });
     expect(Object.keys(disp)).toHaveLength(0);
+  });
+
+  /**
+   * 18-ago-2026: `disponibilidadRealMultiple` (queries.ts) le pasa a esta
+   * misma función la SUMA de `durationMin` de todos los servicios de la
+   * visita ("manos y pies" → 45+45). La función no sabe ni le importa de
+   * dónde salió ese número — esta prueba confirma que sumarlo cambia la
+   * grilla exactamente como cambiaría con cualquier servicio largo.
+   */
+  it("una duración combinada de varios servicios reduce el último hueco del día", () => {
+    const unServicio = calcularDisponibilidad({
+      recursoIds: ["laura"],
+      citas: [],
+      duracionMin: 45,
+      hours: HOURS,
+      esHoy: false,
+    });
+    const dosServicios = calcularDisponibilidad({
+      recursoIds: ["laura"],
+      citas: [],
+      duracionMin: 45 + 45, // "manos y pies": dos servicios de 45 min
+      hours: HOURS,
+      esHoy: false,
+    });
+    expect(unServicio["16:00"]).toEqual(["laura"]); // 45 min: cabe hasta las 16:00
+    expect(dosServicios["16:00"]).toBeUndefined(); // 90 min: ya no cabe
+    expect(dosServicios["15:30"]).toEqual(["laura"]); // pero sí hasta las 15:30
   });
 });

@@ -15,6 +15,7 @@
  */
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
+import type { Vertical } from "@/server/vertical";
 import type { EstadoDelPedido } from "./estado";
 
 export type Aporte = {
@@ -105,15 +106,18 @@ export function loQueFalta(
    */
   catalogo: ProductoDelCatalogo[] = [],
   /** Lo que este negocio pide para cerrar, en su orden. */
-  requisitos: Requisito[] = []
+  requisitos: Requisito[] = [],
+  /** Vocabulario: "presentación" en pedidos, "servicio" en citas. */
+  vertical: Vertical = "pedidos"
 ): string[] {
   const falta: string[] = [];
   const variosItems = estado.items.length > 1;
+  const loQueFaltaElegir = vertical === "citas" ? "servicio" : "presentación";
 
-  if (estado.items.length === 0) falta.push("presentación");
+  if (estado.items.length === 0) falta.push(loQueFaltaElegir);
   for (const item of estado.items) {
     if (!item.ofrecible.id) {
-      falta.push("presentación");
+      falta.push(loQueFaltaElegir);
       continue;
     }
     /*
@@ -149,7 +153,9 @@ export function loQueFalta(
 export function comoTexto(
   estado: EstadoDelPedido,
   catalogo: ProductoDelCatalogo[] = [],
-  requisitos: Requisito[] = []
+  requisitos: Requisito[] = [],
+  /** Vocabulario: "PEDIDO EN CURSO" en pedidos, "CITA EN CURSO" en citas. */
+  vertical: Vertical = "pedidos"
 ): string {
   const conAlgo = estado.items.filter((i) => i.ofrecible.id || i.seleccion.length > 0);
   if (conAlgo.length === 0) return "";
@@ -195,14 +201,28 @@ export function comoTexto(
     partes.push(personal ? `${r.etiqueta}: ya está` : `${r.etiqueta}: ${valor}`);
   }
 
-  const falta = loQueFalta(estado, catalogo, requisitos);
+  /*
+   * La reserva (fecha/hora/especialista), si ya se sabe algo de ella. Sin
+   * esto, se le pedía al modelo que la reportara pero nunca se le devolvía
+   * en el recordatorio del turno siguiente — el mismo "no vuelvas a
+   * preguntar" que ya vale para items/datos no aplicaba a cuándo y con quién.
+   */
+  const r = estado.reserva;
+  if (r?.fecha || r?.hora || r?.recursoNombre) {
+    const cuando = [r.fecha, r.hora].filter(Boolean).join(" ");
+    const conQuien = r.recursoNombre ? ` con ${r.recursoNombre}` : "";
+    partes.push(cuando ? `reserva: ${cuando}${conQuien}` : `reserva:${conQuien}`.trim());
+  }
+
+  const falta = loQueFalta(estado, catalogo, requisitos, vertical);
   const total =
     estado.totalCents === null
       ? ""
       : `\nTOTAL (lo calculó el sistema, úsalo tal cual): $${(estado.totalCents / 100).toLocaleString("es-CO")}`;
+  const encabezado = vertical === "citas" ? "CITA EN CURSO" : "PEDIDO EN CURSO";
 
   return (
-    `PEDIDO EN CURSO — no vuelvas a preguntar nada de esto:\n${partes.join(" · ")}` +
+    `${encabezado} — no vuelvas a preguntar nada de esto:\n${partes.join(" · ")}` +
     total +
     (falta.length ? `\nTE FALTA, en este orden: ${falta.join(", ")}` : "\nNo falta nada: ve al resumen.")
   );

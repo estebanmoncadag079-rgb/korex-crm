@@ -596,6 +596,38 @@ try {
   console.log("\nB5. LA BANDERA");
   comprobar("el cliente de citas también nace en 'prompt'", perfilB?.stateSource === "prompt");
 
+  console.log("\nB6. SELECCIÓN MÚLTIPLE EN CITAS (18-ago-2026, paso 4 del doc 88)");
+  /*
+   * "Manos y pies tradicional" son DOS ítems y UNA reserva — la reserva vive
+   * en la raíz del estado, no dentro de cada ítem (docs/korexia/88-AUDITORIA-
+   * SELECCION-MULTIPLE.md). Lo que se prueba aquí es la capa de estado
+   * (estado.ts/extraer.ts), no la reserva real en la base: eso ya lo cubre
+   * tests/integration/citas-motor.test.ts.
+   */
+  const textoCita = comoTexto(citaElegida, catalogoCitas, reqCitas, "citas");
+  comprobar("el bloque de citas dice CITA EN CURSO, no PEDIDO EN CURSO", textoCita.startsWith("CITA EN CURSO"), textoCita.slice(0, 40));
+  comprobar("sin servicio elegido, lo que falta se llama 'servicio', no 'presentación'",
+    loQueFalta(sinNada, catalogoCitas, reqCitas, "citas")[0] === "servicio",
+    loQueFalta(sinNada, catalogoCitas, reqCitas, "citas").join(" · "));
+
+  const propuestaConReserva = {
+    items: [{ ofrecible: servicio?.nombre ?? null, cantidad: 1, opciones: [] }],
+    datos: { nombre: "Ana" },
+    confirmado: true,
+    reserva: { fecha: "20/08/2026", hora: "10:00", especialista: "Profesional 1" },
+  };
+  const vReserva = validarPropuesta(propuestaConReserva, catalogoCitas, undefined, reqCitas);
+  comprobar("una cita confirmada con fecha/hora SÍ valida", vReserva.ok, vReserva.rechazos.join(" · "));
+  comprobar("la reserva queda con el nombre del especialista tal como lo dijo el cliente",
+    vReserva.estado.reserva?.recursoNombre === "Profesional 1");
+  const vSinHora = validarPropuesta(
+    { ...propuestaConReserva, reserva: { ...propuestaConReserva.reserva, hora: null } },
+    catalogoCitas,
+    undefined,
+    reqCitas
+  );
+  comprobar("confirmar sin hora de la cita SÍ rechaza", !vSinHora.ok && vSinHora.rechazos.some((r) => r.includes("fecha/hora")));
+
   /* ══════════════════════════════════════════════════════════════════════════
    * CIERRE
    * ════════════════════════════════════════════════════════════════════════ */

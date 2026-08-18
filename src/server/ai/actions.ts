@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_ITEMS } from "@/server/orders/normalizar";
 
 /**
  * Acción tipada del agente: exactamente UNA por turno (FR-021).
@@ -78,13 +79,19 @@ export const AgentAction = z.discriminatedUnion("action", [
    */
   z.object({
     action: z.literal("consult_availability"),
-    servicio: z.string().min(1),
+    /**
+     * Uno o varios, en el orden en que el cliente los nombró — "manos y pies
+     * tradicional" son dos. Cada uno se resuelve por separado contra el
+     * catálogo (`buscarServicio`); si el cliente pide varios, TODOS van aquí,
+     * nunca una acción por servicio.
+     */
+    servicios: z.array(z.string().min(1)).min(1).max(MAX_ITEMS),
     fecha: z.string().optional(),
     especialista: z.string().optional(),
   }),
   z.object({
     action: z.literal("book_appointment"),
-    servicio: z.string().min(1),
+    servicios: z.array(z.string().min(1)).min(1).max(MAX_ITEMS),
     fecha: z.string().min(1),
     hora: z.string().min(1),
     especialista: z.string().optional(),

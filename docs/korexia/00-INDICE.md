@@ -108,6 +108,8 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [97-BITACORA-RESERVA-MULTIPLE.md](97-BITACORA-RESERVA-MULTIPLE.md) | **Selección múltiple en citas, implementado**: "manos y pies" en una sola visita. `ReservaDeCita` en la raíz del estado (no por ítem), `appointment_service` nueva, `resolverEspecialistaMultiple`/`crearCitaMultiple` sobre la intersección de recursos, `book_appointment` con `servicios[]` propio —desacoplado de la Fase 2, que hoy ningún cliente tiene encendida—. La migración `0025` escrita y revisada a mano, **sin ejecutar contra ninguna base** |
+
 | [96-BITACORA-RECURSOS-Y-RESERVAS.md](96-BITACORA-RECURSOS-Y-RESERVAS.md) | **El paso 4, implementado**: `staff_member`→`resource` (tipo libre), `appointment_resource` nueva (con el EXCLUDE de solape movido y su primer trigger), 12 funciones de `queries.ts` reescritas sin tocar `pipeline.ts` ni las rutas API. La migración `0024` escrita y revisada a mano, **sin ejecutar contra ninguna base** |
 
 | [95-BITACORA-PASO1-ENCENDIDO-CHURRA.md](95-BITACORA-PASO1-ENCENDIDO-CHURRA.md) | **Paso 1 del encendido de La Churra, aplicado en producción**: repetición en SALSA y ADICIONES, la ficha corregida (chocolate negro/blanco), RECUBIERTO/ADICIONES cargados (40 filas), el banco de escenarios con su catálogo real y el caso que falló el 17-ago, y los 8 criterios del doc 69 revisados uno por uno |

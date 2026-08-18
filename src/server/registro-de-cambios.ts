@@ -181,6 +181,12 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
      * `<sin clasificar>` sin que nadie supiera por qué.
      */
     seleccion: "negocio",
+    /*
+     * `reserva.fecha`, `reserva.hora`… (v5, 18-ago): cuándo y con quién de la
+     * agenda, no quién es el cliente —eso ya vive en `datos`, que sí es
+     * personal. Mismo mecanismo de herencia por prefijo que `items`.
+     */
+    reserva: "negocio",
     totalCents: "negocio",
     paso: "negocio",
     confirmado: "negocio",

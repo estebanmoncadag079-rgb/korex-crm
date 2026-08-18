@@ -117,18 +117,24 @@ export function buscarServicio(
  * Igual que `buscarServicio`, pero sobre las citas activas de un contacto
  * (para reprogramar/cancelar "la de peluquería" sin decir el nombre exacto).
  * Genérica sobre `T` para no acoplarse al tipo `CitaActiva` de las queries.
+ *
+ * `serviceNames`, si viene, es TODA la lista de servicios de la visita
+ * (manos y pies son dos) — así "cancela mi cita de pies" encuentra la visita
+ * aunque su servicio principal sea "Manicure". Sin ese campo, se comporta
+ * exactamente igual que antes: busca solo contra `serviceName`.
  */
-export function encontrarCitaActiva<T extends { id: string; serviceName: string }>(
-  activas: T[],
-  servicioTexto: string
-): T | undefined {
-  const candidatos: ServiceRow[] = activas.map((a) => ({
-    id: a.id,
-    name: a.serviceName,
-    category: null,
-    priceCents: 0,
-    durationMin: 0,
-  }));
+export function encontrarCitaActiva<
+  T extends { id: string; serviceName: string; serviceNames?: string[] },
+>(activas: T[], servicioTexto: string): T | undefined {
+  const candidatos: ServiceRow[] = activas.flatMap((a) =>
+    (a.serviceNames?.length ? a.serviceNames : [a.serviceName]).map((name) => ({
+      id: a.id,
+      name,
+      category: null,
+      priceCents: 0,
+      durationMin: 0,
+    }))
+  );
   const encontrado = buscarServicio(candidatos, servicioTexto);
   return encontrado ? activas.find((a) => a.id === encontrado.id) : undefined;
 }

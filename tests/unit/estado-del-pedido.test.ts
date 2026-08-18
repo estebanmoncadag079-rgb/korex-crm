@@ -235,6 +235,31 @@ describe("lo que el backend le recuerda al modelo", () => {
   it("sin pedido en curso no inyecta nada: el prompt no engorda porque sí", () => {
     expect(comoTexto(estadoVacio(), [CHURRITA])).toBe("");
   });
+
+  /**
+   * 18-ago-2026: antes se le pedía al modelo que reportara "reserva" en el
+   * estado, pero `comoTexto` nunca se la devolvía en el recordatorio del
+   * turno siguiente — el "no vuelvas a preguntar" no cubría cuándo ni con
+   * quién. Sin cliente real que lo ejercite hoy (ningún vertical de citas
+   * tiene `stateSource='backend'`), pero corregido antes de que haga falta.
+   */
+  it("recuerda la reserva ya dicha, para no volver a preguntar cuándo o con quién", () => {
+    const e: EstadoDelPedido = {
+      ...estadoVacio(),
+      items: [{ ofrecible: { id: "prod_churrita", nombre: "CHURRITA" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
+      reserva: { fecha: "20/08/2026", hora: "10:00", duracionMin: 90, recursoId: "rsc_1", recursoNombre: "Valentina" },
+    };
+    const texto = comoTexto(e, [CHURRITA], [], "citas");
+    expect(texto).toContain("reserva: 20/08/2026 10:00 con Valentina");
+  });
+
+  it("sin reserva, no aparece la línea de reserva", () => {
+    const e: EstadoDelPedido = {
+      ...estadoVacio(),
+      items: [{ ofrecible: { id: "prod_churrita", nombre: "CHURRITA" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
+    };
+    expect(comoTexto(e, [CHURRITA], [], "citas")).not.toContain("reserva:");
+  });
 });
 
 describe("las métricas de la regla 10", () => {
@@ -428,5 +453,69 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
     expect(v.ok).toBe(true);
     expect(v.estado.items[0]!.seleccion[0]!.grupoNombre).toBe("ESMALTE");
     expect(v.estado.totalCents).toBe(1000000 + 500000);
+  });
+});
+
+/**
+ * `reserva` (v5, 18-ago-2026): solo aparece si el MODELO la mandó —
+ * `chatJsonConEstado` únicamente se la pide a organizaciones de citas
+ * (pipeline.ts). El validador no necesita saber de qué vertical es: lo
+ * decide la forma del dato, igual que el resto de este archivo.
+ */
+describe("reserva de cita (v5)", () => {
+  const conReserva = {
+    ...propuesta(),
+    datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #10-20" },
+    confirmado: true,
+    reserva: { fecha: "20/08/2026", hora: "10:00", especialista: "Valentina" },
+  };
+
+  it("una cita completa y confirmada SÍ pasa, con la reserva resuelta", () => {
+    const v = validarPropuesta(conReserva, CARTA, UNIDADES, REQUISITOS);
+    expect(v.ok).toBe(true);
+    expect(v.estado.reserva).toEqual({
+      fecha: "20/08/2026",
+      hora: "10:00",
+      // El backend los resuelve fuera de este validador: la duración suma
+      // servicios ya resueltos y el recurso se busca contra la base.
+      duracionMin: null,
+      recursoId: null,
+      recursoNombre: "Valentina",
+    });
+  });
+
+  it("confirmar sin hora de la cita → RECHAZO", () => {
+    const v = validarPropuesta(
+      { ...conReserva, reserva: { ...conReserva.reserva, hora: null } },
+      CARTA,
+      UNIDADES,
+      REQUISITOS
+    );
+    expect(v.ok).toBe(false);
+    expect(v.rechazos.join(" ")).toContain("confirmado sin fecha/hora de la cita");
+  });
+
+  it("confirmar sin fecha de la cita → RECHAZO", () => {
+    const v = validarPropuesta(
+      { ...conReserva, reserva: { ...conReserva.reserva, fecha: "  " } },
+      CARTA,
+      UNIDADES,
+      REQUISITOS
+    );
+    expect(v.ok).toBe(false);
+    expect(v.rechazos.join(" ")).toContain("confirmado sin fecha/hora de la cita");
+  });
+
+  it("un pedido (sin reserva en la propuesta) no arrastra la regla: sigue confirmando igual que siempre", () => {
+    const completo = {
+      producto: "churrita",
+      cantidad: 1,
+      opciones: sal("arequipe"),
+      datos: { nombre: "Andrea", telefono: "3001234567", direccion: "Cra 5 #10-20" },
+      confirmado: true,
+    };
+    const v = validarPropuesta(completo, CARTA, UNIDADES, REQUISITOS);
+    expect(v.ok).toBe(true);
+    expect(v.estado.reserva).toBeNull();
   });
 });

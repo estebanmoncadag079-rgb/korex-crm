@@ -590,7 +590,12 @@ export const service = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("service_org_idx").on(t.organizationId)]
+  (t) => [
+    index("service_org_idx").on(t.organizationId),
+    // Habilita la FK compuesta de appointment_service: sin esto, una fila
+    // podría colgar de un servicio de OTRA organización.
+    uniqueIndex("service_org_id_uq").on(t.organizationId, t.id),
+  ]
 );
 
 /**
@@ -730,6 +735,55 @@ export const appointmentResource = pgTable(
       columns: [t.organizationId, t.resourceId],
       foreignColumns: [resource.organizationId, resource.id],
       name: "appointment_resource_resource_fk",
+    }),
+  ]
+);
+
+/**
+ * Qué servicios lleva una reserva — la pieza que hasta ahora no existía
+ * (`appointment.serviceId` es único y `NOT NULL`, así que una visita no
+ * podía llevar "manos y pies" a la vez).
+ *
+ * `appointment.serviceId` **se conserva tal cual**: pasa a significar "el
+ * primer servicio de la visita", así que todo lo que hoy hace `innerJoin`
+ * contra él sigue funcionando sin tocarse. Esta tabla es la fuente completa;
+ * `position` conserva el orden en que se pidió y `durationMin` es un
+ * espejo de `service.durationMin` en el momento de agendar — testimonio,
+ * igual que `OpcionElegida.nombre`: si el negocio cambia la duración de un
+ * servicio después, una visita ya agendada sigue siendo legible.
+ *
+ * ⚠️ **`appointment.serviceId` y la fila de aquí con `position=0` duplican
+ * el mismo hecho, sin trigger que los sincronice** (a diferencia de
+ * `appointment_resource`, que sí tiene uno). Hoy la única defensa es que
+ * `crearCitaMultiple` (`appointments/queries.ts`) es la ÚNICA función que
+ * escribe las dos, en la misma transacción. Cualquier función nueva que
+ * edite los servicios de una cita ya creada debe actualizar ambas.
+ */
+export const appointmentService = pgTable(
+  "appointment_service",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    appointmentId: text("appointment_id").notNull(),
+    serviceId: text("service_id").notNull(),
+    position: integer("position").notNull(),
+    durationMin: integer("duration_min").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("appointment_service_appointment_idx").on(t.appointmentId),
+    uniqueIndex("appointment_service_position_uq").on(t.appointmentId, t.position),
+    foreignKey({
+      columns: [t.organizationId, t.appointmentId],
+      foreignColumns: [appointment.organizationId, appointment.id],
+      name: "appointment_service_appointment_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.organizationId, t.serviceId],
+      foreignColumns: [service.organizationId, service.id],
+      name: "appointment_service_service_fk",
     }),
   ]
 );

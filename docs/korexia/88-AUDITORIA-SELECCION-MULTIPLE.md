@@ -373,7 +373,7 @@ pedidos, citas y futuros verticales?*:
 | **B** | Las opciones, **dentro del ítem** | ✅ Un salón elige tono por servicio; un taller, repuesto por reparación |
 | **C** | `cantidad` **por ítem** | ✅ 2 cafés. En citas es 1 y no estorba |
 | **D** | `datos` **se queda en la raíz** | ✅ El cliente es uno en los tres verticales |
-| **E** | `reserva` **opcional en el ítem** | ✅ Los verticales sin tiempo lo omiten; no obliga a nadie |
+| **E** | `reserva` **opcional en el ítem** | ✅ Los verticales sin tiempo lo omiten; no obliga a nadie. ⚠️ **Implementado distinto** (18-ago, [97](97-BITACORA-RESERVA-MULTIPLE.md)): en la RAÍZ del estado, no por ítem — "manos y pies" es una sola visita, un solo bloque de tiempo, y `datos` ya sentaba ese precedente. La universalidad de la idea se sostiene igual: los verticales sin tiempo simplemente no la traen |
 | **F** | **Quitar la exclusión de citas** de `pipeline.ts:547` | ✅ Es la decisión 1 de `79`, aún sin cumplir |
 | **G** | **Sacar las palabras de comida de `sembrar.ts`** | ✅ Regla 1. No requiere decidir nada |
 | **H** | **Pluralizar la conducta común** | ✅ Los dos verticales la comparten |
@@ -530,7 +530,7 @@ existe para proteger la plataforma, no para describir un negocio.
 | **1** | Decidir el alcance | — | ✅ **hecho**: los dos verticales |
 | **2** | **El contrato nuevo**: `items[]`, opciones y cantidad por ítem, `datos` en la raíz, tope 40, `SCHEMA_VERSION 4` | A·B·C·D | ✅ **hecho** ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md)) |
 | **3** | **Pluralizar la conducta común** y el flujo de la ficha | H | ✅ **hecho** ([90](90-LA-CONDUCTA-EN-PLURAL.md)) |
-| **4** | **`reserva` en el ítem** y quitar la exclusión de citas | E·F | ⬜ |
+| **4** | **`reserva`** (en la raíz, no en el ítem — ver E arriba) y quitar la exclusión de citas | E·F | ✅ **hecho el 18-ago** ([97](97-BITACORA-RESERVA-MULTIPLE.md)) |
 | **5** | Los bloqueantes de La Churra: nombres del catálogo y repetición | — | ⬜ |
 | **6** | Medición, banco de escenarios, encendido | — | ⬜ |
 

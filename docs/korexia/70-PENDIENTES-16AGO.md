@@ -1,8 +1,12 @@
 # Pendientes al 16 de agosto — dónde retomar
 
-> **Este es el documento que hay que leer al retomar.** Sustituye a
-> [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md), que se conserva por su
-> relato de la Fase 1.
+> ⚠️ **SUPERADO POR [93-PENDIENTES-17AGO.md](93-PENDIENTES-17AGO.md).** El
+> 17-ago el camino de encendido cambió de forma: se paró para rehacer el
+> contrato del pedido ([88](88-AUDITORIA-SELECCION-MULTIPLE.md)), así que la
+> lista de abajo **ya no describe el orden real**. Se conserva por su contexto.
+>
+> Sustituyó en su día a [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md), que se
+> conserva por su relato de la Fase 1.
 
 **Estado en una línea**: la Fase 1 quedó cerrada y verificada, se cerraron las
 cuatro puertas por las que los datos cambiaban sin control, y la **Fase 2 está

@@ -34,6 +34,7 @@
     "probar:propiedad": "esbuild scripts/probar-propiedad-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-propiedad.mjs --alias:@=./src --packages=external && node .tmp-probar-propiedad.mjs",
     "convertir:ficha": "esbuild scripts/convertir-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-convertir-ficha.mjs --alias:@=./src --packages=external && node .tmp-convertir-ficha.mjs",
     "restaurar:horario": "esbuild scripts/restaurar-horario.ts --bundle --platform=node --format=esm --outfile=.tmp-restaurar-horario.mjs --alias:@=./src --packages=external && node .tmp-restaurar-horario.mjs",
+    "repeticion": "esbuild scripts/repeticion.ts --bundle --platform=node --format=esm --outfile=.tmp-repeticion.mjs --alias:@=./src --packages=external && node .tmp-repeticion.mjs",
     "probar:estado": "esbuild scripts/probar-estado.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-estado.mjs --alias:@=./src --packages=external && node .tmp-probar-estado.mjs",
     "cargar:opciones": "esbuild scripts/cargar-opciones.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-opciones.mjs --alias:@=./src --packages=external && node .tmp-cargar-opciones.mjs",
     "migrar:requisitos": "esbuild scripts/migrar-requisitos.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-requisitos.mjs --alias:@=./src --packages=external && node .tmp-migrar-requisitos.mjs"

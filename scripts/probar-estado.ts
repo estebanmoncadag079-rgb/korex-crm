@@ -479,9 +479,21 @@ try {
   comprobar("NO pide teléfono", !reqCitas?.some((r) => r.id === "telefono" || r.tipo === "telefono"));
   const catalogoCitas = await catalogoDe(orgCitas, "citas");
   const servicio = catalogoCitas[0];
-  const citaElegida = {
+  /*
+   * Un servicio elegido, en el contrato v4. Se anota el tipo A PROPÓSITO: sin
+   * anotación, un objeto con el campo viejo (`producto`) compila igual y la
+   * prueba falla en ejecución diciendo que falta la presentación. Pasó aquí.
+   */
+  const citaElegida: EstadoDelPedido = {
     ...estadoVacio(),
-    producto: { id: servicio?.id ?? null, nombre: servicio?.nombre ?? null, cantidad: 1 },
+    items: [
+      {
+        ofrecible: { id: servicio?.id ?? null, nombre: servicio?.nombre ?? null },
+        cantidad: 1,
+        seleccion: [],
+        totalCents: servicio?.precioCents ?? null,
+      },
+    ],
     datos: { nombre: "Ana" },
   };
   comprobar("con el servicio y el nombre, no queda nada pendiente",

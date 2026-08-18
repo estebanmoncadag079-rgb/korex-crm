@@ -136,6 +136,27 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     logo: "negocio",
     metadata: "negocio",
   },
+  /*
+   * Cómo se elige dentro de un grupo de opciones.
+   *
+   * Se clasifica ANTES de instrumentar la tabla, que es la regla 11 y no un
+   * trámite: sin esto, el primer cambio registrado habría salido como
+   * `<sin clasificar>` y nadie habría sabido si podía leerse o no.
+   *
+   * **Nada de aquí es personal**: describe lo que vende un negocio, no a quien
+   * se lo compra.
+   */
+  product_option_group: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    productId: "tecnico",
+    createdAt: "tecnico",
+    name: "negocio",
+    minSelect: "negocio",
+    maxSelect: "negocio",
+    permiteRepeticion: "negocio",
+    position: "negocio",
+  },
   conversation_state: {
     conversationId: "tecnico",
     organizationId: "tecnico",

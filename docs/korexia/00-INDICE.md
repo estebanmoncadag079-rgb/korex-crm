@@ -101,6 +101,12 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
+| [93-PENDIENTES-17AGO.md](93-PENDIENTES-17AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR.** Sustituye a la 70: los cuatro pasos medidos que separan a La Churra del encendido, el vertical de citas, la deuda viva y lo que no hay que volver a hacer |
+
+| [92-BITACORA-17AGO.md](92-BITACORA-17AGO.md) | **El relato del 17 de agosto**: las diez fases, los errores propios —dos fichas rotas, una prueba que pasó por la razón equivocada— y lo que aprendió el proyecto. Con la ventana que se cierra: es la última vez que cambiar el estado sale gratis |
+
+| [91-CATALOGO-DE-LA-CHURRA.md](91-CATALOGO-DE-LA-CHURRA.md) | **Lo que falta para encender**, medido en producción y sin aplicar: el chocolate con dos nombres que bloquea el encendido, los tres grupos de salsas que no admiten repetir y el recubierto que solo existe en el texto |
+
 | [90-LA-CONDUCTA-EN-PLURAL.md](90-LA-CONDUCTA-EN-PLURAL.md) | **La otra mitad del paso 2**: de nada sirve que el estado aguante tres cosas si el agente las pregunta de una en una. La conducta común pluralizada en los DOS verticales —en citas, varios servicios son una visita con el tiempo sumado— y el vocabulario de comida que quedaba en el prompt que comparten todos |
 
 | [89-EL-CONTRATO-DE-LOS-ITEMS.md](89-EL-CONTRATO-DE-LOS-ITEMS.md) | **El contrato v4, implementado**: un pedido lleva `items[]`, cada uno con su cantidad y sus opciones; `datos` se queda en la raíz porque son del cliente. Con el tope de 40 que no recorta en silencio, la tolerancia deliberada con el formato viejo, y por qué las 34 pruebas de antes pasaron sin cambiar una sola expectativa |

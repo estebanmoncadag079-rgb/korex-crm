@@ -66,3 +66,8 @@ discrepancias-*.json
 .tmp-simular-ficha.mjs
 simulacion-ficha-v2.json
 .tmp-probar-propiedad.mjs
+
+# Los bundles que genera esbuild para los scripts de `probar:*` y `repeticion`.
+# Se escriben en cada ejecución y no son código fuente. Uno se coló en un commit
+# el 17-ago por escribir el patrón mal.
+.tmp-*.mjs

@@ -7,7 +7,8 @@
 > auditoría (18-ago, mismo día) · §13 El calendario solo mostraba el
 > servicio principal (18-ago, primer cliente real) · §14 La cascada de
 > agenda solo comprobaba el servicio principal · §15 el cierre bloqueaba
-> citas que sí debían caber (diagnóstico corregido en el mismo día)
+> citas que sí debían caber (diagnóstico corregido en el mismo día) · §16
+> la lista del panel mostraba TODAS las citas, no las del día
 
 **18-ago-2026.** Cierre del paso 4 auditado el 17-ago en
 [88-AUDITORIA-SELECCION-MULTIPLE.md](88-AUDITORIA-SELECCION-MULTIPLE.md):
@@ -580,3 +581,71 @@ real e independiente de la hora de cierre.
 Los tres `<=` de `calcularDisponibilidad` vuelven a `+ input.duracionMin
 <=`/`> close`. No toca el esquema ni ninguna cita ya agendada — es
 lógica pura de cálculo, sin estado.
+
+---
+
+## 16 · La lista del panel mostraba TODAS las citas, no las del día
+
+**Reportado por el dueño**, con captura: la pestaña "Todas" de la lista
+de citas (debajo del calendario, en `/appointments`) mostraba citas de
+cualquier fecha mezcladas — encontrar una cita concreta se pone peor
+cada día que pasa, con la agenda creciendo sin parar.
+
+**Causa**: `AppointmentsClient` pedía `GET /api/appointments?status=X`
+(o sin parámetro para "Todas") — la ruta que llama a `listAppointments`,
+tope de 200 filas, más recientes primero, **sin filtrar por fecha**. El
+calendario de arriba sí pedía un día concreto (`?fecha=`), pero como
+`CalendarioDia` llevaba su propio `useState` interno, la lista de abajo
+no tenía forma de saber qué día estaba mirando el calendario.
+
+### Arreglo
+
+En vez de darle a la lista su propio selector de fecha (un segundo
+calendario aparte, que podría desincronizarse del primero), se sube el
+estado del día del calendario a `AppointmentsClient` — **una sola fuente
+de verdad para "qué día se está mirando"**, compartida por las dos vistas:
+
+- `CalendarioDia` deja de tener `dia` como estado interno; lo recibe como
+  prop controlada (`dia`, `onDiaChange`) del padre. `hoyBogota()` se
+  exporta para que el padre also la use como valor inicial.
+- `AppointmentsClient` es dueño de `dia`. La lista pide
+  `GET /api/appointments?fecha=${dia}` (la MISMA ruta que ya usaba el
+  calendario) y guarda el resultado crudo; el filtro de estado
+  ("Pendientes", "Confirmadas"…) pasa a aplicarse **del lado del
+  cliente**, sobre esas pocas filas del día — sin ida y vuelta al
+  servidor por cambiar de pestaña.
+- Cambiar de día en el calendario (‹ › Hoy o el selector de fecha) ahora
+  mueve también la lista de abajo, siempre mostrando el mismo día en las
+  dos vistas.
+
+De paso, se corrigió una frase que seguía diciendo "el servicio termine
+antes de cerrar" en el texto de ayuda de "Cambiar hora" — quedó obsoleta
+con el arreglo del §15.
+
+### No verificado visualmente
+
+Igual que el arreglo del calendario en el §13: sin herramienta de
+captura de pantalla en esta sesión, este cambio se razonó contra el
+flujo de estado de React (props controladas, un solo `useState` para
+`dia`) y se verificó con `pnpm typecheck`/`pnpm lint`, no viendo la
+página. Pendiente de que el dueño lo confirme visualmente tras
+desplegar.
+
+### Pruebas
+
+Sin prueba automática: este proyecto no tiene pruebas de componentes de
+React (solo unitarias de lógica de servidor e integración de base de
+datos) — mismo criterio que ya aplicaba a `calendario-dia.tsx` en el
+§13.
+
+**Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
+**804 passed, 73 skipped (877)** — sin cambio en el conteo: es una
+refactorización de UI, no toca ningún módulo con pruebas.
+
+### Cómo revertir
+
+Independiente del resto: en `calendario-dia.tsx`, devolver `dia` a
+`useState(hoyBogota())` interno y quitar las props `dia`/`onDiaChange`;
+en `appointments-client.tsx`, quitar el estado `dia` y volver a pedir
+`GET /api/appointments?status=X` sin fecha. Ninguno de los dos toca el
+servidor ni el esquema — es una capa de presentación.

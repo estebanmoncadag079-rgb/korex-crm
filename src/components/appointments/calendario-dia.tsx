@@ -57,7 +57,7 @@ function fechaBogota(iso: string): string {
   }).format(new Date(iso));
 }
 
-function hoyBogota(): string {
+export function hoyBogota(): string {
   return fechaBogota(new Date().toISOString());
 }
 
@@ -94,14 +94,22 @@ const PX_POR_MIN = 1;
 const CABECERA = 36;
 
 export function CalendarioDia({
+  dia,
+  onDiaChange,
   refresco,
   onCambio,
 }: {
+  /**
+   * El día mostrado, controlado por el padre — para que la lista de abajo
+   * (`AppointmentsClient`) muestre las citas de ESE mismo día, en vez de
+   * mantener su propio selector aparte y arriesgarse a desincronizar.
+   */
+  dia: string;
+  onDiaChange: (dia: string) => void;
   /** Cambia cuando algo de fuera tocó la agenda: fuerza recargar el día. */
   refresco: number;
   onCambio: () => void;
 }) {
-  const [dia, setDia] = useState(hoyBogota());
   const [citas, setCitas] = useState<Cita[]>([]);
   const [personal, setPersonal] = useState<{ id: string; name: string }[]>([]);
   const [nueva, setNueva] = useState(false);
@@ -199,14 +207,14 @@ export function CalendarioDia({
                 variant="outline"
                 size="sm"
                 aria-label="Día anterior"
-                onClick={() => setDia(sumarDias(dia, -1))}
+                onClick={() => onDiaChange(sumarDias(dia, -1))}
               >
                 <ChevronLeft className="h-4 w-4" strokeWidth={1.7} />
               </Button>
               <Button
                 variant={esHoy ? "secondary" : "outline"}
                 size="sm"
-                onClick={() => setDia(hoyBogota())}
+                onClick={() => onDiaChange(hoyBogota())}
               >
                 Hoy
               </Button>
@@ -214,7 +222,7 @@ export function CalendarioDia({
                 variant="outline"
                 size="sm"
                 aria-label="Día siguiente"
-                onClick={() => setDia(sumarDias(dia, 1))}
+                onClick={() => onDiaChange(sumarDias(dia, 1))}
               >
                 <ChevronRight className="h-4 w-4" strokeWidth={1.7} />
               </Button>
@@ -231,7 +239,7 @@ export function CalendarioDia({
               className="h-9 w-[9.5rem] px-2"
               value={dia}
               onChange={(e) => {
-                if (e.target.value) setDia(e.target.value);
+                if (e.target.value) onDiaChange(e.target.value);
               }}
             />
 

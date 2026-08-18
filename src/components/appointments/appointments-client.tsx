@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { CalendarioDia } from "./calendario-dia";
+import { CalendarioDia, hoyBogota } from "./calendario-dia";
 import { CascadaAgenda } from "./cascada-agenda";
 
 type Appointment = {
@@ -63,30 +63,42 @@ const FILTROS: { label: string; value: Appointment["status"] | "" }[] = [
 ];
 
 export function AppointmentsClient() {
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  /**
+   * La lista muestra el mismo día que el calendario de arriba — no "todas"
+   * las citas. Con una sola cita más cada día que pasa, esa lista sin fin
+   * se vuelve imposible de recorrer para encontrar una cita concreta
+   * (reportado por el dueño, 18-ago-2026). El filtro de estado sigue
+   * existiendo, pero ya no reemplaza al de fecha: se aplican los dos juntos.
+   */
+  const [dia, setDia] = useState(hoyBogota());
+  const [citasDelDia, setCitasDelDia] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<Appointment["status"] | "">("");
   /** Sube cuando algo cambia la agenda: el calendario recarga su día. */
   const [refresco, setRefresco] = useState(0);
 
-  const refetch = useCallback(async (status: Appointment["status"] | "") => {
-    const qs = status ? `?status=${status}` : "";
-    const res = await fetch(`/api/appointments${qs}`).catch(() => null);
+  const refetch = useCallback(async (fecha: string) => {
+    const res = await fetch(`/api/appointments?fecha=${fecha}`).catch(() => null);
     setLoading(false);
     if (!res?.ok) return;
     const data = (await res.json()) as { appointments: Appointment[] };
-    setAppointments(data.appointments);
+    setCitasDelDia(data.appointments);
   }, []);
 
   useEffect(() => {
     setLoading(true);
-    void refetch(filtro);
-  }, [filtro, refetch]);
+    void refetch(dia);
+  }, [dia, refetch]);
+
+  // El filtro de estado es solo del lado del cliente: el día ya viene
+  // acotado del servidor (normalmente menos de 20 citas), así que no hace
+  // falta una segunda ida y vuelta por cambiar de pestaña.
+  const appointments = filtro ? citasDelDia.filter((a) => a.status === filtro) : citasDelDia;
 
   /** Algo tocó la agenda: se recargan la lista Y el calendario. */
   function refrescarTodo() {
     setRefresco((n) => n + 1);
-    void refetch(filtro);
+    void refetch(dia);
   }
 
   async function cambiarEstado(id: string, status: Appointment["status"]) {
@@ -161,7 +173,7 @@ export function AppointmentsClient() {
       }));
       return;
     }
-    void refetch(filtro);
+    void refetch(dia);
   }
 
   return (
@@ -173,7 +185,7 @@ export function AppointmentsClient() {
         </p>
       </header>
       <div className="space-y-4 p-4 md:p-6">
-        <CalendarioDia refresco={refresco} onCambio={refrescarTodo} />
+        <CalendarioDia dia={dia} onDiaChange={setDia} refresco={refresco} onCambio={refrescarTodo} />
 
         <CascadaAgenda onCambio={refrescarTodo} />
 
@@ -192,7 +204,11 @@ export function AppointmentsClient() {
 
         {loading && <p className="text-sm text-muted-foreground">Cargando…</p>}
         {!loading && appointments.length === 0 && (
-          <p className="text-sm text-muted-foreground">No hay citas para este filtro.</p>
+          <p className="text-sm text-muted-foreground">
+            {citasDelDia.length === 0
+              ? "No hay citas agendadas ese día."
+              : "Ninguna cita de ese día tiene este estado."}
+          </p>
         )}
 
         <div className="space-y-2">
@@ -315,8 +331,9 @@ export function AppointmentsClient() {
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Se comprueba que {a.staffName} esté libre y que el servicio
-                        termine antes de cerrar. La clienta no recibe aviso: díselo tú.
+                        Se comprueba que {a.staffName} esté libre y que la hora esté
+                        dentro del horario del negocio. La clienta no recibe aviso:
+                        díselo tú.
                       </p>
                       {errorMover && <p className="text-xs text-destructive">{errorMover}</p>}
                     </div>

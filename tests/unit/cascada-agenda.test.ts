@@ -103,7 +103,7 @@ describe("reasignar la agenda de una especialista", () => {
     expect(r.aplicadas).toHaveLength(2);
     expect(r.conflictos).toHaveLength(0);
     expect(updates).toHaveLength(2);
-    expect(updates[0]?.set).toMatchObject({ staffId: "stf_camila" });
+    expect(updates[0]?.set).toMatchObject({ resourceId: "stf_camila" });
   });
 
   it("NO mueve una cita de un servicio que la otra no atiende", async () => {

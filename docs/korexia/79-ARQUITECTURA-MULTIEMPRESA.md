@@ -140,9 +140,9 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | **3.5** | **Blindar el modelo de la ficha**: una transformada nunca se persiste | ✅ **hecho el 17-ago** ([84](84-EL-MODELO-DE-LA-FICHA.md)) |
 | **3.6** | 🛑 **SELECCIÓN MÚLTIPLE, EN LOS DOS VERTICALES.** No es «pedidos con varios productos»: es que ni pedidos ni citas saben sostener varios elementos, **en dos motores que no comparten código**. **Bloquea el encendido** | 🔒 **auditado y DECIDIDO el 17-ago**: los dos verticales a la vez, sin entidad de pedido, tope 40 ([88](88-AUDITORIA-SELECCION-MULTIPLE.md) manda sobre [87](87-PEDIDOS-MULTIPRODUCTO.md)) |
 | **3b** | **Grupos de opciones para `service`.** Primera migración con datos vivos | ⬜ |
-| **4a** | Disponibilidad genérica (`recursoIds`), **sin tocar tablas** | 🔄 auditado ([83](83-RECURSOS-Y-RESERVAS.md)) |
-| **4b** | `recurso` + `reserva_recurso` y el solape movido. **La migración más cara del proyecto** | ⬜ |
-| **4c** | Horario por recurso | ⬜ |
+| **4a** | Disponibilidad genérica (`recursoIds`), **sin tocar tablas** | ✅ **implementado el 18-ago** ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) |
+| **4b** | `resource` + `appointment_resource` y el solape movido. **La migración más cara del proyecto** | 🟡 **código listo, migración escrita y SIN ejecutar** ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) — falta el respaldo manual verificado y el despliegue del dueño |
+| **4c** | Horario por recurso | ⬜ dejado fuera a propósito: aditivo, sin caso de uso hoy |
 | **5** | Solo entonces, **encender** | ⬜ |
 
 ## Las tres preguntas obligatorias

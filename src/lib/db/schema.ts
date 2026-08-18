@@ -593,36 +593,50 @@ export const service = pgTable(
   (t) => [index("service_org_idx").on(t.organizationId)]
 );
 
-export const staffMember = pgTable(
-  "staff_member",
+/**
+ * Un recurso reservable: hoy siempre una persona, pero **no es un enum**
+ * (paso 4, 18-ago-2026 — docs/korexia/83-RECURSOS-Y-RESERVAS.md). Hasta esa
+ * fecha esta tabla se llamaba `staff_member` y era el único tipo de recurso
+ * posible en todo el esquema; el día que un negocio necesite reservar una
+ * sala o un equipo, es una fila más con otro `type`, no una tabla nueva.
+ */
+export const resource = pgTable(
+  "resource",
   {
     id: text("id").primaryKey(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    /** Libre, no un enum: "persona" hoy; "espacio"/"equipo" el día que un negocio lo declare. */
+    type: text("type").notNull().default("persona"),
     archivedAt: timestamp("archived_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("staff_org_idx").on(t.organizationId)]
+  (t) => [
+    index("resource_org_idx").on(t.organizationId),
+    // Habilita la FK compuesta de appointment_resource: sin esto, un vínculo
+    // podría colgar de un recurso de OTRA organización.
+    uniqueIndex("resource_org_id_uq").on(t.organizationId, t.id),
+  ]
 );
 
-/** Qué persona puede atender cada servicio (muchos a muchos). */
-export const staffService = pgTable(
-  "staff_service",
+/** Qué recurso puede atender cada servicio (muchos a muchos). */
+export const resourceService = pgTable(
+  "resource_service",
   {
     id: text("id").primaryKey(),
     organizationId: text("organization_id")
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
-    staffId: text("staff_id")
+    resourceId: text("resource_id")
       .notNull()
-      .references(() => staffMember.id, { onDelete: "cascade" }),
+      .references(() => resource.id, { onDelete: "cascade" }),
     serviceId: text("service_id")
       .notNull()
       .references(() => service.id, { onDelete: "cascade" }),
   },
-  (t) => [uniqueIndex("staff_service_uq").on(t.staffId, t.serviceId)]
+  (t) => [uniqueIndex("resource_service_uq").on(t.resourceId, t.serviceId)]
 );
 
 export const appointment = pgTable(
@@ -638,9 +652,6 @@ export const appointment = pgTable(
     serviceId: text("service_id")
       .notNull()
       .references(() => service.id),
-    staffId: text("staff_id")
-      .notNull()
-      .references(() => staffMember.id),
     startsAt: timestamp("starts_at").notNull(),
     endsAt: timestamp("ends_at").notNull(),
     status: text("status", {
@@ -665,13 +676,61 @@ export const appointment = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    // Chequeo de solapamiento: todas las citas de UNA especialista, ese día.
-    index("appointment_org_staff_starts_idx").on(
+    index("appointment_org_contact_idx").on(t.organizationId, t.contactId),
+    // Habilita la FK compuesta de appointment_resource.
+    uniqueIndex("appointment_org_id_uq").on(t.organizationId, t.id),
+  ]
+);
+
+/**
+ * Qué recurso(s) lleva una reserva — la pieza que hasta el paso 4 no existía
+ * (`appointment.staffId` fundía reserva y recurso en una sola fila, así que
+ * una cita no podía requerir dos recursos a la vez).
+ *
+ * `startsAt`/`endsAt`/`status` van DUPLICADOS de `appointment` a propósito:
+ * un `EXCLUDE USING gist` solo puede referenciar columnas de SU PROPIA tabla,
+ * y el chequeo de solapamiento vive aquí, no en `appointment`. Un TRIGGER
+ * (migración `0024_recursos_y_reservas.sql`) los mantiene sincronizados en
+ * cada `UPDATE` de `appointment` — es la misma razón que ya justificó mover
+ * la restricción a este lugar: no puede depender de que nadie se acuerde de
+ * tocar las dos tablas.
+ */
+export const appointmentResource = pgTable(
+  "appointment_resource",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    appointmentId: text("appointment_id").notNull(),
+    resourceId: text("resource_id").notNull(),
+    /** Espejo de `appointment.startsAt` — ver el porqué en el comentario de arriba. */
+    startsAt: timestamp("starts_at").notNull(),
+    /** Espejo de `appointment.endsAt`. */
+    endsAt: timestamp("ends_at").notNull(),
+    /** Espejo de `appointment.status`. */
+    status: text("status").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    // El chequeo de solapamiento: todas las reservas de UN recurso, ese día.
+    index("appointment_resource_org_resource_starts_idx").on(
       t.organizationId,
-      t.staffId,
+      t.resourceId,
       t.startsAt
     ),
-    index("appointment_org_contact_idx").on(t.organizationId, t.contactId),
+    index("appointment_resource_appointment_idx").on(t.appointmentId),
+    // Aislamiento estructural, no por disciplina (docs/korexia/10-SEGURIDAD.md).
+    foreignKey({
+      columns: [t.organizationId, t.appointmentId],
+      foreignColumns: [appointment.organizationId, appointment.id],
+      name: "appointment_resource_appointment_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.organizationId, t.resourceId],
+      foreignColumns: [resource.organizationId, resource.id],
+      name: "appointment_resource_resource_fk",
+    }),
   ]
 );
 

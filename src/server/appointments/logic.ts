@@ -37,7 +37,7 @@ export type BusinessHours = {
 };
 
 /** Una cita existente, ya reducida a minutos-desde-medianoche en hora de Colombia. */
-export type CitaDelDia = { staffId: string; startMin: number; endMin: number };
+export type CitaDelDia = { recursoId: string; startMin: number; endMin: number };
 
 // ─── catálogo: búsqueda difusa de servicio ─────────────────────────────────
 
@@ -318,20 +318,27 @@ export function rangoDelDiaUtc(fecha: string): [Date, Date] | null {
 /**
  * Slots libres para un día y una duración de servicio dados.
  *
- * ⚠️ **Devuelve `Record<hora, staffId[]>`**, no lo contrario: la clave es la
- * franja (`"09:30"`) y el valor, quiénes la tienen libre. Se dice aquí porque la
- * auditoría del paso 4 lo describió al revés y una prueba leyó `huecos[staffId]`
- * — que no falla, devuelve `undefined` y parece una agenda llena.
+ * ⚠️ **Devuelve `Record<hora, recursoId[]>`**, no lo contrario: la clave es la
+ * franja (`"09:30"`) y el valor, qué recursos la tienen libre. Se dice aquí
+ * porque la auditoría del paso 4 lo describió al revés y una prueba leyó
+ * `huecos[recursoId]` — que no falla, devuelve `undefined` y parece una
+ * agenda llena.
+ *
+ * `recursoId` es genérico a propósito (paso 4a, 18-ago-2026): hasta esta
+ * fecha era `staffId` — un profesional era el ÚNICO tipo de recurso posible.
+ * Esta función siempre fue pura y ajena a qué es un recurso; el cambio es
+ * solo de nombre, para que sirva igual de "sala" o "equipo" el día que un
+ * negocio lo declare (docs/korexia/83-RECURSOS-Y-RESERVAS.md).
  *
  * Un slot es válido si: cae dentro del horario del negocio, el servicio
- * termina antes del cierre, no se solapa con ninguna cita existente de esa
- * especialista, y (si es hoy) no quedó en el pasado. Candidatos: la grilla
- * fija de 30 minutos MÁS el instante justo en que termina cada cita existente
- * — así la agenda queda libre al minuto exacto en que se desocupa alguien, sin
+ * termina antes del cierre, no se solapa con ninguna cita existente de ese
+ * recurso, y (si es hoy) no quedó en el pasado. Candidatos: la grilla fija de
+ * 30 minutos MÁS el instante justo en que termina cada cita existente — así
+ * la agenda queda libre al minuto exacto en que se desocupa alguien, sin
  * esperar al siguiente redondeo de media hora.
  */
 export function calcularDisponibilidad(input: {
-  staffIds: string[];
+  recursoIds: string[];
   citas: CitaDelDia[];
   duracionMin: number;
   hours: BusinessHours;
@@ -356,11 +363,11 @@ export function calcularDisponibilidad(input: {
     : 0;
 
   const mapa: Record<string, string[]> = {};
-  for (const staffId of input.staffIds) {
-    const citasStaff = input.citas.filter((c) => c.staffId === staffId);
+  for (const recursoId of input.recursoIds) {
+    const citasRecurso = input.citas.filter((c) => c.recursoId === recursoId);
     const candidatos = new Set<number>();
     for (let t = open; t + input.duracionMin <= close; t += 30) candidatos.add(t);
-    for (const c of citasStaff) {
+    for (const c of citasRecurso) {
       if (c.endMin >= open && c.endMin + input.duracionMin <= close) {
         candidatos.add(c.endMin);
       }
@@ -368,12 +375,12 @@ export function calcularDisponibilidad(input: {
     for (const slotMin of [...candidatos].sort((a, b) => a - b)) {
       if (slotMin < open || slotMin + input.duracionMin > close) continue;
       if (input.esHoy && slotMin < corte) continue;
-      const libre = !citasStaff.some(
+      const libre = !citasRecurso.some(
         (c) => slotMin < c.endMin && slotMin + input.duracionMin > c.startMin
       );
       if (libre) {
         const hora = minAHora(slotMin);
-        (mapa[hora] ??= []).push(staffId);
+        (mapa[hora] ??= []).push(recursoId);
       }
     }
   }

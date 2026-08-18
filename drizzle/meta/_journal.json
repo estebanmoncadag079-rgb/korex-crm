@@ -169,6 +169,13 @@
       "when": 1787055876151,
       "tag": "0023_repeticion_por_grupo",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787142276151,
+      "tag": "0024_recursos_y_reservas",
+      "breakpoints": true
     }
   ]
 }

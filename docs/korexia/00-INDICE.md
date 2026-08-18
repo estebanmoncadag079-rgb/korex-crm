@@ -8,6 +8,13 @@ producción, qué se cambió y qué quedó pendiente.
 > aquí: que "una instancia = un negocio" (korex.ia es multi-cliente), que se
 > despliega con Coolify (usamos EasyPanel) y que WhatsApp va por Meta directo
 > (va por YCloud). Cuando haya contradicción, **manda esta carpeta**.
+>
+> 🔴 **[REGLAS-DE-ARQUITECTURA.md](../../REGLAS-DE-ARQUITECTURA.md)** (raíz del
+> repo, dictado por el dueño el 18-ago-2026): el filtro obligatorio para
+> **cualquier** cambio, de cualquier IA, en cualquier sesión. El núcleo solo
+> conoce catálogo/selección/datos/estado/validación/confirmación/registro —
+> nunca una salsa, una pestaña ni un profesional como opción. Toda regla de
+> negocio va en el CRM, nunca en código. Léelo antes de tocar nada.
 
 ## Cómo está organizado
 
@@ -100,6 +107,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [71-BITACORA-15AGO.md](71-BITACORA-15AGO.md) | **El relato del 15 de agosto**: la Fase 1 que no estaba desplegada, las tres cosas que las mediciones desmintieron, el día que una prueba causó el fallo que buscaba, las cuatro puertas y el arranque de la Fase 2 |
 
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
+
+| [96-BITACORA-RECURSOS-Y-RESERVAS.md](96-BITACORA-RECURSOS-Y-RESERVAS.md) | **El paso 4, implementado**: `staff_member`→`resource` (tipo libre), `appointment_resource` nueva (con el EXCLUDE de solape movido y su primer trigger), 12 funciones de `queries.ts` reescritas sin tocar `pipeline.ts` ni las rutas API. La migración `0024` escrita y revisada a mano, **sin ejecutar contra ninguna base** |
 
 | [95-BITACORA-PASO1-ENCENDIDO-CHURRA.md](95-BITACORA-PASO1-ENCENDIDO-CHURRA.md) | **Paso 1 del encendido de La Churra, aplicado en producción**: repetición en SALSA y ADICIONES, la ficha corregida (chocolate negro/blanco), RECUBIERTO/ADICIONES cargados (40 filas), el banco de escenarios con su catálogo real y el caso que falló el 17-ago, y los 8 criterios del doc 69 revisados uno por uno |
 

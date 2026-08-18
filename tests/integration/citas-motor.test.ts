@@ -98,17 +98,17 @@ d("motor de citas (Postgres real)", () => {
       { id: F.retiro, organizationId: ORG, name: "Retiro de extensiones", priceCents: 2000000, durationMin: 30 },
       { id: F.natural, organizationId: ORG, name: "Efecto Natural", priceCents: 9500000, durationMin: 120 },
     ]);
-    await db.insert(schema.staffMember).values([
-      { id: F.hilary, organizationId: ORG, name: "Hilary" },
-      { id: F.valentina, organizationId: ORG, name: "Valentina" },
+    await db.insert(schema.resource).values([
+      { id: F.hilary, organizationId: ORG, name: "Hilary", type: "persona" },
+      { id: F.valentina, organizationId: ORG, name: "Valentina", type: "persona" },
     ]);
-    await db.insert(schema.staffService).values(
+    await db.insert(schema.resourceService).values(
       [F.ruso, F.retiro, F.natural].flatMap((serviceId) =>
         [F.hilary, F.valentina].map((staffId) => ({
           id: `ss_${serviceId}_${staffId}`,
           organizationId: ORG,
           serviceId,
-          staffId,
+          resourceId: staffId,
         }))
       )
     );
@@ -386,6 +386,32 @@ d("motor de citas (Postgres real)", () => {
     expect(resultados.every((r) => r.aceptadas === 1 && r.filas === 1)).toBe(true);
   });
 
+  /**
+   * La prueba anterior valida el camino de la APLICACIÓN (`crearCita`
+   * consulta y luego inserta). Esta valida la restricción de la BASE de forma
+   * directa e independiente de ese código — el EXCLUDE se movió de
+   * `appointment` a `appointment_resource` en el paso 4 (18-ago-2026,
+   * docs/korexia/83-RECURSOS-Y-RESERVAS.md), y tiene que seguir siendo lo
+   * único que de verdad impide vender dos veces la misma hora.
+   */
+  it("el EXCLUDE de appointment_resource rechaza un segundo vínculo solapado, insertado directo", async () => {
+    await limpiarAgenda();
+    const creada = await agendar(F.ruso, "09:00", F.hilary); // 09:00–11:30
+    if (!creada.ok) throw new Error("no se pudo preparar la prueba");
+
+    await expect(
+      db.insert(schema.appointmentResource).values({
+        id: "aptr_prueba_directa",
+        organizationId: ORG,
+        appointmentId: creada.appointment.id,
+        resourceId: F.hilary,
+        // 10:00–10:30: dentro del rango 09:00–11:30 que ya ocupa Hilary.
+        startsAt: new Date(creada.appointment.startsAt.getTime() + 60 * 60000),
+        endsAt: new Date(creada.appointment.startsAt.getTime() + 90 * 60000),
+        status: "pendiente",
+      })
+    ).rejects.toMatchObject({ code: "23P01" });
+  });
 
   /**
    * Mover una cita desde el PANEL (`moverCita`).

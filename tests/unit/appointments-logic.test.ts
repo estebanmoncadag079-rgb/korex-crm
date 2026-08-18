@@ -187,7 +187,7 @@ describe("calcularDisponibilidad", () => {
    */
   it("entiende el horario escrito como lo escribe una persona", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
+      recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
       hours: { open: "9 AM", close: "5 PM", days: "1,2,3,4,5,6,7" },
@@ -199,7 +199,7 @@ describe("calcularDisponibilidad", () => {
 
   it("con un horario ilegible no ofrece nada, pero tampoco revienta", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
+      recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
       hours: { open: "por la mañana", close: "tardecito", days: "1,2,3" },
@@ -210,7 +210,7 @@ describe("calcularDisponibilidad", () => {
 
   it("sin citas, ofrece la grilla completa de 30 min que le cabe al servicio", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
+      recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
       hours: HOURS,
@@ -224,8 +224,8 @@ describe("calcularDisponibilidad", () => {
 
   it("una cita existente bloquea los slots que se solapan", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
-      citas: [{ staffId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00
+      recursoIds: ["laura"],
+      citas: [{ recursoId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00
       duracionMin: 60,
       hours: HOURS,
       esHoy: false,
@@ -237,8 +237,8 @@ describe("calcularDisponibilidad", () => {
 
   it("libera un slot dinámico justo cuando termina la cita anterior", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
-      citas: [{ staffId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00
+      recursoIds: ["laura"],
+      citas: [{ recursoId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00
       duracionMin: 60,
       hours: HOURS,
       esHoy: false,
@@ -250,7 +250,7 @@ describe("calcularDisponibilidad", () => {
 
   it("hoy, descarta los slots que ya pasaron", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
+      recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
       hours: HOURS,
@@ -264,8 +264,8 @@ describe("calcularDisponibilidad", () => {
 
   it("cada especialista tiene su propia agenda: la ocupación de una no afecta a otra", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura", "hilary"],
-      citas: [{ staffId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00, solo Laura
+      recursoIds: ["laura", "hilary"],
+      citas: [{ recursoId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00, solo Laura
       duracionMin: 60,
       hours: HOURS,
       esHoy: false,
@@ -275,7 +275,7 @@ describe("calcularDisponibilidad", () => {
 
   it("sin horario configurado, no hay disponibilidad (mejor callar que inventar)", () => {
     const disp = calcularDisponibilidad({
-      staffIds: ["laura"],
+      recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
       hours: { open: null, close: null, days: null },

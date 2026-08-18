@@ -70,18 +70,19 @@ export async function listStaff(
   opts?: { includeArchived?: boolean }
 ): Promise<(StaffRow & { archivedAt: Date | null })[]> {
   const db = getDb();
+  const esPersona = eq(schema.resource.type, "persona");
   const cond = opts?.includeArchived
-    ? scoped(schema.staffMember.organizationId, organizationId)
+    ? scoped(schema.resource.organizationId, organizationId, esPersona)
     : scoped(
-        schema.staffMember.organizationId,
+        schema.resource.organizationId,
         organizationId,
-        isNull(schema.staffMember.archivedAt)
+        and(esPersona, isNull(schema.resource.archivedAt))
       );
   return db
     .select()
-    .from(schema.staffMember)
+    .from(schema.resource)
     .where(cond)
-    .orderBy(asc(schema.staffMember.name));
+    .orderBy(asc(schema.resource.name));
 }
 
 /** Sirve para pintar, en cada staff, qué servicios tiene asignados. */
@@ -91,11 +92,11 @@ export async function listStaffServiceLinks(
   const db = getDb();
   return db
     .select({
-      staffId: schema.staffService.staffId,
-      serviceId: schema.staffService.serviceId,
+      staffId: schema.resourceService.resourceId,
+      serviceId: schema.resourceService.serviceId,
     })
-    .from(schema.staffService)
-    .where(scoped(schema.staffService.organizationId, organizationId));
+    .from(schema.resourceService)
+    .where(scoped(schema.resourceService.organizationId, organizationId));
 }
 
 async function staffIdsForService(
@@ -104,19 +105,20 @@ async function staffIdsForService(
 ): Promise<string[]> {
   const db = getDb();
   const rows = await db
-    .select({ staffId: schema.staffService.staffId })
-    .from(schema.staffService)
+    .select({ staffId: schema.resourceService.resourceId })
+    .from(schema.resourceService)
     .innerJoin(
-      schema.staffMember,
-      eq(schema.staffMember.id, schema.staffService.staffId)
+      schema.resource,
+      eq(schema.resource.id, schema.resourceService.resourceId)
     )
     .where(
       scoped(
-        schema.staffService.organizationId,
+        schema.resourceService.organizationId,
         organizationId,
         and(
-          eq(schema.staffService.serviceId, serviceId),
-          isNull(schema.staffMember.archivedAt)
+          eq(schema.resourceService.serviceId, serviceId),
+          eq(schema.resource.type, "persona"),
+          isNull(schema.resource.archivedAt)
         )
       )
     );
@@ -205,13 +207,13 @@ async function staffIdsDeLaOrg(
   if (!staffIds.length) return [];
   const db = getDb();
   const rows = await db
-    .select({ id: schema.staffMember.id })
-    .from(schema.staffMember)
+    .select({ id: schema.resource.id })
+    .from(schema.resource)
     .where(
       scoped(
-        schema.staffMember.organizationId,
+        schema.resource.organizationId,
         organizationId,
-        inArray(schema.staffMember.id, staffIds)
+        inArray(schema.resource.id, staffIds)
       )
     );
   return rows.map((r) => r.id);
@@ -238,20 +240,20 @@ export async function setEspecialistasDeServicio(
   const db = getDb();
   await db.transaction(async (tx) => {
     await tx
-      .delete(schema.staffService)
+      .delete(schema.resourceService)
       .where(
         scoped(
-          schema.staffService.organizationId,
+          schema.resourceService.organizationId,
           organizationId,
-          eq(schema.staffService.serviceId, validService)
+          eq(schema.resourceService.serviceId, validService)
         )
       );
     if (validStaff.length) {
-      await tx.insert(schema.staffService).values(
+      await tx.insert(schema.resourceService).values(
         validStaff.map((staffId) => ({
-          id: newId("staffService"),
+          id: newId("resourceService"),
           organizationId,
-          staffId,
+          resourceId: staffId,
           serviceId: validService,
         }))
       );
@@ -267,17 +269,17 @@ export async function createStaff(
   const validServiceIds = await serviceIdsDeLaOrg(organizationId, input.serviceIds);
   return db.transaction(async (tx) => {
     const inserted = await tx
-      .insert(schema.staffMember)
-      .values({ id: newId("staffMember"), organizationId, name: input.name })
+      .insert(schema.resource)
+      .values({ id: newId("resource"), organizationId, name: input.name, type: "persona" })
       .returning();
     const row = inserted[0];
     if (!row) throw new Error("No se pudo crear el especialista");
     if (validServiceIds.length) {
-      await tx.insert(schema.staffService).values(
+      await tx.insert(schema.resourceService).values(
         validServiceIds.map((serviceId) => ({
-          id: newId("staffService"),
+          id: newId("resourceService"),
           organizationId,
-          staffId: row.id,
+          resourceId: row.id,
           serviceId,
         }))
       );
@@ -299,35 +301,35 @@ export async function updateStaff(
   await db.transaction(async (tx) => {
     if (patch.name !== undefined || patch.archivedAt !== undefined) {
       await tx
-        .update(schema.staffMember)
+        .update(schema.resource)
         .set({
           ...(patch.name !== undefined ? { name: patch.name } : {}),
           ...(patch.archivedAt !== undefined ? { archivedAt: patch.archivedAt } : {}),
         })
         .where(
           scoped(
-            schema.staffMember.organizationId,
+            schema.resource.organizationId,
             organizationId,
-            eq(schema.staffMember.id, id)
+            eq(schema.resource.id, id)
           )
         );
     }
     if (validServiceIds !== null) {
       await tx
-        .delete(schema.staffService)
+        .delete(schema.resourceService)
         .where(
           scoped(
-            schema.staffService.organizationId,
+            schema.resourceService.organizationId,
             organizationId,
-            eq(schema.staffService.staffId, id)
+            eq(schema.resourceService.resourceId, id)
           )
         );
       if (validServiceIds.length) {
-        await tx.insert(schema.staffService).values(
+        await tx.insert(schema.resourceService).values(
           validServiceIds.map((serviceId) => ({
-            id: newId("staffService"),
+            id: newId("resourceService"),
             organizationId,
-            staffId: id,
+            resourceId: id,
             serviceId,
           }))
         );
@@ -338,9 +340,9 @@ export async function updateStaff(
   const db2 = getDb();
   const rows = await db2
     .select()
-    .from(schema.staffMember)
+    .from(schema.resource)
     .where(
-      scoped(schema.staffMember.organizationId, organizationId, eq(schema.staffMember.id, id))
+      scoped(schema.resource.organizationId, organizationId, eq(schema.resource.id, id))
     );
   return rows[0] ?? null;
 }
@@ -356,19 +358,19 @@ export async function catalogoParaPrompt(
   const db = getDb();
   const links = await db
     .select({
-      serviceId: schema.staffService.serviceId,
-      staffName: schema.staffMember.name,
+      serviceId: schema.resourceService.serviceId,
+      staffName: schema.resource.name,
     })
-    .from(schema.staffService)
+    .from(schema.resourceService)
     .innerJoin(
-      schema.staffMember,
-      eq(schema.staffMember.id, schema.staffService.staffId)
+      schema.resource,
+      eq(schema.resource.id, schema.resourceService.resourceId)
     )
     .where(
       scoped(
-        schema.staffService.organizationId,
+        schema.resourceService.organizationId,
         organizationId,
-        isNull(schema.staffMember.archivedAt)
+        and(eq(schema.resource.type, "persona"), isNull(schema.resource.archivedAt))
       )
     );
   const byService = new Map<string, string[]>();
@@ -392,19 +394,20 @@ export async function resolverEspecialista(
   if (!nombre?.trim()) return { ok: true, staffId: null };
   const db = getDb();
   const rows = await db
-    .select({ id: schema.staffMember.id, name: schema.staffMember.name })
-    .from(schema.staffService)
+    .select({ id: schema.resource.id, name: schema.resource.name })
+    .from(schema.resourceService)
     .innerJoin(
-      schema.staffMember,
-      eq(schema.staffMember.id, schema.staffService.staffId)
+      schema.resource,
+      eq(schema.resource.id, schema.resourceService.resourceId)
     )
     .where(
       scoped(
-        schema.staffService.organizationId,
+        schema.resourceService.organizationId,
         organizationId,
         and(
-          eq(schema.staffService.serviceId, serviceId),
-          isNull(schema.staffMember.archivedAt)
+          eq(schema.resourceService.serviceId, serviceId),
+          eq(schema.resource.type, "persona"),
+          isNull(schema.resource.archivedAt)
         )
       )
     );
@@ -438,38 +441,40 @@ export async function disponibilidadReal(input: {
   const [inicio, fin] = rango;
 
   const db = getDb();
+  // Sin joins: organizationId/resourceId/startsAt/endsAt/status ya están
+  // todos en la fila de appointment_resource (paso 4, 18-ago-2026).
   const rows = await db
     .select({
-      id: schema.appointment.id,
-      staffId: schema.appointment.staffId,
-      startsAt: schema.appointment.startsAt,
-      endsAt: schema.appointment.endsAt,
+      appointmentId: schema.appointmentResource.appointmentId,
+      resourceId: schema.appointmentResource.resourceId,
+      startsAt: schema.appointmentResource.startsAt,
+      endsAt: schema.appointmentResource.endsAt,
     })
-    .from(schema.appointment)
+    .from(schema.appointmentResource)
     .where(
       scoped(
-        schema.appointment.organizationId,
+        schema.appointmentResource.organizationId,
         input.organizationId,
         and(
-          inArray(schema.appointment.staffId, staffIds),
-          gte(schema.appointment.startsAt, inicio),
-          lt(schema.appointment.startsAt, fin),
-          inArray(schema.appointment.status, [...CITAS_ACTIVAS])
+          inArray(schema.appointmentResource.resourceId, staffIds),
+          gte(schema.appointmentResource.startsAt, inicio),
+          lt(schema.appointmentResource.startsAt, fin),
+          inArray(schema.appointmentResource.status, [...CITAS_ACTIVAS])
         )
       )
     );
 
   const citas: CitaDelDia[] = rows
-    .filter((r) => r.id !== input.excluirAppointmentId)
+    .filter((r) => r.appointmentId !== input.excluirAppointmentId)
     .map((r) => ({
-      staffId: r.staffId,
+      recursoId: r.resourceId,
       startMin: Math.round((r.startsAt.getTime() - inicio.getTime()) / 60000),
       endMin: Math.round((r.endsAt.getTime() - inicio.getTime()) / 60000),
     }));
 
   const now = input.now ?? new Date();
   return calcularDisponibilidad({
-    staffIds,
+    recursoIds: staffIds,
     citas,
     duracionMin: input.service.durationMin,
     hours: input.hours,
@@ -554,21 +559,39 @@ export async function crearCita(input: {
   const endsAt = new Date(startsAt.getTime() + input.service.durationMin * 60000);
 
   const db = getDb();
-  let inserted;
+  let row: Appointment;
   try {
-    inserted = await db
-      .insert(schema.appointment)
-      .values({
-        id: newId("appointment"),
+    // Una transacción: la cita y su recurso nacen juntos, o ninguno de los
+    // dos. El EXCLUDE que impide el doble cupo vive en appointment_resource
+    // desde el paso 4 (18-ago-2026) — ver docs/korexia/83-RECURSOS-Y-RESERVAS.md
+    // y la migración 0024_recursos_y_reservas.sql.
+    row = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(schema.appointment)
+        .values({
+          id: newId("appointment"),
+          organizationId: input.organizationId,
+          contactId: input.contactId,
+          serviceId: input.service.id,
+          startsAt,
+          endsAt,
+          status: "pendiente",
+        })
+        .returning();
+      const nueva = inserted[0];
+      if (!nueva) throw new Error("No se pudo crear la cita");
+
+      await tx.insert(schema.appointmentResource).values({
+        id: newId("appointmentResource"),
         organizationId: input.organizationId,
-        contactId: input.contactId,
-        serviceId: input.service.id,
-        staffId,
+        appointmentId: nueva.id,
+        resourceId: staffId,
         startsAt,
         endsAt,
         status: "pendiente",
-      })
-      .returning();
+      });
+      return nueva;
+    });
   } catch (e) {
     // La comprobación de arriba puede quedarse vieja: dos clientas escribiendo
     // a la vez consultan el mismo hueco libre antes de que ninguna inserte.
@@ -577,13 +600,11 @@ export async function crearCita(input: {
     if (esSolape(e)) return { ok: false, reason: "sin_cupo" };
     throw e;
   }
-  const row = inserted[0];
-  if (!row) throw new Error("No se pudo crear la cita");
 
   const staffRows = await db
-    .select({ name: schema.staffMember.name })
-    .from(schema.staffMember)
-    .where(eq(schema.staffMember.id, staffId));
+    .select({ name: schema.resource.name })
+    .from(schema.resource)
+    .where(eq(schema.resource.id, staffId));
   return { ok: true, appointment: row, staffName: staffRows[0]?.name ?? "el equipo" };
 }
 
@@ -608,17 +629,18 @@ export async function citasActivasDeContacto(
       id: schema.appointment.id,
       serviceId: schema.appointment.serviceId,
       serviceName: schema.service.name,
-      staffId: schema.appointment.staffId,
-      staffName: schema.staffMember.name,
+      staffId: schema.appointmentResource.resourceId,
+      staffName: schema.resource.name,
       startsAt: schema.appointment.startsAt,
       endsAt: schema.appointment.endsAt,
     })
     .from(schema.appointment)
     .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
     .innerJoin(
-      schema.staffMember,
-      eq(schema.staffMember.id, schema.appointment.staffId)
+      schema.appointmentResource,
+      eq(schema.appointmentResource.appointmentId, schema.appointment.id)
     )
+    .innerJoin(schema.resource, eq(schema.resource.id, schema.appointmentResource.resourceId))
     .where(
       scoped(
         schema.appointment.organizationId,
@@ -731,7 +753,7 @@ export async function listAppointments(
     .select({
       id: schema.appointment.id,
       serviceName: schema.service.name,
-      staffName: schema.staffMember.name,
+      staffName: schema.resource.name,
       contactName: schema.contact.name,
       contactPhone: schema.contact.phone,
       startsAt: schema.appointment.startsAt,
@@ -742,9 +764,10 @@ export async function listAppointments(
     .from(schema.appointment)
     .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
     .innerJoin(
-      schema.staffMember,
-      eq(schema.staffMember.id, schema.appointment.staffId)
+      schema.appointmentResource,
+      eq(schema.appointmentResource.appointmentId, schema.appointment.id)
     )
+    .innerJoin(schema.resource, eq(schema.resource.id, schema.appointmentResource.resourceId))
     .innerJoin(schema.contact, eq(schema.contact.id, schema.appointment.contactId))
     .where(cond)
     .orderBy(desc(schema.appointment.startsAt))
@@ -769,16 +792,17 @@ export async function getCitaParaRecordar(
     .select({
       contactId: schema.appointment.contactId,
       serviceName: schema.service.name,
-      staffName: schema.staffMember.name,
+      staffName: schema.resource.name,
       startsAt: schema.appointment.startsAt,
       status: schema.appointment.status,
     })
     .from(schema.appointment)
     .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
     .innerJoin(
-      schema.staffMember,
-      eq(schema.staffMember.id, schema.appointment.staffId)
+      schema.appointmentResource,
+      eq(schema.appointmentResource.appointmentId, schema.appointment.id)
     )
+    .innerJoin(schema.resource, eq(schema.resource.id, schema.appointmentResource.resourceId))
     .where(
       scoped(
         schema.appointment.organizationId,
@@ -976,12 +1000,16 @@ export async function agendaDelDia(input: {
     .from(schema.appointment)
     .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
     .innerJoin(schema.contact, eq(schema.contact.id, schema.appointment.contactId))
+    .innerJoin(
+      schema.appointmentResource,
+      eq(schema.appointmentResource.appointmentId, schema.appointment.id)
+    )
     .where(
       scoped(
         schema.appointment.organizationId,
         input.organizationId,
         and(
-          eq(schema.appointment.staffId, input.staffId),
+          eq(schema.appointmentResource.resourceId, input.staffId),
           inArray(schema.appointment.status, [...CITAS_ACTIVAS]),
           gte(schema.appointment.startsAt, desdeUtc),
           lt(schema.appointment.startsAt, hastaUtc)
@@ -1027,13 +1055,13 @@ export async function reasignarAgenda(input: {
   const atiende = new Set(
     (
       await db
-        .select({ serviceId: schema.staffService.serviceId })
-        .from(schema.staffService)
+        .select({ serviceId: schema.resourceService.serviceId })
+        .from(schema.resourceService)
         .where(
           scoped(
-            schema.staffService.organizationId,
+            schema.resourceService.organizationId,
             input.organizationId,
-            eq(schema.staffService.staffId, input.staffDestinoId)
+            eq(schema.resourceService.resourceId, input.staffDestinoId)
           )
         )
     ).map((r) => r.serviceId)
@@ -1054,16 +1082,28 @@ export async function reasignarAgenda(input: {
       conflictos.push({ cita, motivo: "ya tiene otra cita a esa hora" });
       continue;
     }
-    await db
-      .update(schema.appointment)
-      .set({ staffId: input.staffDestinoId, updatedAt: new Date() })
-      .where(
-        scoped(
-          schema.appointment.organizationId,
-          input.organizationId,
-          eq(schema.appointment.id, cita.id)
-        )
-      );
+    try {
+      await db
+        .update(schema.appointmentResource)
+        .set({ resourceId: input.staffDestinoId })
+        .where(
+          scoped(
+            schema.appointmentResource.organizationId,
+            input.organizationId,
+            eq(schema.appointmentResource.appointmentId, cita.id)
+          )
+        );
+    } catch (e) {
+      // `haySolapamiento` de arriba puede quedarse viejo entre dos
+      // reasignaciones a la vez — el EXCLUDE es la defensa real (18-ago-2026,
+      // corrección de un hueco que ya tenían crearCita/reprogramarCita y
+      // este escritor no).
+      if (esSolape(e)) {
+        conflictos.push({ cita, motivo: "ya tiene otra cita a esa hora" });
+        continue;
+      }
+      throw e;
+    }
     aplicadas.push(cita);
   }
   return { aplicadas, conflictos };
@@ -1101,17 +1141,17 @@ async function haySolapamiento(input: {
 }): Promise<boolean> {
   const db = getDb();
   const rows = await db
-    .select({ id: schema.appointment.id })
-    .from(schema.appointment)
+    .select({ id: schema.appointmentResource.id })
+    .from(schema.appointmentResource)
     .where(
       scoped(
-        schema.appointment.organizationId,
+        schema.appointmentResource.organizationId,
         input.organizationId,
         and(
-          eq(schema.appointment.staffId, input.staffId),
-          inArray(schema.appointment.status, [...CITAS_ACTIVAS]),
-          lt(schema.appointment.startsAt, input.hasta),
-          gte(schema.appointment.endsAt, input.desde)
+          eq(schema.appointmentResource.resourceId, input.staffId),
+          inArray(schema.appointmentResource.status, [...CITAS_ACTIVAS]),
+          lt(schema.appointmentResource.startsAt, input.hasta),
+          gte(schema.appointmentResource.endsAt, input.desde)
         )
       )
     )
@@ -1158,7 +1198,7 @@ export async function citasDelDia(
     .select({
       id: schema.appointment.id,
       serviceName: schema.service.name,
-      staffName: schema.staffMember.name,
+      staffName: schema.resource.name,
       contactName: schema.contact.name,
       contactPhone: schema.contact.phone,
       startsAt: schema.appointment.startsAt,
@@ -1168,7 +1208,11 @@ export async function citasDelDia(
     })
     .from(schema.appointment)
     .innerJoin(schema.service, eq(schema.service.id, schema.appointment.serviceId))
-    .innerJoin(schema.staffMember, eq(schema.staffMember.id, schema.appointment.staffId))
+    .innerJoin(
+      schema.appointmentResource,
+      eq(schema.appointmentResource.appointmentId, schema.appointment.id)
+    )
+    .innerJoin(schema.resource, eq(schema.resource.id, schema.appointmentResource.resourceId))
     .innerJoin(schema.contact, eq(schema.contact.id, schema.appointment.contactId))
     .where(
       scoped(
@@ -1210,11 +1254,15 @@ export async function moverCita(input: {
   const db = getDb();
   const filas = await db
     .select({
-      staffId: schema.appointment.staffId,
+      staffId: schema.appointmentResource.resourceId,
       serviceId: schema.appointment.serviceId,
       status: schema.appointment.status,
     })
     .from(schema.appointment)
+    .innerJoin(
+      schema.appointmentResource,
+      eq(schema.appointmentResource.appointmentId, schema.appointment.id)
+    )
     .where(
       scoped(
         schema.appointment.organizationId,

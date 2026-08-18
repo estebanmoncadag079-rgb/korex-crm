@@ -489,10 +489,10 @@ try {
   await db.insert(schema.service).values({
     id: idServicio, organizationId: orgCitas, name: "PESTAÑAS CLÁSICAS", priceCents: 8000000, durationMin: 90,
   });
-  const idStaff = newId("staffMember");
-  await db.insert(schema.staffMember).values({ id: idStaff, organizationId: orgCitas, name: "Profesional 1" });
-  await db.insert(schema.staffService).values({
-    id: newId("staffService"), organizationId: orgCitas, staffId: idStaff, serviceId: idServicio,
+  const idStaff = newId("resource");
+  await db.insert(schema.resource).values({ id: idStaff, organizationId: orgCitas, name: "Profesional 1", type: "persona" });
+  await db.insert(schema.resourceService).values({
+    id: newId("resourceService"), organizationId: orgCitas, resourceId: idStaff, serviceId: idServicio,
   });
 
   // Su ficha pide UNA sola cosa para cerrar. Ni dirección, ni teléfono.
@@ -563,17 +563,19 @@ try {
   comprobar("el servicio se lee por el mismo camino que un producto",
     catalogoCitas.length === 1 && servicio?.nombre === "PESTAÑAS CLÁSICAS");
   /*
-   * ⚠️ `calcularDisponibilidad` devuelve `Record<HORA, staffId[]>` — indexado por
-   * la hora, no por el profesional. La primera versión de esta prueba lo leyó al
-   * revés, dio «0 franjas» y el caso contrario pasó por la razón equivocada. La
-   * auditoría del paso 4 lo describía mal; corregido en 83-RECURSOS-Y-RESERVAS.
+   * ⚠️ `calcularDisponibilidad` devuelve `Record<HORA, recursoId[]>` — indexado
+   * por la hora, no por el recurso. La primera versión de esta prueba lo leyó
+   * al revés, dio «0 franjas» y el caso contrario pasó por la razón
+   * equivocada. La auditoría del paso 4 lo describía mal; corregido en
+   * 83-RECURSOS-Y-RESERVAS. El parámetro pasó de `staffIds` a `recursoIds` el
+   * 18-ago-2026 (paso 4a): un profesional dejó de ser el único recurso.
    */
   const horario = { open: "09:30", close: "18:30", days: "1,2,3,4,5" };
-  const huecos = calcularDisponibilidad({ staffIds: [idStaff], citas: [], duracionMin: 90, hours: horario, esHoy: false });
+  const huecos = calcularDisponibilidad({ recursoIds: [idStaff], citas: [], duracionMin: 90, hours: horario, esHoy: false });
   const franjas = Object.entries(huecos).filter(([, quienes]) => quienes.includes(idStaff));
   comprobar("hay huecos que ofrecer con la agenda vacía", franjas.length > 0, `${franjas.length} franjas: ${franjas[0]?.[0]}…${franjas.at(-1)?.[0]}`);
   const ocupada = calcularDisponibilidad({
-    staffIds: [idStaff], citas: [{ staffId: idStaff, startMin: 570, endMin: 1110 }], duracionMin: 90,
+    recursoIds: [idStaff], citas: [{ recursoId: idStaff, startMin: 570, endMin: 1110 }], duracionMin: 90,
     hours: horario, esHoy: false,
   });
   comprobar("y ninguno cuando el día entero está ocupado",
@@ -627,8 +629,8 @@ try {
       ["product_option_group", (await db.select().from(schema.productOptionGroup).where(inArray(schema.productOptionGroup.organizationId, efimeros))).length],
       ["product_option", (await db.select().from(schema.productOption).where(inArray(schema.productOption.organizationId, efimeros))).length],
       ["service", (await db.select().from(schema.service).where(inArray(schema.service.organizationId, efimeros))).length],
-      ["staff_member", (await db.select().from(schema.staffMember).where(inArray(schema.staffMember.organizationId, efimeros))).length],
-      ["staff_service", (await db.select().from(schema.staffService).where(inArray(schema.staffService.organizationId, efimeros))).length],
+      ["resource", (await db.select().from(schema.resource).where(inArray(schema.resource.organizationId, efimeros))).length],
+      ["resource_service", (await db.select().from(schema.resourceService).where(inArray(schema.resourceService.organizationId, efimeros))).length],
       ["contact", (await db.select().from(schema.contact).where(inArray(schema.contact.organizationId, efimeros))).length],
       ["conversation", (await db.select().from(schema.conversation).where(inArray(schema.conversation.organizationId, efimeros))).length],
       ["conversation_state", (await db.select().from(schema.conversationState).where(inArray(schema.conversationState.organizationId, efimeros))).length],

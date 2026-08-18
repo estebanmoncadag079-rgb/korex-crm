@@ -20,12 +20,19 @@ import { NuevaCita } from "./nueva-cita";
 type Cita = {
   id: string;
   serviceName: string;
+  /** TODOS los servicios de la visita ("manos y pies" son dos), no solo el principal. */
+  serviceNames?: string[];
   staffName: string;
   contactName: string | null;
   startsAt: string;
   endsAt: string;
   status: string;
 };
+
+/** "Diwpower" o "Diwpower + Tradicionales", según cuántos servicios lleve la visita. */
+function nombreDeLaVisita(c: Cita): string {
+  return (c.serviceNames?.length ? c.serviceNames : [c.serviceName]).join(" + ");
+}
 
 const ACTIVAS = ["pendiente", "confirmada", "reagendada"];
 
@@ -307,7 +314,7 @@ export function CalendarioDia({
                         return (
                           <div
                             key={c.id}
-                            title={`${hhmm(ini)}–${hhmm(fin)} · ${c.serviceName}${
+                            title={`${hhmm(ini)}–${hhmm(fin)} · ${nombreDeLaVisita(c)}${
                               c.contactName ? ` · ${c.contactName}` : ""
                             }`}
                             className="absolute inset-x-1 flex overflow-hidden rounded-md border border-brand-soft bg-brand-tint text-brand-text shadow-sm"
@@ -327,7 +334,7 @@ export function CalendarioDia({
                                 <p className="truncate text-[11px]">
                                   <span className="font-medium tabular-nums">{hhmm(ini)}</span>
                                   {" · "}
-                                  {c.serviceName}
+                                  {nombreDeLaVisita(c)}
                                 </p>
                               ) : (
                                 <>
@@ -335,7 +342,7 @@ export function CalendarioDia({
                                     {hhmm(ini)}
                                     {alto >= 40 ? `–${hhmm(fin)}` : ""}
                                   </p>
-                                  <p className="truncate text-[11px]">{c.serviceName}</p>
+                                  <p className="truncate text-[11px]">{nombreDeLaVisita(c)}</p>
                                   {c.contactName && alto >= 52 && (
                                     <p className="truncate text-[11px] text-text-3">
                                       {c.contactName}

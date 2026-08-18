@@ -4,7 +4,9 @@
 > desacople deliberado (estado vs. acción real) · La migración · El mapa de
 > refactor · Lo que NO cambió, y por qué · Las pruebas · Resultado del gate ·
 > Riesgos y lo que queda pendiente · Cómo revertir · §12 Ajustes tras la
-> auditoría (18-ago, mismo día)
+> auditoría (18-ago, mismo día) · §13 El calendario solo mostraba el
+> servicio principal (18-ago, primer cliente real) · §14 La cascada de
+> agenda solo comprobaba el servicio principal
 
 **18-ago-2026.** Cierre del paso 4 auditado el 17-ago en
 [88-AUDITORIA-SELECCION-MULTIPLE.md](88-AUDITORIA-SELECCION-MULTIPLE.md):
@@ -343,3 +345,137 @@ revertir solo:
    afectan ningún comportamiento, son documentación.
 3. `orders/extraer.ts`: quitar el bloque que añade la línea `reserva:` en
    `comoTexto`.
+
+---
+
+## 13 · El calendario solo mostraba el servicio principal (18-ago, primer cliente real)
+
+**El primer caso real, minutos después de prender el agente de Lashes
+Valen.** Una clienta pidió "Diwpower + Tradicionales" (manos y pies), el
+agente la agendó bien —el WhatsApp de confirmación decía correctamente
+"Diwpower + Tradicionales" y "tus manos y pies"—, pero el calendario del
+panel (`/appointments`) solo mostraba **"Diwpower"**: Laura, mirando su
+agenda, no tenía forma de saber que también le tocaban los pies.
+
+**Verificado en la base antes de tocar nada** (regla de oro: medir, no
+suponer): la reserva estaba completa —
+
+```
+appointment_service para esa cita:
+  Diwpower       · 90 min · posición 0
+  Tradicionales  · 30 min · posición 1
+  Total: 120 min → 09:30–11:30, exacto el bloque que ocupó a Laura
+```
+
+No hubo pérdida de datos ni doble cupo. La causa exacta era la ya anotada
+en §2/§7 de este documento como "no tocado": `citasDelDia`, `listAppointments`
+y los componentes de `/appointments` seguían leyendo solo
+`appointment.serviceId` (el principal), nunca `appointment_service`. Se
+sabía que faltaba; no se sabía que el costo fuera operativo y no solo
+cosmético hasta que lo reportó el dueño con el primer cliente real.
+
+### Arreglo
+
+Mismo patrón que ya tenía `citasActivasDeContacto` (§ paso 4 de este
+documento), esta vez **extraído a un helper compartido** para no
+triplicarlo:
+
+- Nueva `serviciosDeCitas(organizationId, appointmentIds)` en
+  `appointments/queries.ts`: una consulta liviana a `appointment_service`,
+  acotada a las citas ya leídas, que devuelve un `Map<appointmentId,
+  string[]>`.
+- `citasActivasDeContacto` (ya existente) se reescribió para usar el
+  helper en vez de tener su propia copia de la misma consulta.
+- `citasDelDia` y `listAppointments` ganan `serviceNames: string[]` en
+  `AppointmentRow`, usando el mismo helper.
+- `src/components/appointments/calendario-dia.tsx` y
+  `appointments-client.tsx`: el tipo `Cita`/`Appointment` gana
+  `serviceNames?: string[]`, y las tres vistas (calendario en rejilla,
+  `title` del hover, lista del panel) pintan
+  `serviceNames.join(" + ")` en vez de `serviceName` a secas.
+
+**No tocado, y anotado por qué**: `agendaDelDia`/`reasignarAgenda` (la
+herramienta de cascada, "pasa las citas de Laura a Camila") sigue
+comprobando solo `cita.serviceId` (el principal) al decidir si la nueva
+especialista puede recibir la cita — para una visita "Diwpower +
+Tradicionales", solo verifica que la destinataria atienda Diwpower. Es un
+riesgo de **corrección**, no solo de visualización (podría reasignar una
+visita a quien no atiende una parte de ella), pero es un camino de
+ESCRITURA distinto, con su propia lógica de conflictos — se dejó fuera de
+este arreglo a propósito, para no mezclar un cambio de visualización con
+uno que cambia qué se permite reasignar. Pendiente, con dueño claro si se
+pide.
+
+### Pruebas
+
+- `tests/unit/citas-del-dia.test.ts`: reescrito con cola de respuestas
+  (antes usaba una sola respuesta compartida, que no distinguía la
+  segunda consulta); casos nuevos para visita de un servicio y de varios,
+  y un caso nuevo para `listAppointments`.
+- Sin prueba de integración nueva: el caso real ya está verificado a mano
+  contra la base de producción (arriba), y `citasActivasDeContacto` —que
+  comparte el mismo helper— ya tiene su cobertura de integración desde el
+  §5 de este documento.
+
+**Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
+**799 passed, 73 skipped (872)** — tres pruebas más que pasan, ninguna más
+saltada.
+
+### Cómo revertir
+
+Independiente del resto: quitar `serviciosDeCitas` y sus tres llamadas en
+`queries.ts` (`citasActivasDeContacto` vuelve a su versión anterior con la
+consulta inline), quitar `serviceNames` de `AppointmentRow`, y en los dos
+componentes de React volver a pintar `serviceName` a secas. Nada de esto
+toca el esquema ni la reserva real — es una capa de lectura.
+
+---
+
+## 14 · La cascada de agenda solo comprobaba el servicio principal
+
+**Encontrado al investigar §13, mismo día, no un reporte nuevo.** La
+herramienta "pasa las citas de Laura a Camila"
+(`reasignarAgenda`/`/appointments` → *Mover el día de una especialista*)
+decidía si Camila podía recibir una cita comprobando únicamente
+`cita.serviceId` — el principal. Para "Diwpower + Tradicionales" eso
+significaba que una reasignación se aprobaría si Camila atendía Diwpower,
+**sin comprobar Tradicionales**: a diferencia de §13 (que era solo de
+visualización), este SÍ era un riesgo de corrección — una visita se podía
+mover a quien no puede hacerla completa.
+
+### Arreglo
+
+- `serviciosDeCitas` (§13) ahora devuelve `{id, name}[]` por cita, no solo
+  el nombre — las tres funciones que ya lo usaban (`citasActivasDeContacto`,
+  `citasDelDia`, `listAppointments`) se ajustaron a leer `.name`.
+- `CitaDeAgenda` gana `serviceIds`/`serviceNames` (todos, no el principal);
+  `agendaDelDia` los llena con el mismo helper.
+- `reasignarAgenda`: la condición pasa de `atiende.has(cita.serviceId)` a
+  exigir que `atiende` cubra **todos** los `serviceIds` de la visita; el
+  conflicto nombra específicamente cuáles le faltan a la destinataria
+  ("no atiende Tradicionales"), no un genérico.
+- `POST /api/appointments/agenda`: el resumen que ve el panel
+  (`resumirCita`) y el aviso que recibe la clienta por WhatsApp
+  (`avisarACadaClienta`) ahora dicen "Diwpower + Tradicionales", no solo
+  "Diwpower" — mismo criterio que §13, la clienta y el equipo deben ver la
+  visita completa.
+
+### Pruebas
+
+`tests/unit/cascada-agenda.test.ts`: las tres pruebas existentes se
+ajustaron a la consulta extra (`serviciosDeCitas`, ahora siempre en la
+cola de respuestas del mock) sin cambiar lo que verifican, y se agregaron
+dos casos nuevos — una visita multiservicio que NO se mueve porque a la
+destinataria le falta un servicio (y el motivo la nombra), y una que SÍ se
+mueve porque la destinataria atiende los dos. **8/8** ✅.
+
+**Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
+**801 passed, 73 skipped (874)**.
+
+### Cómo revertir
+
+Independiente del resto de este documento: revertir `reasignarAgenda` a
+comprobar solo `cita.serviceId`, quitar `serviceIds`/`serviceNames` de
+`CitaDeAgenda`, y en `route.ts` volver a `c.serviceName` en `resumirCita`
+y `avisarACadaClienta`. El cambio de forma de `serviciosDeCitas` (de
+`string[]` a `{id,name}[]`) solo se revierte si nada más lo sigue usando.

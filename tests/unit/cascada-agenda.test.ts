@@ -95,7 +95,8 @@ describe("reasignar la agenda de una especialista", () => {
   it("mueve las citas cuando la otra persona las atiende y tiene el hueco libre", async () => {
     citasDelDia = [CITA_A, CITA_B];
     serviciosQueAtiende = [{ serviceId: "svc_manicure" }, { serviceId: "svc_corte" }];
-    colaSelect = [citasDelDia, serviciosQueAtiende, [], []]; // agenda, servicios, 2 chequeos de solape
+    // agenda, servicios adicionales (ninguno: las dos son de un solo servicio), atiende, 2 chequeos de solape
+    colaSelect = [citasDelDia, [], serviciosQueAtiende, [], []];
 
     const { reasignarAgenda } = await import("@/server/appointments/queries");
     const r = await reasignarAgenda(BASE);
@@ -109,7 +110,7 @@ describe("reasignar la agenda de una especialista", () => {
   it("NO mueve una cita de un servicio que la otra no atiende", async () => {
     citasDelDia = [CITA_A, CITA_B];
     serviciosQueAtiende = [{ serviceId: "svc_manicure" }]; // Camila no hace cortes
-    colaSelect = [citasDelDia, serviciosQueAtiende, []];
+    colaSelect = [citasDelDia, [], serviciosQueAtiende, []];
 
     const { reasignarAgenda } = await import("@/server/appointments/queries");
     const r = await reasignarAgenda(BASE);
@@ -125,7 +126,7 @@ describe("reasignar la agenda de una especialista", () => {
     citasDelDia = [CITA_A];
     serviciosQueAtiende = [{ serviceId: "svc_manicure" }];
     solapamientos = [{ id: "apt_otra" }];
-    colaSelect = [citasDelDia, serviciosQueAtiende, solapamientos];
+    colaSelect = [citasDelDia, [], serviciosQueAtiende, solapamientos];
 
     const { reasignarAgenda } = await import("@/server/appointments/queries");
     const r = await reasignarAgenda(BASE);
@@ -143,6 +144,68 @@ describe("reasignar la agenda de una especialista", () => {
 
     expect(r.aplicadas).toHaveLength(0);
     expect(updates).toHaveLength(0);
+  });
+
+  /**
+   * 18-ago-2026: el caso real que motivó esta corrección. "Diwpower +
+   * Tradicionales" (manos y pies) solo comprobaba `serviceId` — el
+   * principal — así que se podía reasignar a alguien que solo atendía
+   * Diwpower, dejando los pies sin quién los hiciera.
+   */
+  it("NO mueve una visita multiservicio si la otra persona no atiende TODOS sus servicios", async () => {
+    const visita = {
+      id: "apt_3",
+      contactId: "ct_3",
+      serviceId: "svc_diwpower",
+      serviceName: "Diwpower",
+      durationMin: 90,
+      contactName: "Valentina",
+      startsAt: new Date("2026-08-10T14:30:00Z"),
+      endsAt: new Date("2026-08-10T16:30:00Z"),
+    };
+    citasDelDia = [visita];
+    // Camila atiende Diwpower, pero no Tradicionales.
+    const serviciosDeLaVisita = [
+      { appointmentId: "apt_3", serviceId: "svc_diwpower", serviceName: "Diwpower" },
+      { appointmentId: "apt_3", serviceId: "svc_tradicionales", serviceName: "Tradicionales" },
+    ];
+    serviciosQueAtiende = [{ serviceId: "svc_diwpower" }];
+    colaSelect = [citasDelDia, serviciosDeLaVisita, serviciosQueAtiende];
+
+    const { reasignarAgenda } = await import("@/server/appointments/queries");
+    const r = await reasignarAgenda(BASE);
+
+    expect(r.aplicadas).toHaveLength(0);
+    expect(r.conflictos).toHaveLength(1);
+    expect(r.conflictos[0]?.motivo).toContain("Tradicionales");
+    expect(updates).toHaveLength(0);
+  });
+
+  it("SÍ mueve una visita multiservicio cuando la otra persona atiende TODOS sus servicios", async () => {
+    const visita = {
+      id: "apt_3",
+      contactId: "ct_3",
+      serviceId: "svc_diwpower",
+      serviceName: "Diwpower",
+      durationMin: 90,
+      contactName: "Valentina",
+      startsAt: new Date("2026-08-10T14:30:00Z"),
+      endsAt: new Date("2026-08-10T16:30:00Z"),
+    };
+    citasDelDia = [visita];
+    const serviciosDeLaVisita = [
+      { appointmentId: "apt_3", serviceId: "svc_diwpower", serviceName: "Diwpower" },
+      { appointmentId: "apt_3", serviceId: "svc_tradicionales", serviceName: "Tradicionales" },
+    ];
+    serviciosQueAtiende = [{ serviceId: "svc_diwpower" }, { serviceId: "svc_tradicionales" }];
+    colaSelect = [citasDelDia, serviciosDeLaVisita, serviciosQueAtiende, []]; // + chequeo de solape
+
+    const { reasignarAgenda } = await import("@/server/appointments/queries");
+    const r = await reasignarAgenda(BASE);
+
+    expect(r.aplicadas).toHaveLength(1);
+    expect(r.conflictos).toHaveLength(0);
+    expect(updates).toHaveLength(1);
   });
 });
 

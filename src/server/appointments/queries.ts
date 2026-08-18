@@ -916,6 +916,52 @@ export type CitaActiva = {
   endsAt: Date;
 };
 
+/**
+ * TODOS los servicios de un grupo de citas, no solo el principal — segunda
+ * consulta liviana, acotada a los `appointmentId` que ya se leyeron (nunca a
+ * toda la tabla). Compartida por `citasActivasDeContacto`, `citasDelDia`,
+ * `listAppointments` y `reasignarAgenda`: las cuatro necesitaban la misma
+ * pregunta ("¿qué más lleva esta visita, aparte del servicio principal?"),
+ * antes cada una hubiera tenido que repetirla — id y nombre en la misma
+ * fila porque unas quieren mostrar el nombre y otra necesita el id para
+ * comprobar quién atiende qué.
+ *
+ * `appointment_service` es aditiva (paso 4, 18-ago-2026): una cita creada
+ * con `crearCita` (singular) o de antes de ese cambio no tiene filas ahí, así
+ * que el `Map` devuelto simplemente no trae esa cita — quien llama decide el
+ * fallback (`[servicio principal]`), porque cada uno construye su fila distinto.
+ */
+async function serviciosDeCitas(
+  organizationId: string,
+  appointmentIds: string[]
+): Promise<Map<string, { id: string; name: string }[]>> {
+  const porCita = new Map<string, { id: string; name: string }[]>();
+  if (!appointmentIds.length) return porCita;
+  const db = getDb();
+  const extra = await db
+    .select({
+      appointmentId: schema.appointmentService.appointmentId,
+      serviceId: schema.appointmentService.serviceId,
+      serviceName: schema.service.name,
+    })
+    .from(schema.appointmentService)
+    .innerJoin(schema.service, eq(schema.service.id, schema.appointmentService.serviceId))
+    .where(
+      scoped(
+        schema.appointmentService.organizationId,
+        organizationId,
+        inArray(schema.appointmentService.appointmentId, appointmentIds)
+      )
+    )
+    .orderBy(asc(schema.appointmentService.position));
+  for (const e of extra) {
+    const arr = porCita.get(e.appointmentId) ?? [];
+    arr.push({ id: e.serviceId, name: e.serviceName });
+    porCita.set(e.appointmentId, arr);
+  }
+  return porCita;
+}
+
 /** Citas pendientes/confirmadas/reagendadas de un contacto (para reprogramar o cancelar). */
 export async function citasActivasDeContacto(
   organizationId: string,
@@ -950,39 +996,15 @@ export async function citasActivasDeContacto(
       )
     )
     .orderBy(asc(schema.appointment.startsAt));
-  if (!base.length) return base.map((c) => ({ ...c, serviceNames: [c.serviceName] }));
-
-  // Segunda consulta, liviana: solo para las citas de este contacto, no toda
-  // la tabla. Sin esto, "cancela mi cita de pies" nunca encontraría una
-  // visita cuyo servicio PRINCIPAL es "Manicure" pero que también trae pedicure.
-  const extra = await db
-    .select({
-      appointmentId: schema.appointmentService.appointmentId,
-      serviceName: schema.service.name,
-    })
-    .from(schema.appointmentService)
-    .innerJoin(schema.service, eq(schema.service.id, schema.appointmentService.serviceId))
-    .where(
-      scoped(
-        schema.appointmentService.organizationId,
-        organizationId,
-        inArray(
-          schema.appointmentService.appointmentId,
-          base.map((c) => c.id)
-        )
-      )
-    )
-    .orderBy(asc(schema.appointmentService.position));
-
-  const porCita = new Map<string, string[]>();
-  for (const e of extra) {
-    const arr = porCita.get(e.appointmentId) ?? [];
-    arr.push(e.serviceName);
-    porCita.set(e.appointmentId, arr);
-  }
+  const porCita = await serviciosDeCitas(
+    organizationId,
+    base.map((c) => c.id)
+  );
   return base.map((c) => ({
     ...c,
-    serviceNames: porCita.get(c.id)?.length ? porCita.get(c.id)! : [c.serviceName],
+    serviceNames: porCita.get(c.id)?.length
+      ? porCita.get(c.id)!.map((s) => s.name)
+      : [c.serviceName],
   }));
 }
 
@@ -1078,6 +1100,8 @@ export type AppointmentStatus = Appointment["status"];
 export type AppointmentRow = {
   id: string;
   serviceName: string;
+  /** TODOS los servicios de la visita, en el orden pedido — ver `serviciosDeCitas`. */
+  serviceNames: string[];
   staffName: string;
   contactName: string | null;
   contactPhone: string | null;
@@ -1099,7 +1123,7 @@ export async function listAppointments(
         eq(schema.appointment.status, opts.status)
       )
     : scoped(schema.appointment.organizationId, organizationId);
-  return db
+  const base = await db
     .select({
       id: schema.appointment.id,
       serviceName: schema.service.name,
@@ -1122,6 +1146,16 @@ export async function listAppointments(
     .where(cond)
     .orderBy(desc(schema.appointment.startsAt))
     .limit(200);
+  const porCita = await serviciosDeCitas(
+    organizationId,
+    base.map((c) => c.id)
+  );
+  return base.map((c) => ({
+    ...c,
+    serviceNames: porCita.get(c.id)?.length
+      ? porCita.get(c.id)!.map((s) => s.name)
+      : [c.serviceName],
+  }));
 }
 
 /** Datos para componer y mandar el recordatorio de una cita puntual. */
@@ -1320,6 +1354,10 @@ export type CitaDeAgenda = {
   contactId: string;
   serviceId: string;
   serviceName: string;
+  /** TODOS los ids de servicio de la visita — ver `serviciosDeCitas`. */
+  serviceIds: string[];
+  /** TODOS los nombres, en el mismo orden. */
+  serviceNames: string[];
   durationMin: number;
   contactName: string;
   startsAt: Date;
@@ -1336,7 +1374,7 @@ export async function agendaDelDia(input: {
   if (!rango) return [];
   const [desdeUtc, hastaUtc] = rango;
   const db = getDb();
-  return db
+  const base = await db
     .select({
       id: schema.appointment.id,
       contactId: schema.appointment.contactId,
@@ -1367,6 +1405,18 @@ export async function agendaDelDia(input: {
       )
     )
     .orderBy(asc(schema.appointment.startsAt));
+  const porCita = await serviciosDeCitas(
+    input.organizationId,
+    base.map((c) => c.id)
+  );
+  return base.map((c) => {
+    const extra = porCita.get(c.id);
+    return {
+      ...c,
+      serviceIds: extra?.length ? extra.map((s) => s.id) : [c.serviceId],
+      serviceNames: extra?.length ? extra.map((s) => s.name) : [c.serviceName],
+    };
+  });
 }
 
 export type ResultadoCascada = {
@@ -1418,8 +1468,20 @@ export async function reasignarAgenda(input: {
   );
 
   for (const cita of citas) {
-    if (!atiende.has(cita.serviceId)) {
-      conflictos.push({ cita, motivo: `no atiende ${cita.serviceName}` });
+    /*
+     * TODOS los servicios de la visita, no solo el principal — 18-ago-2026,
+     * corregido tras el primer cliente real: "Diwpower + Tradicionales" se
+     * podía reasignar a alguien que solo atendía Diwpower, porque esto
+     * comprobaba únicamente `cita.serviceId` (appointment.service_id, "el
+     * primero de la visita"). Una visita reasignada mal es peor que una que
+     * no se mueve: se queda donde está y sale en `conflictos`.
+     */
+    const faltantes = cita.serviceIds.filter((id) => !atiende.has(id));
+    if (faltantes.length) {
+      const nombresFaltantes = cita.serviceNames.filter((_, i) =>
+        faltantes.includes(cita.serviceIds[i]!)
+      );
+      conflictos.push({ cita, motivo: `no atiende ${nombresFaltantes.join(", ")}` });
       continue;
     }
     const ocupado = await haySolapamiento({
@@ -1544,7 +1606,7 @@ export async function citasDelDia(
   if (!rango) return [];
   const [desdeUtc, hastaUtc] = rango;
   const db = getDb();
-  return db
+  const base = await db
     .select({
       id: schema.appointment.id,
       serviceName: schema.service.name,
@@ -1575,6 +1637,16 @@ export async function citasDelDia(
       )
     )
     .orderBy(asc(schema.appointment.startsAt));
+  const porCita = await serviciosDeCitas(
+    organizationId,
+    base.map((c) => c.id)
+  );
+  return base.map((c) => ({
+    ...c,
+    serviceNames: porCita.get(c.id)?.length
+      ? porCita.get(c.id)!.map((s) => s.name)
+      : [c.serviceName],
+  }));
 }
 
 /**

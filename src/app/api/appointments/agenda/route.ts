@@ -82,7 +82,7 @@ function resumirCita(c: CitaDeAgenda) {
   return {
     id: c.id,
     clienta: c.contactName,
-    servicio: c.serviceName,
+    servicio: (c.serviceNames.length ? c.serviceNames : [c.serviceName]).join(" + "),
     fecha,
     hora: horaAAmPm(hora),
   };
@@ -117,10 +117,13 @@ async function avisarACadaClienta(
 
   for (const cita of resultado.aplicadas) {
     const { fecha, hora } = utcAFechaHoraBogota(cita.startsAt);
+    const nombreVisita = (cita.serviceNames.length ? cita.serviceNames : [cita.serviceName]).join(
+      " + "
+    );
     const texto =
       tipo === "cancelada"
-        ? `¡Hola! 👋 Lamentamos avisarte que tuvimos que cancelar tu cita de *${cita.serviceName}* del ${fecha} a las ${horaAAmPm(hora)}. Escríbenos por aquí y la reagendamos cuando te quede bien. ¡Disculpa las molestias!`
-        : `¡Hola! 👋 Un cambio en tu cita de *${cita.serviceName}* del ${fecha} a las ${horaAAmPm(hora)}: te atenderá otra persona del equipo, a la misma hora. Si prefieres cambiarla, escríbenos por aquí. ¡Te esperamos!`;
+        ? `¡Hola! 👋 Lamentamos avisarte que tuvimos que cancelar tu cita de *${nombreVisita}* del ${fecha} a las ${horaAAmPm(hora)}. Escríbenos por aquí y la reagendamos cuando te quede bien. ¡Disculpa las molestias!`
+        : `¡Hola! 👋 Un cambio en tu cita de *${nombreVisita}* del ${fecha} a las ${horaAAmPm(hora)}: te atenderá otra persona del equipo, a la misma hora. Si prefieres cambiarla, escríbenos por aquí. ¡Te esperamos!`;
     try {
       const conversation = await getOrCreateConversation(organizationId, cita.contactId);
       await sendText({

@@ -12,6 +12,8 @@ import { CascadaAgenda } from "./cascada-agenda";
 type Appointment = {
   id: string;
   serviceName: string;
+  /** TODOS los servicios de la visita ("manos y pies" son dos), no solo el principal. */
+  serviceNames?: string[];
   staffName: string;
   contactName: string | null;
   contactPhone: string | null;
@@ -203,7 +205,7 @@ export function AppointmentsClient() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="flex items-center gap-2 font-medium">
-                        {a.serviceName}
+                        {(a.serviceNames?.length ? a.serviceNames : [a.serviceName]).join(" + ")}
                         <Badge variant={VARIANTE_ESTADO[a.status]}>{ETIQUETA_ESTADO[a.status]}</Badge>
                       </p>
                       <p className="text-xs text-muted-foreground">

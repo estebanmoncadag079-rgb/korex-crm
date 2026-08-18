@@ -6,7 +6,8 @@
 > Riesgos y lo que queda pendiente · Cómo revertir · §12 Ajustes tras la
 > auditoría (18-ago, mismo día) · §13 El calendario solo mostraba el
 > servicio principal (18-ago, primer cliente real) · §14 La cascada de
-> agenda solo comprobaba el servicio principal
+> agenda solo comprobaba el servicio principal · §15 "Ese horario ya está
+> ocupado" cuando en realidad no cabía antes del cierre
 
 **18-ago-2026.** Cierre del paso 4 auditado el 17-ago en
 [88-AUDITORIA-SELECCION-MULTIPLE.md](88-AUDITORIA-SELECCION-MULTIPLE.md):
@@ -501,3 +502,63 @@ comprobar solo `cita.serviceId`, quitar `serviceIds`/`serviceNames` de
 `CitaDeAgenda`, y en `route.ts` volver a `c.serviceName` en `resumirCita`
 y `avisarACadaClienta`. El cambio de forma de `serviciosDeCitas` (de
 `string[]` a `{id,name}[]`) solo se revierte si nada más lo sigue usando.
+
+---
+
+## 15 · "Ese horario ya está ocupado" cuando en realidad no cabía antes del cierre
+
+**Reportado por el dueño el mismo día**, con capturas: desde el panel
+("Nueva cita, por teléfono o en el local") intentó agendar "Press on"
+(120 min) con Laura a las 18:30 y salió *"Ese horario ya está ocupado
+para todas las que atienden ese servicio"* — con Laura visiblemente libre
+toda la tarde en el calendario de al lado.
+
+**Verificado contra la base antes de tocar nada**: el horario real de
+Lashes Valen es `09:30–18:30`. Un servicio de 120 min empezando a las
+18:30 terminaría a las 20:30, dos horas después de cerrar — **no había
+ningún error de disponibilidad**: la cita de verdad no cabe ese día a esa
+hora, sin importar quién esté libre. `crearCita`/`calcularDisponibilidad`
+lo rechazaron correctamente.
+
+**El problema real era el mensaje.** `crearCita` solo distingue dos
+motivos (`sin_cupo` | `fuera_de_horario`), y `fuera_de_horario` es
+exclusivamente sobre la FECHA (pasada, o un día que el negocio no
+atiende) — nunca sobre si un servicio largo cabe en lo que queda de
+jornada. Esa comprobación vive implícita dentro de
+`calcularDisponibilidad` (el slot ni se genera), así que del lado de
+afuera es indistinguible de "está todo ocupado". El mensaje genérico hizo
+parecer un bug lo que era aritmética correcta.
+
+### Arreglo
+
+- `ultimaHoraPosible(duracionMin, hours)` nueva en `appointments/logic.ts`
+  (función pura, sin BD): la última hora a la que puede EMPEZAR un
+  servicio de esa duración para terminar antes del cierre — `null` si ni
+  empezando a la apertura alcanza a caber ese día.
+- `POST /api/appointments` (el panel manual, el único que expone esto:
+  el agente por WhatsApp solo ofrece horas que ya salieron de
+  `disponibilidadReal`, así que nunca pide una imposible): cuando
+  `crearCita` devuelve `sin_cupo`, comprueba si la hora pedida es
+  posterior a `ultimaHoraPosible` y, si es así, cambia el mensaje a algo
+  concreto — *""Press on" dura 120 min y no alcanza a terminar antes de
+  que cierre el negocio (18:30). La última hora posible ese día es
+  16:30."* Si no es ese el caso, se queda el mensaje genérico de siempre
+  (sí es un choque real).
+
+### Pruebas
+
+`tests/unit/appointments-logic.test.ts`, 4 casos nuevos para
+`ultimaHoraPosible`: resta simple, un servicio que cabe justo empezando a
+la apertura, uno que ni así cabe (`null`), y horario ilegible (`null`).
+Sin prueba para la ruta (no existe cobertura previa de
+`/api/appointments/route.ts`, deuda preexistente, no ampliada aquí).
+
+**Gate**: `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm test` ✅
+**808 passed, 73 skipped (881)**.
+
+### Cómo revertir
+
+Independiente del resto: quitar `ultimaHoraPosible` de `logic.ts` y el
+bloque `noCabe`/`ultima` de `route.ts`, dejando el mensaje genérico de
+antes. No toca el cálculo de disponibilidad real en ningún punto — es
+puramente el texto que ve un humano.

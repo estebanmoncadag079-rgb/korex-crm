@@ -20,6 +20,7 @@ import {
   minAHora,
   normalizarFecha,
   rangoDelDiaUtc,
+  ultimaHoraPosible,
   utcAFechaHoraBogota,
   type ServiceRow,
 } from "@/server/appointments/logic";
@@ -326,5 +327,33 @@ describe("calcularDisponibilidad", () => {
     expect(unServicio["16:00"]).toEqual(["laura"]); // 45 min: cabe hasta las 16:00
     expect(dosServicios["16:00"]).toBeUndefined(); // 90 min: ya no cabe
     expect(dosServicios["15:30"]).toEqual(["laura"]); // pero sí hasta las 15:30
+  });
+});
+
+/**
+ * 18-ago-2026: un servicio de 120 min pedido a las 18:30, con el negocio
+ * cerrando a esa misma hora, devolvía "ese horario ya está ocupado" —
+ * indistinguible de un choque real, con la especialista libre toda la
+ * tarde. Esta función es la que permite decir la causa real.
+ */
+describe("ultimaHoraPosible", () => {
+  const HOURS = { open: "09:30", close: "18:30", days: "1,2,3,4,5,6" };
+
+  it("resta la duración del cierre", () => {
+    expect(ultimaHoraPosible(120, HOURS)).toBe("16:30");
+    expect(ultimaHoraPosible(30, HOURS)).toBe("18:00");
+  });
+
+  it("un servicio que dura exactamente hasta el cierre puede empezar al abrir", () => {
+    const cortoYLargo = { open: "09:00", close: "10:00", days: "1,2,3,4,5,6" };
+    expect(ultimaHoraPosible(60, cortoYLargo)).toBe("09:00");
+  });
+
+  it("un servicio más largo que la jornada entera no tiene hora posible", () => {
+    expect(ultimaHoraPosible(600, HOURS)).toBeNull();
+  });
+
+  it("con horario ilegible, no se puede calcular", () => {
+    expect(ultimaHoraPosible(60, { open: "9 AM", close: "tardecito", days: "1" })).toBeNull();
   });
 });

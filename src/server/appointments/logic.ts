@@ -343,6 +343,28 @@ export function rangoDelDiaUtc(fecha: string): [Date, Date] | null {
  * la agenda queda libre al minuto exacto en que se desocupa alguien, sin
  * esperar al siguiente redondeo de media hora.
  */
+/**
+ * La última hora a la que se puede EMPEZAR un servicio de esta duración para
+ * terminar antes del cierre — o `null` si el horario no se entiende.
+ *
+ * Existe para distinguir dos causas que `calcularDisponibilidad` funde en
+ * una sola ("no hay hueco a esa hora"): que de verdad esté todo ocupado, o
+ * que el servicio simplemente no quepa antes de cerrar. Caso real
+ * (18-ago-2026): un servicio de 120 min pedido a las 18:30 con el negocio
+ * cerrando a esa misma hora — Laura estaba libre toda la tarde, y el
+ * mensaje "ese horario ya está ocupado" hizo pensar que había un error,
+ * cuando la cita simplemente no cabía.
+ */
+export function ultimaHoraPosible(duracionMin: number, hours: BusinessHours): string | null {
+  const open = horaAMin(hours.open ?? "");
+  const close = horaAMin(hours.close ?? "");
+  if (open === null || close === null) return null;
+  const ultima = close - duracionMin;
+  // Antes de que abra tampoco es una hora posible: un servicio que ni
+  // empezando a la apertura alcanza a terminar no cabe ningún día.
+  return ultima >= open ? minAHora(ultima) : null;
+}
+
 export function calcularDisponibilidad(input: {
   recursoIds: string[];
   citas: CitaDelDia[];

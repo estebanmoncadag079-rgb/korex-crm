@@ -98,10 +98,19 @@ Y está escrita en el propio prompt del negocio:
 **La aritmética y la regla de negocio no son lo mismo, y las traté como si lo
 fueran.** Una migración puede deducir la primera; la segunda la dice el dueño.
 
+### Dónde se cambia
+
+**En el CRM: Catálogo → Grupos de opciones**, con el interruptor *permite
+repetir* de cada grupo ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)). Esa
+pantalla existe desde la tarde del 17-ago; antes, esto solo se podía tocar con el
+script de abajo.
+
 ### `pnpm repeticion`, la herramienta
 
-Existe porque **el CRM todavía no tiene esa casilla** (es el paso 3B). Es un
-puente: el día que exista en `/admin`, el script sobra y se borra.
+Se conserva **para el cambio en lote**: aplica a **todos** los productos que
+tengan un grupo con ese nombre —los cuatro `SALSA` de La Churra en un comando—,
+que es lo único que el CRM todavía no hace. Escribe por el mismo sitio y deja el
+mismo registro de cambios; lo único distinto es el `actor`.
 
 ```bash
 pnpm repeticion <org>                        # solo mira
@@ -162,7 +171,7 @@ Las adiciones no necesitan nada: ya dicen «opcionales», y de ahí sale `min = 
 
 | | Qué | Por qué en este sitio |
 |---|---|---|
-| **1** | `pnpm repeticion <org> SALSA --si --aplicar` | Independiente. No toca la ficha ni el prompt |
+| **1** | Los cuatro `SALSA` a **permite repetir** — en el CRM (cuatro interruptores) o `pnpm repeticion <org> SALSA --si --aplicar` (uno) | Independiente. No toca la ficha ni el prompt |
 | **2** | Corregir el chocolate y añadir `(elige 1)` en la ficha | **Antes** de sembrar: si no, las adiciones se cargarían como `Salsa de CHOCOLATE` y el recubierto con máximo 4 |
 | **3** | `pnpm cargar:opciones <org> --aplicar` | Lee la ficha ya corregida |
 | **4** | `pnpm regenerar:flota` | El prompt guardado se actualiza |
@@ -193,7 +202,7 @@ Y trae **dos cosas a la vez**:
 
 | Cambio | Cómo se vuelve atrás |
 |---|---|
-| La repetición | `pnpm repeticion <org> SALSA --no --aplicar` |
+| La repetición | El mismo interruptor del CRM, o `pnpm repeticion <org> SALSA --no --aplicar` |
 | La ficha | El registro de cambios guarda el valor anterior; se reescribe |
 | Las opciones cargadas | `DELETE` de los grupos nuevos — son `INSERT` aditivos, nada se pisó |
 | El prompt | `pnpm regenerar:flota` tras revertir la ficha |

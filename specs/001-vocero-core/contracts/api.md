@@ -19,6 +19,8 @@ Todas autenticadas por sesión Better Auth y scoped a la organización del usuar
 | `GET/PUT /api/agent/profile` | comportamiento + toggle global |
 | `GET/POST/PATCH/DELETE /api/kb(/:id)` | knowledge base CRUD |
 | `GET /api/kb/size` | tamaño estimado del KB (contador/aviso) |
+| `GET /api/catalogo/grupos` | grupos de opciones del catálogo: producto, grupo, mín/máx, nº de opciones disponibles y `permiteRepeticion` |
+| `PATCH /api/catalogo/grupos/:id` | `{ permiteRepeticion }` — cuerpo `.strict()`: cualquier otro campo → 422. 404 si el grupo no es de la organización (mismo 404 que si no existe) |
 | `POST /api/lab/runs` | lanzar corrida — 409 si hay una `running` |
 | `GET /api/lab/runs` / `GET /api/lab/runs/:id` | historial con delta / detalle+progreso |
 | `POST /api/lab/suggestions/apply` | `{ caseId, hallazgoIndex, pregunta, respuesta }` → crea kb_entry |

@@ -1,17 +1,25 @@
 /**
  * Consultar y cambiar si un grupo de opciones **admite repetir** la misma.
  *
- * **Por qué existe, y por qué es temporal.**
+ * ⚠️ **YA NO ES LA VÍA PRINCIPAL.** Desde el 17-ago-2026 esto se configura en el
+ * CRM: **Catálogo → Grupos de opciones**, con el interruptor "permite repetir"
+ * de cada grupo ([94](../docs/korexia/94-BITACORA-PERMITE-REPETICION-CRM.md)).
+ * Allí el cambio lo hace quien lleva el negocio, filtrado por su organización y
+ * sin acceso a la base.
+ *
+ * Este programa se conserva **solo como respaldo del operador**: cambiar de una
+ * vez todos los grupos que se llaman igual —"SALSA" en las cuatro
+ * presentaciones de La Churra— y ver el listado completo de una organización
+ * sin entrar a su cuenta. Escribe por el mismo sitio y deja el mismo registro
+ * de cambios que el CRM; lo único que cambia es el `actor`.
+ *
+ * **Está previsto borrarlo** cuando el CRM cubra también el cambio en lote.
  *
  * La regla vive en el catálogo desde el paso 3A (`product_option_group.
  * permite_repeticion`), que es donde tiene que estar: un Mega Box lleva cinco
  * salsas de cuatro sabores y solo se completa repitiendo; en un salón,
  * "esmaltado tradicional + tradicional" no significa nada. Lo decide cada
  * negocio, no el núcleo.
- *
- * Pero **el CRM todavía no tiene esa casilla** (es el paso 3B), así que hoy no
- * hay forma de cambiarla sin tocar la base. Este programa es ese puente: el día
- * que la casilla exista en `/admin`, esto sobra y se borra.
  *
  * La migración `0023` solo puso `true` donde la aritmética lo exigía
  * —`max_select > COUNT(opciones)`—, que resuelve el caso imposible pero **no la
@@ -31,10 +39,11 @@
  * cuatro. Sin `--aplicar` no se escribe nada.
  */
 import { readFileSync } from "node:fs";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
+import { repeticionObligatoria } from "@/lib/catalogo-repeticion";
 import { conRegistro } from "@/server/registro-de-cambios";
 
 function envVar(name: string): string | undefined {
@@ -109,10 +118,19 @@ async function main() {
 
   // Cuántas opciones tiene cada grupo: es lo que hace que un máximo sea
   // imposible de completar sin repetir.
+  //
+  // Solo las DISPONIBLES, igual que el CRM: es lo que ve el validador, así que
+  // es lo que decide si el máximo se alcanza. Contar una opción apagada diría
+  // "hay 4" mientras el agente ve 3.
   const opciones = await db
     .select({ groupId: schema.productOption.groupId })
     .from(schema.productOption)
-    .where(eq(schema.productOption.organizationId, orgId!));
+    .where(
+      and(
+        eq(schema.productOption.organizationId, orgId!),
+        eq(schema.productOption.available, true)
+      )
+    );
   const cuantas = (id: string) => opciones.filter((o) => o.groupId === id).length;
 
   console.log(`\n=== GRUPOS DE ${orgId} ===\n`);
@@ -120,8 +138,12 @@ async function main() {
     const n = cuantas(g.id);
     // Se marca el caso que NO se puede cerrar sin repetir: es aritmética, no
     // una preferencia, y con `permite_repeticion = false` el pedido más caro de
-    // un negocio se queda sin poder confirmarse.
-    const imposible = g.maximo > n ? "  ⛔ pide más de las que hay: SIN repetir no se puede cerrar" : "";
+    // un negocio se queda sin poder confirmarse. La cuenta es la MISMA que
+    // pinta el CRM (`lib/catalogo-repeticion.ts`): escrita dos veces, una de
+    // las dos se quedaría vieja.
+    const imposible = repeticionObligatoria({ maximo: g.maximo, opciones: n })
+      ? "  ⛔ pide más de las que hay: SIN repetir no se puede cerrar"
+      : "";
     console.log(
       `  ${nombreDe(g.productoId).padEnd(14)} · ${g.nombre.padEnd(12)} ` +
         `min=${g.minimo} max=${g.maximo} opciones=${n}  repite=${g.repite ? "SÍ" : "no"}${imposible}`

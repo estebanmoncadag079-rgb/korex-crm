@@ -321,7 +321,7 @@ negocios distintos con el mismo nombre.
 | | Qué | Coste | Desbloquea |
 |---|---|---|---|
 | **1** | **Alinear los nombres**: que la tabla y las `instructions` digan lo mismo, y cargar RECUBIERTO y ADICIONES | Datos, sin código | El encendido. Sin esto, nada más importa |
-| **2** | **`permite_repeticion = true` en los cuatro grupos SALSA** de La Churra | Un `UPDATE` | Que el negocio se comporte como decidió su dueño |
+| **2** | **`permite_repeticion = true` en los cuatro grupos SALSA** de La Churra | Un `UPDATE` — desde el 17-ago, **un interruptor en el CRM** ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)) | Que el negocio se comporte como decidió su dueño |
 | **3** | **Decidir si un pedido lleva varios productos** | Decisión, luego migración de `EstadoDelPedido` | El caso de la prueba real |
 | **4** | Un escenario del banco con el **catálogo real** | Prueba | Que 755 en verde signifique algo |
 | **5** | Que el flujo de preguntas de la ficha contemple **varios productos** | Ficha + prompt | Que deje de preguntar dos veces |

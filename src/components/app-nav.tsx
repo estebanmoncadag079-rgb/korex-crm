@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Inbox,
   Kanban,
+  ListTree,
   LogOut,
   Menu,
   Scissors,
@@ -40,6 +41,13 @@ const NAV_BASE = [
 const NAV_CITAS = [{ href: "/appointments", label: "Citas", icon: CalendarClock }] as const;
 const NAV_SERVICIOS = [{ href: "/services", label: "Servicios", icon: Scissors }] as const;
 
+/**
+ * La configuración del catálogo. Se ofrece a quien TIENE grupos de opciones
+ * cargados —no por vertical—: una churrería, un salón o un taller entran por la
+ * misma puerta, y a quien no tiene ninguno no se le enseña una pantalla vacía.
+ */
+const NAV_CATALOGO = [{ href: "/catalogo", label: "Catálogo", icon: ListTree }] as const;
+
 const NAV_AGENTE = [{ href: "/agent", label: "Agente", icon: Sparkles }] as const;
 /** Solo la agencia: cada corrida cuesta ~33 llamadas al modelo, que paga la agencia. */
 const NAV_LAB = [{ href: "/lab", label: "Laboratorio", icon: FlaskConical }] as const;
@@ -50,18 +58,21 @@ export function AppNav({
   role,
   isPlatformAdmin = false,
   appointmentsEnabled = false,
+  optionGroupsEnabled = false,
 }: {
   branding: Branding;
   userName: string;
   role: string;
   isPlatformAdmin?: boolean;
   appointmentsEnabled?: boolean;
+  optionGroupsEnabled?: boolean;
 }) {
   const NAV = [
     ...NAV_BASE,
     ...(appointmentsEnabled ? NAV_CITAS : []),
     ...NAV_AGENTE,
     ...(appointmentsEnabled ? NAV_SERVICIOS : []),
+    ...(optionGroupsEnabled ? NAV_CATALOGO : []),
     ...(isPlatformAdmin ? NAV_LAB : []),
   ];
   const pathname = usePathname();

@@ -131,6 +131,108 @@ Si la respuesta es no, el cambio debe rechazarse.
 
 ---
 
+### 6. Toda solicitud se clasifica antes de implementarse (18-ago-2026)
+
+Ninguna solicitud puede implementarse antes de responder:
+
+> ¿Esto es una configuración, una capacidad del vertical, una funcionalidad global o un cambio arquitectónico?
+
+Esa única pregunta evita la mayoría de los acoplamientos futuros. El
+desarrollo de la clasificación completa está en la sección siguiente.
+
+---
+
+## Clasificación obligatoria de toda solicitud
+
+Cualquier solicitud debe clasificarse en una de estas categorías, y solo
+después se implementa.
+
+**1. Configuración de un cliente.** Solo afecta a una empresa, como agregar
+una salsa en La Churra o un servicio en Lashes Valen. Se resuelve solo con
+configuración. No se toca el núcleo.
+
+**2. Capacidad reutilizable de un vertical.** Si algo puede servir para
+varios salones o varios restaurantes, se implementa como capacidad genérica
+y configurable para todo ese vertical — nunca para un solo cliente.
+
+**3. Capacidad global del CRM.** Cosas útiles para cualquier negocio: cupones,
+descuentos, horarios especiales, múltiples sedes. Deben ser configurables y
+opcionales, sin forzar a todos los clientes a usarlas.
+
+**4. Cambio arquitectónico.** Si la solicitud obliga a modificar cómo
+funciona la plataforma, antes de implementarse se debe responder:
+
+* ¿Qué problema resuelve?
+* ¿Por qué no puede resolverse con configuración?
+* ¿Afecta la compatibilidad con otros verticales?
+
+Si la respuesta a "¿a quién sirve?" es **"solo le sirve a este cliente"**, el
+cambio no se implementa inmediatamente.
+
+### ¿Es un dato o una capacidad?
+
+**Dato (configuración del cliente):**
+
+* Agregar una salsa a La Churra.
+* Agregar un pastel a Lis Pastelería.
+* Agregar un nuevo servicio a Lashes Valen.
+
+➡️ Se modifica el catálogo del cliente.
+
+**Capacidad (funcionalidad reutilizable):**
+
+* Combos de manos y pies.
+* Servicios que pueden agruparse.
+* Paquetes promocionales.
+* Múltiples profesionales para un mismo servicio.
+
+➡️ La pregunta obligatoria: **¿puede otro salón necesitar esto?** Si la
+respuesta es sí, deja de ser una configuración individual y pasa a ser una
+capacidad del vertical de citas.
+
+### ¿La solicitud pertenece al cliente, al vertical o al CRM?
+
+Clasificación obligatoria:
+
+| Tipo | Ejemplo | Acción |
+|---|---|---|
+| Cliente | Agregar una nueva salsa | Configuración |
+| Vertical | Combos de manicura y pedicura | Capacidad reutilizable |
+| CRM | Cupones o descuentos | Funcionalidad global |
+| Arquitectura | Cambiar el modelo de reservas | Auditoría obligatoria |
+
+### ¿Otro cliente podría necesitarlo mañana? — la pregunta más importante
+
+Ejemplo resuelto, para no repetir el error dos veces:
+
+**La Churra**: *"Quiero agregar una salsa de queso."* → Configuración. Se
+modifica el catálogo de ese cliente y nada más.
+
+**Lashes Valen**: *"Quiero vender un paquete de uñas y pies."* → **No se debe
+asumir que es una necesidad exclusiva de Lashes Valen.** La pregunta es:
+¿los paquetes pueden existir en otros salones? La respuesta es sí. Por tanto
+no se crea una solución específica para Lashes Valen — se crea una capacidad
+genérica (por ejemplo, "Paquetes de servicios") que cualquier salón del
+vertical de citas puede activar desde el CRM.
+
+### El árbol de decisión
+
+```
+¿Solo cambia el catálogo?
+  Sí → Configuración del cliente.
+
+¿La funcionalidad puede servir a otros negocios del mismo vertical?
+  Sí → Capacidad del vertical.
+
+¿La funcionalidad puede servir a cualquier negocio del CRM?
+  Sí → Funcionalidad global.
+
+¿La funcionalidad obliga a modificar el núcleo?
+  Sí → Detener la implementación. Realizar la auditoría del Paso 5.
+```
+
+---
+
 ## Procedimiento obligatorio antes de modificar cualquier cosa
 
 ### Paso 1
@@ -149,17 +251,21 @@ Ejemplos:
 
 ### Paso 2
 
-Clasifica el cambio.
+Clasifica el cambio en una de las cuatro categorías de la sección
+"Clasificación obligatoria de toda solicitud" (más abajo):
 
-¿Es?
+1. Configuración de un cliente.
+2. Capacidad reutilizable de un vertical.
+3. Capacidad global del CRM.
+4. Cambio arquitectónico.
 
-* Configuración.
+Y dentro de la categoría 1, de qué tipo de dato se trata:
+
 * Catálogo.
 * Requisito.
 * Recurso.
 * Reserva.
 * Política.
-* Cambio arquitectónico.
 
 ---
 
@@ -274,6 +380,38 @@ No se puede:
 * Modificar el núcleo para adaptarlo a la pastelería.
 
 La pastelería debe adaptarse mediante configuración.
+
+---
+
+### Capacidad reutilizable del vertical de citas (ejemplo)
+
+Se puede:
+
+* Combos de servicios (manos y pies, corte y barba).
+* Paquetes promocionales.
+* Múltiples profesionales para un mismo servicio.
+
+No se puede:
+
+* Implementarlo pensando solo en Lashes Valen. Si otro salón puede
+  necesitarlo, se construye como capacidad del vertical, configurable y
+  opcional, no como código específico de un cliente.
+
+---
+
+### Capacidades globales del CRM (para cualquier negocio)
+
+Ejemplos: cupones, descuentos, horarios especiales, múltiples sedes.
+
+Se puede:
+
+* Construirlas como funcionalidad del CRM, disponible para cualquier
+  vertical.
+
+No se puede:
+
+* Forzar a todos los clientes a usarlas. Deben ser configurables y
+  **opcionales** — un cliente que no las active no nota que existen.
 
 ---
 

@@ -137,9 +137,10 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | **1.5** | **`entrega` fuera del núcleo**: los requisitos los declara cada negocio | ✅ **hecho el 17-ago** ([81](81-REQUISITOS-DECLARATIVOS.md)) |
 | **2** | **Un solo dueño para el vertical** | ✅ **hecho el 17-ago** |
 | **3a** | `permiteRepeticion` + tipo de dominio común (`Ofrecible`). **Sin migración** | ✅ **hecho el 17-ago** ([82](82-EL-CATALOGO-AL-CRM.md)) |
+| **3a′** | **La casilla en el CRM**: `permiteRepeticion` se configura desde una pantalla, filtrada por organización, sin scripts. **Sin migración** | ✅ **hecho el 17-ago** ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)) |
 | **3.5** | **Blindar el modelo de la ficha**: una transformada nunca se persiste | ✅ **hecho el 17-ago** ([84](84-EL-MODELO-DE-LA-FICHA.md)) |
 | **3.6** | **SELECCIÓN MÚLTIPLE, EN LOS DOS VERTICALES.** No es «pedidos con varios productos»: es que ni pedidos ni citas saben sostener varios elementos, **en dos motores que no comparten código** | ✅ **hecho en los dos verticales**: pedidos el 17-ago ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md), [90](90-LA-CONDUCTA-EN-PLURAL.md)), citas el 18-ago ([97](97-BITACORA-RESERVA-MULTIPLE.md)) — auditado y decidido en [88](88-AUDITORIA-SELECCION-MULTIPLE.md) |
-| **3b** | **Grupos de opciones para `service`.** Primera migración con datos vivos | ⬜ |
+| **3b** | **Grupos de opciones para `service`.** Primera migración con datos vivos. La pantalla que los configurará **ya existe** (3a′); lo que falta es el modelo | ⬜ |
 | **4a** | Disponibilidad genérica (`recursoIds`), **sin tocar tablas** | ✅ **implementado el 18-ago** ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) |
 | **4b** | `resource` + `appointment_resource` y el solape movido. **La migración más cara del proyecto** | 🟡 **código listo, migración escrita y SIN ejecutar** ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) — falta el respaldo manual verificado y el despliegue del dueño |
 | **4c** | Horario por recurso | ⬜ dejado fuera a propósito: aditivo, sin caso de uso hoy |

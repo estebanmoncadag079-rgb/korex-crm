@@ -44,6 +44,31 @@ cada mañana sin que nadie la viera.
 5. **Verifica en vivo antes de darlo por hecho**; si algo quedó sin comprobar,
    dilo con esas palabras.
 
+## REGLAS DE ARQUITECTURA (no negociables, léelas ANTES de crear o editar nada)
+
+Ver **[REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md)** — la guía
+completa, con el procedimiento de auditoría obligatorio (Inventario → Hallazgos
+→ Impacto → Recomendación) y lo permitido/prohibido cliente por cliente.
+
+VOCERO no es un chatbot de un negocio: es una plataforma que incorpora
+negocios nuevos por **configuración desde el CRM**, nunca por código
+específico de un cliente. **Toda solicitud se clasifica antes de
+implementarse**, en una de cuatro categorías:
+
+1. **Configuración de un cliente** (una salsa, un servicio) → se toca su
+   catálogo, nunca el código.
+2. **Capacidad reutilizable de un vertical** (un combo, un paquete) → si
+   *otro* negocio del mismo vertical podría necesitarlo, se construye
+   genérico y configurable — nunca pensando en un solo cliente.
+3. **Capacidad global del CRM** (cupones, sedes) → configurable y
+   **opcional** para cualquier negocio.
+4. **Cambio arquitectónico** → se detiene y se audita antes de tocar nada; si
+   la respuesta es "solo le sirve a este cliente", no se implementa.
+
+El núcleo solo conoce: catálogo, selección, datos, estado, validación,
+confirmación, registro. Ni una salsa, ni un churro, ni una pestaña, ni un
+profesional como opción de catálogo (eso es recursos y reservas).
+
 ## Stack
 
 **Next.js 15 (App Router) + React 19** en monolito · TypeScript estricto
@@ -71,6 +96,7 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | Campos/tablas | `src/lib/db/schema.ts` → `pnpm db:generate` → migración nueva en `drizzle/` |
 | La ingesta/envío de mensajes | `src/server/inbox/` (ingest idempotente, send con guard de sandbox, ventana 24h) |
 | UI | `src/components/` + `src/app/(app)/` |
+| El catálogo de pedidos y su configuración desde el CRM | `src/server/catalog/` (lectura del agente en `queries.ts`, configuración en `grupos.ts`) · `src/app/api/catalogo/` · `src/app/(app)/catalogo/` |
 | El alta de clientes y el panel de agencia | `src/server/auth/provisioning.ts` · `src/server/admin/` · `src/app/api/admin/` · `src/app/(app)/admin/` |
 | Los respaldos de la base | `scripts/respaldo/` + guía operativa en [docs/respaldos.md](docs/respaldos.md) |
 

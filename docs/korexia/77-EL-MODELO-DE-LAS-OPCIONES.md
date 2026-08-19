@@ -140,6 +140,15 @@ Por honestidad, porque no todo es lo mismo:
 
 ## Qué haría falta (no implementado, no propuesto para hoy)
 
+> ⚠️ **Actualizado el 17-ago-2026: esto YA SE HIZO.** `seleccion` es hoy una
+> lista de `{ grupoId, grupoNombre, opcionId, nombre, precioDeltaCents }` en
+> `orders/normalizar.ts`, y el contrato del estado pasó a `items[]`
+> ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md)). Lo que sigue se conserva como el
+> razonamiento que lo justificó, no como trabajo pendiente. La regla de
+> **repetir** que aquí se menciona vive desde entonces en el catálogo
+> (`permiteRepeticion`) y se configura desde el CRM
+> ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)).
+
 El cambio pequeño que quita el 80 % del filo, si se decidiera hacerlo:
 
 ```ts

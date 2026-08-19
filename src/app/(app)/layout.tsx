@@ -4,6 +4,7 @@ import { getAuth } from "@/lib/auth";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { getBranding } from "@/server/branding";
 import { appointmentsEnabledFor } from "@/server/appointments/queries";
+import { hayGruposDeOpciones } from "@/server/catalog/grupos";
 import { AppNav } from "@/components/app-nav";
 import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
 
@@ -14,6 +15,9 @@ export default async function AppLayout({
   if (!session) redirect("/login");
   const branding = await getBranding(session.organizationId);
   const appointmentsEnabled = await appointmentsEnabledFor(session.organizationId);
+  // Quien tiene grupos de opciones tiene dónde configurarlos. Es una pregunta
+  // sobre SUS datos, no sobre su vertical.
+  const optionGroupsEnabled = await hayGruposDeOpciones(session.organizationId);
   const authSession = await getAuth().api.getSession({
     headers: await headers(),
   });
@@ -33,6 +37,7 @@ export default async function AppLayout({
         role={session.role}
         isPlatformAdmin={session.platformRole === "superadmin"}
         appointmentsEnabled={appointmentsEnabled}
+        optionGroupsEnabled={optionGroupsEnabled}
       />
       {/* `pt-12` compensa la barra superior fija de móvil que dibuja AppNav
           (h-12); en escritorio no existe y el contenido vuelve arriba del todo. */}

@@ -35,6 +35,7 @@ export async function cargarConBaseDePruebas() {
   const generador = await import("@/server/ai/generador/aplicar");
   const catalogo = await import("@/server/catalog/sembrar");
   const catalogoQueries = await import("@/server/catalog/queries");
+  const catalogoGrupos = await import("@/server/catalog/grupos");
   const catalogoRender = await import("@/server/catalog/render");
   return {
     ...db,
@@ -46,6 +47,7 @@ export async function cargarConBaseDePruebas() {
     generador,
     catalogo,
     catalogoQueries,
+    catalogoGrupos,
     catalogoRender,
   };
 }

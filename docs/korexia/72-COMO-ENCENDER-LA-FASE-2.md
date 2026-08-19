@@ -74,7 +74,7 @@ Verificado en producción hoy:
 | 4 | ✅ **`pnpm probar:estado`** — 41 comprobaciones, dos clientes efímeros, los dos verticales ([85](85-PROBAR-ESTADO.md)) | P (efímero) |
 | **3.6** | 🛑 **PEDIDO MULTIPRODUCTO** — auditado en [87](87-PEDIDOS-MULTIPRODUCTO.md), **sin decidir**. Bloquea todo lo de abajo | — |
 | 4.1 | 🔴 **Alinear los nombres del catálogo con el prompt** de La Churra, y cargar `RECUBIERTO` y `ADICIONES`. Hoy la tabla dice `chocolate negro` y el prompt `CHOCOLATE`: toda propuesta con «chocolate» se rechazaría ([86](86-DOS-PRODUCTOS-EN-UN-PEDIDO.md)) | **P** |
-| 4.2 | 🔴 **`permite_repeticion = true`** en los cuatro grupos `SALSA`. La migración 0023 solo arregló el Mega Box: era aritmética, y la regla es del negocio | **P** |
+| 4.2 | 🔴 **`permite_repeticion = true`** en los cuatro grupos `SALSA`. La migración 0023 solo arregló el Mega Box: era aritmética, y la regla es del negocio. **Desde el 17-ago se hace en el CRM** (Catálogo → Grupos de opciones, [94](94-BITACORA-PERMITE-REPETICION-CRM.md)); `pnpm repeticion <org> SALSA --si --aplicar` sigue siendo lo más corto para los cuatro de una vez | **P** |
 | 5 | **La medición de la regla 13, UNA sola vez**, con los cambios de prompt dentro. Comparar con la línea base del 15-ago | P (lectura + llamadas al modelo) |
 | 6 | **Un banco de escenarios de pedidos** — el actual está escrito con los productos de Lis, y **ninguno de los 26 pide dos productos** | L + P |
 | 7 | **Encender en un cliente efímero** y recorrer un pedido entero | P (efímero) |

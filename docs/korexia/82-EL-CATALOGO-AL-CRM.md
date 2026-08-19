@@ -169,8 +169,12 @@ resueltas: `datos` desde el paso 1.5, `recurso` en el paso 4.
 - **El parser del texto de la ficha**: traduce lo que escribió un negocio
   concreto. Su trabajo es entender a un humano, no ser genérico.
 - **Los dos cierres de la conducta**: ya separados el 13-ago y funcionando.
-- **La pantalla de catálogo** (que no existe): cuando exista, será una por
-  vertical o una con dos modos — pero eso se decide viéndola, no antes.
+- **La pantalla de catálogo**: cuando exista entera, será una por vertical o una
+  con dos modos — pero eso se decide viéndola, no antes. ⚠️ **Actualizado el
+  17-ago por la tarde**: ya existe su primera pieza —los grupos de opciones y su
+  `permiteRepeticion`— y es **una sola pantalla para todos los verticales**
+  ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)). Lo que decidió a quién se le
+  ofrece no fue el vertical: fue **qué tiene cargado** cada negocio.
 
 ---
 
@@ -182,6 +186,11 @@ resueltas: `datos` desde el paso 1.5, `recurso` en el paso 4.
 |---|---|---|
 | **3a** | `permiteRepeticion` en el grupo + unificar el tipo de dominio a `Ofrecible` + `catalogoDe()` por vertical | **Una migración aditiva** (ver corrección abajo) |
 | **3b** | Grupos de opciones para `service` | **Migración de esquema.** La primera que toca datos vivos |
+
+> **Estado al cierre del 17-ago**: 3a está hecho, y del 3b se ha hecho **la parte
+> que no lleva migración** — la pantalla del CRM que configura `permiteRepeticion`
+> ([94](94-BITACORA-PERMITE-REPETICION-CRM.md)). Sigue pendiente lo caro: que
+> `service` tenga grupos, y editar mínimos, máximos y opciones desde el CRM.
 
 El motivo de partirlo no es la prudencia: es que **3a se puede revertir con un
 `git revert` y 3b no**. Y 3b, además, se beneficia de que 3a esté hecho antes —

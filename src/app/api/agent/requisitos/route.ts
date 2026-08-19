@@ -77,9 +77,14 @@ export const PATCH = withAuth(async (session, req: Request) => {
   // Sección `flujo`, no `negocio`: nunca choca con lo que el cliente responde
   // en su cuestionario (leer-ficha.ts:42, aplicar.ts "NADIE sobrescribe el
   // objeto entero").
+  //
+  // `...fichaActual.cierre` conserva `pagoAntesDeLaCita`: son dos pantallas
+  // distintas escribiendo dentro de la MISMA sección (`flujo.cierre`), y sin
+  // el spread esta pantalla borraría lo que guardó la otra
+  // (docs/korexia/107-PAGO-ANTES-DE-LA-CITA.md).
   await aplicarFicha(
     session.organizationId,
-    { ...fichaActual, cierre: { requisitos } } as FichaDelNegocio,
+    { ...fichaActual, cierre: { ...fichaActual.cierre, requisitos } } as FichaDelNegocio,
     { puedeEscribir: ["flujo"], actor: `user:${session.userId}` }
   );
 

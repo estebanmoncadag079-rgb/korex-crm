@@ -628,6 +628,44 @@ function requisitosParaElPrompt(
   ].join("\n");
 }
 
+/**
+ * Si este negocio de citas cobra por adelantado al confirmar, y con qué
+ * datos — decidido por el SERVIDOR, nunca por el modelo (19-ago-2026,
+ * docs/korexia/107-PAGO-ANTES-DE-LA-CITA.md).
+ *
+ * Antes de esto, `CIERRE_CITAS` (universal, en `conducta.ts`) dejaba la
+ * condición abierta —"si el negocio cobra algo por adelantado, dilo"— y el
+ * modelo la resolvía solo con que hubiera datos de pago en su conocimiento,
+ * que es casi cualquier negocio, cobre antes o no. Caso real: Lashes Valen
+ * NO cobra por adelantado y el agente pedía NEQUI + comprobante igual, en
+ * el mismo mensaje de confirmación, sin que la clienta lo preguntara.
+ *
+ * Siempre presente cuando hay vertical de citas (nunca `null`): la
+ * instrucción tiene que ser categórica en los dos sentidos, no solo cuando
+ * SÍ cobra — dejarlo en blanco es lo que producía la ambigüedad original.
+ */
+export function pagoDeCitasParaElPrompt(
+  pago: { formas: string; datosDeCuenta?: string } | undefined,
+  antes: boolean
+): string {
+  if (!antes) {
+    return [
+      "PAGO AL CONFIRMAR UNA CITA:",
+      "Este negocio NO pide pago por adelantado. Al confirmar una cita, NO",
+      "menciones formas de pago, cuentas ni pidas ningún comprobante — la",
+      "conversación termina en la confirmación. Si el cliente pregunta cómo se",
+      "paga, dile la forma pero deja claro que no hace falta pagar antes.",
+    ].join("\n");
+  }
+  const datos = pago?.datosDeCuenta ? `: ${pago.datosDeCuenta}` : "";
+  return [
+    "PAGO AL CONFIRMAR UNA CITA:",
+    `Este negocio SÍ pide el pago por adelantado, por ${pago?.formas ?? "la forma que tiene declarada"}${datos}.`,
+    "En el MISMO mensaje donde confirmas la cita, dilo y pide el comprobante",
+    "para dejarla en firme.",
+  ].join("\n");
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
@@ -662,6 +700,12 @@ export function buildAgentSystemPrompt(input: {
    * no lo han declarado todavía (ver docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md).
    */
   requisitos?: { id: string; etiqueta: string; obligatorio: boolean }[];
+  /**
+   * Si este negocio de citas cobra por adelantado al confirmar, y con qué
+   * datos. Presente solo cuando `input.appointments` lo está — en pedidos el
+   * pago lo maneja `CIERRE`, de otra forma.
+   */
+  pagoDeCitas?: { pago?: { formas: string; datosDeCuenta?: string }; antes: boolean };
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -697,6 +741,9 @@ export function buildAgentSystemPrompt(input: {
     `Etapas del pipeline disponibles: ${stageNames}`,
     fotosDisponibles(input.fotos),
     requisitosParaElPrompt(input.requisitos),
+    input.pagoDeCitas
+      ? pagoDeCitasParaElPrompt(input.pagoDeCitas.pago, input.pagoDeCitas.antes)
+      : null,
     CONTRATO_DE_ACCIONES,
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.

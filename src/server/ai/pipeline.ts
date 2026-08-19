@@ -57,7 +57,12 @@ import {
 import { MAX_ITEMS } from "@/server/orders/normalizar";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
-import { requisitosDe, type FichaDelNegocio, type Requisito } from "@/server/ai/generador/ficha";
+import {
+  pagoAntesDeLaCitaDe,
+  requisitosDe,
+  type FichaDelNegocio,
+  type Requisito,
+} from "@/server/ai/generador/ficha";
 import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
@@ -607,6 +612,18 @@ export async function runAgentTurn(
   const requisitos: Requisito[] | undefined = fichaDelNegocio
     ? requisitosDe(fichaDelNegocio as FichaDelNegocio)
     : undefined;
+  /**
+   * Igual que `requisitos`: se calcula siempre que haya ficha, sin depender
+   * de la Fase 2. Solo se usa si el vertical es citas — en pedidos el pago
+   * lo maneja `CIERRE`, de otra forma (docs/korexia/107-PAGO-ANTES-DE-LA-CITA.md).
+   */
+  const pagoDeCitas =
+    contrataCitas(vertical) && fichaDelNegocio
+      ? {
+          pago: (fichaDelNegocio as FichaDelNegocio).pago,
+          antes: pagoAntesDeLaCitaDe(fichaDelNegocio as FichaDelNegocio),
+        }
+      : undefined;
 
   if (estadoEstructurado) {
     const productos = await catalogoDe(organizationId, vertical);
@@ -651,6 +668,7 @@ export async function runAgentTurn(
         estadoDelPedido: bloqueDeEstado,
         fotos,
         requisitos,
+        pagoDeCitas,
       }),
     },
     ...toChatHistory(history, estado),

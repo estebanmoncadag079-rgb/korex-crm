@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { AprendizajeSection } from "@/components/agent/aprendizaje-section";
 import { EntrenamientoCard } from "@/components/agent/entrenamiento-card";
 import { RequisitosSection } from "@/components/agent/requisitos-section";
+import { PagoCitasSection } from "@/components/agent/pago-citas-section";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -135,6 +136,7 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
         <ProfileSection profile={profile} onSave={saveProfile} />
         <KbSection entries={entries} kbSize={kbSize} onChanged={() => void refetch()} />
         <RequisitosSection />
+        <PagoCitasSection />
         {esAgencia && (
           <div className="lg:col-span-2">
             <AprendizajeSection onAprendido={() => void refetch()} />

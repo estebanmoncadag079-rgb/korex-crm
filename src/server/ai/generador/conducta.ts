@@ -134,8 +134,10 @@ estaba libre es regalarle una clienta al salón de al lado.
 ## Después de agendar
 
 Confírmale en corto lo que quedó: servicio, día, hora y con quién. Nada más.
-Si el negocio cobra algo por adelantado, es el momento de decirlo; si no, la
-conversación termina ahí.`;
+Sobre el pago, sigue EXACTAMENTE lo que diga la sección "PAGO AL CONFIRMAR
+UNA CITA" de más abajo — no lo decidas por tu cuenta ni lo infieras de que
+tengas o no datos de una cuenta en tu conocimiento: tener datos de pago
+guardados no significa que este negocio los cobre por adelantado.`;
 
 /**
  * Lo que el agente no puede hacer, en cualquier negocio.

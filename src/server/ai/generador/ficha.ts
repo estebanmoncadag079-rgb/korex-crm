@@ -133,8 +133,14 @@ export type FichaDelNegocio = {
    * 17-ago-2026 no lo traen, y reescribir sus fichas para desplegar una
    * refactorización sería tocar datos de producción por comodidad. Cuando falta,
    * `requisitosDe()` devuelve los de su vertical.
+   *
+   * `pagoAntesDeLaCita` (19-ago-2026, docs/korexia/107-PAGO-ANTES-DE-LA-CITA.md):
+   * solo aplica a `citas`. Ausente o `false` = el agente NUNCA pide pago al
+   * confirmar. Vive aquí, y no en `pago` de más abajo, por la misma razón que
+   * los requisitos: `pago` está en la sección `negocio` que el cuestionario
+   * del cliente reescribe cada vez que se reenvía, y pisaría este interruptor.
    */
-  cierre?: { requisitos: Requisito[] };
+  cierre?: { requisitos: Requisito[]; pagoAntesDeLaCita?: boolean };
 
   // ── 2. Qué ofrece y a qué precio ───────────────────────────────────────────
   /**
@@ -288,6 +294,17 @@ export function requisitosDe(ficha: FichaDelNegocio): Requisito[] | undefined {
   const declarados = ficha.cierre?.requisitos;
   if (!declarados) return undefined;
   return declarados.filter((r) => aplica(r, ficha));
+}
+
+/**
+ * ¿Este negocio pide el pago por adelantado al confirmar una cita?
+ *
+ * Único lugar que lee el dato: no declarado es lo mismo que `false` — el
+ * agente NUNCA menciona el pago al agendar salvo que el negocio lo haya
+ * encendido explícitamente aquí (docs/korexia/107-PAGO-ANTES-DE-LA-CITA.md).
+ */
+export function pagoAntesDeLaCitaDe(ficha: FichaDelNegocio): boolean {
+  return ficha.cierre?.pagoAntesDeLaCita === true;
 }
 
 /**

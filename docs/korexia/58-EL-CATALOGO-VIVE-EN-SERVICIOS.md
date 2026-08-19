@@ -76,3 +76,55 @@ Dos trampas que costaron sangre y quedaron cubiertas con pruebas:
 - La pantalla manda **las filas ya revisadas**, no un texto reconstruido. La
   primera versión metía la categoría en el nombre (`Volumen Ruso [Pestañas]`),
   que no casa con nada guardado: habría duplicado el catálogo entero.
+
+---
+
+## Categorías: un desplegable, no texto libre (18-ago-2026)
+
+**El campo "Categoría" era un cuadro de texto vacío**, y el texto libre en un
+catálogo degenera siempre igual: `Pestañas`, `pestañas` y `PESTAÑAS` conviviendo
+como tres categorías distintas. Ahora es un **desplegable** con las que el
+negocio ya usa, más `+ Nueva categoría…` para crear una — reutilizar es lo
+fácil, crear es lo deliberado.
+
+Y encima de la lista de servicios hay un panel de **Categorías** que permite
+**renombrar** y **eliminar**, con el número de servicios de cada una.
+
+> **No hay botón de "crear" ahí, y no es un olvido.** Una categoría **no es una
+> entidad**: no tiene tabla. Es el valor que comparten varios servicios, y
+> nace cuando el primero la usa. Una categoría vacía no se podría mostrar ni
+> agruparía nada. Guardarlas aparte obligaría a sincronizar dos fuentes y a
+> decidir qué hacer con las que ya no usa nadie — el problema del dueño por
+> dato que este proyecto ya pagó ([68](68-UN-DUENO-POR-DATO.md)). Lo derivado
+> se recompila: la lista sale de los servicios, siempre.
+
+**Eliminar una categoría deja sus servicios sin categoría. Nunca borra un
+servicio** — y se avisa con el número exacto antes de hacerlo, porque un
+catálogo de 46 no se revisa a ojo después. Renombrar y eliminar son la misma
+operación (`PATCH /api/services/categorias`, con `hasta: null` para eliminar) y
+va **en lote**: hacerlo servicio por servicio desde el navegador serían decenas
+de peticiones que pueden fallar a medias y dejar media categoría renombrada.
+
+Una prueba encontró un fallo al escribirlas: la lista se quedaba con la
+**última** forma en que aparecía escrita una categoría, no con la primera. Con
+las filas en otro orden, el desplegable cambiaba solo.
+
+## Los servicios de una persona se guardan, ya no al tocar
+
+**Cada casilla de la matriz guardaba sola, al instante.** Con 46 servicios
+juntos, un clic de más —o un roce en el móvil— asignaba un servicio a alguien
+que no lo hace, sin aviso y sin forma de deshacerlo. Y **el agente agenda con
+esa matriz**: una casilla marcada por error manda una clienta con la
+especialista equivocada.
+
+Ahora hay **Editar servicios → Guardar / Cancelar**. Mientras se edita aparece
+*"Sin guardar"*, y `Guardar` está apagado si no hay ningún cambio. Al volver a
+entrar se parte siempre de lo guardado, no de lo que se canceló.
+
+De paso, **en reposo se muestran solo los servicios que sí atiende**: la lista
+completa con casi todo desmarcado ocupaba media pantalla por persona y no había
+forma de leer de un vistazo qué hace cada quien.
+
+**Cómo revertir**: `git revert` del commit. No toca esquema, ni datos, ni el
+agente — es la pantalla. Los datos que escribe son los mismos de antes
+(`service.category` y `staff_service`).

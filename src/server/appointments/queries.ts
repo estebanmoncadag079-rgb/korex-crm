@@ -245,6 +245,41 @@ export async function updateService(
 }
 
 /**
+ * Renombra una categoría en TODOS los servicios que la usan, o la quita si
+ * `hasta` es `null`.
+ *
+ * Es una sola operación porque renombrar y eliminar son lo mismo visto de
+ * cerca: una categoría no existe por sí sola —no hay tabla— sino como el valor
+ * que comparten varios servicios. Borrarla es dejar a esos servicios sin
+ * categoría; nunca borra un servicio.
+ *
+ * Va en lote y no servicio por servicio a propósito: con 46 servicios, hacerlo
+ * desde el navegador serían decenas de peticiones que pueden fallar a medias y
+ * dejar media categoría renombrada.
+ *
+ * Devuelve cuántos servicios cambiaron, para poder decírselo a quien lo pidió.
+ */
+export async function renombrarCategoria(
+  organizationId: string,
+  desde: string,
+  hasta: string | null
+): Promise<number> {
+  const db = getDb();
+  const filas = await db
+    .update(schema.service)
+    .set({ category: hasta, updatedAt: new Date() })
+    .where(
+      scoped(
+        schema.service.organizationId,
+        organizationId,
+        eq(schema.service.category, desde)
+      )
+    )
+    .returning({ id: schema.service.id });
+  return filas.length;
+}
+
+/**
  * El mismo filtro, para los ids de personal: quién atiende un servicio no
  * puede acabar apuntando a la especialista de otro cliente.
  */

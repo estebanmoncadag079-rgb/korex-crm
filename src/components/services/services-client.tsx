@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { ImportarCatalogo } from "@/components/services/importar-catalogo";
+
+/** Marcador del desplegable para escribir una categoría que todavía no existe. */
+const NUEVA = "__nueva__";
 
 type Service = {
   id: string;
@@ -180,6 +184,7 @@ function ServicesSection({
 
   const activos = services.filter((s) => !s.archivedAt);
   const archivados = services.filter((s) => s.archivedAt);
+  const categorias = categoriasDe(services);
 
   return (
     <Card>
@@ -188,11 +193,13 @@ function ServicesSection({
         <CardDescription>Nombre, precio y duración: de ahí calcula el agente la disponibilidad real.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <CategoriasSection services={services} onChanged={onChanged} />
+
         <div className="space-y-2 rounded-md border p-3">
           <p className="text-sm font-medium">Nuevo servicio</p>
           <div className="grid gap-2 sm:grid-cols-2">
             <Input placeholder="Nombre (p. ej. Semipermanente)" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Categoría (opcional)" value={category} onChange={(e) => setCategory(e.target.value)} />
+            <SelectorDeCategoria valor={category} categorias={categorias} onChange={setCategory} />
             <Input placeholder="Precio en COP (p. ej. 40000)" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} />
             <Input placeholder="Duración en minutos (p. ej. 45)" inputMode="numeric" value={duration} onChange={(e) => setDuration(e.target.value)} />
           </div>
@@ -207,7 +214,7 @@ function ServicesSection({
             <p className="text-sm text-muted-foreground">Todavía no hay servicios.</p>
           )}
           {activos.map((s) => (
-            <ServiceRow key={s.id} service={s} onChanged={onChanged} />
+            <ServiceRow key={s.id} service={s} categorias={categorias} onChanged={onChanged} />
           ))}
         </div>
 
@@ -218,7 +225,7 @@ function ServicesSection({
             </summary>
             <div className="mt-2 space-y-2">
               {archivados.map((s) => (
-                <ServiceRow key={s.id} service={s} onChanged={onChanged} />
+                <ServiceRow key={s.id} service={s} categorias={categorias} onChanged={onChanged} />
               ))}
             </div>
           </details>
@@ -228,7 +235,15 @@ function ServicesSection({
   );
 }
 
-function ServiceRow({ service, onChanged }: { service: Service; onChanged: () => void }) {
+function ServiceRow({
+  service,
+  categorias,
+  onChanged,
+}: {
+  service: Service;
+  categorias: string[];
+  onChanged: () => void;
+}) {
   const [editando, setEditando] = useState(false);
 
   async function archivar(archived: boolean) {
@@ -244,6 +259,7 @@ function ServiceRow({ service, onChanged }: { service: Service; onChanged: () =>
     return (
       <ServiceEditor
         service={service}
+        categorias={categorias}
         onCancelar={() => setEditando(false)}
         onGuardado={() => {
           setEditando(false);
@@ -299,12 +315,240 @@ function ServiceRow({ service, onChanged }: { service: Service; onChanged: () =>
  * la base de datos. Con un cliente se aguanta; con veinticinco negocios
  * cambiando precios, cada cambio pasaba por la agencia.
  */
+/**
+ * Las categorías que el negocio usa ahora mismo, sacadas de sus propios
+ * servicios.
+ *
+ * NO hay tabla de categorías, y es deliberado: una categoría no es una entidad
+ * con vida propia, es **cómo el negocio agrupa lo que vende**. Guardarla aparte
+ * obligaría a mantener dos fuentes sincronizadas y a decidir qué pasa con una
+ * categoría que ya no usa nadie — el problema del "dueño por dato" que este
+ * proyecto ya pagó una vez (docs/korexia/68-UN-DUENO-POR-DATO.md). Aquí lo
+ * derivado se recompila: la lista sale de los servicios, siempre.
+ *
+ * Se incluyen las de los archivados a propósito: si se reactiva uno, su
+ * categoría no debe aparecer de la nada como si fuera nueva.
+ */
+export function categoriasDe(services: Service[]): string[] {
+  const vistas = new Map<string, string>();
+  for (const s of services) {
+    const c = s.category?.trim();
+    // Gana la PRIMERA forma en que se escribió, no la última: si el catálogo
+    // trae "Pestañas" y "PESTAÑAS", la lista debe quedarse con una sola y con
+    // la que el negocio escribió primero — no con la que quedó de última por
+    // el orden en que vinieron las filas.
+    if (c && !vistas.has(c.toLowerCase())) vistas.set(c.toLowerCase(), c);
+  }
+  return [...vistas.values()].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+/**
+ * Ver, renombrar y eliminar las categorías del catálogo.
+ *
+ * No hay "crear" y no es un olvido: **una categoría nace cuando un servicio la
+ * usa**. Una categoría vacía no se podría mostrar en ningún sitio ni serviría
+ * para agrupar nada, así que se crea desde el desplegable de un servicio
+ * ("+ Nueva categoría…"), que es donde tiene sentido.
+ *
+ * Eliminar deja a esos servicios **sin categoría**; no borra ningún servicio.
+ * Se avisa con el número exacto porque un catálogo de 46 servicios no se revisa
+ * a ojo después.
+ */
+function CategoriasSection({
+  services,
+  onChanged,
+}: {
+  services: Service[];
+  onChanged: () => void;
+}) {
+  const [editando, setEditando] = useState<string | null>(null);
+  const [nombre, setNombre] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const categorias = categoriasDe(services);
+  const cuantos = (c: string) =>
+    services.filter((s) => s.category?.trim().toLowerCase() === c.toLowerCase()).length;
+
+  async function aplicar(desde: string, hasta: string | null) {
+    setOcupado(true);
+    setError(null);
+    const res = await fetch("/api/services/categorias", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ desde, hasta }),
+    }).catch(() => null);
+    setOcupado(false);
+    if (!res?.ok) {
+      setError("No se pudo cambiar la categoría.");
+      return;
+    }
+    setEditando(null);
+    setNombre("");
+    onChanged();
+  }
+
+  if (categorias.length === 0) return null;
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm font-medium">Categorías</p>
+      <p className="text-xs text-muted-foreground">
+        Se crean al asignarlas a un servicio. Eliminar una deja sus servicios sin
+        categoría — no borra ningún servicio.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {categorias.map((c) =>
+          editando === c ? (
+            <div key={c} className="flex items-center gap-1.5">
+              <Input
+                aria-label={`Nuevo nombre para ${c}`}
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                className="h-8 w-44"
+                autoFocus
+              />
+              <Button
+                size="sm"
+                disabled={ocupado || !nombre.trim()}
+                onClick={() => void aplicar(c, nombre.trim())}
+              >
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setEditando(null)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <span
+              key={c}
+              className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
+            >
+              {c}
+              <span className="text-muted-foreground">({cuantos(c)})</span>
+              <button
+                type="button"
+                aria-label={`Renombrar ${c}`}
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setEditando(c);
+                  setNombre(c);
+                }}
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Eliminar ${c}`}
+                disabled={ocupado}
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => {
+                  const n = cuantos(c);
+                  if (
+                    confirm(
+                      `¿Eliminar la categoría "${c}"?\n\n${n} servicio(s) se quedarán sin categoría. No se borra ningún servicio.`
+                    )
+                  ) {
+                    void aplicar(c, null);
+                  }
+                }}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </span>
+          )
+        )}
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * Elegir una categoría de las que ya existen, o escribir una nueva.
+ *
+ * Antes era un campo de texto libre, y el texto libre en un catálogo termina
+ * igual siempre: "Pestañas", "pestañas" y "Pestaña" como tres categorías
+ * distintas. El desplegable hace que reutilizar sea lo fácil y crear sea lo
+ * deliberado.
+ */
+function SelectorDeCategoria({
+  valor,
+  categorias,
+  onChange,
+  id,
+}: {
+  valor: string;
+  categorias: string[];
+  onChange: (v: string) => void;
+  id?: string;
+}) {
+  // Escribiendo una nueva: o lo pidió explícitamente, o el valor que trae no
+  // está entre las existentes (un servicio importado, por ejemplo).
+  const [escribiendo, setEscribiendo] = useState(
+    Boolean(valor) && !categorias.some((c) => c.toLowerCase() === valor.toLowerCase())
+  );
+
+  if (escribiendo) {
+    return (
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          aria-label="Categoría nueva"
+          placeholder="Categoría nueva (p. ej. Pestañas)"
+          value={valor}
+          onChange={(e) => onChange(e.target.value)}
+          autoFocus
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          type="button"
+          aria-label="Elegir una categoría existente"
+          onClick={() => {
+            setEscribiendo(false);
+            onChange("");
+          }}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Select
+      id={id}
+      aria-label="Categoría"
+      value={valor}
+      onChange={(e) => {
+        if (e.target.value === NUEVA) {
+          setEscribiendo(true);
+          onChange("");
+          return;
+        }
+        onChange(e.target.value);
+      }}
+    >
+      <option value="">Sin categoría</option>
+      {categorias.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+      <option value={NUEVA}>+ Nueva categoría…</option>
+    </Select>
+  );
+}
+
 function ServiceEditor({
   service,
+  categorias,
   onCancelar,
   onGuardado,
 }: {
   service: Service;
+  categorias: string[];
   onCancelar: () => void;
   onGuardado: () => void;
 }) {
@@ -361,11 +605,10 @@ function ServiceEditor({
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <Input
-          aria-label="Categoría"
-          placeholder="Categoría (opcional)"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
+        <SelectorDeCategoria
+          valor={category}
+          categorias={categorias}
+          onChange={setCategory}
         />
         <Input
           aria-label="Precio en COP"
@@ -520,6 +763,23 @@ function StaffRow({
   services: Service[];
   onChanged: () => void;
 }) {
+  /*
+   * Los servicios de una persona se editan y LUEGO se guardan.
+   *
+   * Antes cada casilla guardaba sola, al instante: un clic de más —o un roce en
+   * el móvil, con 46 casillas juntas— asignaba un servicio a alguien que no lo
+   * hace, sin aviso ni forma de deshacerlo. Y el agente agenda con esa matriz:
+   * una casilla marcada por error manda una clienta con la especialista
+   * equivocada. Pedido por el dueño el 18-ago-2026.
+   *
+   * De paso, en reposo se muestran solo los servicios que SÍ atiende: la lista
+   * completa con todo desmarcado ocupaba media pantalla por persona y no se
+   * leía.
+   */
+  const [editando, setEditando] = useState(false);
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set(staff.serviceIds));
+  const [guardando, setGuardando] = useState(false);
+
   async function patch(patch: { archived?: boolean; serviceIds?: string[] }) {
     await fetch(`/api/staff/${staff.id}`, {
       method: "PATCH",
@@ -530,45 +790,105 @@ function StaffRow({
   }
 
   function toggleServicio(id: string) {
-    const next = staff.serviceIds.includes(id)
-      ? staff.serviceIds.filter((s) => s !== id)
-      : [...staff.serviceIds, id];
-    void patch({ serviceIds: next });
+    setSeleccion((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
+
+  async function guardar() {
+    setGuardando(true);
+    await patch({ serviceIds: [...seleccion] });
+    setGuardando(false);
+    setEditando(false);
+  }
+
+  function empezarAEditar() {
+    // Se parte SIEMPRE de lo que hay guardado, no de la selección anterior:
+    // si alguien canceló y vuelve a entrar, no debe encontrarse sus cambios
+    // descartados todavía marcados.
+    setSeleccion(new Set(staff.serviceIds));
+    setEditando(true);
+  }
+
+  const asignados = services.filter((s) => staff.serviceIds.includes(s.id));
+  const cambios =
+    seleccion.size !== staff.serviceIds.length ||
+    staff.serviceIds.some((id) => !seleccion.has(id));
 
   return (
     <div className="space-y-1.5 rounded-md border p-2.5 text-sm">
       <div className="flex items-center justify-between gap-2">
         <p className="font-medium">{staff.name}</p>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void patch({ archived: !staff.archivedAt })}
-        >
-          {staff.archivedAt ? (
-            <>
-              <RotateCcw className="h-3.5 w-3.5" /> Reactivar
-            </>
-          ) : (
-            <>
-              <Trash2 className="h-3.5 w-3.5" /> Archivar
-            </>
+        <div className="flex items-center gap-1.5">
+          {!staff.archivedAt && services.length > 0 && !editando && (
+            <Button size="sm" variant="outline" onClick={empezarAEditar}>
+              <Pencil className="h-3.5 w-3.5" /> Editar servicios
+            </Button>
           )}
-        </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void patch({ archived: !staff.archivedAt })}
+          >
+            {staff.archivedAt ? (
+              <>
+                <RotateCcw className="h-3.5 w-3.5" /> Reactivar
+              </>
+            ) : (
+              <>
+                <Trash2 className="h-3.5 w-3.5" /> Archivar
+              </>
+            )}
+          </Button>
+        </div>
       </div>
-      {services.length > 0 && !staff.archivedAt && (
-        <div className="flex flex-wrap gap-2">
-          {services.map((s) => (
-            <label key={s.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
-              <input
-                type="checkbox"
-                checked={staff.serviceIds.includes(s.id)}
-                onChange={() => toggleServicio(s.id)}
-                className="h-3.5 w-3.5 accent-primary"
-              />
-              {s.name}
-            </label>
-          ))}
+
+      {/* En reposo: solo lo que atiende, sin casillas que se puedan tocar. */}
+      {!editando && !staff.archivedAt && (
+        <div className="flex flex-wrap gap-1.5">
+          {asignados.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No atiende ningún servicio todavía.
+            </p>
+          ) : (
+            asignados.map((s) => (
+              <Badge key={s.id} variant="secondary">
+                {s.name}
+              </Badge>
+            ))
+          )}
+        </div>
+      )}
+
+      {editando && !staff.archivedAt && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            {services.map((s) => (
+              <label key={s.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
+                <input
+                  type="checkbox"
+                  checked={seleccion.has(s.id)}
+                  onChange={() => toggleServicio(s.id)}
+                  className="h-3.5 w-3.5 accent-primary"
+                />
+                {s.name}
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={guardando || !cambios} onClick={() => void guardar()}>
+              <Check className="h-3.5 w-3.5" /> Guardar
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditando(false)}>
+              <X className="h-3.5 w-3.5" /> Cancelar
+            </Button>
+            {cambios && (
+              <span className="text-xs text-muted-foreground">Sin guardar</span>
+            )}
+          </div>
         </div>
       )}
       {staff.archivedAt && (

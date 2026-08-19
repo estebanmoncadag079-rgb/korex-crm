@@ -142,11 +142,11 @@ que hoy existe, que cumple el CHECK.
    encuentra nada, con cualquier etiqueta. Su gemelo `buscarServicio`
    (`appointments/logic.ts`) sí tiene `STOP_WORDS`. Dos buscadores difusos del
    mismo sistema con capacidades distintas, y el de recursos es el pobre.
-4. **No hay guardarraíl** para "prometió un archivo y no lo mandó". Se decidió
-   **no construirlo todavía**: los únicos 2 fallos observados fueron en la misma
-   conversación de pruebas contaminada, y sin una prueba en chat limpio sería
-   construir sobre una suposición — el error que ya costó dos horas ese mismo día
-   ([99](99-PROBAR-EN-UNA-CONVERSACION-LIMPIA.md)).
+4. ✅ **18-ago, más tarde el mismo día: el guardarraíl se construyó.** La prueba
+   en chat limpio que faltaba se hizo, y midió lo contrario de lo que parecía:
+   el patrón NO estaba limitado a la conversación de pruebas — apareció en
+   3 conversaciones de 2 negocios, una con una cita real agendada. Detalle
+   completo en [101-GUARDARRAIL-RECURSO-PROMETIDO.md](101-GUARDARRAIL-RECURSO-PROMETIDO.md).
 
 ## Cómo revertir
 

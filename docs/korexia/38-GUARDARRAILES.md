@@ -32,8 +32,9 @@ el turno con la corrección delante → comprobar de nuevo.
 
 ## Los cuatro primeros
 
-> Hoy son **seis**: los dos últimos (cerrar sin resumen y no dar el total)
-> están al final de este documento, con la fecha y el caso que los provocó.
+> Hoy son **siete**: los tres últimos (cerrar sin resumen, no dar el total, y
+> prometer un recurso sin enviarlo) están al final de este documento, con la
+> fecha y el caso que los provocó.
 
 | Guardarraíl | Qué evita | Si insiste |
 |---|---|---|
@@ -41,6 +42,7 @@ el turno con la corrección delante → comprobar de nuevo.
 | `anunciaCitaAgendada` | Confirmar una cita que nadie agendó | Lo atiende una persona |
 | `productosOlvidados` | Que un producto ya pedido desaparezca | Sale como está, se registra |
 | `resumenMalArmado` | Cerrar el pedido antes de que confirmen, o anunciar un resumen vacío | Sale como está, se registra |
+| `prometeRecurso` | Prometer un catálogo/foto/PDF sin ejecutar `send_image` | Lo atiende una persona |
 
 **1. El cierre falso** (1-ago-2026). Con el historial real de producción, el
 modelo reprodujo el cierre falso **5 de cada 6 veces**, pese a que el prompt
@@ -269,3 +271,17 @@ del catálogo, no de una suma.
 > ronda. Se decidió así — un segundo reintento encarecería todos los turnos de
 > todos los clientes por un caso menor, en el que además el cliente ya tiene los
 > precios.
+
+## Séptimo guardarraíl: prometer un recurso y no enviarlo (18-ago)
+
+*"¡Claro que sí, hermosa! Te comparto nuestro catálogo de pestañas…"* — con
+`reply`, sin haber emitido `send_image`. El cliente lee la promesa; no llega
+ni el archivo ni el enlace.
+
+A diferencia del guardarraíl del horario, que se midió y se **descartó** ese
+mismo día por afectar a una sola conversación de pruebas, este se midió y
+**sí se justificó**: apareció en 3 conversaciones de 2 negocios, una con una
+cita real agendada. Detalle completo, la medición, y dos bugs propios
+encontrados al escribir las pruebas (el `\b` que no funciona tras una vocal
+acentuada, y una pregunta con el `?` lejos del recurso), en
+[101-GUARDARRAIL-RECURSO-PROMETIDO.md](101-GUARDARRAIL-RECURSO-PROMETIDO.md).

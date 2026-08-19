@@ -66,10 +66,12 @@ import {
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
+  CORRECCION_DE_RECURSO_PROMETIDO,
   CORRECCION_SIN_RESUMEN,
   CORRECCION_SIN_TOTAL,
   noDioElTotal,
   productosOlvidados,
+  prometeRecurso,
   correccionDeResumen,
   resumenMalArmado,
   TIENE_TOTAL,
@@ -824,6 +826,47 @@ export async function runAgentTurn(
     } else {
       console.error(
         "[agente] sigue confirmando una cita inexistente; lo toma una persona"
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Prometió un catálogo, una foto o un documento y no ejecutó `send_image`
+   * (18-ago-2026): el cliente lee "te comparto el catálogo" y no recibe nada.
+   *
+   * Mismo tratamiento que el cierre falso y la cita fantasma: una oportunidad
+   * de rehacerlo con la corrección delante y, si insiste, lo atiende una
+   * persona — igual que ellos, y a diferencia de "producto olvidado", porque
+   * aquí el cliente se queda esperando algo que nunca llega, no un detalle
+   * recuperable en el resumen.
+   *
+   * Medido en producción el mismo día: no fue un caso aislado de una
+   * conversación de pruebas — pasó también con una clienta con una cita real
+   * agendada, en un negocio distinto. Detalle en `anuncio-de-cierre.ts`.
+   */
+  if (action.action !== "send_image" && textosAlCliente(action).some(prometeRecurso)) {
+    console.warn("[agente] prometió un recurso sin enviarlo; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_RECURSO_PROMETIDO },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/recurso-prometido`
+    );
+    if (
+      reintento.ok &&
+      (reintento.data.action === "send_image" ||
+        !textosAlCliente(reintento.data).some(prometeRecurso))
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        "[agente] sigue prometiendo un recurso sin enviarlo; lo toma una persona"
       );
       await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };

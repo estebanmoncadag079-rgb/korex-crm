@@ -107,6 +107,85 @@ export const CORRECCION_DE_CITA_FANTASMA =
   "ALTO. Tu respuesta le dice al cliente que su cita quedó agendada, pero NO emitiste book_appointment ni reschedule_appointment en este turno: la cita NO existe y el cliente se presentaría un día que nadie lo espera. Si tienes servicio, fecha y hora confirmados por el cliente, emite la ACCIÓN de verdad. Si te falta algún dato o el cliente no ha confirmado, pregúntaselo con reply SIN dar nada por agendado. Responde ÚNICAMENTE el objeto JSON.";
 
 /* ============================================================
+ * Prometió un recurso y nunca lo envió (18-ago-2026)
+ * ============================================================ */
+
+/**
+ * El agente escribe "te comparto nuestro catálogo" —o "aquí tienes la foto"—
+ * con `reply`, sin haber emitido `send_image`: el cliente lee la promesa y no
+ * recibe nada, ni el archivo ni el enlace.
+ *
+ * Mismo patrón que la cita fantasma, con otra cara: el servidor sabe si un
+ * recurso se mandó de verdad —lo decide `send_image`, la única acción que
+ * ejecuta un envío—, pero quien redacta es un modelo, y confirma un envío
+ * que no hizo.
+ *
+ * **Medido en producción (18-ago-2026), corrigiendo un primer filtro
+ * demasiado amplio** (capturaba "te comparto nuestras delicias" —un menú en
+ * texto de La Churra, sin ningún recurso de por medio— como si fuera el mismo
+ * fallo): con el filtro exacto —promete "catálogo", "foto", "imagen", "PDF" o
+ * "documento"— el patrón apareció en **3 conversaciones de dos negocios
+ * distintos**, y solo 1 de cada 6 promesas ejecutó de verdad `send_image`. Una
+ * de esas conversaciones **no era de pruebas**: una clienta con una cita real
+ * agendada el 14-ago pidió el catálogo el 18-ago y el fallo ocurrió en vivo,
+ * minutos antes de escribir esto. No es un problema de una sola conversación
+ * contaminada — a diferencia del guardarraíl del horario que se descartó ese
+ * mismo día por la misma clase de medición.
+ */
+const VERBO_DE_ENVIO = "(?:comparto|env[ií]o|muestro|adjunto|mando|paso)";
+
+/**
+ * Palabras que casi siempre implican un ARCHIVO o recurso visual, no un simple
+ * listado en texto. "Menú" y "carta" quedan fuera a propósito: un negocio de
+ * pedidos dice "te muestro nuestro menú: [precios en texto]" todo el tiempo
+ * sin que exista ningún PDF detrás, y eso es una respuesta correcta — es
+ * justo el falso positivo que la primera versión de este filtro cometió.
+ */
+const RECURSO_VISUAL = "(?:cat[áa]logo|foto(?:s)?|imag(?:en|enes)|pdf|documento)";
+
+/*
+ * Sin `\b` tras `est[áa]`: en JS no hay límite de palabra después de una vocal
+ * acentuada (mismo motivo por el que `ANUNCIOS_DE_CITA` no lo usa tras
+ * "reservé"/"agendé") — con él, "Aquí está la foto" no cazaba.
+ */
+const PROMETE_RECURSO: RegExp[] = [
+  // "te comparto/envío/muestro... [el/la/nuestro(a)(s)]... catálogo/foto/PDF"
+  new RegExp(
+    `\\bte\\s+${VERBO_DE_ENVIO}\\b[^.!?]{0,40}?\\b${RECURSO_VISUAL}\\b`,
+    "i"
+  ),
+  // "aquí tienes/está el catálogo/la foto..."
+  new RegExp(
+    `\\baqu[íi]\\s+(?:te\\s+)?(?:tienes\\b|est[áa])[^.!?]{0,30}?\\b${RECURSO_VISUAL}\\b`,
+    "i"
+  ),
+];
+
+/**
+ * `true` si el texto le promete al cliente un catálogo, una foto o un
+ * documento — sin decir si de verdad se mandó (eso lo decide la acción, no
+ * el texto: ver el uso en `pipeline.ts`).
+ *
+ * Se evalúa ORACIÓN por oración, no el texto entero de un tirón: una promesa
+ * cumplida no debe camuflarse por una pregunta en otra parte del mismo
+ * mensaje, y una oferta ("¿te envío el catálogo?") no debe contar como
+ * promesa solo porque el signo de interrogación queda lejos, al final de la
+ * frase, y no pegado a la palabra del recurso.
+ */
+export function prometeRecurso(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    return PROMETE_RECURSO.some((re) => re.test(oracion));
+  });
+}
+
+/** La corrección cuando promete un recurso sin haber emitido `send_image`. */
+export const CORRECCION_DE_RECURSO_PROMETIDO =
+  'ALTO. Tu respuesta le dice al cliente que le compartes un catálogo, una foto o un documento, pero NO emitiste send_image en este turno: nada se envía y el cliente se queda esperando algo que nunca llega. Si el recurso está en la lista de FOTOS QUE PUEDES ENVIAR, emite send_image con su etiqueta EXACTA, copiada tal cual de esa lista. Si no hay ninguna con ese nombre, dilo con reply y NO prometas un envío que no puedes cumplir. Responde ÚNICAMENTE el objeto JSON.';
+
+/* ============================================================
  * Producto que desaparece del pedido (9-ago-2026)
  * ============================================================ */
 

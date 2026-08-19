@@ -34,13 +34,47 @@ const MAX_BASE64 = 8_000_000;
  */
 const TIPOS = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
-const cuerpo = z.object({
-  /** Cómo la nombra el negocio: es lo que el agente compara. */
-  etiqueta: z.string().min(1).max(80),
-  kind: z.enum(["producto", "carta", "otro"]),
-  base64: z.string().min(1).max(MAX_BASE64),
-  mimeType: z.string().min(1),
-});
+const cuerpo = z
+  .object({
+    /** Cómo la nombra el negocio: es lo que el agente compara. */
+    etiqueta: z.string().min(1).max(80),
+    kind: z.enum(["producto", "carta", "otro"]),
+    /**
+     * Cómo se le entrega al cliente. `archivo` por defecto: quien ya subía
+     * fotos no tiene que cambiar nada, y el comportamiento es el de siempre.
+     */
+    entrega: z.enum(["archivo", "enlace", "ambos"]).default("archivo"),
+    base64: z.string().min(1).max(MAX_BASE64).optional(),
+    mimeType: z.string().min(1).optional(),
+    /**
+     * El enlace externo. Solo `https`: el cliente lo abre desde WhatsApp, y
+     * un `http` lo marca como inseguro o directamente no abre.
+     */
+    url: z.string().url().startsWith("https://").max(2048).optional(),
+  })
+  /*
+   * Un recurso que no se puede entregar no se guarda. Es la misma regla que
+   * la restricción `media_entrega_coherente` de la base y que el refine de
+   * `send_image`: comprobar el hecho, no la intención declarada.
+   */
+  .superRefine((b, ctx) => {
+    const conArchivo = b.entrega === "archivo" || b.entrega === "ambos";
+    const conEnlace = b.entrega === "enlace" || b.entrega === "ambos";
+    if (conArchivo && (!b.base64 || !b.mimeType)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["base64"],
+        message: `Con entrega "${b.entrega}" hacen falta el archivo y su tipo.`,
+      });
+    }
+    if (conEnlace && !b.url) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["url"],
+        message: `Con entrega "${b.entrega}" hace falta el enlace.`,
+      });
+    }
+  });
 
 export const GET = withAuth(async (session) => {
   const db = getDb();
@@ -61,8 +95,11 @@ export const POST = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, cuerpo);
   if (!body.ok) return body.response;
 
-  const mime = body.data.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
-  if (!TIPOS.includes(mime)) {
+  // Un recurso que solo es enlace no trae archivo: no hay tipo que validar.
+  const mime = body.data.base64
+    ? (body.data.mimeType?.split(";")[0]?.trim().toLowerCase() ?? "")
+    : null;
+  if (mime !== null && !TIPOS.includes(mime)) {
     return apiError(
       415,
       "tipo_no_soportado",
@@ -72,7 +109,20 @@ export const POST = withAuth(async (session, req: Request) => {
 
   const db = getDb();
   const etiqueta = body.data.etiqueta.trim();
-  const tamano = Math.floor((body.data.base64.length * 3) / 4);
+  const tamano = body.data.base64
+    ? Math.floor((body.data.base64.length * 3) / 4)
+    : null;
+  // Lo que NO corresponde a esta forma de entrega se guarda en null, no se
+  // deja lo que hubiera antes: un recurso que pasa a ser solo enlace no debe
+  // arrastrar el archivo viejo, ni al revés.
+  const valores = {
+    kind: body.data.kind,
+    entrega: body.data.entrega,
+    mimeType: mime,
+    datos: body.data.base64 ?? null,
+    tamano,
+    url: body.data.url ?? null,
+  };
 
   // Subir otra foto con la misma etiqueta REEMPLAZA: si el negocio cambia la
   // foto de un producto, no debe quedar la vieja compitiendo con la nueva —
@@ -91,12 +141,7 @@ export const POST = withAuth(async (session, req: Request) => {
   if (existente[0]) {
     await db
       .update(schema.mediaAsset)
-      .set({
-        kind: body.data.kind,
-        mimeType: mime,
-        datos: body.data.base64,
-        tamano,
-      })
+      .set(valores)
       .where(eq(schema.mediaAsset.id, existente[0].id));
     return Response.json({ id: existente[0].id, etiqueta, reemplazada: true });
   }
@@ -105,11 +150,8 @@ export const POST = withAuth(async (session, req: Request) => {
   await db.insert(schema.mediaAsset).values({
     id,
     organizationId: session.organizationId,
-    kind: body.data.kind,
     etiqueta,
-    mimeType: mime,
-    datos: body.data.base64,
-    tamano,
+    ...valores,
   });
   return Response.json({ id, etiqueta, reemplazada: false });
 });

@@ -14,7 +14,10 @@ producción, qué se cambió y qué quedó pendiente.
 > **cualquier** cambio, de cualquier IA, en cualquier sesión. El núcleo solo
 > conoce catálogo/selección/datos/estado/validación/confirmación/registro —
 > nunca una salsa, una pestaña ni un profesional como opción. Toda regla de
-> negocio va en el CRM, nunca en código. Léelo antes de tocar nada.
+> negocio va en el CRM, nunca en código. **Toda solicitud se clasifica antes de
+> implementarse** en una de cuatro categorías (config. de un cliente ·
+> capacidad de un vertical · capacidad global del CRM · cambio arquitectónico).
+> Léelo antes de tocar nada.
 
 ## Cómo está organizado
 
@@ -109,6 +112,10 @@ producción, qué se cambió y qué quedó pendiente.
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
 
 | [98-BITACORA-CATALOGO-EN-PDF.md](98-BITACORA-CATALOGO-EN-PDF.md) | **El agente ya puede enviar catálogos en PDF, no solo fotos**: `send_image` decide imagen o documento por el `mimeType` real, sin que el modelo sepa la diferencia. `ycloudSendDocument`/`sendDocument` nuevos, `pnpm subir:media` como puente hasta que exista una pantalla de fotos post-onboarding. El catálogo de Lashes Valen (36 MB) se comprimió a 1,5 MB antes de subirlo — la base entera pesa ~16 MB |
+
+| [100-RECURSOS-COMPARTIBLES.md](100-RECURSOS-COMPARTIBLES.md) | 🔑 **Un recurso del negocio se entrega como archivo, como enlace o como ambos**, y lo declara el negocio — no el código ni el modelo. Nace de un catálogo prometido que nunca llegó, con la auditoría que descartó todas las causas fáciles (el `no se pudo mandar` = 0 que probó que el modelo jamás pidió el envío). El núcleo solo distingue archivo de enlace: no sabe qué es un menú, un catálogo ni un tarifario. Incluye los **dos defectos cerrados de paso** (una acción sin etiqueta ya no valida; un recurso no puede declarar lo que no tiene) y **la deuda dicha en voz alta**: un enlace externo puede morir en silencio |
+
+| [99-PROBAR-EN-UNA-CONVERSACION-LIMPIA.md](99-PROBAR-EN-UNA-CONVERSACION-LIMPIA.md) | ⛔ **Un arreglo de prompt NO se verifica en la conversación donde se vio el fallo**: el modelo se copia de su propio historial y el arreglo parece no funcionar aunque esté perfecto (5 de cada 6 turnos, medido desde el 29-jul). Las dos pruebas lado a lado —misma hora, mismo servicio, mismo código: falla con historial, funciona desde un número limpio—, y **lo que esto NO cura**: las conversaciones que ya tienen la frase falsa escrita seguirán repitiéndola hasta que el guardarraíl las limpie |
 
 | [97-BITACORA-RESERVA-MULTIPLE.md](97-BITACORA-RESERVA-MULTIPLE.md) | **Selección múltiple en citas, implementado**: "manos y pies" en una sola visita. `ReservaDeCita` en la raíz del estado (no por ítem), `appointment_service` nueva, `resolverEspecialistaMultiple`/`crearCitaMultiple` sobre la intersección de recursos, `book_appointment` con `servicios[]` propio —desacoplado de la Fase 2, que hoy ningún cliente tiene encendida—. La migración `0025` escrita y revisada a mano, **sin ejecutar contra ninguna base** |
 

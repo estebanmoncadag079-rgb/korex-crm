@@ -14,7 +14,14 @@ const chatJson = vi.fn();
 vi.mock("@/lib/ai", () => ({ chatJson: (...args: unknown[]) => chatJson(...args) }));
 
 const fotoPorEtiqueta = vi.fn();
-vi.mock("@/server/ai/fotos", () => ({
+/*
+ * `comoSeEntrega` se deja REAL (importActual): es lógica pura y es justo la
+ * que decide archivo/enlace/ambos. Mockearla dejaría el test verde sin probar
+ * nada — el caso de los guardarraíles que estuvieron verdes sin detectar nada
+ * (docs/korexia/93-PENDIENTES-17AGO.md).
+ */
+vi.mock("@/server/ai/fotos", async (importActual) => ({
+  ...(await importActual<typeof import("@/server/ai/fotos")>()),
   fotoPorEtiqueta: (...a: unknown[]) => fotoPorEtiqueta(...a),
   fotosDeLaOrganizacion: () => Promise.resolve([]),
   urlPublicaDeFoto: (id: string) => `https://ejemplo.test/api/media/${id}`,
@@ -124,6 +131,8 @@ describe("send_image: foto o documento, según el mimeType real del archivo", ()
       id: "med_foto",
       etiqueta: "Volumen Ruso",
       mimeType: "image/jpeg",
+      entrega: "archivo",
+      url: null,
     });
     chatJson.mockResolvedValue({
       ok: true,
@@ -144,6 +153,8 @@ describe("send_image: foto o documento, según el mimeType real del archivo", ()
       id: "med_catalogo",
       etiqueta: "Catálogo de diseños",
       mimeType: "application/pdf",
+      entrega: "archivo",
+      url: null,
     });
     chatJson.mockResolvedValue({
       ok: true,
@@ -175,5 +186,85 @@ describe("send_image: foto o documento, según el mimeType real del archivo", ()
     await runAgentTurn("cv_1");
 
     expect(textoDelMensajeSaliente()).toBe("No encontré eso, ¿te ayudo con algo más?");
+  });
+
+  /*
+   * Desde el 18-ago-2026 un recurso puede entregarse como ENLACE en vez de
+   * como archivo: el negocio lo declara al cargarlo y el modelo sigue sin
+   * enterarse — pide la misma etiqueta de siempre.
+   */
+  it("un recurso declarado «enlace» se manda como texto con la URL, no como archivo", async () => {
+    queueTurnoBase();
+    fotoPorEtiqueta.mockResolvedValue({
+      id: "med_enlace",
+      etiqueta: "carta",
+      mimeType: null,
+      entrega: "enlace",
+      url: "https://ejemplo.test/carta",
+    });
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { action: "send_image", etiqueta: "carta", reply: "Aquí tienes nuestra carta." },
+      raw: "{}",
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    const texto = textoDelMensajeSaliente();
+    expect(texto).toContain("https://ejemplo.test/carta");
+    expect(texto).toContain("Aquí tienes nuestra carta.");
+    // Lo que NO debe pasar: mandarlo como archivo o documento.
+    expect(texto).not.toMatch(/^\[(foto|documento): /);
+  });
+
+  it("«ambos» manda el archivo y el enlace en el mismo mensaje", async () => {
+    queueTurnoBase();
+    fotoPorEtiqueta.mockResolvedValue({
+      id: "med_tarifario",
+      etiqueta: "tarifario",
+      mimeType: "application/pdf",
+      entrega: "ambos",
+      url: "https://ejemplo.test/tarifario",
+    });
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { action: "send_image", etiqueta: "tarifario", reply: "Te lo dejo aquí." },
+      raw: "{}",
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    const texto = textoDelMensajeSaliente();
+    expect(texto).toMatch(/^\[documento: /);
+    expect(texto).toContain("https://ejemplo.test/tarifario");
+  });
+
+  /*
+   * El caso negativo que da valor a los dos anteriores: una fila que dice ser
+   * un enlace pero no lo trae no puede acabar en un mensaje vacío ni en una
+   * promesa sin cumplir. Se responde con el texto, como con cualquier recurso
+   * que no se puede entregar.
+   */
+  it("un «enlace» sin URL no promete nada: cae a texto", async () => {
+    queueTurnoBase();
+    fotoPorEtiqueta.mockResolvedValue({
+      id: "med_roto",
+      etiqueta: "guía",
+      mimeType: null,
+      entrega: "enlace",
+      url: null,
+    });
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { action: "send_image", etiqueta: "guía", reply: "Ahora mismo no la tengo a mano." },
+      raw: "{}",
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(textoDelMensajeSaliente()).toBe("Ahora mismo no la tengo a mano.");
   });
 });

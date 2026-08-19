@@ -9,6 +9,7 @@ import { publish } from "@/server/events/bus";
 import { isWindowOpen } from "@/server/inbox/window";
 import { SendError, sendDocument, sendImage, sendText } from "@/server/inbox/send";
 import {
+  comoSeEntrega,
   fotoPorEtiqueta,
   fotosDeLaOrganizacion,
   urlPublicaDeFoto,
@@ -1098,20 +1099,43 @@ export async function runAgentTurn(
       // trata como una foto que no existe — es decir, se responde con texto.
       const pedida = action.etiqueta ?? action.label ?? "";
       const foto = pedida ? await fotoPorEtiqueta(organizationId, pedida) : null;
-      const url = foto ? urlPublicaDeFoto(foto.id) : null;
 
-      if (!foto || !url) {
+      /*
+       * Cómo se entrega lo decide el RECURSO, no el modelo ni el código: el
+       * negocio lo declaró al cargarlo (`media_asset.entrega`). El núcleo solo
+       * distingue "archivo" de "enlace" — no sabe si detrás hay un menú, un
+       * catálogo, un tarifario o una guía, y por eso esto vale igual para
+       * cualquier negocio del CRM.
+       */
+      const via = foto ? comoSeEntrega(foto) : { archivo: false, enlace: false };
+      const urlArchivo = via.archivo ? urlPublicaDeFoto(foto!.id) : null;
+      const enlace = via.enlace ? foto!.url : null;
+
+      // Nada que entregar: ni existe, ni tiene archivo servible, ni enlace.
+      // Se responde con texto, como siempre — una promesa que no se puede
+      // cumplir es peor que una respuesta escrita.
+      if (!foto || (!urlArchivo && !enlace)) {
         console.warn(
-          `[agente] no se pudo mandar "${pedida}" (${!foto ? "no existe" : "sin URL pública"}); se responde con texto`
+          `[agente] no se pudo mandar "${pedida}" (${!foto ? "no existe" : "sin archivo servible ni enlace"}); se responde con texto`
         );
         if (action.reply) await deliverReply(conversation, action.reply);
         return action;
       }
 
+      // El enlace viaja SIEMPRE en el texto, vaya solo o acompañando al
+      // archivo: el pie de una imagen y el cuerpo de un mensaje son el mismo
+      // campo para quien lo lee.
+      const texto = [action.reply, enlace].filter(Boolean).join("\n\n") || undefined;
+
+      if (!urlArchivo) {
+        await deliverReply(conversation, texto!);
+        return action;
+      }
+
       if (foto.mimeType === "application/pdf") {
-        await deliverDocument(conversation, url, foto.etiqueta, action.reply);
+        await deliverDocument(conversation, urlArchivo, foto.etiqueta, texto);
       } else {
-        await deliverImage(conversation, url, action.reply);
+        await deliverImage(conversation, urlArchivo, texto);
       }
       return action;
     }

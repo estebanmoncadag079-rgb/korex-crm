@@ -20,8 +20,15 @@ export type FotoDisponible = {
   id: string;
   etiqueta: string;
   kind: "producto" | "carta" | "otro";
-  /** Decide cómo se entrega: `image/*` como foto, `application/pdf` como documento. */
-  mimeType: string;
+  /**
+   * Decide cómo se entrega el ARCHIVO: `image/*` como foto, `application/pdf`
+   * como documento. Nulo en un recurso que solo es enlace.
+   */
+  mimeType: string | null;
+  /** Archivo, enlace o ambos. Lo declara el negocio al cargar el recurso. */
+  entrega: "archivo" | "enlace" | "ambos";
+  /** El enlace externo, cuando `entrega` es `enlace` o `ambos`. */
+  url: string | null;
 };
 
 /** Lo que el negocio tiene cargado, para listárselo al agente en su prompt. */
@@ -35,9 +42,36 @@ export async function fotosDeLaOrganizacion(
       etiqueta: schema.mediaAsset.etiqueta,
       kind: schema.mediaAsset.kind,
       mimeType: schema.mediaAsset.mimeType,
+      entrega: schema.mediaAsset.entrega,
+      url: schema.mediaAsset.url,
     })
     .from(schema.mediaAsset)
     .where(eq(schema.mediaAsset.organizationId, organizationId));
+}
+
+/**
+ * Qué se puede entregar de verdad de este recurso, mirando lo que TIENE y no
+ * lo que dice que es.
+ *
+ * Existe por la misma razón que los guardarraíles: un recurso declarado
+ * `enlace` sin `url`, o `archivo` sin `datos`, es una promesa que el sistema
+ * no puede cumplir — exactamente el defecto que ya tenía `send_image` al
+ * aceptar una acción sin etiqueta. Aquí se comprueba el hecho, no la
+ * intención, y quien llama decide qué hacer con un recurso vacío.
+ */
+export function comoSeEntrega(foto: {
+  entrega: "archivo" | "enlace" | "ambos";
+  url: string | null;
+  mimeType: string | null;
+}): { archivo: boolean; enlace: boolean } {
+  const quiereArchivo = foto.entrega === "archivo" || foto.entrega === "ambos";
+  const quiereEnlace = foto.entrega === "enlace" || foto.entrega === "ambos";
+  return {
+    // Sin `mimeType` no se sabe si mandarlo como foto o como documento, así
+    // que no hay archivo que entregar aunque la columna diga que sí.
+    archivo: quiereArchivo && Boolean(foto.mimeType),
+    enlace: quiereEnlace && Boolean(foto.url),
+  };
 }
 
 /** Sin tildes, sin mayúsculas y sin dobles espacios. */

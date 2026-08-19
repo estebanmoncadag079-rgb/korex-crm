@@ -109,7 +109,31 @@ export const AgentAction = z.discriminatedUnion("action", [
     servicio: z.string().min(1),
     farewell: z.string().optional(),
   }),
-]);
+]).superRefine((accion, ctx) => {
+  /*
+   * Una acción que NO se puede ejecutar no debería ser válida.
+   *
+   * `send_image` acepta la etiqueta en español o en inglés porque el modelo
+   * usa las dos (ver la nota del esquema), pero hasta ahora **ninguna de las
+   * dos era obligatoria**: una acción sin etiqueta pasaba la validación,
+   * llegaba al ejecutor, no encontraba ningún recurso y degradaba a texto —
+   * es decir, el cliente leía "te envío el catálogo" y no le llegaba nada.
+   * Exactamente el fallo del 18-ago-2026.
+   *
+   * Se comprueba aquí, y no exigiendo `etiqueta` a secas, para no repetir el
+   * bug del 13-ago: entonces se rechazaba `label` y la conversación acabó en
+   * manos de una persona con la foto cargada y lista para enviar. Lo que hace
+   * falta es que venga UNA de las dos, no una concreta.
+   */
+  if (accion.action === "send_image" && !accion.etiqueta && !accion.label) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["etiqueta"],
+      message:
+        'send_image necesita "etiqueta" (o "label") con el nombre EXACTO de la lista de fotos: sin ella no se puede enviar nada. Si lo que quieres no está en esa lista, usa reply y no prometas el envío.',
+    });
+  }
+});
 
 export type AgentActionType = z.infer<typeof AgentAction>;
 

@@ -134,11 +134,19 @@ que improvisaba: tras arreglar (1), mandó la acción sin etiqueta ninguna.
 > 🔑 **La lección**: añadir una acción son tres sitios, no uno — el esquema, el
 > contrato del prompt y el ejecutor. Y solo se comprueba ejecutándola.
 
+## Ya no son solo fotos: son recursos (18-ago-2026)
+
+Un recurso del negocio puede entregarse como **archivo**, como **enlace** o
+como **ambos**, y lo declara el negocio al cargarlo. El modelo sigue pidiendo
+la misma etiqueta y nunca sabe qué hay detrás. El diseño completo, los dos
+defectos que se cerraron con él y la deuda que queda, en
+[100-RECURSOS-COMPARTIBLES.md](100-RECURSOS-COMPARTIBLES.md).
+
 ## Qué falta
 
-- **Probarlo contra un WhatsApp real.** Todo lo verificado hasta ahora es con
-  conversaciones `is_test`, que nunca tocan WhatsApp: falta ver una foto llegar
-  a un teléfono.
+- ✅ **Probado contra un WhatsApp real** (18-ago-2026): el catálogo en PDF llegó
+  a un teléfono, desde un número sin historial previo. Todo lo anterior se había
+  verificado solo con conversaciones `is_test`, que nunca tocan WhatsApp.
 - **Medir el costo.** Desde el 1-oct Meta cobra los mensajes salientes y una
   imagen es un mensaje. Hoy se registran en `usage_event` como `image`.
 - **Fotos por catálogo de citas**: hoy la etiqueta se escribe a mano; podría

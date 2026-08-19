@@ -846,3 +846,33 @@ Pendiente de que el dueño lo confirme en WhatsApp real tras desplegar.
 
 Quitar el parámetro `citas` de `recordatorioDelEstado` y la frase nueva
 del caso "abierto". No toca esquema, no toca ninguna cita agendada.
+
+---
+
+## 19 · Confirmado en WhatsApp real — y el falso negativo que costó dos horas
+
+**Cierra el "pendiente" del §18.** El arreglo funciona: a las 17:19, desde un
+número **sin historial previo**, el agente respondió *"Para Press on, tengo
+disponibilidad hoy a las 6:30 PM"* — el mismo servicio de 120 min que originó
+todo el hilo (§15).
+
+Pero entre las 15:05 (contenedor nuevo arriba, verificado por dentro) y las
+17:19 pareció que **no funcionaba**: el agente seguía dando la respuesta vieja
+a las 15:06 y 15:07, palabra por palabra idéntica a la de las 14:51.
+
+La causa no era el arreglo, sino **dónde se estaba probando**: la conversación
+de pruebas del dueño ya tenía la frase equivocada escrita cuatro veces, y el
+modelo se copia de su propio historial — el fenómeno que este proyecto ya tenía
+medido desde el 29-jul (5 de cada 6 turnos, `anuncio-de-cierre.ts`).
+
+> ⛔ **La regla que sale de aquí: un arreglo de prompt no se verifica en la
+> conversación donde se vio el fallo.** Se prueba desde un contacto limpio.
+
+Desarrollado, con las dos pruebas lado a lado, la evidencia de la verificación
+y **lo que todavía queda abierto** (el guardarraíl que limpie el historial de
+las conversaciones ya contaminadas, y la deuda de arquitectura de tener la
+política de cierre cableada en el código), en
+[99-PROBAR-EN-UNA-CONVERSACION-LIMPIA.md](99-PROBAR-EN-UNA-CONVERSACION-LIMPIA.md).
+
+**Estado**: §15 a §18 terminados y confirmados en producción. El guardarraíl y
+la capacidad configurable, **anotados y sin implementar**.

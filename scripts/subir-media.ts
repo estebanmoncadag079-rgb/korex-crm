@@ -12,6 +12,14 @@
  *
  * Uso:
  *   pnpm subir:media <organizationId> <ruta-del-archivo> "<etiqueta>" <kind>
+ *   pnpm subir:media <organizationId> <https://...>      "<etiqueta>" <kind>
+ *   pnpm subir:media <organizationId> <ruta> "<etiqueta>" <kind> --enlace=<https://...>
+ *
+ * La primera forma guarda un ARCHIVO (lo de siempre); la segunda, solo un
+ * ENLACE, para cuando el negocio prefiere que el cliente abra el recurso en
+ * vez de descargarlo; la tercera, AMBOS. Lo que decide es el recurso, no el
+ * agente: el modelo pide la misma etiqueta en los tres casos y nunca sabe qué
+ * hay detrás (docs/korexia/47-FOTOS-DEL-AGENTE.md).
  *
  * `<kind>` es "producto" | "carta" | "otro" (ver `mediaAsset.kind` en el
  * esquema). Tipos aceptados: JPG, PNG, WEBP, PDF. Límite: 6 MB de archivo
@@ -53,11 +61,31 @@ const MIME_POR_EXTENSION: Record<string, string> = {
 const TIPOS_ACEPTADOS = new Set(Object.values(MIME_POR_EXTENSION));
 const MAX_BYTES = 6_000_000; // igual que el límite real de /api/media (8 MB en base64)
 
-const [orgId, ruta, etiqueta, kind] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const flagEnlace = args.find((a) => a.startsWith("--enlace="));
+const [orgId, origen, etiqueta, kind] = args.filter((a) => !a.startsWith("--"));
 
-if (!orgId?.startsWith("org_") || !ruta || !etiqueta || !kind) {
+/*
+ * Tres formas de entrega, decididas por lo que se pasa (18-ago-2026):
+ *
+ *   <ruta>                        → archivo (lo de siempre, no cambia nada)
+ *   <https://...>                 → enlace: no se guarda archivo
+ *   <ruta> --enlace=<https://...> → ambos: el archivo y el enlace
+ *
+ * El núcleo no sabe si el recurso es un catálogo, un menú o un tarifario: solo
+ * si se entrega como archivo, como enlace o como las dos cosas.
+ */
+const esUrl = /^https:\/\//i.test(origen ?? "");
+const urlEnlace = esUrl ? origen : flagEnlace?.slice("--enlace=".length);
+const entrega: "archivo" | "enlace" | "ambos" = esUrl
+  ? "enlace"
+  : urlEnlace
+    ? "ambos"
+    : "archivo";
+
+if (!orgId?.startsWith("org_") || !origen || !etiqueta || !kind) {
   console.error(
-    'Uso: pnpm subir:media <org_...> <ruta-del-archivo> "<etiqueta>" <producto|carta|otro>'
+    'Uso: pnpm subir:media <org_...> <ruta-o-https://...> "<etiqueta>" <producto|carta|otro> [--enlace=https://...]'
   );
   process.exit(1);
 }
@@ -65,22 +93,39 @@ if (!["producto", "carta", "otro"].includes(kind)) {
   console.error(`kind inválido: "${kind}". Debe ser producto, carta u otro.`);
   process.exit(1);
 }
+if (urlEnlace && !/^https:\/\//i.test(urlEnlace)) {
+  console.error(`El enlace debe empezar por https:// — llegó "${urlEnlace}".`);
+  process.exit(1);
+}
 
-const mimeType = MIME_POR_EXTENSION[extname(ruta).toLowerCase()];
-if (!mimeType || !TIPOS_ACEPTADOS.has(mimeType)) {
-  console.error(`Extensión no soportada: "${ruta}". Debe ser .jpg, .png, .webp o .pdf.`);
+// Solo hay tipo de archivo que validar si de verdad se va a subir un archivo.
+const mimeType = esUrl ? null : MIME_POR_EXTENSION[extname(origen).toLowerCase()];
+if (!esUrl && (!mimeType || !TIPOS_ACEPTADOS.has(mimeType))) {
+  console.error(`Extensión no soportada: "${origen}". Debe ser .jpg, .png, .webp o .pdf.`);
   process.exit(1);
 }
 
 async function main() {
-  const bytes = readFileSync(ruta);
-  if (bytes.length > MAX_BYTES) {
+  // Un recurso que solo es enlace no tiene archivo que leer ni que pesar.
+  const bytes = esUrl ? null : readFileSync(origen!);
+  if (bytes && bytes.length > MAX_BYTES) {
     console.error(
       `El archivo pesa ${(bytes.length / 1_000_000).toFixed(2)} MB; el límite es ${MAX_BYTES / 1_000_000} MB.`
     );
     process.exit(1);
   }
-  const base64 = bytes.toString("base64");
+  const base64 = bytes ? bytes.toString("base64") : null;
+  const valores = {
+    kind: kind as "producto" | "carta" | "otro",
+    entrega,
+    mimeType,
+    datos: base64,
+    tamano: bytes ? bytes.length : null,
+    url: urlEnlace ?? null,
+  };
+  const resumen = bytes
+    ? `${(bytes.length / 1_000_000).toFixed(2)} MB, ${mimeType}${urlEnlace ? ` + enlace` : ""}`
+    : `enlace: ${urlEnlace}`;
 
   const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
   const db = drizzle(sql, { schema });
@@ -100,21 +145,18 @@ async function main() {
   if (existente[0]) {
     await db
       .update(schema.mediaAsset)
-      .set({ kind: kind as "producto" | "carta" | "otro", mimeType, datos: base64, tamano: bytes.length })
+      .set(valores)
       .where(eq(schema.mediaAsset.id, existente[0].id));
-    console.log(`Reemplazado: "${etiquetaLimpia}" (${existente[0].id}) — ${(bytes.length / 1_000_000).toFixed(2)} MB, ${mimeType}`);
+    console.log(`Reemplazado: "${etiquetaLimpia}" (${existente[0].id}) — ${resumen}`);
   } else {
     const id = newId("mediaAsset");
     await db.insert(schema.mediaAsset).values({
       id,
       organizationId: orgId!,
-      kind: kind as "producto" | "carta" | "otro",
       etiqueta: etiquetaLimpia,
-      mimeType,
-      datos: base64,
-      tamano: bytes.length,
+      ...valores,
     });
-    console.log(`Subido: "${etiquetaLimpia}" (${id}) — ${(bytes.length / 1_000_000).toFixed(2)} MB, ${mimeType}`);
+    console.log(`Subido: "${etiquetaLimpia}" (${id}) — ${resumen}`);
   }
 
   await sql.end();

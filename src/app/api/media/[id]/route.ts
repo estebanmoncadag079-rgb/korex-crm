@@ -40,6 +40,12 @@ export async function GET(
 
   const foto = filas[0];
   if (!foto) return new Response("No encontrada", { status: 404 });
+  // Un recurso que solo es un enlace no tiene bytes que servir: no existe como
+  // archivo, y decirlo con un 404 es más honesto que devolver un cuerpo vacío
+  // que Meta interpretaría como una descarga rota.
+  if (!foto.datos || !foto.mimeType) {
+    return new Response("No encontrada", { status: 404 });
+  }
 
   const bytes = Buffer.from(foto.datos, "base64");
   return new Response(new Uint8Array(bytes), {

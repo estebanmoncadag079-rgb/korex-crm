@@ -1150,12 +1150,39 @@ export const mediaAsset = pgTable(
      * mandar, así que se guarda tal como el cliente nombra sus cosas.
      */
     etiqueta: text("etiqueta").notNull(),
-    /** Decide cómo se entrega: `image/*` como foto, `application/pdf` como documento. */
-    mimeType: text("mime_type").notNull(),
-    /** El archivo en base64, sin el prefijo `data:`. */
-    datos: text("datos").notNull(),
+    /**
+     * Cómo se le entrega al cliente. Es lo ÚNICO que el núcleo sabe de la
+     * forma de un recurso — no sabe si detrás hay un menú, un catálogo, un
+     * tarifario o una guía:
+     *
+     * `archivo` — se manda el archivo (imagen o documento, según `mimeType`).
+     * `enlace`  — se manda `url` como texto: el cliente abre y no descarga.
+     * `ambos`   — el archivo y, con él, el enlace a la versión completa.
+     *
+     * Por defecto `archivo`: los recursos que ya existían se comportan
+     * exactamente igual y ningún negocio nota que esta columna apareció.
+     */
+    entrega: text("entrega", { enum: ["archivo", "enlace", "ambos"] })
+      .notNull()
+      .default("archivo"),
+    /**
+     * El enlace externo, cuando `entrega` es `enlace` o `ambos`.
+     *
+     * ⚠️ Un enlace vive fuera del CRM: si quien lo publicó lo mueve, lo borra
+     * o le quita el permiso público, **deja de funcionar y el CRM no se
+     * entera** — no hay forma de comprobarlo desde aquí. Un recurso guardado
+     * como archivo no tiene ese problema. Ver docs/korexia/47-FOTOS-DEL-AGENTE.md.
+     */
+    url: text("url"),
+    /**
+     * Decide cómo se entrega el ARCHIVO: `image/*` como foto,
+     * `application/pdf` como documento. Nulo en un recurso que solo es enlace.
+     */
+    mimeType: text("mime_type"),
+    /** El archivo en base64, sin el prefijo `data:`. Nulo si solo es enlace. */
+    datos: text("datos"),
     /** Bytes reales del archivo, para poder medir sin descodificar. */
-    tamano: integer("tamano").notNull(),
+    tamano: integer("tamano"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [

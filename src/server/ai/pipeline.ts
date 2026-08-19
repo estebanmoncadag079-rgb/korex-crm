@@ -775,7 +775,17 @@ export async function runAgentTurn(
    * de confirmación" en `anuncio-de-cierre.ts`.
    *
    * Si el reintento decide consultar de verdad, se resuelve aquí mismo —
-   * una sola vuelta más, para no abrir un segundo bucle sin límite.
+   * una sola vuelta más, para no abrir un segundo bucle sin límite. Esa
+   * respuesta YA queda verificada por `resolverConsultaDisponibilidad`: no
+   * se le vuelve a aplicar el mismo criterio textual de detección, igual
+   * que "cita fantasma" (línea ~901) y "recurso prometido" (línea ~942) ya
+   * aceptan su reintento sin más cuando la acción real se ejecutó. Antes de
+   * este ajuste (auditoría 19-ago-2026, docs/korexia/106) el código
+   * re-evaluaba el texto de la respuesta final con el mismo detector,
+   * aunque ya estuviera fundamentada en datos reales: cualquier respuesta
+   * útil tras verificar ("Hilary SÍ puede el jueves a las 3pm") vuelve a
+   * mencionar el nombre en una afirmación, así que ese camino derivaba a
+   * una persona de forma sistemática, no solo en el caso raro.
    */
   if (contrataCitas(vertical) && action.action === "reply" && consultas === 0) {
     const nombresReales = [...new Set(services.flatMap((s) => s.staffNames))];
@@ -793,7 +803,9 @@ export async function runAgentTurn(
         reintento.usage,
         `conv:${conversationId}/especialista-sin-verificar`
       );
+      let seVerificoDeVerdad = false;
       if (reintento.ok && reintento.data.action === "consult_availability") {
+        seVerificoDeVerdad = true;
         const infoDisponibilidad = await resolverConsultaDisponibilidad(
           organizationId,
           services,
@@ -816,6 +828,7 @@ export async function runAgentTurn(
         );
       }
       const siguePrometiendoSinVerificar =
+        !seVerificoDeVerdad &&
         reintento.ok &&
         reintento.data.action === "reply" &&
         afirmaConEspecialistaSinVerificar(reintento.data.text, nombresReales);

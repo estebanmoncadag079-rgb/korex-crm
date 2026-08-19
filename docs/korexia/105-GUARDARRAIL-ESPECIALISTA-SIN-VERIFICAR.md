@@ -93,17 +93,23 @@ cuente como "Laura").
 
 ## Deuda que queda
 
-- **No hay test de integración del reintento completo** — igual que los
-  ocho guardarraíles anteriores: se prueba la función de detección pura,
-  no el turno de servidor de punta a punta con `chatJson` mockeado.
+> ⚠️ **19-ago-2026, horas después de este despliegue**: el propio
+> guardarraíl derivó a persona a una clienta real. La auditoría, el test de
+> integración que faltaba aquí abajo, y el fix están en
+> [106-ESPECIALISTA-VERIFICADA-TRAS-CONSULTAR.md](106-ESPECIALISTA-VERIFICADA-TRAS-CONSULTAR.md).
+> El punto siguiente ("no hay test de integración del reintento completo")
+> quedó resuelto ahí; los otros dos siguen abiertos.
+
+- ~~No hay test de integración del reintento completo~~ — resuelto en 106.
 - **No probado contra WhatsApp real.** La próxima prueba en un chat limpio
   con Lashes Valen debería repetir exactamente el guion de Hilary +
   Volumen Ruso.
-- **Un límite conocido y aceptado**: si el modelo afirma con el nombre de
-  una especialista que **sí** atiende el servicio, sin haber consultado, el
-  guardarraíl igual frena y reintenta — es más caro (una llamada extra al
-  modelo) pero no dañino: fuerza exactamente lo que el contrato ya pedía
-  hacer siempre.
+- **Un límite conocido, y que el incidente del 106 demostró que SÍ tiene
+  costo real**: si el modelo insiste sin llamar a `consult_availability`
+  ni siquiera tras la corrección, el guardarraíl deriva a una persona en un
+  solo intento. Sigue así a propósito — es una decisión de producto
+  (¿segunda oportunidad antes de escalar, a cambio de más tokens/latencia?)
+  que el dueño revisó por separado y decidió no tocar todavía, no un bug.
 
 ## Cómo revertir
 

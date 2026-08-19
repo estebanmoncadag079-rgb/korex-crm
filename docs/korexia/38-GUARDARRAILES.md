@@ -326,3 +326,12 @@ afirmación (no pregunta) con el nombre de una especialista real → se frena.
 Detalle completo, la medición que descartó el regex, y el caso más caro
 —horas concretas para dos especialistas distintas, sin una sola consulta—
 en [105-GUARDARRAIL-ESPECIALISTA-SIN-VERIFICAR.md](105-GUARDARRAIL-ESPECIALISTA-SIN-VERIFICAR.md).
+
+> ⚠️ **Horas después de desplegarlo, el propio guardarraíl derivó a una
+> persona a una clienta real que solo pedía su cita de siempre.** La
+> auditoría (con protocolo formal, sin aceptar hipótesis) usó `usage_event`
+> para probar por dónde pasó de verdad el incidente, encontró un bug real
+> pero distinto del sospechado, y lo corrigió siguiendo el mismo patrón que
+> ya usan "cita fantasma" y "recurso prometido": el re-chequeo tras una
+> consulta real resuelta no vuelve a aplicar el mismo criterio textual.
+> Detalle en [106-ESPECIALISTA-VERIFICADA-TRAS-CONSULTAR.md](106-ESPECIALISTA-VERIFICADA-TRAS-CONSULTAR.md).

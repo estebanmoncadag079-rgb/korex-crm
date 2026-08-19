@@ -87,10 +87,23 @@ export function buscarServicio(
   const exacto = services.find((s) => normalizar(s.name) === q);
   if (exacto) return exacto;
 
-  const sub = services.find(
+  /**
+   * Un ÚNICO candidato por substring es una resolución segura. Más de uno ya
+   * no lo es: "retoque" encaja como substring de los 19 servicios "Retoque
+   * X" de un salón real (docs/korexia/104-ALGORITMO-BUSCAR-SERVICIO-SUBSTRING-AMBIGUO.md),
+   * y tomar el primero por orden alfabético no tiene relación con lo que pide
+   * el cliente — así resolvía antes: "Retoque Baby Volumen 2D" sin que nadie
+   * lo pidiera, solo porque empieza por B.
+   *
+   * Con más de un candidato se deja caer al paso de tokens: ya sabe comparar
+   * candidatos entre sí (ratio/overlap) y ya marca ambiguo si empatan, así que
+   * no hace falta duplicar esa lógica aquí — solo dejar de cortar el camino
+   * antes de que le toque actuar.
+   */
+  const sub = services.filter(
     (s) => normalizar(s.name).includes(q) || q.includes(normalizar(s.name))
   );
-  if (sub) return sub;
+  if (sub.length === 1) return sub[0]!;
 
   const qt = tokens(nombre);
   if (!qt.length) return null;

@@ -54,6 +54,62 @@ describe("buscarServicio (catálogo por nombre parafraseado)", () => {
   });
 });
 
+/**
+ * El caso real que descubrió el bug del paso "substring" (19-ago-2026,
+ * docs/korexia/104-ALGORITMO-BUSCAR-SERVICIO-SUBSTRING-AMBIGUO.md): "retoque"
+ * es substring de los 19 servicios "Retoque X" de un salón real, y el paso
+ * de substring tomaba el PRIMERO por orden alfabético sin comparar los
+ * demás — a diferencia del paso de tokens, que sí compara y marca ambiguo
+ * si empatan. Medido contra el catálogo real antes de tocar el código.
+ */
+describe("buscarServicio: ambigüedad por substring (19-ago-2026)", () => {
+  const RETOQUES: ServiceRow[] = [
+    "Retoque Baby Volumen 2D (10-15 días)",
+    "Retoque Natural o Pestañina (10-15 días)",
+    "Retoque Volumen 3D (10-15 días)",
+    "Retoque Volumen Ruso (10-15 días)",
+    "Retoque de Press on",
+    "Retoque de acrílico",
+    "Retoque de poligel",
+  ].map((name, i) => ({
+    id: `r${i}`,
+    name,
+    category: null,
+    priceCents: 0,
+    durationMin: 30,
+  }));
+
+  it("«retoque» a secas es ambiguo — no elige el primero por orden alfabético", () => {
+    // Antes del fix: resolvía a "Retoque Baby Volumen 2D (10-15 días)" (la B
+    // gana alfabéticamente) sin que el cliente hubiera pedido eso.
+    expect(buscarServicio(RETOQUES, "retoque")).toBeNull();
+  });
+
+  it("«retoques» (plural) también es ambiguo", () => {
+    expect(buscarServicio(RETOQUES, "retoques")).toBeNull();
+  });
+
+  it("un nombre específico y completo sigue resolviendo limpio, sin ambigüedad", () => {
+    expect(buscarServicio(RETOQUES, "retoque de acrílico")?.name).toBe("Retoque de acrílico");
+    expect(buscarServicio(RETOQUES, "Retoque Volumen Ruso (10-15 días)")?.name).toBe(
+      "Retoque Volumen Ruso (10-15 días)"
+    );
+  });
+
+  /*
+   * El caso negativo que da valor a los dos primeros: un catálogo donde SOLO
+   * un nombre contiene la palabra buscada no debe volverse ambiguo por el
+   * fix — sigue resolviendo por substring como siempre, sin pasar por tokens.
+   */
+  it("con un único candidato por substring, resuelve directo — no todo substring es ambiguo", () => {
+    const unico: ServiceRow[] = [
+      { id: "a", name: "Retoque de acrílico", category: null, priceCents: 0, durationMin: 30 },
+      { id: "b", name: "Semipermanente", category: null, priceCents: 0, durationMin: 30 },
+    ];
+    expect(buscarServicio(unico, "retoque")?.id).toBe("a");
+  });
+});
+
 describe("encontrarCitaActiva (mismo emparejamiento, sobre citas activas)", () => {
   const ACTIVAS = [
     { id: "cit_1", serviceName: "Semipermanente" },

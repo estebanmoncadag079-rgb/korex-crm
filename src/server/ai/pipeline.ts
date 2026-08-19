@@ -62,10 +62,12 @@ import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
+  afirmaConEspecialistaSinVerificar,
   anunciaCierre,
   anunciaCitaAgendada,
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
+  CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   CORRECCION_DE_RECURSO_PROMETIDO,
   CORRECCION_SIN_RESUMEN,
@@ -759,6 +761,74 @@ export async function runAgentTurn(
     // persona que una promesa de horario sin datos reales detrás.
     await derivarAUnaPersona(conversation);
     return { action: "handoff", reason: "error" };
+  }
+
+  /**
+   * Confirmó una especialista sin haber consultado disponibilidad
+   * (19-ago-2026): "¡Perfecto! Un retoque de Volumen Ruso con Hilary. ¿Para
+   * qué día...?" — Hilary no atiende ese servicio, y `consultas` (arriba)
+   * es 0: el modelo nunca llamó a `consult_availability` en este turno.
+   *
+   * No detecta una frase — comprueba el HECHO: cero consultas en este turno
+   * + una respuesta de texto libre que AFIRMA (no pregunta) mencionando a
+   * una especialista real. Detalle de por qué no basta un regex de "frases
+   * de confirmación" en `anuncio-de-cierre.ts`.
+   *
+   * Si el reintento decide consultar de verdad, se resuelve aquí mismo —
+   * una sola vuelta más, para no abrir un segundo bucle sin límite.
+   */
+  if (contrataCitas(vertical) && action.action === "reply" && consultas === 0) {
+    const nombresReales = [...new Set(services.flatMap((s) => s.staffNames))];
+    if (afirmaConEspecialistaSinVerificar(action.text, nombresReales)) {
+      console.warn(
+        "[citas] confirmó una especialista sin consultar disponibilidad; rehaciendo el turno"
+      );
+      let reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/especialista-sin-verificar`
+      );
+      if (reintento.ok && reintento.data.action === "consult_availability") {
+        const infoDisponibilidad = await resolverConsultaDisponibilidad(
+          organizationId,
+          services,
+          hours,
+          reintento.data,
+          opts?.now,
+          conversation.id
+        );
+        reintento = await chatJson(AgentAction, [
+          ...messages,
+          { role: "assistant", content: result.raw },
+          { role: "user", content: CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR },
+          { role: "assistant", content: JSON.stringify(reintento.data) },
+          { role: "user", content: infoDisponibilidad },
+        ]);
+        await registrarUsoIa(
+          organizationId,
+          reintento.usage,
+          `conv:${conversationId}/especialista-sin-verificar/disponibilidad`
+        );
+      }
+      const siguePrometiendoSinVerificar =
+        reintento.ok &&
+        reintento.data.action === "reply" &&
+        afirmaConEspecialistaSinVerificar(reintento.data.text, nombresReales);
+      if (reintento.ok && !siguePrometiendoSinVerificar) {
+        action = reintento.data;
+      } else {
+        console.error(
+          "[citas] sigue confirmando una especialista sin verificar; lo toma una persona"
+        );
+        await derivarAUnaPersona(conversation);
+        return { action: "handoff", reason: "error" };
+      }
+    }
   }
 
   /**

@@ -468,3 +468,64 @@ export function correccionDeRequisitoFaltante(faltan: { id: string; etiqueta: st
   const lista = faltan.map((r) => `${r.id} (${r.etiqueta})`).join(", ");
   return `ALTO. Antes de cerrar, este negocio necesita: ${lista}. Si el cliente ya te lo dio en su mensaje (mira lo que acaba de escribir), emite {"action":"provide_requirement","requisitoId":"<el id exacto de arriba>","valor":"<lo que dijo>","reply":"..."} — "reply" es tu respuesta normal para seguir la conversación. Si no te lo ha dado, pregúntaselo con reply y NO ejecutes la acción de cierre en este turno: solo cuando ya tengas el dato. Responde ÚNICAMENTE el objeto JSON.`;
 }
+
+/* ============================================================
+ * Confirmó una especialista sin haber consultado disponibilidad
+ * (19-ago-2026)
+ * ============================================================
+ *
+ * *"¡Perfecto! Un retoque de Volumen Ruso con Hilary. ¿Para qué día y hora
+ * te gustaría agendar?"* — Hilary no atiende ese servicio, y el modelo
+ * nunca llamó a `consult_availability` para comprobarlo. Es la misma
+ * familia que `prometeRecurso`: narra en vez de ejecutar. Otro caso real el
+ * mismo día, más caro: el agente le dio a una clienta 3 horas concretas
+ * para DOS especialistas distintas en el mismo mensaje ("Podríamos
+ * agendarte... con Geimar... a las 3:30pm. Y a tu mami... con Laura...
+ * 4:00pm o 4:30pm"), sin una sola llamada de por medio.
+ *
+ * A diferencia de los guardarraíles anteriores, este **no adivina por
+ * texto**. Medir contra mensajes reales de la flota (docs/korexia/
+ * 105-GUARDARRAIL-ESPECIALISTA-SIN-VERIFICAR.md) mostró que un regex de
+ * "frases de confirmación" habría disparado con preguntas legítimas como
+ * *"¿Qué tipo de servicio te gustaría agendar con Valentina?"* — el mismo
+ * texto que confirma bien ("¡Perfecto! ... con Hilary.") también aparece en
+ * respuestas correctas, así que el TEXTO solo no basta.
+ *
+ * Lo que sí es un hecho, no una interpretación: `pipeline.ts` ya sabe
+ * cuántas veces se llamó a `consult_availability` EN ESE TURNO (la
+ * variable `consultas` del bucle que resuelve la acción interna). Si es
+ * cero y la respuesta AFIRMA algo mencionando a una especialista real
+ * —no lo pregunta—, es una promesa sin verificar. Comprobar el hecho, no
+ * el prompt.
+ */
+
+/**
+ * ¿Esta respuesta AFIRMA algo (no lo pregunta) nombrando a una especialista
+ * real de este negocio?
+ *
+ * Se evalúa por ORACIÓN, igual que `prometeRecurso`: una pregunta legítima
+ * sobre qué servicio agendar con alguien ("¿Qué tipo de servicio te
+ * gustaría agendar con Valentina?") no debe camuflarse por llevar el
+ * nombre — la promesa está en la oración, no en la palabra suelta.
+ *
+ * `nombresReales` son los `staffNames` de los servicios de ESTE negocio —
+ * nunca un nombre hardcodeado: el mismo negocio decide quiénes existen.
+ */
+export function afirmaConEspecialistaSinVerificar(
+  texto: string | null | undefined,
+  nombresReales: string[]
+): boolean {
+  if (!texto || nombresReales.length === 0) return false;
+  const normalizar = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const nombresNorm = new Set(nombresReales.map(normalizar));
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    const palabras = normalizar(oracion).split(/[^a-z0-9]+/);
+    return palabras.some((p) => nombresNorm.has(p));
+  });
+}
+
+/** La corrección cuando confirma una especialista sin haber consultado disponibilidad. */
+export const CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR =
+  "ALTO. Tu respuesta menciona a una especialista dando por hecho que puede atender, pero NO llamaste a consult_availability en este turno para comprobarlo: podrías estar equivocado, y el cliente se queda con algo que no es cierto. Si el cliente ya te dio el servicio, llama a consult_availability con ese servicio y esa especialista AHORA, antes de decir nada más. Si todavía no sabes el servicio, pregúntaselo con reply sin nombrar a nadie como confirmado. Responde ÚNICAMENTE el objeto JSON.";

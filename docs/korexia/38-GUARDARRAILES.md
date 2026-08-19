@@ -32,9 +32,10 @@ el turno con la corrección delante → comprobar de nuevo.
 
 ## Los cuatro primeros
 
-> Hoy son **ocho**: los cuatro últimos (cerrar sin resumen, no dar el total,
-> prometer un recurso sin enviarlo, y cerrar sin un requisito declarado) están
-> al final de este documento, con la fecha y el caso que los provocó.
+> Hoy son **nueve**: los cinco últimos (cerrar sin resumen, no dar el total,
+> prometer un recurso sin enviarlo, cerrar sin un requisito declarado, y
+> confirmar una especialista sin verificar) están al final de este
+> documento, con la fecha y el caso que los provocó.
 
 | Guardarraíl | Qué evita | Si insiste |
 |---|---|---|
@@ -44,6 +45,7 @@ el turno con la corrección delante → comprobar de nuevo.
 | `resumenMalArmado` | Cerrar el pedido antes de que confirmen, o anunciar un resumen vacío | Sale como está, se registra |
 | `prometeRecurso` | Prometer un catálogo/foto/PDF sin ejecutar `send_image` | Lo atiende una persona |
 | requisito faltante | Cerrar (`book_appointment`/`notify_order`) sin un dato que el negocio declaró obligatorio | Lo atiende una persona |
+| especialista sin verificar | Confirmar que una especialista puede atender sin haber llamado a `consult_availability` en ese turno | Lo atiende una persona |
 
 **1. El cierre falso** (1-ago-2026). Con el historial real de producción, el
 modelo reprodujo el cierre falso **5 de cada 6 veces**, pese a que el prompt
@@ -305,3 +307,22 @@ elegir esta, y dos hallazgos que aparecieron solo al escribir el código
 pasa si se declara un requisito que el sistema no sabe capturar)— en
 [102-REQUISITO-NOMBRE-EN-CITAS.md](102-REQUISITO-NOMBRE-EN-CITAS.md) y
 [103-REQUISITOS-IMPLEMENTADO.md](103-REQUISITOS-IMPLEMENTADO.md).
+
+## Noveno guardarraíl: confirmar una especialista sin verificar (19-ago)
+
+*"¡Perfecto! Un retoque de Volumen Ruso con Hilary. ¿Para qué día y
+hora...?"* — Hilary no atiende ese servicio, y el modelo nunca llamó a
+`consult_availability` para comprobarlo.
+
+El primero que **no adivina por texto, ni siquiera por regex de frases**:
+se midió que un regex de "confirmación + nombre" habría bloqueado una
+pregunta legítima real de la flota (*"¿qué servicio te gustaría agendar con
+Valentina?"*, el flujo correcto tras el fix de ambigüedad del
+[104](104-ALGORITMO-BUSCAR-SERVICIO-SUBSTRING-AMBIGUO.md)).
+En su lugar, usa un hecho que `pipeline.ts` ya rastrea: cuántas veces se
+llamó a `consult_availability` **en ese turno**. Cero llamadas + una
+afirmación (no pregunta) con el nombre de una especialista real → se frena.
+
+Detalle completo, la medición que descartó el regex, y el caso más caro
+—horas concretas para dos especialistas distintas, sin una sola consulta—
+en [105-GUARDARRAIL-ESPECIALISTA-SIN-VERIFICAR.md](105-GUARDARRAIL-ESPECIALISTA-SIN-VERIFICAR.md).

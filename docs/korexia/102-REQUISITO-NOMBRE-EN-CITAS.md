@@ -5,9 +5,13 @@
 > diseño, a medio camino · Lo que falta para cerrarlo · Estado
 
 **18/19-ago-2026.** Auditoría de por qué una cita en Lashes Valen se confirma
-sin que nadie le pida el nombre a la clienta. **Nada de esto está
-implementado** — es la auditoría y el diseño, interrumpidos antes de escribir
-código, tal como se pidió.
+sin que nadie le pida el nombre a la clienta.
+
+> ✅ **19-ago: implementado.** Este documento es la auditoría y el diseño tal
+> como quedaron interrumpidos ese día — se conserva íntegro por el rastro que
+> deja. Para lo que de verdad se construyó, con los ajustes que aparecieron al
+> escribir el código, ver
+> [103-REQUISITOS-IMPLEMENTADO.md](103-REQUISITOS-IMPLEMENTADO.md).
 
 ---
 
@@ -172,7 +176,7 @@ alcanzó a auditar cuál de los dos sitios es el correcto.
 
 ## Estado
 
-**Nada implementado.** Auditoría completa, decisión tomada (alternativa 3),
-diseño a medio camino — interrumpido antes de escribir código, a pedido
-explícito del dueño para revisarlo con calma. Retomar desde "Lo que falta
-para cerrarlo" arriba.
+✅ **Implementado el 19-ago** — ver [103](103-REQUISITOS-IMPLEMENTADO.md). Esta
+sección queda como estaba el día de la auditoría, para el rastro: aquí se
+decidió la alternativa 3 y se frenó el diseño a propósito, antes de escribir
+código, para revisarlo con calma primero.

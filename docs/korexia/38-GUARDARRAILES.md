@@ -32,9 +32,9 @@ el turno con la corrección delante → comprobar de nuevo.
 
 ## Los cuatro primeros
 
-> Hoy son **siete**: los tres últimos (cerrar sin resumen, no dar el total, y
-> prometer un recurso sin enviarlo) están al final de este documento, con la
-> fecha y el caso que los provocó.
+> Hoy son **ocho**: los cuatro últimos (cerrar sin resumen, no dar el total,
+> prometer un recurso sin enviarlo, y cerrar sin un requisito declarado) están
+> al final de este documento, con la fecha y el caso que los provocó.
 
 | Guardarraíl | Qué evita | Si insiste |
 |---|---|---|
@@ -43,6 +43,7 @@ el turno con la corrección delante → comprobar de nuevo.
 | `productosOlvidados` | Que un producto ya pedido desaparezca | Sale como está, se registra |
 | `resumenMalArmado` | Cerrar el pedido antes de que confirmen, o anunciar un resumen vacío | Sale como está, se registra |
 | `prometeRecurso` | Prometer un catálogo/foto/PDF sin ejecutar `send_image` | Lo atiende una persona |
+| requisito faltante | Cerrar (`book_appointment`/`notify_order`) sin un dato que el negocio declaró obligatorio | Lo atiende una persona |
 
 **1. El cierre falso** (1-ago-2026). Con el historial real de producción, el
 modelo reprodujo el cierre falso **5 de cada 6 veces**, pese a que el prompt
@@ -285,3 +286,22 @@ cita real agendada. Detalle completo, la medición, y dos bugs propios
 encontrados al escribir las pruebas (el `\b` que no funciona tras una vocal
 acentuada, y una pregunta con el `?` lejos del recurso), en
 [101-GUARDARRAIL-RECURSO-PROMETIDO.md](101-GUARDARRAIL-RECURSO-PROMETIDO.md).
+
+## Octavo guardarraíl: cerrar sin un requisito declarado (19-ago)
+
+El primero que **no detecta nada en el texto**: la comprobación es de datos
+(`faltantes()`, en `server/contacts.ts`), no de una frase que el modelo
+escribió. Frena `book_appointment` o `notify_order` si el negocio declaró un
+dato obligatorio (el nombre, hoy) que el contacto todavía no tiene.
+
+Es también el primero que corre **en los dos verticales con el mismo
+código**: pedidos y citas comparten el mismo hueco (ninguno exige nada
+declarado con `stateSource='prompt'`, que es toda la flota real), así que
+protegerlo en uno lo protege gratis en el otro.
+
+Detalle completo —la auditoría, las tres alternativas descartadas antes de
+elegir esta, y dos hallazgos que aparecieron solo al escribir el código
+(`contact.name` se rellena con el teléfono cuando no hay nombre real; qué
+pasa si se declara un requisito que el sistema no sabe capturar)— en
+[102-REQUISITO-NOMBRE-EN-CITAS.md](102-REQUISITO-NOMBRE-EN-CITAS.md) y
+[103-REQUISITOS-IMPLEMENTADO.md](103-REQUISITOS-IMPLEMENTADO.md).

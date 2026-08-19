@@ -600,6 +600,34 @@ function fotosDisponibles(
   ].join("\n");
 }
 
+/**
+ * Lo que este negocio declaró que necesita antes de cerrar, y la acción para
+ * dárselo. Ausente cuando no declaró nada — que es hoy la mayoría de la
+ * flota (docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md): el prompt de esos
+ * negocios no gana ni una línea.
+ *
+ * El servidor ya comprueba el hecho con un guardarraíl (`pipeline.ts`) antes
+ * de dejar salir `book_appointment`/`notify_order`; esto es la mitad que le
+ * ahorra un reintento al modelo cuando el cliente ya dio el dato de una vez.
+ */
+function requisitosParaElPrompt(
+  requisitos: { id: string; etiqueta: string; obligatorio: boolean }[] | undefined
+): string | null {
+  const obligatorios = requisitos?.filter((r) => r.obligatorio) ?? [];
+  if (obligatorios.length === 0) return null;
+  const lista = obligatorios.map((r) => `- ${r.id}: ${r.etiqueta}`).join("\n");
+  return [
+    "DATOS QUE ESTE NEGOCIO NECESITA ANTES DE CERRAR:",
+    lista,
+    "",
+    'Si el cliente ya te dio alguno de estos datos (en este mensaje o antes en la',
+    'conversación), emite {"action":"provide_requirement","requisitoId":"<el id de',
+    'arriba>","valor":"...","reply":"..."} — nunca lo dejes solo en el reply, sin',
+    "esta acción el dato NO se guarda. Si todavía no te lo ha dado, pregúntaselo",
+    "con reply. No cierres (book_appointment / notify_order) hasta tenerlos todos.",
+  ].join("\n");
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
@@ -628,6 +656,12 @@ export function buildAgentSystemPrompt(input: {
   estadoDelPedido?: string;
   /** Fotos cargadas por el negocio. Vacío o ausente = no puede mandar ninguna. */
   fotos?: { etiqueta: string; kind: string }[];
+  /**
+   * Lo que este negocio declaró que necesita antes de cerrar (nombre, hoy).
+   * Ausente o vacío = no le añade nada al prompt: la mayoría de los negocios
+   * no lo han declarado todavía (ver docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md).
+   */
+  requisitos?: { id: string; etiqueta: string; obligatorio: boolean }[];
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -662,6 +696,7 @@ export function buildAgentSystemPrompt(input: {
       : null,
     `Etapas del pipeline disponibles: ${stageNames}`,
     fotosDisponibles(input.fotos),
+    requisitosParaElPrompt(input.requisitos),
     CONTRATO_DE_ACCIONES,
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.

@@ -14,6 +14,28 @@ export const AgentAction = z.discriminatedUnion("action", [
     note: z.string().min(1),
     reply: z.string().optional(),
   }),
+  /**
+   * El cliente acaba de dar un dato que este negocio declaró como requisito
+   * antes de cerrar (nombre, hoy — ver `server/contacts.ts`, "Requisitos
+   * declarados por el negocio").
+   *
+   * Genérica del núcleo, no de un vertical: ni citas ni pedidos la poseen.
+   * Existe por una razón concreta — `update_lead` ya persistía algo del
+   * contacto, pero como NOTA LIBRE (`appendLeadNote`); mezclarla con datos
+   * ESTRUCTURADOS habría hecho que una sola acción cargara con dos
+   * responsabilidades (notas de texto y campos validables). Se separan a
+   * propósito (docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md, Regla 11).
+   *
+   * `requisitoId` tiene que ser uno de los que el negocio declaró — el
+   * ejecutor lo rechaza si no, nunca inventa un campo nuevo.
+   */
+  z.object({
+    action: z.literal("provide_requirement"),
+    requisitoId: z.string().min(1),
+    valor: z.string().min(1),
+    /** Para seguir la conversación en el mismo turno — agradecer, retomar lo que se estaba haciendo. */
+    reply: z.string().optional(),
+  }),
   z.object({
     action: z.literal("move_stage"),
     stage: z.string().min(1),

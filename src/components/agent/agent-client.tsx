@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AprendizajeSection } from "@/components/agent/aprendizaje-section";
 import { EntrenamientoCard } from "@/components/agent/entrenamiento-card";
+import { RequisitosSection } from "@/components/agent/requisitos-section";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -133,6 +134,7 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
       <div className="grid gap-4 p-4 md:gap-6 md:p-6 lg:grid-cols-2">
         <ProfileSection profile={profile} onSave={saveProfile} />
         <KbSection entries={entries} kbSize={kbSize} onChanged={() => void refetch()} />
+        <RequisitosSection />
         {esAgencia && (
           <div className="lg:col-span-2">
             <AprendizajeSection onAprendido={() => void refetch()} />

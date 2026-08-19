@@ -437,3 +437,34 @@ export const CORRECCION_SIN_TOTAL =
 /** La corrección cuando el agente cierra un pedido que el cliente nunca vio. */
 export const CORRECCION_SIN_RESUMEN =
   "ALTO. Vas a dar el pedido por cerrado y el cliente NUNCA ha visto un resumen: en esta conversación no le has enseñado qué pidió ni cuánto suma. Que él escriba \"confirmo\" no confirma nada si no hay nada que confirmar — y el equipo recibiría un pedido sin producto, sin datos y sin total. Antes de cerrar, muéstrale el resumen completo con lo que lleva, sus opciones, los datos de entrega y el total con la cifra, y pídele que confirme. Si todavía te falta algún dato, pídeselo en vez del resumen. Responde ÚNICAMENTE el objeto JSON.";
+
+/* ============================================================
+ * Requisito declarado sin cumplir, y la acción ya está cerrando
+ * (19-ago-2026)
+ * ============================================================
+ *
+ * El octavo guardarraíl, y el primero que corre en LOS DOS verticales con
+ * el mismo código: `book_appointment` y `notify_order` comparten el mismo
+ * hueco (ninguno exige nada declarado cuando `stateSource='prompt'`, que es
+ * toda la flota real — auditado en
+ * docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md).
+ *
+ * A diferencia de los otros siete, este no detecta nada en el TEXTO: la
+ * comprobación es de datos (`faltantes()`, en `server/contacts.ts`), así
+ * que vive en `pipeline.ts`, junto a la llamada que la resuelve. Aquí solo
+ * vive el mensaje de corrección, igual que los demás.
+ */
+
+/**
+ * La corrección cuando faltan requisitos obligatorios antes de cerrar.
+ *
+ * Cubre los dos casos a la vez: si el cliente YA dio el dato en su mensaje
+ * (lo más común — "soy Valentina, quiero la cita a las 3"), pide
+ * `provide_requirement`; si no, pide preguntarlo con `reply`. Nunca
+ * `book_appointment`/`notify_order` en este mismo turno: ambos exigen que
+ * el requisito ya esté satisfecho ANTES de intentarlos de nuevo.
+ */
+export function correccionDeRequisitoFaltante(faltan: { id: string; etiqueta: string }[]): string {
+  const lista = faltan.map((r) => `${r.id} (${r.etiqueta})`).join(", ");
+  return `ALTO. Antes de cerrar, este negocio necesita: ${lista}. Si el cliente ya te lo dio en su mensaje (mira lo que acaba de escribir), emite {"action":"provide_requirement","requisitoId":"<el id exacto de arriba>","valor":"<lo que dijo>","reply":"..."} — "reply" es tu respuesta normal para seguir la conversación. Si no te lo ha dado, pregúntaselo con reply y NO ejecutes la acción de cierre en este turno: solo cuando ya tengas el dato. Responde ÚNICAMENTE el objeto JSON.`;
+}

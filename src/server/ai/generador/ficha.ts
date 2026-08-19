@@ -291,6 +291,28 @@ export function requisitosDe(ficha: FichaDelNegocio): Requisito[] | undefined {
 }
 
 /**
+ * Los requisitos que la pantalla "Ajustar mi agente" puede ofrecer como
+ * casillas — el catálogo cerrado, no lo que escriba quien llama.
+ *
+ * El negocio solo decide QUÉ marcar; `tipo` y `etiqueta` los fija el
+ * servidor, para que la pantalla sea de verdad "solo la interfaz para editar
+ * `cierre.requisitos`" y no un lugar donde alguien pueda inventar un id
+ * nuevo sin que `server/contacts.ts` sepa qué hacer con él (`capturar()`
+ * solo entiende los que están en `CAMPO_DE_REQUISITO`).
+ *
+ * Solo "nombre" es capturable hoy — ver docs/korexia/102. Los demás quedan
+ * en la lista para que el negocio pueda DECLARARLOS (quedan en su ficha,
+ * como fuente de verdad), aunque el sistema todavía no sepa capturarlos
+ * solo desde el chat.
+ */
+export const REQUISITOS_DISPONIBLES: readonly Requisito[] = [
+  { id: "nombre", tipo: "texto", etiqueta: "el nombre de quien lo pide", obligatorio: true },
+  { id: "telefono", tipo: "telefono", etiqueta: "el celular de contacto", obligatorio: true },
+  { id: "email", tipo: "email", etiqueta: "el correo", obligatorio: true },
+  { id: "documento", tipo: "documento", etiqueta: "el documento de identidad", obligatorio: true },
+];
+
+/**
  * Los requisitos que le tocarían a una ficha que aún no los declara.
  *
  * ⚠️ **Esto NO lo usa el pipeline ni el validador**: existe solo para que

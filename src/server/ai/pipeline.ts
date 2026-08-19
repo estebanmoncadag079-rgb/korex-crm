@@ -58,6 +58,7 @@ import { MAX_ITEMS } from "@/server/orders/normalizar";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import { requisitosDe, type FichaDelNegocio, type Requisito } from "@/server/ai/generador/ficha";
+import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
 import { comoTexto } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
@@ -72,6 +73,7 @@ import {
   noDioElTotal,
   productosOlvidados,
   prometeRecurso,
+  correccionDeRequisitoFaltante,
   correccionDeResumen,
   resumenMalArmado,
   TIENE_TOTAL,
@@ -193,6 +195,7 @@ export function textosAlCliente(action: AgentActionType): string[] {
       return [action.text];
     case "update_lead":
     case "move_stage":
+    case "provide_requirement":
     // El pie de foto es texto que lee el cliente, así que pasa por los
     // guardarraíles igual que cualquier respuesta.
     case "send_image":
@@ -591,8 +594,17 @@ export async function runAgentTurn(
   /**
    * Qué pide ESTE negocio para cerrar. Sale de su ficha; el núcleo no tiene ni
    * una lista de campos. Vacío = no hay ficha (Lis, con prompt manual).
+   *
+   * Deliberadamente FUERA del `if (estadoEstructurado)`: hasta el 19-ago solo
+   * se calculaba con la Fase 2 encendida, así que el guardarraíl de
+   * requisitos (que corre con `stateSource='prompt'`, el caso real de toda la
+   * flota hoy) no tenía de dónde leerlos. Es una lectura barata —JSON ya en
+   * memoria, sin ir a la base— así que calcularla siempre no cuesta nada.
    */
-  let requisitos: Requisito[] | undefined;
+  const fichaDelNegocio = leerFicha(profile.ficha);
+  const requisitos: Requisito[] | undefined = fichaDelNegocio
+    ? requisitosDe(fichaDelNegocio as FichaDelNegocio)
+    : undefined;
 
   if (estadoEstructurado) {
     const productos = await catalogoDe(organizationId, vertical);
@@ -617,8 +629,6 @@ export async function runAgentTurn(
        * productos resolvía el primero y **el segundo se quedaba sin grupos**,
        * así que el modelo no veía que le faltaban sus opciones.
        */
-      const fichaDelNegocio = leerFicha(profile.ficha);
-      requisitos = fichaDelNegocio ? requisitosDe(fichaDelNegocio as FichaDelNegocio) : undefined;
       if (estadoGuardado) {
         bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? [], vertical);
       }
@@ -638,6 +648,7 @@ export async function runAgentTurn(
         catalogoDePedidos,
         estadoDelPedido: bloqueDeEstado,
         fotos,
+        requisitos,
       }),
     },
     ...toChatHistory(history, estado),
@@ -870,6 +881,52 @@ export async function runAgentTurn(
       );
       await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Requisito declarado por el negocio, sin cumplir, y la acción ya está
+   * cerrando (19-ago-2026, docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md).
+   *
+   * Corre en LOS DOS verticales con el mismo código: `book_appointment` y
+   * `notify_order` comparten el mismo hueco (ninguno exige nada declarado
+   * cuando `stateSource='prompt'`, que es toda la flota real hoy).
+   *
+   * Mismo tratamiento que el cierre falso y la cita fantasma: una
+   * oportunidad de rehacerlo con la corrección delante y, si insiste, lo
+   * atiende una persona — el equipo necesita este dato para identificar a
+   * la clienta, no es un detalle recuperable después.
+   */
+  const ACCIONES_DE_CIERRE = ["book_appointment", "notify_order"];
+  if (requisitos?.length && ACCIONES_DE_CIERRE.includes(action.action)) {
+    const faltan = await requisitosFaltantes({
+      organizationId,
+      contactId: conversation.contactId,
+      requisitos,
+    });
+    if (faltan.length > 0) {
+      console.warn(
+        `[requisitos] faltan antes de cerrar (${faltan.map((r) => r.id).join(", ")}); rehaciendo el turno`
+      );
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: correccionDeRequisitoFaltante(faltan) },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/requisito-faltante`
+      );
+      if (reintento.ok && !ACCIONES_DE_CIERRE.includes(reintento.data.action)) {
+        action = reintento.data;
+      } else {
+        console.error(
+          "[requisitos] sigue cerrando sin los datos declarados; lo toma una persona"
+        );
+        await derivarAUnaPersona(conversation);
+        return { action: "handoff", reason: "error" };
+      }
     }
   }
 
@@ -1121,6 +1178,28 @@ export async function runAgentTurn(
       return action;
     case "update_lead": {
       await appendLeadNote(organizationId, conversation.contactId, action.note);
+      if (action.reply) await deliverReply(conversation, action.reply);
+      return action;
+    }
+    /*
+     * El cliente acaba de dar un dato que este negocio declaró como
+     * requisito (docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md). `capturar`
+     * es la ÚNICA función que escribe — este ejecutor no sabe de columnas,
+     * solo delega. Si `requisitoId` no está declarado o no tiene destino
+     * conocido, se registra y se sigue: un dato que no se pudo guardar no
+     * puede tumbar el turno, igual que `anotarOfrecidos`.
+     */
+    case "provide_requirement": {
+      const resultado = await capturar({
+        organizationId,
+        contactId: conversation.contactId,
+        requisitos: requisitos ?? [],
+        requisitoId: action.requisitoId,
+        valor: action.valor,
+      });
+      if (!resultado.ok) {
+        console.warn(`[requisitos] no se pudo capturar "${action.requisitoId}": ${resultado.motivo}`);
+      }
       if (action.reply) await deliverReply(conversation, action.reply);
       return action;
     }

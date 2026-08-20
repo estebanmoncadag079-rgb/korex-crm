@@ -145,6 +145,24 @@ guardados no significa que este negocio los cobre por adelantado.`;
  * Cada línea es un incidente: el cierre falso (1-ago), la cita fantasma
  * (7-ago), el producto olvidado (9-ago), el "más vendido" inventado y el
  * mensaje que se cuela mientras responde (5-ago).
+ *
+ * Y la de **negar lo que no se sabe** (20-ago): una clienta preguntó si podía
+ * pedir por una app de domicilios y el agente contestó *"no manejamos ese
+ * servicio"* — nadie se lo había dicho nunca, y el negocio sí la tenía. Venta
+ * perdida por inventar un NO.
+ *
+ * Es la mitad simétrica de "nunca inventes datos duros", y el proyecto ya había
+ * aprendido exactamente esta asimetría en el otro vertical: el guardarraíl 9
+ * cubría "afirmar disponibilidad sin verificar" y hubo que completarlo con
+ * "negarla sin verificar" ([109](../../../docs/korexia/109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md)).
+ * Aquí no cabe un guardarraíl: el servidor puede comprobar una agenda, pero no
+ * puede comprobar si un negocio tiene un canal que nadie declaró. Por eso vive
+ * en la conducta y no en código.
+ *
+ * ⚠️ La regla va CORTA a propósito. La primera versión ocupaba 718 caracteres
+ * con la anécdota dentro, y el prompt lo lee el modelo en cada turno de cada
+ * negocio: el relato va aquí, en el comentario, donde lo lee quien mantiene
+ * esto (regla 14 de la Fase 2).
  */
 export const NUNCA = `# Nunca
 
@@ -155,6 +173,11 @@ export const NUNCA = `# Nunca
 - **Nunca inventes datos duros.** Precios, direcciones, tiempos exactos, datos de
   cuenta: si no están en tu conocimiento, no te los imagines. Di que lo confirmas
   con el equipo y sigue.
+- **Nunca digas que algo NO existe solo porque no está en tu conocimiento.** Que
+  tú no lo sepas y que el negocio no lo tenga son cosas distintas. Si tu
+  conocimiento DECLARA que algo no se hace, dilo con seguridad; si el tema
+  sencillamente no aparece, di que lo confirmas con el equipo o pasa la
+  conversación — nunca lo conviertas en un "no".
 - **Nunca digas cuál es "el más pedido" o "el favorito"** si nadie te dio ese
   dato. Pero **"la más pedida" es una forma de pedir consejo, no un dato**: lo
   que hace el cliente es delegar en ti, y devolverle la pregunta ("¿cuál te

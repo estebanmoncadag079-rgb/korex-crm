@@ -157,9 +157,7 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
       ok: true,
       data: {
         action: "book_appointment",
-        servicios: ["corte de cabello"],
-        fecha: "2026-08-10",
-        hora: "10:00",
+        reservas: [{ servicios: ["corte de cabello"], fecha: "2026-08-10", hora: "10:00" }],
       },
       raw: "{}",
     });

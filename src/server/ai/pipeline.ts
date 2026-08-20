@@ -72,7 +72,7 @@ import {
   anunciaCitaAgendada,
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
-  CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR,
+  CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   CORRECCION_DE_RECURSO_PROMETIDO,
   CORRECCION_SIN_RESUMEN,
@@ -82,6 +82,7 @@ import {
   prometeRecurso,
   correccionDeRequisitoFaltante,
   correccionDeResumen,
+  niegaDisponibilidadSinVerificar,
   resumenMalArmado,
   TIENE_TOTAL,
   MENSAJE_RETIRADO,
@@ -782,44 +783,47 @@ export async function runAgentTurn(
   }
 
   /**
-   * Confirmó una especialista sin haber consultado disponibilidad
-   * (19-ago-2026): "¡Perfecto! Un retoque de Volumen Ruso con Hilary. ¿Para
-   * qué día...?" — Hilary no atiende ese servicio, y `consultas` (arriba)
-   * es 0: el modelo nunca llamó a `consult_availability` en este turno.
+   * Afirmó o negó disponibilidad sin haberla consultado (19-ago-2026):
+   * "¡Perfecto! Un retoque de Volumen Ruso con Hilary. ¿Para qué día...?"
+   * — Hilary no atiende ese servicio; o al revés, "Ese horario ya no está
+   * disponible" para una hora que sí lo estaba. `consultas` (arriba) es 0
+   * en los dos casos: el modelo nunca llamó a `consult_availability` en
+   * este turno.
    *
-   * No detecta una frase — comprueba el HECHO: cero consultas en este turno
-   * + una respuesta de texto libre que AFIRMA (no pregunta) mencionando a
-   * una especialista real. Detalle de por qué no basta un regex de "frases
-   * de confirmación" en `anuncio-de-cierre.ts`.
+   * No detecta una frase sola — comprueba el HECHO: cero consultas en este
+   * turno + una respuesta de texto libre que AFIRMA (no pregunta) nombrando
+   * a una especialista real, o que NIEGA disponibilidad de forma categórica
+   * (nunca por una hora puntual: esa mitad se dejó fuera a propósito,
+   * porque puede apoyarse con razón en lo que el propio agente ofreció en
+   * el turno inmediato anterior — docs/korexia/109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md).
+   * Detalle de por qué no basta un regex de "frases de confirmación" en
+   * `anuncio-de-cierre.ts`.
    *
    * Si el reintento decide consultar de verdad, se resuelve aquí mismo —
    * una sola vuelta más, para no abrir un segundo bucle sin límite. Esa
    * respuesta YA queda verificada por `resolverConsultaDisponibilidad`: no
-   * se le vuelve a aplicar el mismo criterio textual de detección, igual
-   * que "cita fantasma" (línea ~901) y "recurso prometido" (línea ~942) ya
-   * aceptan su reintento sin más cuando la acción real se ejecutó. Antes de
-   * este ajuste (auditoría 19-ago-2026, docs/korexia/106) el código
-   * re-evaluaba el texto de la respuesta final con el mismo detector,
-   * aunque ya estuviera fundamentada en datos reales: cualquier respuesta
-   * útil tras verificar ("Hilary SÍ puede el jueves a las 3pm") vuelve a
-   * mencionar el nombre en una afirmación, así que ese camino derivaba a
-   * una persona de forma sistemática, no solo en el caso raro.
+   * se le vuelve a aplicar el mismo criterio de detección, igual que "cita
+   * fantasma" (línea ~901) y "recurso prometido" (línea ~942) ya aceptan su
+   * reintento sin más cuando la acción real se ejecutó (docs/korexia/106).
    */
   if (contrataCitas(vertical) && action.action === "reply" && consultas === 0) {
     const nombresReales = [...new Set(services.flatMap((s) => s.staffNames))];
-    if (afirmaConEspecialistaSinVerificar(action.text, nombresReales)) {
+    const sinVerificar = (texto: string | null | undefined) =>
+      afirmaConEspecialistaSinVerificar(texto, nombresReales) ||
+      niegaDisponibilidadSinVerificar(texto);
+    if (sinVerificar(action.text)) {
       console.warn(
-        "[citas] confirmó una especialista sin consultar disponibilidad; rehaciendo el turno"
+        "[citas] afirmó o negó disponibilidad sin consultarla; rehaciendo el turno"
       );
       let reintento = await chatJson(AgentAction, [
         ...messages,
         { role: "assistant", content: result.raw },
-        { role: "user", content: CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR },
+        { role: "user", content: CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR },
       ]);
       await registrarUsoIa(
         organizationId,
         reintento.usage,
-        `conv:${conversationId}/especialista-sin-verificar`
+        `conv:${conversationId}/disponibilidad-sin-verificar`
       );
       let seVerificoDeVerdad = false;
       if (reintento.ok && reintento.data.action === "consult_availability") {
@@ -835,26 +839,26 @@ export async function runAgentTurn(
         reintento = await chatJson(AgentAction, [
           ...messages,
           { role: "assistant", content: result.raw },
-          { role: "user", content: CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR },
+          { role: "user", content: CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR },
           { role: "assistant", content: JSON.stringify(reintento.data) },
           { role: "user", content: infoDisponibilidad },
         ]);
         await registrarUsoIa(
           organizationId,
           reintento.usage,
-          `conv:${conversationId}/especialista-sin-verificar/disponibilidad`
+          `conv:${conversationId}/disponibilidad-sin-verificar/disponibilidad`
         );
       }
-      const siguePrometiendoSinVerificar =
+      const sigueSinVerificar =
         !seVerificoDeVerdad &&
         reintento.ok &&
         reintento.data.action === "reply" &&
-        afirmaConEspecialistaSinVerificar(reintento.data.text, nombresReales);
-      if (reintento.ok && !siguePrometiendoSinVerificar) {
+        sinVerificar(reintento.data.text);
+      if (reintento.ok && !sigueSinVerificar) {
         action = reintento.data;
       } else {
         console.error(
-          "[citas] sigue confirmando una especialista sin verificar; lo toma una persona"
+          "[citas] sigue afirmando o negando disponibilidad sin verificar; lo toma una persona"
         );
         await derivarAUnaPersona(conversation);
         return { action: "handoff", reason: "error" };
@@ -1408,110 +1412,160 @@ export async function runAgentTurn(
       return action;
     }
     case "book_appointment": {
-      // Uno o varios servicios en la misma visita: cada nombre se resuelve
-      // por separado contra el catálogo, con el mismo buscarServicio de
-      // siempre — todo o nada, igual que items[] en pedidos.
-      const servicios: ServiceRow[] = [];
-      for (const nombre of action.servicios) {
-        const s = buscarServicio(services, nombre);
-        if (!s) {
-          await deliverReply(
-            conversation,
-            "No identifiqué ese servicio, ¿me confirmas cuál del catálogo quieres agendar?"
-          );
-          return action;
-        }
-        servicios.push(s);
-      }
-      const nombreVisita = servicios.map((s) => s.name).join(" + ");
-      const resuelto = await resolverEspecialistaMultiple(
-        organizationId,
-        servicios.map((s) => s.id),
-        action.especialista
-      );
-      if (!resuelto.ok) {
-        await deliverReply(
-          conversation,
-          resuelto.opciones.length
-            ? `Para "${nombreVisita}" atienden: ${resuelto.opciones.join(", ")}. ¿Con quién prefieres?`
-            : `Nadie atiende "${nombreVisita}" junto en la misma cita. ¿Prefieres agendarlos por separado?`
-        );
-        return action;
-      }
-      const fecha = normalizarFecha(action.fecha) ?? action.fecha;
-
       /**
-       * Solo se agenda un horario que el agente haya ofrecido en esta
-       * conversación. `crearCita` ya comprueba que el hueco esté libre, pero
-       * eso no impide agendar uno que nunca se ofreció: el caso real es una
-       * fecha relativa mal entendida ("el miércoles", "mañana en la tarde")
-       * que cae por casualidad en un hueco libre. Antes se reservaba mal y el
-       * cliente se enteraba al llegar. Ahora se le devuelven las opciones que
-       * de verdad se le ofrecieron. Idea tomada de `nea-agent`.
+       * `reservas[]` (19-ago-2026, docs/korexia/108-RESERVAS-DE-VARIAS-PERSONAS.md):
+       * cada una se procesa de forma INDEPENDIENTE, nunca todo-o-nada — el
+       * cupo de una no puede depender de si la otra tuvo hueco. Caso real
+       * que lo motivó: clienta + su mamá, cada una con su servicio, hora y
+       * especialista; solo una de las dos se pudo agendar antes de esto, y
+       * el texto anunciaba las dos como agendadas.
        */
-      const ofrecido = await estaEntreLosOfrecidos({
-        organizationId,
-        conversationId: conversation.id,
-        fecha,
-        hora: action.hora,
-      });
-      if (!ofrecido.ok) {
-        const opciones = ofrecido.ofrecidos
-          .map((o) => `${o.fecha} a las ${horaAAmPm(o.hora)}`)
-          .join(", ");
-        console.warn(
-          `[citas] reserva rechazada en ${conversation.id}: ${fecha} ${action.hora} ` +
-            `no está entre los ofrecidos (${opciones})`
+      const agendadas: { nombreVisita: string; fecha: string; hora: string; staffName: string }[] =
+        [];
+      const fallidas: { nombreVisita: string; motivo: string }[] = [];
+
+      for (const reserva of action.reservas) {
+        // Uno o varios servicios en la MISMA visita de esta reserva — igual
+        // que antes, todo o nada dentro de la propia reserva.
+        const servicios: ServiceRow[] = [];
+        let noEncontrado: string | null = null;
+        for (const nombre of reserva.servicios) {
+          const s = buscarServicio(services, nombre);
+          if (!s) {
+            noEncontrado = nombre;
+            break;
+          }
+          servicios.push(s);
+        }
+        const nombreVisita = noEncontrado
+          ? reserva.servicios.join(" + ")
+          : servicios.map((s) => s.name).join(" + ");
+
+        if (noEncontrado) {
+          fallidas.push({
+            nombreVisita,
+            motivo: `no identifiqué "${noEncontrado}" en el catálogo`,
+          });
+          continue;
+        }
+
+        const resuelto = await resolverEspecialistaMultiple(
+          organizationId,
+          servicios.map((s) => s.id),
+          reserva.especialista
         );
-        await deliverReply(
-          conversation,
-          `Para no equivocarme con tu cita: los horarios que tengo disponibles son ${opciones}. ¿Cuál prefieres?`
-        );
+        if (!resuelto.ok) {
+          fallidas.push({
+            nombreVisita,
+            motivo: resuelto.opciones.length
+              ? `para "${nombreVisita}" atienden: ${resuelto.opciones.join(", ")}`
+              : `nadie atiende "${nombreVisita}" junto en la misma cita`,
+          });
+          continue;
+        }
+        const fecha = normalizarFecha(reserva.fecha) ?? reserva.fecha;
+
+        /**
+         * Solo se agenda un horario que el agente haya ofrecido en esta
+         * conversación. `crearCita` ya comprueba que el hueco esté libre, pero
+         * eso no impide agendar uno que nunca se ofreció: el caso real es una
+         * fecha relativa mal entendida ("el miércoles", "mañana en la tarde")
+         * que cae por casualidad en un hueco libre. Idea tomada de `nea-agent`.
+         */
+        const ofrecido = await estaEntreLosOfrecidos({
+          organizationId,
+          conversationId: conversation.id,
+          fecha,
+          hora: reserva.hora,
+        });
+        if (!ofrecido.ok) {
+          const opciones = ofrecido.ofrecidos
+            .map((o) => `${o.fecha} a las ${horaAAmPm(o.hora)}`)
+            .join(", ");
+          console.warn(
+            `[citas] reserva rechazada en ${conversation.id}: ${fecha} ${reserva.hora} ` +
+              `no está entre los ofrecidos (${opciones})`
+          );
+          fallidas.push({
+            nombreVisita,
+            motivo: opciones
+              ? `los horarios que tengo disponibles son ${opciones}`
+              : "ese horario no fue uno de los que ofrecí",
+          });
+          continue;
+        }
+
+        const resultado = await crearCitaMultiple({
+          organizationId,
+          contactId: conversation.contactId,
+          services: servicios,
+          fecha,
+          hora: reserva.hora,
+          staffIdPreferido: resuelto.staffId,
+          hours,
+          now: opts?.now,
+        });
+        if (!resultado.ok) {
+          /**
+           * El hueco puede estar ocupado por la PROPIA clienta: pasa cada vez
+           * que dice "sí, confirmo" después de que la cita ya quedó hecha. El
+           * mensaje genérico ("ese horario ya no está disponible") la deja
+           * pensando que se cayó su cita, cuando es suya. Salió tres veces
+           * seguidas probando el salón antes de su primer día (7-ago-2026).
+           */
+          const suya =
+            resultado.reason === "sin_cupo" &&
+            (await citasActivasDeContacto(organizationId, conversation.contactId)).some(
+              (c) =>
+                c.serviceId === servicios[0]!.id &&
+                utcAFechaHoraBogota(c.startsAt).fecha === fecha &&
+                utcAFechaHoraBogota(c.startsAt).hora === reserva.hora
+            );
+          fallidas.push({
+            nombreVisita,
+            motivo: suya
+              ? "esa cita ya está confirmada"
+              : resultado.reason === "fuera_de_horario"
+                ? "esa fecha no se puede agendar"
+                : "ese horario ya no está disponible",
+          });
+          continue;
+        }
+        agendadas.push({ nombreVisita, fecha, hora: reserva.hora, staffName: resultado.staffName });
+      }
+
+      const lineas = [
+        ...agendadas.map(
+          (a) =>
+            `✅ Quedaste agendada: *${a.nombreVisita}* el ${a.fecha} a las ${horaAAmPm(a.hora)} con ${a.staffName}.`
+        ),
+        ...fallidas.map((f) => `⚠️ *${f.nombreVisita}* no se pudo agendar: ${f.motivo}.`),
+      ];
+
+      if (agendadas.length === 0) {
+        // Nada que confirmar: solo informar qué falló, sin avisar al equipo
+        // ni tocar el embudo — no hay ninguna cita real de por medio.
+        await deliverReply(conversation, lineas.join("\n"));
         return action;
       }
 
-      const resultado = await crearCitaMultiple({
-        organizationId,
-        contactId: conversation.contactId,
-        services: servicios,
-        fecha,
-        hora: action.hora,
-        staffIdPreferido: resuelto.staffId,
-        hours,
-        now: opts?.now,
-      });
-      if (!resultado.ok) {
-        /**
-         * El hueco puede estar ocupado por la PROPIA clienta: pasa cada vez
-         * que dice "sí, confirmo" después de que la cita ya quedó hecha. El
-         * mensaje genérico ("ese horario ya no está disponible") la deja
-         * pensando que se cayó su cita, cuando es suya. Salió tres veces
-         * seguidas probando el salón antes de su primer día (7-ago-2026).
-         */
-        const suya =
-          resultado.reason === "sin_cupo" &&
-          (await citasActivasDeContacto(organizationId, conversation.contactId)).some(
-            (c) =>
-              c.serviceId === servicios[0]!.id &&
-              utcAFechaHoraBogota(c.startsAt).fecha === fecha &&
-              utcAFechaHoraBogota(c.startsAt).hora === action.hora
-          );
-        const msg = suya
-          ? `Tranquila, esa cita ya está confirmada: *${nombreVisita}* el ${fecha} a las ${horaAAmPm(action.hora)}. ¡Te esperamos!`
-          : resultado.reason === "fuera_de_horario"
-            ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
-            : "Ese horario ya no está disponible. ¿Qué otra hora prefieres?";
-        await deliverReply(conversation, msg);
-        return action;
-      }
-      // La cita ya existe: lo ofrecido dejó de tener sentido.
+      // La(s) cita(s) ya existen: lo ofrecido dejó de tener sentido para
+      // TODA la conversación, no solo para la reserva que lo consumió — se
+      // limpia una sola vez, después del bucle completo.
       await limpiarOfrecidos(organizationId, conversation.id).catch(() => {});
       await avisarYConfirmar({
         conversation,
         organizationId,
-        confirmacion: `✅ Quedaste agendada: *${nombreVisita}* el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
-        nota: `Cita agendada: ${nombreVisita} · ${fecha} ${action.hora} · ${resultado.staffName}`,
-        avisoEquipo: `📅 Nueva cita: ${nombreVisita} el ${fecha} a las ${horaAAmPm(action.hora)} con ${resultado.staffName}.`,
+        confirmacion: lineas.join("\n"),
+        nota: agendadas
+          .map((a) => `Cita agendada: ${a.nombreVisita} · ${a.fecha} ${a.hora} · ${a.staffName}`)
+          .join(" | "),
+        avisoEquipo: agendadas
+          .map(
+            (a) =>
+              `📅 Nueva cita: ${a.nombreVisita} el ${a.fecha} a las ${horaAAmPm(a.hora)} con ${a.staffName}.`
+          )
+          .join("\n"),
         farewell: action.farewell,
       });
       return action;

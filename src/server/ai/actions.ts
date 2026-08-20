@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { MAX_ITEMS } from "@/server/orders/normalizar";
 
+/** Cuántas reservas independientes admite un solo `book_appointment`. */
+const MAX_RESERVAS = 4;
+
 /**
  * Acción tipada del agente: exactamente UNA por turno (FR-021).
  * El servidor valida cada acción contra sus allowlists (etapas de la org);
@@ -111,12 +114,32 @@ export const AgentAction = z.discriminatedUnion("action", [
     fecha: z.string().optional(),
     especialista: z.string().optional(),
   }),
+  /**
+   * `reservas[]`, no una sola fecha/hora/especialista (19-ago-2026,
+   * docs/korexia/108-RESERVAS-DE-VARIAS-PERSONAS.md): un caso real de
+   * Lashes Valen pidió una cita para la clienta y otra para su mamá, cada
+   * una con su servicio, hora y especialista — dos reservas independientes,
+   * no dos servicios de la misma visita (eso ya lo cubre `servicios[]`
+   * DENTRO de una reserva, sin tocar aquí). El modelo solo podía declarar
+   * una, así que el texto anunciaba dos citas y el sistema agendaba una.
+   *
+   * `MAX_RESERVAS` es deliberadamente bajo: esto es para un grupo pequeño
+   * que agenda junto (una familia, dos amigas), no un mecanismo de carga
+   * masiva — cada reserva se valida y ejecuta por separado en el pipeline.
+   */
   z.object({
     action: z.literal("book_appointment"),
-    servicios: z.array(z.string().min(1)).min(1).max(MAX_ITEMS),
-    fecha: z.string().min(1),
-    hora: z.string().min(1),
-    especialista: z.string().optional(),
+    reservas: z
+      .array(
+        z.object({
+          servicios: z.array(z.string().min(1)).min(1).max(MAX_ITEMS),
+          fecha: z.string().min(1),
+          hora: z.string().min(1),
+          especialista: z.string().optional(),
+        })
+      )
+      .min(1)
+      .max(MAX_RESERVAS),
     farewell: z.string().optional(),
   }),
   z.object({

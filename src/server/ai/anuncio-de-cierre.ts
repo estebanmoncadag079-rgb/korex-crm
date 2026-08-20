@@ -526,6 +526,63 @@ export function afirmaConEspecialistaSinVerificar(
   });
 }
 
-/** La corrección cuando confirma una especialista sin haber consultado disponibilidad. */
-export const CORRECCION_DE_ESPECIALISTA_SIN_VERIFICAR =
-  "ALTO. Tu respuesta menciona a una especialista dando por hecho que puede atender, pero NO llamaste a consult_availability en este turno para comprobarlo: podrías estar equivocado, y el cliente se queda con algo que no es cierto. Si el cliente ya te dio el servicio, llama a consult_availability con ese servicio y esa especialista AHORA, antes de decir nada más. Si todavía no sabes el servicio, pregúntaselo con reply sin nombrar a nadie como confirmado. Responde ÚNICAMENTE el objeto JSON.";
+/*
+ * ============================================================
+ * Niega disponibilidad sin haber consultado (19-ago-2026)
+ * ============================================================
+ *
+ * Mitad simétrica de la de arriba: en vez de prometer de más, el agente
+ * NIEGA de más. Medido contra los mensajes reales de Lashes Valen antes de
+ * escribir el criterio (docs/korexia/109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md):
+ * 7 candidatos, 4 alucinados y 3 legítimos — y dos de los legítimos
+ * revelaron el riesgo real: negar UNA HORA PUNTUAL que el cliente propuso
+ * puede apoyarse, con razón, en lo que el propio agente ofreció en el turno
+ * inmediato anterior ("tengo 2:00 PM" → cliente pide 6:30 → "esa hora no
+ * está disponible" es una deducción válida, no una invención).
+ *
+ * Por eso el criterio NO cubre cualquier negación: solo las que además (a)
+ * son categóricas — niegan TODO un periodo o TODOS los horarios, nunca una
+ * hora puntual — o (b) no mencionan ninguna hora explícita, que es la marca
+ * de una afirmación inventada de la nada y no una deducción sobre una hora
+ * que el cliente sí propuso.
+ */
+
+/** Una hora explícita en el texto: "6:30 PM", "6:30", "las 2 pm". */
+const HORA_EXPLICITA_EN_TEXTO =
+  /\b\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.?\s*m\.?|p\.?\s*m\.?)\b|\b\d{1,2}:\d{2}\b/i;
+
+/**
+ * Negaciones categóricas: "ese horario ya no está disponible" (referencia
+ * vaga, sin la hora al lado — a diferencia de "a las 6:30 PM no está
+ * disponible", que sí la nombra), o negar TODO un periodo o TODOS los
+ * horarios de una vez.
+ */
+const NIEGA_DISPONIBILIDAD: RegExp[] = [
+  // "ese horario/esa hora/esa cita ya no está disponible"
+  /\b(?:ese|esa|el|la)\s+(?:horario|hora|cita)\b[^.!?]{0,15}\bno\s+est(?:á|a)\s+disponible\b/i,
+  // "ya no ten(go|emos) citas/horarios/cupo/disponibilidad ... disponibles"
+  /\b(?:ya\s+)?no\s+ten(?:go|emos)\b[^.!?]{0,25}\b(?:citas?|horarios?|disponibilidad|cupo)\b[^.!?]{0,25}\bdisponibles?\b/i,
+  // "no ten(go|emos) ningún horario/ninguna disponibilidad"
+  /\bno\s+ten(?:go|emos)\s+ning(?:ún|una)\b[^.!?]{0,20}\b(?:horario|disponibilidad|cita|cupo)\b/i,
+  // "ya no ten(go|emos) disponibilidad" (sin repetir la palabra "disponible" dos veces)
+  /\b(?:ya\s+)?no\s+ten(?:go|emos)\s+disponibilidad\b/i,
+];
+
+/**
+ * `true` si el texto niega disponibilidad de forma categórica — nunca por
+ * una hora puntual que el cliente haya podido proponer, que se excluye a
+ * propósito (ver arriba).
+ */
+export function niegaDisponibilidadSinVerificar(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    if (HORA_EXPLICITA_EN_TEXTO.test(oracion)) return false;
+    return NIEGA_DISPONIBILIDAD.some((re) => re.test(oracion));
+  });
+}
+
+/** La corrección cuando confirma o niega disponibilidad sin haberla consultado. */
+export const CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR =
+  "ALTO. Tu respuesta afirma o niega disponibilidad (con una especialista, un horario o un periodo) sin haber llamado a consult_availability en este turno para comprobarlo: podrías estar equivocado, en cualquiera de los dos sentidos, y el cliente se queda con algo que no es cierto — puede perder una venta real o presentarse a una cita que no existe. Si el cliente ya te dio el servicio, llama a consult_availability con ese servicio (y esa especialista, si la mencionó) AHORA, antes de decir nada más. Si todavía no sabes el servicio, pregúntaselo con reply sin afirmar ni negar nada todavía. Responde ÚNICAMENTE el objeto JSON.";

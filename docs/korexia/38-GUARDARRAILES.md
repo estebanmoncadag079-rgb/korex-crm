@@ -45,7 +45,7 @@ el turno con la corrección delante → comprobar de nuevo.
 | `resumenMalArmado` | Cerrar el pedido antes de que confirmen, o anunciar un resumen vacío | Sale como está, se registra |
 | `prometeRecurso` | Prometer un catálogo/foto/PDF sin ejecutar `send_image` | Lo atiende una persona |
 | requisito faltante | Cerrar (`book_appointment`/`notify_order`) sin un dato que el negocio declaró obligatorio | Lo atiende una persona |
-| especialista sin verificar | Confirmar que una especialista puede atender sin haber llamado a `consult_availability` en ese turno | Lo atiende una persona |
+| especialista sin verificar | Afirmar O negar disponibilidad (una especialista, un horario, un periodo) sin haber llamado a `consult_availability` en ese turno | Lo atiende una persona |
 
 **1. El cierre falso** (1-ago-2026). Con el historial real de producción, el
 modelo reprodujo el cierre falso **5 de cada 6 veces**, pese a que el prompt
@@ -335,3 +335,12 @@ en [105-GUARDARRAIL-ESPECIALISTA-SIN-VERIFICAR.md](105-GUARDARRAIL-ESPECIALISTA-
 > ya usan "cita fantasma" y "recurso prometido": el re-chequeo tras una
 > consulta real resuelta no vuelve a aplicar el mismo criterio textual.
 > Detalle en [106-ESPECIALISTA-VERIFICADA-TRAS-CONSULTAR.md](106-ESPECIALISTA-VERIFICADA-TRAS-CONSULTAR.md).
+>
+> 🔑 **El mismo día se completó la mitad que faltaba: negar disponibilidad
+> sin verificar** — el agente diciendo "ya no tenemos citas en la mañana"
+> sin haber consultado nada, cuando sí había. Medido contra 7 mensajes
+> reales antes de escribir el criterio (4 alucinados, 3 legítimos), y
+> fusionado en el MISMO bloque de `pipeline.ts` — no es un guardarraíl
+> nuevo, es el guardarraíl 9 cubriendo los dos sentidos de la misma
+> promesa. Detalle en
+> [109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md](109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md).

@@ -250,15 +250,36 @@ export const CAMPOS_DE_ACCION_DECLARADOS = Object.keys(CAMPOS_DE_ACCION);
  * este archivo.
  */
 export function formatoDeRespuestaConEstado(estadoSchema: unknown): unknown {
+  return formato("accion_con_estado", { estado: estadoSchema });
+}
+
+/**
+ * El mismo contrato, **sin** estado: para las llamadas que solo piden una
+ * acción.
+ *
+ * La usa el segundo turno del modelo tras `consult_availability`
+ * (`pipeline.ts`), que era la única llamada del camino de citas sin garantía
+ * estructurada. Con la Fase 2 encendida falló 2 de 2 veces —una devolviendo
+ * prosa en vez de JSON, otra una acción incompleta— y las dos acabaron en
+ * handoff por error, con la clienta leyendo "te comunico con una persona"
+ * cuando el sistema tenía los horarios en la mano (20-ago-2026).
+ */
+export function formatoDeRespuestaDeAccion(): unknown {
+  return formato("accion", {});
+}
+
+function formato(nombre: string, extra: Record<string, unknown>): unknown {
   return {
     type: "json_schema",
     json_schema: {
-      name: "accion_con_estado",
+      name: nombre,
       strict: true,
       schema: {
         type: "object",
-        properties: { ...CAMPOS_DE_ACCION, estado: estadoSchema },
-        required: [...Object.keys(CAMPOS_DE_ACCION), "estado"],
+        properties: { ...CAMPOS_DE_ACCION, ...extra },
+        // El modo estricto exige que TODA propiedad declarada esté en
+        // `required`: si una se queda fuera, el proveedor rechaza la petición.
+        required: [...Object.keys(CAMPOS_DE_ACCION), ...Object.keys(extra)],
         additionalProperties: false,
       },
     },

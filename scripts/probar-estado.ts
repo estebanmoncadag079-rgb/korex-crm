@@ -578,8 +578,27 @@ try {
     recursoIds: [idStaff], citas: [{ recursoId: idStaff, startMin: 570, endMin: 1110 }], duracionMin: 90,
     hours: horario, esHoy: false,
   });
-  comprobar("y ninguno cuando el día entero está ocupado",
-    Object.values(ocupada).every((quienes) => !quienes.includes(idStaff)));
+  /*
+   * ⚠️ Esta comprobación decía "y ninguno cuando el día entero está ocupado" y
+   * llevaba en rojo desde el 18-ago-2026 — describiendo una regla que ya no
+   * existe, no un fallo del código.
+   *
+   * Ese día el cierre pasó a limitar cuándo EMPIEZA una cita, no cuándo termina
+   * (docblock de `calcularDisponibilidad`, tras el caso real del "Press on" de
+   * 120 min rechazado a las 18:30 con la especialista libre toda la tarde). Con
+   * esa regla, un día ocupado 09:30–18:30 SÍ deja un hueco: las 18:30, el
+   * instante exacto en que se desocupa. Empezar ahí es legítimo y no se solapa
+   * con nada.
+   *
+   * Lo que hay que comprobar, entonces, no es que no haya huecos —eso era la
+   * regla vieja— sino que ninguno PISE lo ya agendado, que es el fallo que de
+   * verdad costaría dinero: una doble reserva.
+   */
+  const seSolapan = Object.keys(ocupada).filter((h) => h < "18:30");
+  comprobar("y con el día entero ocupado no se ofrece ni un hueco que se solape",
+    seSolapan.length === 0, seSolapan.join(", "));
+  comprobar("lo único que queda libre es el instante en que se desocupa (18:30)",
+    Object.keys(ocupada).join() === "18:30", Object.keys(ocupada).join(", ") || "ninguno");
 
   console.log("\nB4. LOS REQUISITOS NO TOCAN EL PROMPT");
   /*

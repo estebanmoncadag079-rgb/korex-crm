@@ -19,6 +19,7 @@ import {
   AgentAction,
   degradeAction,
   formatoDeRespuestaConEstado,
+  formatoDeRespuestaDeAccion,
   resolveStage,
   type AgentActionType,
 } from "@/server/ai/actions";
@@ -765,7 +766,13 @@ export async function runAgentTurn(
      * modelo lo lea como información, no como algo que dijo el cliente.
      */
     messages.push({ role: "user", content: infoDisponibilidad });
-    const siguiente = await chatJson(AgentAction, messages);
+    // Con el esquema exigido al proveedor, igual que la llamada de arriba: era
+    // la única del camino de citas sin garantía, y con la Fase 2 encendida
+    // devolvió prosa en vez de JSON — handoff por error con los horarios ya
+    // calculados en la mano (ver `formatoDeRespuestaDeAccion`).
+    const siguiente = await chatJson(AgentAction, messages, {
+      jsonSchema: formatoDeRespuestaDeAccion(),
+    });
     await registrarUsoIa(
       organizationId,
       siguiente.usage,
@@ -2249,7 +2256,14 @@ async function chatJsonConEstado(
       resultado: {
         ok: false,
         error: "invalid_output",
-        detail: `la acción no cumple el contrato: ${validada.error.issues[0]?.message ?? "?"}`,
+        // Con el nombre del campo, no solo "Required": el mensaje pelado no
+        // dice cuál falta, y con doce acciones y el modo estricto emitiendo
+        // nulos, adivinarlo cuesta una reproducción entera.
+        detail: `la acción no cumple el contrato: ${
+          validada.error.issues
+            .map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`)
+            .join(" · ") || "?"
+        } · acción recibida: ${String((accion as { action?: unknown }).action ?? "(sin action)")}`,
         usage: bruto.usage,
       },
     };

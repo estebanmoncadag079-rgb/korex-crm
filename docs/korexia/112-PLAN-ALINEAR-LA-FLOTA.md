@@ -1,5 +1,23 @@
 # Plan para alinear la flota: catálogo en tablas y Fase 2
 
+> ✅ **PLAN COMPLETADO el 20-ago-2026.** Los tres negocios están en
+> `state_source='backend'`, desplegado y verificado dentro del contenedor. Las
+> fases A, B y C se ejecutaron el mismo día.
+>
+> Lo que pasó por el camino, y que este plan no preveía:
+> - El **bloqueador 1 de la fase C no existía**: la agenda no estaba rota, la
+>   prueba describía una regla derogada ([113](113-CITAS-EN-FASE-2.md)).
+> - El **bloqueador 2 no era el que estaba escrito**: el proveedor acepta el
+>   esquema con `reserva` sin problema; lo que fallaba era otra llamada, la que
+>   sigue a `consult_availability`, que se había quedado sin esquema.
+> - **Se comprimió el reposo** que este plan pedía ("Fase A verde durante al
+>   menos un día antes de La Churra"), por decisión del dueño. Los tres
+>   encendidos ocurrieron con horas de diferencia en vez de días.
+>
+> Se conserva el plan tal cual porque su razonamiento —orden por riesgo, un
+> cliente por vez, rollback por bandera— es el que se siguió, y porque las dos
+> sorpresas de arriba enseñan más leídas contra lo que se esperaba.
+
 > **Dentro:** El estado real medido · Lo único que bloquea todo · Las tres fases
 > · Lo que NO hay que hacer · Riesgos · Criterios de éxito
 

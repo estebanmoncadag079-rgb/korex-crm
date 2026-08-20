@@ -143,7 +143,8 @@ ya basta para volver al comportamiento de antes.
 
 | | Pendiente |
 |---|---|
-| 🔴 | **`calcularDisponibilidad` ofrece huecos con el día entero ocupado** (`probar:estado`, único fallo). Vive en `server/appointments/`, **no lo tocó este trabajo** y es del área del commit `3d89ff2`. Riesgo de doble reserva en el salón — mirar pronto |
+| ✅ | ~~**`calcularDisponibilidad` ofrece huecos con el día entero ocupado**~~ — **FALSA ALARMA, cerrada el 20-ago** ([113](113-CITAS-EN-FASE-2.md)): no había bug ni riesgo de doble reserva. La prueba describía la regla del cierre **anterior** al 18-ago. El único hueco que devuelve es el minuto exacto en que la cita anterior termina, y empezar ahí es legítimo. `probar:estado` pasa 46/46 |
+| ✅ | **Faltaba exigir el esquema en UNA llamada más**: la que sigue a `consult_availability`. Era la única del camino de citas sin garantía, y con la Fase 2 encendida tumbaba la conversación a handoff — corregido el 20-ago ([113](113-CITAS-EN-FASE-2.md)) |
 | 🟠 | **`direccion` obligatoria en pedidos para recoger.** `soloSi` se evalúa contra la FICHA (¿el negocio hace domicilios?), no contra el pedido concreto. El modelo mete "recoge en el local" en ese campo para cumplir. No ensucia la ficha del contacto (solo `nombre` se escribe ahí) y el resumen sale bien, pero lo correcto es que la condición mire el pedido. Es genérico: le pasa a cualquier negocio con domicilio y recogida |
-| 🟠 | **Citas con Fase 2 no está probado en vivo.** Nadie la tiene encendida. El esquema añade `reserva`; si el proveedor lo rechazara, el reintento sin esquema protege. Verificar antes de encenderla en un salón |
+| ✅ | ~~**Citas con Fase 2 no está probado en vivo**~~ — encendido y verificado en Lashes Valen el 20-ago ([113](113-CITAS-EN-FASE-2.md)). El proveedor acepta el esquema con `reserva` sin problema; lo que falló fue otra cosa (la segunda llamada, arriba) |
 | 🟠 | El `paso` llega con valores raros (`"sin pedido"` con pedido en curso). No bloquea — la regla 4 ya dice que el estado es abierto y el backend normaliza |

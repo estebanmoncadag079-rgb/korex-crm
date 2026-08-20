@@ -7,6 +7,7 @@ import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 import { verticalDe } from "@/server/vertical";
 import {
   fusionarFicha,
+  leerFicha,
   serializarComoEstaba,
   type Seccion,
 } from "./leer-ficha";
@@ -86,7 +87,49 @@ export async function guardarBorrador(
     .where(eq(schema.organization.id, organizationId));
 }
 
-/** El borrador guardado, o `{}` si aún no hay nada. */
+/**
+ * Lo que el cuestionario debe mostrar: el borrador a medias si lo hay y, si no,
+ * **la ficha que el agente está usando de verdad**.
+ *
+ * Antes devolvía `{}` cuando no había borrador, y eso rompía la promesa del
+ * producto: un negocio configurado por script —los tres de agosto lo
+ * fueron— abría "Cuéntanos sobre tu negocio" y lo veía **todo en blanco**,
+ * mientras su agente contestaba con esa misma configuración. Si el CRM es la
+ * fuente de verdad, no puede enseñar vacío lo que sí está puesto
+ * (20-ago-2026).
+ *
+ * Y no era solo cosmético: al enviar, el cuestionario **reemplaza la sección
+ * `negocio` entera** (`fusionarFicha`, ver `aplicarFicha`). Partiendo de un
+ * formulario en blanco, lo que no se volviera a escribir —los regalos, las
+ * variantes, la ubicación— se perdía en silencio. Precargar convierte el envío
+ * en lo que la persona cree que es: editar lo que ya había.
+ *
+ * **Se FUSIONA, no se elige uno de los dos.** La ficha aplicada es la base y el
+ * borrador va encima, campo por campo: lo que la persona estaba editando se
+ * respeta, y todo lo que no tocó aparece como está. Elegir uno entero fallaba
+ * por los dos lados — sin borrador se veía vacío, y con un borrador de un solo
+ * campo (el que deja quien abre el formulario y escribe una cosa) se tapaba una
+ * ficha completa.
+ */
+export function fusionarBorrador(
+  aplicada: Partial<FichaDelNegocio>,
+  borrador: Partial<FichaDelNegocio> | null | undefined
+): Partial<FichaDelNegocio> {
+  /*
+   * La ficha aplicada es la BASE y el borrador va encima.
+   *
+   * No es lo mismo que devolver uno u otro, y las dos formas de equivocarse ya
+   * ocurrieron el mismo día (20-ago-2026):
+   *
+   *   - devolver solo el borrador → sin borrador se ve todo vacío, y con un
+   *     borrador de UN campo se tapa una ficha completa. Le pasó a un cliente
+   *     real cuyo borrador tenía una sola regla escrita a medias;
+   *   - devolver solo lo aplicado → se pierde lo que la persona estaba
+   *     escribiendo ahora mismo.
+   */
+  return { ...aplicada, ...(borrador ?? {}) };
+}
+
 export async function leerBorrador(
   organizationId: string
 ): Promise<Partial<FichaDelNegocio>> {
@@ -96,14 +139,26 @@ export async function leerBorrador(
     .from(schema.organization)
     .where(eq(schema.organization.id, organizationId))
     .limit(1);
+
+  let borrador: Partial<FichaDelNegocio> | null = null;
   try {
     const meta = filas[0]?.metadata
       ? (JSON.parse(filas[0].metadata) as Record<string, unknown>)
       : {};
-    return (meta.fichaBorrador as Partial<FichaDelNegocio>) ?? {};
+    borrador = (meta.fichaBorrador as Partial<FichaDelNegocio>) ?? null;
   } catch {
-    return {};
+    borrador = null;
   }
+  const perfil = await db
+    .select({ ficha: schema.agentProfile.ficha })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  // Lector tolerante: la ficha puede estar por secciones o plana, y el
+  // cuestionario trabaja siempre con la forma plana.
+  const aplicada = (leerFicha(perfil[0]?.ficha) as Partial<FichaDelNegocio> | null) ?? {};
+
+  return fusionarBorrador(aplicada, borrador);
 }
 
 /**

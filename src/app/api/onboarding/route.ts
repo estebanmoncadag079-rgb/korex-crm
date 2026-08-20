@@ -58,6 +58,12 @@ const borradorSchema = z
       restricciones: z.string().optional(),
       recogerEnLocal: z.string().optional(),
     }),
+    // Sin declararlo aquí, el cuestionario lo recogería y este esquema lo
+    // tiraría en silencio al enviar: el campo existiría en la pantalla y no
+    // llegaría nunca a la ficha.
+    canales: z
+      .array(z.object({ nombre: z.string(), enlace: z.string().optional() }))
+      .optional(),
     pago: z.object({
       formas: z.string(),
       datosDeCuenta: z.string().optional(),

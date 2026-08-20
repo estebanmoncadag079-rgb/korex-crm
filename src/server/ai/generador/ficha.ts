@@ -100,6 +100,22 @@ export function modalidadesDeEntrega(ficha: FichaDelNegocio): string[] {
   return ofrecidas;
 }
 
+/**
+ * Otro sitio donde el cliente puede pedir o agendar: una app de domicilios, una
+ * tienda web, un marketplace.
+ *
+ * **No vive dentro de `Entrega` a propósito.** Para una pastelería, Rappi es
+ * una forma de recibir el pedido; para un salón, agendar por otra plataforma no
+ * es ninguna "entrega". Colgarlo de la entrega lo habría dejado inservible para
+ * la mitad de la flota.
+ */
+export type CanalExterno = {
+  /** Cómo lo llama el cliente. Ej: "Rappi", "nuestra tienda web". */
+  nombre: string;
+  /** A dónde se le manda, si hay enlace. Sin él, el agente solo lo menciona. */
+  enlace?: string;
+};
+
 /** Cómo entrega el negocio lo que vende. */
 export type Entrega = {
   /** ¿Hace domicilios? Si es `false`, el resto de este bloque se ignora. */
@@ -213,6 +229,16 @@ export type FichaDelNegocio = {
 
   // ── 3. Cómo reciben lo que piden ───────────────────────────────────────────
   entrega: Entrega;
+  /**
+   * Dónde MÁS te pueden pedir o agendar. Opcional: un negocio que no tenga
+   * ninguno no nota que esto existe.
+   *
+   * Nació de una venta perdida (20-ago-2026): una clienta preguntó por una app
+   * de domicilios y el agente contestó que el negocio no la manejaba. Sí la
+   * manejaba — pero nadie se lo había preguntado nunca al darlo de alta, así
+   * que no estaba en ninguna parte.
+   */
+  canales?: CanalExterno[];
 
   // ── 4. Cómo te pagan ───────────────────────────────────────────────────────
   pago: Pago;

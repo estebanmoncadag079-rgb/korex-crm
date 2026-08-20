@@ -11,12 +11,14 @@ import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
 /**
  * Una ficha completa, con **todos** los campos del tipo rellenos.
  *
- * Está completa a propósito: la prueba de campos sin dueño solo sirve si el
- * objeto que examina los tiene todos. Con una ficha a medias, un campo nuevo
- * sin sección pasaría desapercibido justo en la prueba que existe para
- * cazarlo.
+ * El tipo es `Required<FichaDelNegocio>` **a propósito, y es media prueba**: si
+ * mañana alguien añade un campo a la ficha y no lo pone aquí, **esto ni siquiera
+ * compila**. Sin eso, la comprobación de campos sin dueño dependía de que
+ * alguien recordara actualizar este objeto — y el 20-ago-2026 no lo recordé: se
+ * añadió `canales`, la prueba siguió en verde, y el campo se habría perdido al
+ * guardar sin que nada avisara.
  */
-const FICHA: FichaDelNegocio = {
+const FICHA: Required<FichaDelNegocio> = {
   nombre: "Negocio de prueba",
   queVende: "Vende cosas.",
   ubicacion: "Una dirección",
@@ -26,6 +28,7 @@ const FICHA: FichaDelNegocio = {
   duracionTipicaMin: 30,
   variantes: "OPCIONES: a · b",
   entrega: { haceDomicilios: true, como: "En moto" },
+  canales: [{ nombre: "Una app de domicilios", enlace: "https://ejemplo.test/negocio" }],
   pago: { formas: "transferencia", compruebaUnaPersona: true },
   tono: "cercano",
   regalos: "Sí, con tarjeta.",

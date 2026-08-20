@@ -71,6 +71,30 @@ function queOfrece(
   );
 }
 
+/**
+ * Los otros sitios donde el cliente puede pedir o agendar.
+ *
+ * Corto a propósito: el agente **no** tiene que empujar a nadie fuera de
+ * WhatsApp —aquí puede cerrar la venta él mismo— pero sí tiene que saber que
+ * existen para no negarlos cuando le pregunten. Ese fue el fallo que lo
+ * originó: negó una app de domicilios que el negocio sí tenía.
+ */
+function otrosCanales(ficha: FichaDelNegocio): string | null {
+  const canales = (ficha.canales ?? []).filter((c) => c.nombre?.trim());
+  if (canales.length === 0) return null;
+  return bloques(
+    "## También nos pueden pedir por aquí",
+    canales
+      .map((c) =>
+        c.enlace?.trim()
+          ? `- **${c.nombre.trim()}**: ${c.enlace.trim()}`
+          : `- **${c.nombre.trim()}**`
+      )
+      .join("\n"),
+    "Si preguntan por alguno, confírmalo y pásale el enlace tal cual. No lo ofrezcas por tu cuenta si puedes cerrar el pedido aquí mismo."
+  );
+}
+
 /** Cómo recibe el cliente lo que pidió. */
 function comoRecibe(ficha: FichaDelNegocio): string | null {
   const { entrega } = ficha;
@@ -92,6 +116,19 @@ function comoRecibe(ficha: FichaDelNegocio): string | null {
           ? `⚠️ Esta línea va SIEMPRE en el resumen del pedido, en negrita y con el hecho primero — nunca la resumas con tus propias palabras ni la des solo de palabra en mitad de la charla:\n"🛵 *${entrega.quienPagaElDomicilio.trim()}*"`
           : null
       )
+    );
+  } else if (ficha.canales?.length) {
+    /*
+     * No reparte por su cuenta, pero SÍ se le puede pedir por otro canal.
+     *
+     * "No hay domicilios" es un NO **declarado**, de los que el agente dice con
+     * seguridad. Dárselo a un negocio que está en una app de domicilios sería
+     * hacerle negar algo que sí existe, y con su propia ficha como culpable: el
+     * mismo fallo del 20-ago-2026, pero causado por los datos en vez de por su
+     * ausencia (ver `canales` en `ficha.ts`).
+     */
+    partes.push(
+      "**No repartimos por nuestra cuenta**, pero sí se puede pedir por los otros canales que aparecen más abajo. Si preguntan por domicilio, ofrécelos — nunca digas que no hay domicilio a secas."
     );
   } else {
     partes.push("**No hay domicilios.** Si alguien lo pide, dilo con naturalidad y ofrécele recoger.");
@@ -175,6 +212,9 @@ export function generarPerfil(
     // diciéndole "no hacemos domicilios, ofrécele recoger" a quien viene a que
     // le hagan las pestañas.
     vertical === "citas" ? null : comoRecibe(ficha),
+    // Fuera del bloque de entrega y SIN filtrar por vertical: un salón también
+    // puede agendar por otra plataforma (ver `CanalExterno`).
+    otrosCanales(ficha),
     comoPagan(ficha, vertical),
     ficha.regalos?.trim()
       ? bloques(

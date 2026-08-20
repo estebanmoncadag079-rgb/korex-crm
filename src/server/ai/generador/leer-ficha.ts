@@ -33,6 +33,7 @@ export const SECCIONES = {
     "duracionTipicaMin",
     "variantes",
     "entrega",
+    "canales",
     "pago",
     "tono",
     "regalos",

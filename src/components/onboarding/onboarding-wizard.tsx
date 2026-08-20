@@ -58,6 +58,8 @@ type Ficha = {
     restricciones?: string;
     recogerEnLocal?: string;
   };
+  /** Dónde más te pueden pedir: apps de domicilio, tienda web, marketplace. */
+  canales?: { nombre: string; enlace?: string }[];
   pago?: { formas: string; datosDeCuenta?: string; compruebaUnaPersona: boolean };
   tono?: string;
   regalos?: string;
@@ -93,6 +95,36 @@ const DIAS = [
  * su derecho, pero debe saber lo que se está dejando — si no, acaba diciendo
  * "este bot no sirve" cuando lo que pasa es que nadie le contó nada.
  */
+/**
+ * Los canales, de una caja de texto a datos y de vuelta.
+ *
+ * Uno por línea, y el nombre se separa del enlace **por donde empieza el
+ * `http`** — sin pedirle a nadie que aprenda un separador. "Rappi —
+ * https://…", "Rappi: https://…" y "Rappi https://…" dan lo mismo, que es lo
+ * que va a escribir una persona que no piensa en formatos.
+ */
+function textoACanales(texto: string): { nombre: string; enlace?: string }[] {
+  return texto
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((linea) => {
+      const i = linea.search(/https?:\/\//i);
+      if (i === -1) return { nombre: linea };
+      const enlace = linea.slice(i).trim();
+      const nombre = linea.slice(0, i).replace(/[\s—–:·|-]+$/, "").trim();
+      // Sin nombre, sirve el dominio: mejor "rappi.app.link" que una línea
+      // suelta sin decir de qué es.
+      return { nombre: nombre || enlace.replace(/^https?:\/\//i, "").split("/")[0]!, enlace };
+    });
+}
+
+function canalesATexto(canales?: { nombre: string; enlace?: string }[]): string {
+  return (canales ?? [])
+    .map((c) => (c.enlace ? `${c.nombre} — ${c.enlace}` : c.nombre))
+    .join("\n");
+}
+
 function AvisoCorto({ valor, minimo, que }: { valor?: string; minimo: number; que: string }) {
   const v = (valor ?? "").trim();
   // Vacío no se avisa: eso ya lo cubre "faltantesDeLaFicha" al terminar.
@@ -851,6 +883,23 @@ export function OnboardingWizard() {
                   },
                 })
               }
+            />
+          </Campo>
+          {/*
+            La pregunta que nadie hacía.
+            Un negocio contestó a una clienta que NO tenía app de domicilios
+            cuando sí la tenía: no se le había ocurrido contarlo, porque en
+            ocho pasos nadie se lo preguntó (20-ago-2026). Un dato que el
+            cuestionario no pide es un dato que el agente no va a tener.
+          */}
+          <Campo
+            titulo="¿Te pueden pedir por otro lado? (apps, tienda web…)"
+            ejemplo="Rappi — https://rappi.app.link/mi-negocio"
+          >
+            <Textarea
+              rows={2}
+              value={canalesATexto(ficha.canales)}
+              onChange={(e) => set({ canales: textoACanales(e.target.value) })}
             />
           </Campo>
         </>

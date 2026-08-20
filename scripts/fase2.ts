@@ -5,9 +5,15 @@
  * un despliegue**. `migrar:catalogo` ya tenía su `--encender/--apagar` para la
  * Fase 1; esto es lo mismo para `state_source`.
  *
- * ⚠️ Encender exige que el cliente YA tenga el catálogo en tablas
- * (`catalog_source='tabla'`): sin catálogo el pipeline no tiene contra qué
- * validar y se cae al comportamiento de siempre avisando por el log.
+ * ⚠️ Encender exige que el cliente tenga **catálogo que leer en tablas**, que es
+ * lo que de verdad comprueba el pipeline: sin él no hay contra qué validar y se
+ * cae al comportamiento de siempre avisando por el log.
+ *
+ * Ojo con la diferencia entre verticales: `catalog_source` es un concepto de
+ * PEDIDOS (`pipeline.ts`: `!contrataCitas(vertical) && catalogSource==='tabla'`).
+ * Un negocio de citas lee sus servicios de `service` SIEMPRE, sin bandera — así
+ * que exigirle `catalog_source='tabla'` lo dejaría bloqueado para siempre por
+ * un interruptor que no le aplica. Por eso aquí se mira el catálogo real.
  *
  * Uso:
  *   pnpm fase2 <organizationId>              # solo mira, no escribe
@@ -21,6 +27,8 @@ import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import type { Fila } from "@/server/ai/generador/comparar-fila";
 import { conRegistro } from "@/server/registro-de-cambios";
+import { catalogoDe } from "@/server/catalog/queries";
+import { verticalDe } from "@/server/vertical";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -65,6 +73,7 @@ const [antes] = await db
   .select({
     stateSource: schema.agentProfile.stateSource,
     catalogSource: schema.agentProfile.catalogSource,
+    appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
   })
   .from(schema.agentProfile)
   .where(eq(schema.agentProfile.organizationId, organizationId))
@@ -76,8 +85,13 @@ if (!antes) {
   process.exit(1);
 }
 
+const vertical = verticalDe(antes.appointmentsEnabled);
+const ofrecibles = await catalogoDe(organizationId, vertical);
+
 console.log(
-  `[fase2] ${organizationId} · state_source: ${antes.stateSource} · catalog_source: ${antes.catalogSource}`
+  `[fase2] ${organizationId} · ${vertical} · state_source: ${antes.stateSource}` +
+    (vertical === "pedidos" ? ` · catalog_source: ${antes.catalogSource}` : "") +
+    ` · ${ofrecibles.length} en tablas`
 );
 
 if (!encender && !apagar) {
@@ -86,10 +100,15 @@ if (!encender && !apagar) {
   process.exit(0);
 }
 
-if (encender && antes.catalogSource !== "tabla") {
+if (encender && ofrecibles.length === 0) {
   console.error(
-    "[fase2] ⛔ este cliente aún tiene el catálogo en el prompt: sin catálogo en tablas\n" +
-      "        el pipeline no tiene contra qué validar. Primero: pnpm migrar:catalogo <org> --encender"
+    `[fase2] ⛔ no hay catálogo que leer en tablas: sin él el pipeline no tiene\n` +
+      `        contra qué validar y se cae al comportamiento de siempre.\n` +
+      `        Primero: ${
+        vertical === "pedidos"
+          ? "pnpm migrar:catalogo <org> --aplicar y --encender"
+          : "carga sus servicios en el CRM (Servicios)"
+      }`
   );
   await sql.end();
   process.exit(1);

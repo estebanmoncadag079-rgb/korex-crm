@@ -34,7 +34,16 @@ function envVar(name: string): string | undefined {
     return undefined;
   }
 }
-for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
+// `getDb()` valida el entorno ENTERO al primer uso, no solo lo que este script
+// toca: sin las dos últimas se muere con "Variables de entorno inválidas"
+// antes de llegar a comprobar nada.
+for (const n of [
+  "DATABASE_URL",
+  "ENCRYPTION_KEY",
+  "BETTER_AUTH_SECRET",
+  "APP_BASE_URL",
+  "META_WEBHOOK_VERIFY_TOKEN",
+]) {
   const v = envVar(n);
   if (v && !process.env[n]) process.env[n] = v;
 }
@@ -64,13 +73,29 @@ const FICHA_COMPLETA = {
   nuncaPrometer: ["tiempos de entrega exactos"],
 } as unknown as FichaDelNegocio;
 
-/** Lo que manda el CLIENTE: sus datos, sin nada del operador. */
+/**
+ * Lo que manda el CUESTIONARIO al reenviarse — el pago hostil de verdad.
+ *
+ * ⚠️ **No trae los campos del operador**, y es a propósito: reproduce el
+ * formulario que sale en blanco, que es lo que le vació las reglas de flujo a
+ * un negocio el 15-ago-2026. Que falten (`undefined`) y no que vengan vacíos
+ * es justo la distinción que decide si se conservan:
+ *
+ *   no lo manda    → no lo tocó        → se conserva
+ *   lo manda vacío → lo borró queriendo → se borra
+ *
+ * Desde el 20-ago el cuestionario puede escribir las TRES secciones —pregunta
+ * el saludo, las reglas y el escalado, y descartarlos en silencio era el fallo
+ * que se vino a arreglar—, así que lo que protege ya no es prohibirle tocarlas:
+ * es que omitir no borre. Esta prueba existe para demostrarlo con esa puerta
+ * abierta de par en par.
+ */
 const DEL_CUESTIONARIO = {
   ...FICHA_COMPLETA,
-  reglasPropias: [],
+  reglasPropias: undefined,
   saludoInicial: undefined,
-  escalarSiempre: [],
-  nuncaPrometer: [],
+  escalarSiempre: undefined,
+  nuncaPrometer: undefined,
 } as unknown as FichaDelNegocio;
 
 const db = getDb();
@@ -135,7 +160,11 @@ try {
   console.log("3. ficha CONVERTIDA a secciones");
 
   // 4. El cliente reenvía su cuestionario (solo posee `negocio`)
-  const resultado = await aplicarFicha(organizationId, DEL_CUESTIONARIO);
+  // Las MISMAS opciones que usa la ruta del cuestionario. Con `["negocio"]` la
+  // prueba pasaba por una razón que ya no es la de producción.
+  const resultado = await aplicarFicha(organizationId, DEL_CUESTIONARIO, {
+    puedeEscribir: ["negocio", "flujo", "politicas"],
+  });
   console.log(
     `4. cuestionario reenviado · se conservó: ${resultado.seccionesConservadas.join(", ") || "(nada)"}`
   );

@@ -117,8 +117,29 @@ export const POST = withAuth(async (session, req: Request) => {
   const resultado = await aplicarFicha(
     session.organizationId,
     body.data.borrador as FichaDelNegocio,
-    // Quién rellenó el cuestionario: el cliente, con nombre y apellidos en el log.
-    { actor: `user:${session.userId}` }
+    {
+      // Quién rellenó el cuestionario: el cliente, con nombre y apellidos en el log.
+      actor: `user:${session.userId}`,
+      /*
+       * El cuestionario escribe LO QUE PREGUNTA, y pregunta las tres secciones:
+       * el saludo y las reglas propias son `flujo`, y el paso "cuándo debe
+       * llamarte a ti" —que él mismo llama la etapa más importante— es entero
+       * `politicas`. Con el valor por defecto (`negocio`) esos cuatro campos se
+       * descartaban en silencio al reeditar: el cliente los cambiaba y no
+       * pasaba nada (20-ago-2026).
+       *
+       * Se le prohibieron el 15-ago por un motivo real —reenviar el formulario
+       * en blanco le vació las reglas de flujo a un negocio—, pero esa causa ya
+       * no existe: el formulario se precarga con la ficha aplicada
+       * ([117](../../../../docs/korexia/117-EL-CUESTIONARIO-VEIA-VACIO.md)) y
+       * `fusionarFicha` conserva lo que no venga. Dos motivos independientes, y
+       * hacen falta los dos.
+       *
+       * Lo que NO cambia: el script del operador sigue sin poder tocar
+       * `negocio`. Esa mitad de la regla protege al cliente y sigue en pie.
+       */
+      puedeEscribir: ["negocio", "flujo", "politicas"],
+    }
   );
 
   return Response.json({

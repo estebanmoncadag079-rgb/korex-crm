@@ -165,7 +165,23 @@ export function fusionarFicha(
   };
   for (const s of ["negocio", "flujo", "politicas"] as const) {
     if (puedeEscribir.includes(s)) {
-      resultado[s] = deEntrante[s];
+      /*
+       * La sección escribible se FUSIONA sobre la guardada, no la reemplaza.
+       *
+       * `aSecciones` omite los campos `undefined`, así que un campo que quien
+       * escribe no mande **conserva su valor** en vez de desaparecer. La
+       * diferencia es exactamente la que separa dos cosas que antes eran
+       * indistinguibles:
+       *
+       *   no lo mandó  (`undefined`)  → no lo tocó       → se conserva
+       *   lo mandó vacío (`""`, `[]`) → lo borró queriendo → se borra
+       *
+       * Reemplazar la sección entera obligaba a que quien escribe conociera
+       * TODOS los campos de esa sección, y quien no los conocía los borraba sin
+       * enterarse — así el cuestionario le vació las reglas de flujo a un
+       * negocio el 15-ago-2026, y por eso se le prohibió tocarlas.
+       */
+      resultado[s] = { ...deGuardada[s], ...deEntrante[s] };
     } else {
       resultado[s] = deGuardada[s];
       conservadas.push(s);

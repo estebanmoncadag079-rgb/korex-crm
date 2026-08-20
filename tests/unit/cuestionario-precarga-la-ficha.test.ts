@@ -89,18 +89,65 @@ describe("enviar el cuestionario sobre una ficha que ya existe", () => {
   });
 
   /**
-   * 🔴 La razón de precargar, demostrada.
+   * 🔑 Lo que NO se manda, se conserva.
    *
-   * `negocio` SÍ es del cuestionario, así que lo que llegue vacío se lleva por
-   * delante lo que había. Con el formulario precargado esto no pasa —llega lo
-   * mismo que estaba— pero la prueba deja escrito el precio de no hacerlo, por
-   * si alguien piensa en quitar la precarga algún día.
+   * Hasta el 20-ago-2026 esta prueba afirmaba lo contrario —que un formulario a
+   * medias borraba lo que no volviera a escribir— y era cierto: la sección
+   * escribible se reemplazaba entera. Eso obligaba a que quien escribiera
+   * conociera TODOS los campos de la sección, y quien no los conocía los
+   * borraba sin enterarse.
+   *
+   * Ahora la sección se fusiona, y la diferencia que importa es esta:
+   * `undefined` es "no lo tocó" y `""`/`[]` es "lo borró queriendo".
    */
-  it("un formulario en blanco SÍ borra lo suyo: por eso hay que precargarlo", () => {
+  it("un formulario que no manda un campo NO lo borra", () => {
     const { ficha } = fusionarFicha(JSON.stringify(aSecciones(APLICADA)), DESDE_CERO, ["negocio"]);
-    expect(ficha.regalos).toBeUndefined();
-    expect(ficha.variantes).toBeUndefined();
-    expect(ficha.ubicacion).toBeUndefined();
+    expect(ficha.regalos).toBe(APLICADA.regalos);
+    expect(ficha.variantes).toBe(APLICADA.variantes);
+    expect(ficha.ubicacion).toBe(APLICADA.ubicacion);
+  });
+
+  it("pero mandarlo vacío SÍ lo borra: eso es una decisión, no un olvido", () => {
+    const { ficha } = fusionarFicha(
+      JSON.stringify(aSecciones(APLICADA)),
+      { ...APLICADA, regalos: "" },
+      ["negocio"]
+    );
+    expect(ficha.regalos).toBe("");
+    expect(ficha.variantes).toBe(APLICADA.variantes);
+  });
+
+  /**
+   * El cuestionario escribe las TRES secciones desde el 20-ago: pregunta el
+   * saludo y las reglas (`flujo`) y el paso de cuándo escalar (`politicas`), y
+   * con solo `negocio` los descartaba en silencio al reeditar.
+   */
+  it("editar el saludo o el escalado desde el cuestionario ahora sí se guarda", () => {
+    const editada = {
+      ...APLICADA,
+      saludoInicial: "Un saludo nuevo",
+      escalarSiempre: ["un motivo nuevo"],
+    };
+    const { ficha } = fusionarFicha(JSON.stringify(aSecciones(APLICADA)), editada, [
+      "negocio",
+      "flujo",
+      "politicas",
+    ]);
+    expect(ficha.saludoInicial).toBe("Un saludo nuevo");
+    expect(ficha.escalarSiempre).toEqual(["un motivo nuevo"]);
+    // Y lo que no tocó sigue intacto, incluidas las reglas del operador.
+    expect(ficha.reglasPropias).toEqual(APLICADA.reglasPropias);
+  });
+
+  /** La otra mitad de la regla, que NO cambia: el script no toca `negocio`. */
+  it("el script del operador sigue sin poder tocar lo que es del cliente", () => {
+    const { ficha, conservadas } = fusionarFicha(
+      JSON.stringify(aSecciones(APLICADA)),
+      { ...APLICADA, nombre: "Nombre que el script NO debe imponer" },
+      ["flujo", "politicas"]
+    );
+    expect(conservadas).toEqual(["negocio"]);
+    expect(ficha.nombre).toBe(APLICADA.nombre);
   });
 
   it("y con el formulario precargado no se pierde nada", () => {

@@ -25,7 +25,7 @@ mal o no podía hacer.**
 - Reservar a mano un servicio que no cabía antes del cierre fallaba **sin decir
   por qué**.
 - Los servicios pasaron a **categorías en desplegable**, y la matriz de quién
-  atiende qué se guarda a propósito ([213dbe0]).
+  atiende qué se guarda a propósito (`213dbe0`).
 - **Recursos compartibles** ([100](100-RECURSOS-COMPARTIBLES.md)): archivo,
   enlace o los dos — lo decide el negocio, no el código.
 - El catálogo siguió saliendo del script y entrando al CRM (paso 3B).
@@ -34,7 +34,7 @@ Y en medio, una **regla de negocio que el agente se había inventado solo**: que
 una cita debe *terminar* antes del cierre. Nadie lo había escrito. El dueño
 dictó lo contrario —**el cierre limita cuándo EMPIEZA una cita, no cuándo
 termina**— y hubo que taparlo dos veces, porque el modelo encontró otra excusa
-para lo mismo ([123df6b]).
+para lo mismo (`123df6b`).
 
 > Ese cambio tiene una cola larga: dejó **obsoleta una prueba escrita el
 > 17-ago**, y dos días después esa prueba obsoleta hizo saltar una falsa alarma
@@ -91,7 +91,7 @@ prompt, exactamente igual que antes.
 Cinco hipótesis se descartaron con **30 llamadas reales** antes de encontrarlo
 ([110](110-EL-MODELO-NO-EMITIA-EL-ESTADO.md)). El arreglo:
 `response_format: json_schema` con `strict: true`. **El estado se le exige al
-proveedor, no se le ruega en el prompt** ([bf2fad7]).
+proveedor, no se le ruega en el prompt** (`bf2fad7`).
 
 > 🔑 La lección no es sobre JSON. Es que **un mecanismo que degrada en silencio
 > no se puede dar por probado porque «no dio errores»**. No dar errores era

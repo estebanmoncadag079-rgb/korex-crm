@@ -183,6 +183,89 @@ export const AgentAction = z.discriminatedUnion("action", [
 export type AgentActionType = z.infer<typeof AgentAction>;
 
 /**
+ * Los campos de la acción, descritos para el PROVEEDOR (salidas estructuradas).
+ *
+ * Vive aquí, pegado al contrato que describe, para que un campo nuevo en la
+ * unión y su descripción no acaben en archivos distintos. `tests/unit/
+ * esquema-json-de-accion.test.ts` recorre la unión y falla si alguno falta.
+ *
+ * **Plano a propósito**: la unión discriminada tiene doce ramas, y el modo
+ * estricto del proveedor exige enumerar cada propiedad. Un campo que no
+ * corresponda a la acción elegida llega en `null` y se descarta antes de
+ * validar con Zod (ver `sinNulos` en el pipeline) — nunca se rechaza el turno
+ * por eso, que es la regla 3 de la Fase 2.
+ */
+const CAMPOS_DE_ACCION: Record<string, unknown> = {
+  action: {
+    type: "string",
+    enum: [
+      "none", "reply", "update_lead", "provide_requirement", "move_stage",
+      "handoff", "notify_order", "send_image", "consult_availability",
+      "book_appointment", "reschedule_appointment", "cancel_appointment",
+    ],
+  },
+  text: { type: ["string", "null"] },
+  note: { type: ["string", "null"] },
+  reply: { type: ["string", "null"] },
+  stage: { type: ["string", "null"] },
+  reason: { type: ["string", "null"] },
+  farewell: { type: ["string", "null"] },
+  summary: { type: ["string", "null"] },
+  etiqueta: { type: ["string", "null"] },
+  label: { type: ["string", "null"] },
+  requisitoId: { type: ["string", "null"] },
+  valor: { type: ["string", "null"] },
+  servicio: { type: ["string", "null"] },
+  nuevaFecha: { type: ["string", "null"] },
+  nuevaHora: { type: ["string", "null"] },
+  fecha: { type: ["string", "null"] },
+  especialista: { type: ["string", "null"] },
+  servicios: { type: ["array", "null"], items: { type: "string" } },
+  reservas: {
+    type: ["array", "null"],
+    items: {
+      type: "object",
+      properties: {
+        servicios: { type: "array", items: { type: "string" } },
+        fecha: { type: "string" },
+        hora: { type: "string" },
+        especialista: { type: ["string", "null"] },
+      },
+      required: ["servicios", "fecha", "hora", "especialista"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** Los nombres de los campos de acción, para la prueba de deriva. */
+export const CAMPOS_DE_ACCION_DECLARADOS = Object.keys(CAMPOS_DE_ACCION);
+
+/**
+ * El `response_format` que exige la acción **y** el estado en la misma
+ * respuesta.
+ *
+ * Es lo que hace posible la Fase 2: medido el 19-ago-2026, sin esto
+ * `gemini-2.5-flash` no emite `estado` ni una sola vez, por mucho que el prompt
+ * se lo pida. `estadoSchema` lo pone quien conoce esa forma (el pipeline), no
+ * este archivo.
+ */
+export function formatoDeRespuestaConEstado(estadoSchema: unknown): unknown {
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: "accion_con_estado",
+      strict: true,
+      schema: {
+        type: "object",
+        properties: { ...CAMPOS_DE_ACCION, estado: estadoSchema },
+        required: [...Object.keys(CAMPOS_DE_ACCION), "estado"],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+/**
  * Resuelve el nombre de etapa devuelto por el modelo contra las etapas reales
  * de la organización (exacto → lower-case). Sin match: degradar a reply/none.
  */

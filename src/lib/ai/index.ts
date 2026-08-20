@@ -44,7 +44,28 @@ const RETRY_DELAY_MS = 500;
 export async function chatJson<T>(
   schema: z.ZodType<T>,
   messages: ChatMessage[],
-  opts?: { model?: string; judge?: boolean; timeoutMs?: number }
+  opts?: {
+    model?: string;
+    judge?: boolean;
+    timeoutMs?: number;
+    /**
+     * El esquema JSON que se le exige al PROVEEDOR (salidas estructuradas).
+     *
+     * Zod sigue siendo quien valida lo que llega; esto es lo que evita que haya
+     * que pedirlo por escrito y rezar. Medido el 19-ago-2026: sin él,
+     * `gemini-2.5-flash` **jamás** añade una clave de nivel superior junto a la
+     * acción por mucho que el prompt se lo pida (0 de 3, incluso con un prompt
+     * de tres líneas); con él, 3 de 3.
+     *
+     * ⚠️ El esquema debe declarar TODOS los campos que se esperan: el modelo
+     * emite solo lo declarado. Con uno que solo pedía `action` y `estado`, la
+     * respuesta perdió el `text` y el cliente se habría quedado sin contestación.
+     *
+     * Si el proveedor lo rechaza (un modelo sin soporte), se reintenta sin él:
+     * degradar al comportamiento de siempre es preferible a perder el turno.
+     */
+    jsonSchema?: unknown;
+  }
 ): Promise<ChatJsonResult<T>> {
   if (!isAiConfigured()) {
     return {
@@ -85,7 +106,7 @@ export async function chatJson<T>(
    * conversaciones durante semanas mientras la documentación decía lo
    * contrario.
    */
-  return intentarCon(model, schema, messages, opts?.timeoutMs);
+  return intentarCon(model, schema, messages, opts?.timeoutMs, opts?.jsonSchema);
 }
 
 /** Los MAX_ATTEMPTS intentos contra UN modelo. */
@@ -93,8 +114,12 @@ async function intentarCon<T>(
   model: string,
   schema: z.ZodType<T>,
   messages: ChatMessage[],
-  timeoutMs?: number
+  timeoutMs?: number,
+  jsonSchema?: unknown
 ): Promise<ChatJsonResult<T>> {
+  // Se apaga solo si el proveedor lo rechaza: un modelo sin salidas
+  // estructuradas debe seguir atendiendo, no quedarse sin turno.
+  let esquemaDelProveedor = jsonSchema;
   let lastDetail = "";
   // Se suma lo gastado en cada intento: un turno que necesitó tres llamadas
   // costó las tres, aunque solo una devolviera algo usable.
@@ -115,7 +140,8 @@ async function intentarCon<T>(
       const { content: raw, usage } = await callProvider(
         model,
         attemptMessages,
-        timeoutMs
+        timeoutMs,
+        esquemaDelProveedor
       );
       gastado.tokensIn += usage.tokensIn;
       gastado.tokensOut += usage.tokensOut;
@@ -135,6 +161,17 @@ async function intentarCon<T>(
       return { ok: true, data: parsed.data, raw, usage: gastado };
     } catch (err) {
       lastDetail = err instanceof Error ? err.message : String(err);
+      /*
+       * Un proveedor que no admite salidas estructuradas responde 4xx nombrando
+       * `response_format`. No es un fallo del turno: se reintenta sin el
+       * esquema y ese modelo se queda con el comportamiento de siempre.
+       */
+      if (esquemaDelProveedor && /response_format|json_schema/i.test(lastDetail)) {
+        console.warn(
+          `[ia] ${model} no admite salidas estructuradas; se sigue sin ellas: ${truncate(lastDetail)}`
+        );
+        esquemaDelProveedor = undefined;
+      }
       if (attempt < MAX_ATTEMPTS) {
         await sleep(RETRY_DELAY_MS * attempt);
       }
@@ -154,7 +191,8 @@ async function intentarCon<T>(
 async function callProvider(
   model: string,
   messages: ChatMessage[],
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  jsonSchema?: unknown
 ): Promise<{ content: string; usage: AiUsage }> {
   const env = getEnv();
   const controller = new AbortController();
@@ -169,7 +207,12 @@ async function callProvider(
       },
       // `usage.include` hace que el proveedor devuelva el costo exacto de esta
       // llamada; sin esta línea habría que estimarlo por tokens y tarifa.
-      body: JSON.stringify({ model, messages, usage: { include: true } }),
+      body: JSON.stringify({
+        model,
+        messages,
+        usage: { include: true },
+        ...(jsonSchema ? { response_format: jsonSchema } : {}),
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {

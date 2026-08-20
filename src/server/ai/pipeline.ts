@@ -15,7 +15,13 @@ import {
   urlPublicaDeFoto,
 } from "@/server/ai/fotos";
 import { serializeMessage } from "@/server/inbox/ingest";
-import { AgentAction, degradeAction, resolveStage, type AgentActionType } from "@/server/ai/actions";
+import {
+  AgentAction,
+  degradeAction,
+  formatoDeRespuestaConEstado,
+  resolveStage,
+  type AgentActionType,
+} from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import { onLeadWon } from "@/server/inbox/lead-activity";
@@ -2080,6 +2086,83 @@ async function guardarEstadoPropuesto(entrada: {
 
 
 /**
+ * Cómo debe venir el estado, descrito para el proveedor.
+ *
+ * Se construye por turno porque depende del negocio: los `datos` son los
+ * requisitos que ESE negocio declaró en su ficha, y la `reserva` solo existe
+ * en el vertical de citas. Ni un nombre de cliente ni de producto aquí — la
+ * forma es del núcleo, el contenido lo pone el catálogo de cada uno.
+ */
+function esquemaDelEstado(requisitos: Requisito[], vertical: Vertical): unknown {
+  const propiedades: Record<string, unknown> = {
+    items: {
+      type: "array",
+      description: "Una entrada por CADA cosa que pida el cliente, con sus propias opciones.",
+      items: {
+        type: "object",
+        properties: {
+          ofrecible: {
+            type: ["string", "null"],
+            description: "El nombre tal como aparece en el catálogo del negocio.",
+          },
+          cantidad: { type: ["number", "null"] },
+          opciones: {
+            type: "array",
+            description: "Una entrada por cada elección, en el orden en que las dijo.",
+            items: {
+              type: "object",
+              properties: {
+                grupo: { type: ["string", "null"] },
+                opcion: { type: ["string", "null"] },
+              },
+              required: ["grupo", "opcion"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["ofrecible", "cantidad", "opciones"],
+        additionalProperties: false,
+      },
+    },
+    datos: {
+      type: "object",
+      description: "Lo que este negocio necesita para cerrar. Del pedido entero, no de cada cosa.",
+      properties: Object.fromEntries(
+        requisitos.map((r) => [r.id, { type: ["string", "null"], description: r.etiqueta }])
+      ),
+      required: requisitos.map((r) => r.id),
+      additionalProperties: false,
+    },
+    paso: { type: ["string", "number", "null"] },
+    confirmado: { type: ["boolean", "null"] },
+  };
+  if (contrataCitas(vertical)) {
+    propiedades.reserva = {
+      type: ["object", "null"],
+      description: "UNA sola para toda la visita, aunque lleve varios servicios.",
+      properties: {
+        fecha: { type: ["string", "null"] },
+        hora: { type: ["string", "null"] },
+        especialista: { type: ["string", "null"] },
+      },
+      required: ["fecha", "hora", "especialista"],
+      additionalProperties: false,
+    };
+  }
+  return {
+    type: "object",
+    properties: propiedades,
+    required: Object.keys(propiedades),
+    additionalProperties: false,
+  };
+}
+
+/** Quita las claves en `null` que el modo estricto obliga a emitir. */
+function sinNulos(objeto: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(objeto).filter(([, v]) => v !== null));
+}
+
+/**
  * La llamada del agente pidiéndole ADEMÁS el estado del pedido.
  *
  * Devuelve la acción con su tipo de siempre —el resto del pipeline no se entera
@@ -2143,13 +2226,24 @@ async function chatJsonConEstado(
         "ponlo siempre que puedas, porque el mismo nombre puede estar en dos grupos con precios distintos. " +
         "Lo que el cliente aún no haya dicho va en null (o lista vacía). No inventes nada.",
     },
-    ...messages.slice(1),
-  ]);
+      ...messages.slice(1),
+    ],
+    // Sin esto el modelo IGNORA la instrucción de arriba: medido el 19-ago-2026
+    // sobre `gemini-2.5-flash`, 0 de 3 con el prompt pidiéndolo (incluso con un
+    // prompt de tres líneas) contra 3 de 3 con el esquema exigido al proveedor.
+    { jsonSchema: formatoDeRespuestaConEstado(esquemaDelEstado(requisitos, vertical)) }
+  );
 
   if (!bruto.ok) return { resultado: bruto as ChatJsonResult<AgentActionType> };
 
   const { estado, ...accion } = bruto.data as { estado?: unknown };
-  const validada = AgentAction.safeParse(accion);
+  /*
+   * El modo estricto obliga al modelo a emitir TODOS los campos declarados, así
+   * que los que no son de esta acción llegan en `null`. Se quitan antes de
+   * validar: para un `z.string().optional()`, `reply: null` no es "sin reply"
+   * — es un tipo que no encaja, y rechazaría la acción entera.
+   */
+  const validada = AgentAction.safeParse(sinNulos(accion));
   if (!validada.success) {
     return {
       resultado: {

@@ -38,6 +38,7 @@
     "probar:estado": "esbuild scripts/probar-estado.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-estado.mjs --alias:@=./src --packages=external && node .tmp-probar-estado.mjs",
     "cargar:opciones": "esbuild scripts/cargar-opciones.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-opciones.mjs --alias:@=./src --packages=external && node .tmp-cargar-opciones.mjs",
     "migrar:requisitos": "esbuild scripts/migrar-requisitos.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-requisitos.mjs --alias:@=./src --packages=external && node .tmp-migrar-requisitos.mjs",
+    "fase2": "esbuild scripts/fase2.ts --bundle --platform=node --format=esm --outfile=.tmp-fase2.mjs --alias:@=./src --packages=external && node .tmp-fase2.mjs",
     "corregir:ficha-churra": "esbuild scripts/corregir-ficha-churra.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-ficha-churra.mjs --alias:@=./src --packages=external && node .tmp-corregir-ficha-churra.mjs",
     "subir:media": "esbuild scripts/subir-media.ts --bundle --platform=node --format=esm --outfile=.tmp-subir-media.mjs --alias:@=./src --packages=external && node .tmp-subir-media.mjs"
   },

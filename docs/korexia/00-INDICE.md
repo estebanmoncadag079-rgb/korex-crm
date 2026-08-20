@@ -3,6 +3,13 @@
 Esta carpeta documenta **korex.ia**: qué es, cómo funciona de verdad en
 producción, qué se cambió y qué quedó pendiente.
 
+> 🔴🔴 **¿Retomas el proyecto? Empieza por
+> [121-PENDIENTES-20AGO.md](121-PENDIENTES-20AGO.md).** Es el **único** documento
+> de pendientes vigente. Hubo cuatro anteriores que decían «LÉEME AL RETOMAR» y
+> ya están marcados como superados: describen sistemas que no existen.
+> El relato de cómo se llegó al estado actual, en
+> [122-BITACORA-18-20AGO.md](122-BITACORA-18-20AGO.md).
+
 > ⚠️ **El `README.md` de la raíz es de Vocero CRM (el proyecto del que nace
 > korex.ia) y ya NO describe esta instalación.** Dice cosas que hoy son falsas
 > aquí: que "una instancia = un negocio" (korex.ia es multi-cliente), que se
@@ -58,7 +65,7 @@ producción, qué se cambió y qué quedó pendiente.
 | [33-ESCALABILIDAD.md](33-ESCALABILIDAD.md) | **De 3 a 100 clientes**: por qué la máquina no es el problema, los seis bloqueadores reales medidos con evidencia, y en qué orden se atacan |
 | [34-COLA-DE-TURNOS.md](34-COLA-DE-TURNOS.md) | La cola en Postgres que sustituyó al debounce en memoria: cómo funciona, qué mirar cuando falla y cómo levantar varias réplicas |
 | [35-BITACORA-8-9AGO.md](35-BITACORA-8-9AGO.md) | **Historial del 8 y 9 de agosto**: el catálogo oficial del salón, el diagnóstico de escalabilidad medido, la cola de turnos y las primeras pruebas contra Postgres real |
-| [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md) | 🔴 **Todo lo pendiente, ordenado por riesgo e impacto real.** Empieza por aquí si retomas el proyecto |
+| [36-PENDIENTES-ESCALADO.md](36-PENDIENTES-ESCALADO.md) | ⚪ *Superado por [121](121-PENDIENTES-20AGO.md).* Lo pendiente **al 9-ago**, ordenado por riesgo e impacto. Histórico: se conserva por el análisis de escalado, no como lista de tareas |
 | [37-EMBUDO-VENTAS-INVISIBLES.md](37-EMBUDO-VENTAS-INVISIBLES.md) | Por qué el tablero decía 16 clientes cuando había 31: el embudo solo se cerraba si actuaba el agente, y en Lis atiende una persona. Y el lado simétrico: **los que se enfrían bajan solos a "Por recuperar" a los 2 días** |
 | [38-GUARDARRAILES.md](38-GUARDARRAILES.md) | **Cuando el prompt no basta**: los tres guardarraíles del servidor, por qué existen, cómo se añade uno y cuándo NO conviene |
 | [39-BITACORA-9AGO-TARDE.md](39-BITACORA-9AGO-TARDE.md) | **Historial de la tarde del 9 de agosto**: si Lis sigue siendo rentable en octubre (sí, al 94 %), el costo por llamada en el panel, el chat dentro del Pipeline y el embudo de los que se enfrían |
@@ -99,7 +106,7 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [64-BITACORA-14-15AGO.md](64-BITACORA-14-15AGO.md) | **El relato del 14 y 15 de agosto**: la cuenta que nunca se creó, el cuestionario que borraba el conocimiento, las **tres causas** por las que el bot no respetaba el orden (ninguna era el modelo), la Fase 0 que midió y descartó, y lo que se descubrió sin buscarlo |
 
-| [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: lo urgente por orden, qué bloquea al salón, la deuda que volverá a morder y el estado del roadmap |
+| [65-PENDIENTES-15AGO.md](65-PENDIENTES-15AGO.md) | ⚪ *Superado por [121](121-PENDIENTES-20AGO.md).* Lo pendiente **al 15-ago**: qué bloqueaba al salón (ya encendido) y el estado del roadmap de entonces |
 
 | [66-REGLAS-FASE-2.md](66-REGLAS-FASE-2.md) | ⛔ **LAS CATORCE REGLAS OBLIGATORIAS de la Fase 2**, dictadas por el dueño. No son consejos: un cambio que incumpla una no entra, aunque funcione. **Leer antes de escribir una sola línea de la Fase 2** |
 
@@ -109,10 +116,12 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [71-BITACORA-15AGO.md](71-BITACORA-15AGO.md) | **El relato del 15 de agosto**: la Fase 1 que no estaba desplegada, las tres cosas que las mediciones desmintieron, el día que una prueba causó el fallo que buscaba, las cuatro puertas y el arranque de la Fase 2 |
 
-| [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR**: las tres decisiones que bloquean la Fase 2, la deuda viva y los comandos útiles |
+| [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | ⚪ *Superado por [121](121-PENDIENTES-20AGO.md).* Lo pendiente **al 16-ago**: las tres decisiones que entonces bloqueaban la Fase 2 — hoy encendida en toda la flota |
 
 | [98-BITACORA-CATALOGO-EN-PDF.md](98-BITACORA-CATALOGO-EN-PDF.md) | **El agente ya puede enviar catálogos en PDF, no solo fotos**: `send_image` decide imagen o documento por el `mimeType` real, sin que el modelo sepa la diferencia. `ycloudSendDocument`/`sendDocument` nuevos, `pnpm subir:media` como puente hasta que exista una pantalla de fotos post-onboarding. El catálogo de Lashes Valen (36 MB) se comprimió a 1,5 MB antes de subirlo — la base entera pesa ~16 MB |
 
+| [121-PENDIENTES-20AGO.md](121-PENDIENTES-20AGO.md) | 🔴🔴 **EMPIEZA POR AQUÍ AL RETOMAR.** El único pendientes vigente: sustituye a la 36, la 65, la 70 y la 93, que describen sistemas que ya no existen. El estado real de los tres negocios **leído de la base** (Fase 1 y Fase 2 completas en toda la flota, `conversation_state` con 25 filas reales), lo que espera una acción del dueño, lo que le falta a cada negocio, la deuda viva y las nueve cosas que no hay que volver a hacer |
+| [122-BITACORA-18-20AGO.md](122-BITACORA-18-20AGO.md) | **El relato del 18 al 20 de agosto**: tres días y 30 commits — el salón por fuera (lo que la dueña veía mal), el salón por dentro (lo que el agente prometía sin verificar), y el día de la arquitectura, en el que se descubrió que **la Fase 2 nunca había funcionado para nadie** y nadie se había enterado porque el fallo no daba errores. Con los nueve errores propios sin maquillar y las cinco lecciones |
 | [120-EL-CUESTIONARIO-GUARDA-LO-QUE-PREGUNTA.md](120-EL-CUESTIONARIO-GUARDA-LO-QUE-PREGUNTA.md) | 🔑 **El cuestionario pedía cuatro campos que no podía guardar** — el saludo, las reglas propias y el paso 8 entero («cuándo debe llamarte a ti», que él mismo llama la etapa más importante): al reeditar se descartaban en silencio. La prohibición del [68](68-UN-DUENO-POR-DATO.md) era correcta para su problema, pero aquel incidente no pasó porque el cuestionario tuviera permiso: pasó porque **el formulario salía en blanco y mandaba vacíos**. Ahora una sección escribible **se fusiona en vez de reemplazarse** —`undefined` es "no lo tocó", `""`/`[]` es "lo borró queriendo"— y con eso lo que protege ya no es prohibir, es que **omitir no borre**. Demostrado con `probar:propiedad` usando las opciones reales de la ruta: reglas del operador intactas **sin conservar ninguna sección**. ⚠️ Y un residuo casi borra 14 reglas: el borrador de la mañana tenía UNA sola y se superponía |
 | [119-CANALES-EXTERNOS.md](119-CANALES-EXTERNOS.md) | 🔑 **La raíz del caso Rappi: el cuestionario nunca pregunta dónde MÁS te pueden pedir.** Ocho pasos y ninguno lo hace — el negocio no lo olvidó, nunca se lo preguntaron. Y auditándolo apareció algo peor: un negocio que no reparte pero SÍ está en una app tenía escrito *"No hay domicilios"* en su prompt — un "no" **declarado**, que la regla del 118 le hace decir con confianza. Mismo fallo, causado por los datos. Se añade `ficha.canales` (fuera de `entrega`: para un salón, agendar por otra plataforma no es una entrega), la pregunta en el alta, y el bloque en el prompt. ⚠️ Al añadirlo, el campo nació **sin sección** y la prueba del 114 siguió en verde porque su fixture no lo incluía: se cerró tipándola como `Required<FichaDelNegocio>` — ahora **no compila** si alguien añade un campo y lo olvida |
 | [118-NO-NIEGUES-LO-QUE-NO-SABES.md](118-NO-NIEGUES-LO-QUE-NO-SABES.md) | 🔑 **El agente contestó "no manejamos domicilios por Rappi" — nadie se lo había dicho, y el negocio SÍ lo tenía.** Venta perdida por inventar un NO. `conducta.ts` tenía la mitad positiva («nunca inventes datos duros») y le faltaba la simétrica: **la misma asimetría que el guardarraíl 9 ya había cerrado en citas** ([109](109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md)). Aquí NO cabe guardarraíl —el servidor puede comprobar una agenda, pero no si un negocio tiene un canal que nadie declaró—, así que vive en la conducta: 350 caracteres, con la anécdota movida al comentario (regla 14). El dato de Rappi va como CONOCIMIENTO editable por el dueño, no como código. ⚠️ Y al regenerar apareció lo importante: **los tres negocios arrastraban lecciones sin aplicar** — La Churra sin las reglas de varias cosas a la vez, Lashes Valen con el bug del pago en citas ya corregido en el código días antes. Escribir la lección en `conducta.ts` NO la entrega |
@@ -154,7 +163,7 @@ producción, qué se cambió y qué quedó pendiente.
 
 | [94-BITACORA-PERMITE-REPETICION-CRM.md](94-BITACORA-PERMITE-REPETICION-CRM.md) | **El paso 3B, primera pieza**: `permite repetir` sale del script y entra al CRM. La API filtrada por organización, la pantalla que avisa del grupo imposible de completar, y por qué las 5 pruebas de integración quedaron escritas pero SIN ejecutar |
 
-| [93-PENDIENTES-17AGO.md](93-PENDIENTES-17AGO.md) | 🔴 **LO QUE HAY QUE LEER AL RETOMAR.** Sustituye a la 70: los cuatro pasos medidos que separan a La Churra del encendido, el vertical de citas, la deuda viva y lo que no hay que volver a hacer |
+| [93-PENDIENTES-17AGO.md](93-PENDIENTES-17AGO.md) | ⚪ *Superado por [121](121-PENDIENTES-20AGO.md).* Lo pendiente **al 17-ago**: los cuatro pasos que separaban a La Churra del encendido (ya encendida) y el paso 4 del vertical de citas (ya hecho). ⚠️ Su cabecera —Fase 2 apagada en los cuatro clientes, 12 commits sin subir, nada desplegado— **ya no describe nada real** |
 
 | [92-BITACORA-17AGO.md](92-BITACORA-17AGO.md) | **El relato del 17 de agosto**: las diez fases, los errores propios —dos fichas rotas, una prueba que pasó por la razón equivocada— y lo que aprendió el proyecto. Con la ventana que se cierra: es la última vez que cambiar el estado sale gratis |
 

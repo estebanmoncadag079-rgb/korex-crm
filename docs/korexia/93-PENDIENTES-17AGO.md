@@ -1,5 +1,16 @@
 # Pendientes al 17 de agosto de 2026
 
+> ## ⚪ SUPERADO — no es la lista de tareas vigente
+>
+> **Los pendientes de hoy están en [121](121-PENDIENTES-20AGO.md).**
+>
+> Este documento se conserva como histórico del 17-ago. Su párrafo de estado
+> —*«las cuatro banderas `state_source` en `prompt`, `conversation_state`
+> vacía, 12 commits sin subir y nada desplegado»*— **ya no describe nada real**:
+> hoy la Fase 1 y la Fase 2 están completas en los tres negocios y
+> `conversation_state` lleva conversaciones de verdad. La Churra está encendida
+> y el paso 4 del vertical de citas está hecho.
+
 > 🔴 **LÉEME AL RETOMAR.** Sustituye a [70](70-PENDIENTES-16AGO.md) en todo lo
 > que se solape. Para el relato de la jornada, [92](92-BITACORA-17AGO.md).
 

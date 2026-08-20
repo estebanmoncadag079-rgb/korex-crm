@@ -98,11 +98,16 @@ export async function guardarBorrador(
  * fuente de verdad, no puede enseñar vacío lo que sí está puesto
  * (20-ago-2026).
  *
- * Y no era solo cosmético: al enviar, el cuestionario **reemplaza la sección
- * `negocio` entera** (`fusionarFicha`, ver `aplicarFicha`). Partiendo de un
- * formulario en blanco, lo que no se volviera a escribir —los regalos, las
- * variantes, la ubicación— se perdía en silencio. Precargar convierte el envío
- * en lo que la persona cree que es: editar lo que ya había.
+ * Y no era solo cosmético: al enviar, el cuestionario **reemplazaba la sección
+ * entera**, así que partiendo de un formulario en blanco lo que no se volviera a
+ * escribir —los regalos, las variantes, la ubicación— se perdía en silencio.
+ * Precargar convierte el envío en lo que la persona cree que es: editar lo que
+ * ya había.
+ *
+ * Ese segundo daño se cerró aparte el mismo día: `fusionarFicha` ya no
+ * reemplaza la sección, la fusiona. Los dos arreglos son independientes y hacen
+ * falta los dos — precargar sin fusionar deja el borrado a un despiste, y
+ * fusionar sin precargar deja al cliente editando a ciegas.
  *
  * **Se FUSIONA, no se elige uno de los dos.** La ficha aplicada es la base y el
  * borrador va encima, campo por campo: lo que la persona estaba editando se
@@ -167,11 +172,16 @@ export async function leerBorrador(
  * La organización y su dueño se crean antes con `createClientWithOwner`, que ya
  * deja el `agent_profile` vacío y las etapas del pipeline puestas.
  *
- * ⚠️ **El agente queda APAGADO** (`enabled: false`). Encenderlo es un acto
- * deliberado y va después de probar: es el paso 8 del alta, y saltárselo fue lo
- * que enseñó `05-CLIENTES.md` que no hay que hacer. Un agente que empieza a
- * responder antes de que nadie haya visto una conversación de prueba es un
- * cliente enfadado esperando a que pase.
+ * ⚠️ **Un alta nace con el agente APAGADO**, y encenderlo es un acto deliberado
+ * que va después de probar: es el paso 8 del alta, y saltárselo fue lo que
+ * enseñó `05-CLIENTES.md` que no hay que hacer. Un agente que responde antes de
+ * que nadie haya visto una conversación de prueba es un cliente enfadado
+ * esperando a que pase.
+ *
+ * Pero eso **no lo hace esta función**: lo hace `default(false)` en la columna.
+ * Hasta el 16-ago aquí se forzaba `enabled: false` en cada llamada, y el efecto
+ * era que un negocio que ya estaba vendiendo **se apagaba solo** al reenviar el
+ * cuestionario. Nacer apagado y apagarse al reeditar no son la misma regla.
  */
 export async function aplicarFicha(
   organizationId: string,
@@ -179,13 +189,20 @@ export async function aplicarFicha(
   opciones?: {
     telefonosDeAviso?: string[];
     /**
-     * Qué secciones puede escribir QUIEN LLAMA. Por defecto, solo `negocio`:
-     * es lo que el cliente responde en su cuestionario.
+     * Qué secciones puede escribir QUIEN LLAMA. Por defecto, solo `negocio`.
      *
-     * `flujo` y `politicas` son del operador —el orden de los mensajes y las
-     * reglas que se escriben después de un incidente—, y el cuestionario no
-     * puede tocarlas. Desde `/admin` se pasan las tres, porque ahí quien actúa
-     * es la agencia.
+     * El defecto es conservador a propósito: quien no declara nada solo puede
+     * tocar lo más inocuo. **No es lo que pasa el cuestionario**, que declara
+     * las tres — pregunta el saludo y las reglas (`flujo`) y el paso de cuándo
+     * escalar (`politicas`), y con el defecto los descartaba en silencio al
+     * reeditar (20-ago-2026, [120]).
+     *
+     * Lo que sigue en pie es la otra mitad: **el script del operador no puede
+     * tocar `negocio`**, que es del cliente.
+     *
+     * Y esto ya no es lo único que protege los datos ajenos: desde el 20-ago
+     * una sección escribible **se fusiona** (`fusionarFicha`), así que omitir un
+     * campo lo conserva y solo mandarlo vacío lo borra.
      */
     puedeEscribir?: readonly Seccion[];
     /** Quién ejecuta esto. Sin actor no hay trazabilidad que valga. */

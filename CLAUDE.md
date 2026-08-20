@@ -1,9 +1,27 @@
-# Vocero CRM — Guía para Claude
+# korex.ia (sobre Vocero CRM) — Guía para Claude
+
+> ## 📚 LA FUENTE DE VERDAD ES `docs/korexia/`
+>
+> Este archivo describe el **repositorio**. Cómo funciona esta instalación **de
+> verdad en producción** está en [docs/korexia/](docs/korexia/), 120+ documentos.
+>
+> - **Al retomar**, lee [`docs/korexia/00-INDICE.md`](docs/korexia/00-INDICE.md)
+>   y desde ahí el pendientes vigente
+>   ([121](docs/korexia/121-PENDIENTES-20AGO.md) a 20-ago-2026).
+> - **Al cambiar algo**, actualízalo en el **mismo commit**: código + pruebas +
+>   documento + cómo revertir, o el cambio no está terminado
+>   ([75-COMO-SE-DOCUMENTA.md](docs/korexia/75-COMO-SE-DOCUMENTA.md)).
+> - **Antes de tocar nada**, el filtro obligatorio:
+>   [REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md).
+> - **Cuando este archivo y `docs/korexia/` se contradigan, manda
+>   `docs/korexia/`** — y arregla este archivo.
 
 Vocero es un CRM de WhatsApp open source (MIT), self-hosted, con agente de IA y
-Laboratorio de auto-evaluación. Este archivo guía a Claude Code (u otro
-asistente) para operar y **modificar** este repositorio — el caso típico: una
-agencia hospedando a sus clientes.
+Laboratorio de auto-evaluación. **korex.ia** es la instalación de agencia que
+corre sobre él en `korexia.online`, y difiere del Vocero de fábrica en cosas que
+importan (ver el recuadro de *Producción real* más abajo). Este archivo guía a
+Claude Code (u otro asistente) para operar y **modificar** este repositorio — el
+caso típico: una agencia hospedando a sus clientes.
 
 **Una instancia = varios clientes.** Cada cliente es una organización aislada
 (sus conversaciones, contactos, embudo, agente y marca). La agencia se
@@ -78,7 +96,40 @@ acento `#25D366`) · **PostgreSQL + Drizzle ORM** (migraciones versionadas en
 organization · **Zod** en todo input externo · nanoid con prefijos (`ct_`,
 `cv_`, `msg_`…) · pnpm · Vitest (unit) + guiones E2E en `tests/e2e/`
 conducidos con Playwright · Docker multi-stage (standalone, healthcheck
-`/api/health`) · deploy en Coolify (Ruta A) o docker compose + Caddy (Ruta B).
+`/api/health`) · el repo de fábrica documenta deploy en Coolify o docker compose
++ Caddy — **korex.ia no usa ninguno de los dos** (ver *Producción real*).
+
+## 🔴 Producción real (korex.ia) — donde esta guía y la realidad difieren
+
+Cuatro cosas que el resto de este archivo (y el `README.md`) describen como en
+el Vocero de fábrica y que **aquí son distintas**. Dar por buena la versión de
+fábrica ya causó incidentes.
+
+| Tema | Lo que dice el repo | La realidad de korex.ia |
+|---|---|---|
+| **Despliegue** | Coolify / docker compose | **EasyPanel** en el VPS `2.25.159.117`. Lo pulsa **el dueño**; el asistente solo deja el código en la carpeta |
+| **Canal WhatsApp** | Meta Cloud API directa (`src/lib/meta/`) | **YCloud** (`src/lib/ycloud/client.ts`), que envuelve a Meta. `src/lib/meta/` sigue existiendo debajo |
+| **Modelo LLM** | `anthropic/claude-sonnet-4.5` | **`google/gemini-2.5-flash`**, con Sonnet 4.5 como `OPENROUTER_FALLBACK_MODEL` |
+| **Instancia** | "una instancia = un negocio" (`README.md`) | Multi-cliente. Tres negocios vivos |
+
+### ⚠️ Desplegar tiene TRES pasos, y saltarse uno NO da error
+
+1. Gate en local
+2. **`git commit` + `git push`**
+3. **`git archive` + `scp` + `tar`** dentro de
+   `/etc/easypanel/projects/korex-crm/crm/code` — **esa carpeta no tiene `.git`
+   y no se entera de ningún push**
+4. El dueño pulsa Desplegar en EasyPanel
+5. **Verificar DENTRO del contenedor**
+
+Ha fallado dos veces. Un contenedor nuevo y `healthy` **no** prueba que lleve el
+cambio, y "converged" + un 200 tampoco. Receta exacta en
+[docs/korexia/02-INFRAESTRUCTURA.md](docs/korexia/02-INFRAESTRUCTURA.md).
+
+> 🔍 **Al verificar dentro del contenedor, busca literales SIN tildes.** Los
+> nombres de función los renombra el minificador y el texto acentuado se
+> corrompe por SSH: las dos cosas juntas dan `0` coincidencias con el código
+> desplegado y correcto.
 
 Tiempo real por **SSE** (`/api/events`): heartbeat `: ping` ~25s, headers
 anti-buffering, catch-up por refetch con `since=`. Sin WebSockets, sin colas
@@ -89,10 +140,12 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | Quieres cambiar… | Toca… |
 |---|---|
 | El cerebro/proveedor LLM | `src/lib/ai/` (adaptador OpenRouter-compatible, `chatJson<T>`) |
-| El comportamiento/prompt del agente | `src/server/ai/prompts.ts` |
+| **La conducta del agente, para TODOS los clientes** | `src/server/ai/generador/conducta.ts` — ⚠️ escribir aquí **no entrega nada**: hay que `pnpm regenerar:flota --aplicar` |
+| **Lo que sabe el agente de UN negocio** | su `agent_profile.ficha` (dato, no código). El prompt se **compila** con `generador/generar.ts` |
+| El armazón del prompt y el contrato del turno | `src/server/ai/prompts.ts` |
 | Las acciones que puede tomar el agente | `src/server/ai/actions.ts` + ejecución en `src/server/ai/pipeline.ts` |
 | Las personas o el juez del Laboratorio | `src/server/lab/personas.ts` · `src/server/lab/judge.ts` |
-| El canal WhatsApp (Graph API) | `src/lib/meta/` (cliente único) + `src/server/whatsapp/` |
+| El canal WhatsApp | **`src/lib/ycloud/client.ts`** (es por donde sale todo) · `src/lib/meta/client.ts` debajo · `src/server/whatsapp/` |
 | Campos/tablas | `src/lib/db/schema.ts` → `pnpm db:generate` → migración nueva en `drizzle/` |
 | La ingesta/envío de mensajes | `src/server/inbox/` (ingest idempotente, send con guard de sandbox, ventana 24h) |
 | UI | `src/components/` + `src/app/(app)/` |
@@ -130,10 +183,18 @@ Ver `.env.example` (cada una con guía inline). Las claves: `APP_BASE_URL`,
 
 ```bash
 OPENROUTER_API_TOKEN=sk-or-...
-OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
-OPENROUTER_JUDGE_MODEL=anthropic/claude-haiku-4.5   # opcional: juez más barato
-OPENROUTER_FALLBACK_MODEL=anthropic/claude-sonnet-4.5  # rescate si el barato no da JSON usable
+OPENROUTER_MODEL=google/gemini-2.5-flash              # lo que corre HOY en korex.ia
+OPENROUTER_JUDGE_MODEL=anthropic/claude-haiku-4.5     # opcional: juez más barato
+OPENROUTER_FALLBACK_MODEL=anthropic/claude-sonnet-4.5 # rescate si el barato no da JSON usable
 ```
+
+> 🔴 **Sin saldo en OpenRouter el agente enmudece con un 402**, y es la primera
+> causa a descartar ante cualquier «el bot no responde». No da un error visible
+> en el CRM: simplemente no contesta. Las otras causas confirmadas —relevo
+> humano activo, webhook sin remitente, mensajes `unsupported` que Meta entrega
+> vacíos, nombres de usuario de WhatsApp (BSUID) tomados por teléfono— están en
+> [23](docs/korexia/23-BITACORA-3AGO-NOCHE.md) y
+> [24](docs/korexia/24-MENSAJES-UNSUPPORTED.md).
 
 `OPENROUTER_FALLBACK_MODEL` es la red de seguridad de `chatJson`: sin ella el
 código pasa de largo y un hipo de formato acaba en handoff por error o en un
@@ -168,7 +229,29 @@ Gate técnico:
 pnpm typecheck && pnpm lint && pnpm build && pnpm test
 ```
 
-Guiones E2E por historia en `tests/e2e/*.md`.
+> ⚠️ **Ese gate NO cubre `scripts/`**: `tsconfig.json` los excluye. Dos scripts
+> que escriben en producción llevaban **cinco días rotos** con todo en verde. Si
+> tocas un script, **ejecútalo**.
+
+Guiones E2E por historia en `tests/e2e/*.md`. Y en korex.ia hay además pruebas
+de dominio que valen más que el gate para lo que se rompe de verdad:
+
+```bash
+pnpm probar:estado       # 46 comprobaciones sobre clientes efímeros
+pnpm probar:propiedad    # reenviar el cuestionario no pisa datos ajenos
+pnpm probar:escenarios   # 24 clientes simulados, comprobaciones objetivas
+```
+
+> 🔑 **Cada queja nueva del dueño debe acabar como escenario en
+> `probar:escenarios` ANTES de arreglarse.** Es lo que impide que el mismo fallo
+> vuelva por otra puerta.
+
+⚠️ Los scripts necesitan un túnel SSH a la base — **y ese túnel apunta a
+PRODUCCIÓN**. Nunca lo uses como `TEST_DATABASE_URL`:
+
+```bash
+ssh -i ~/.ssh/churrabot_key -f -N -L 15433:172.16.1.1:5433 root@2.25.159.117
+```
 
 ## Modo Objetivo — Loop SDD
 

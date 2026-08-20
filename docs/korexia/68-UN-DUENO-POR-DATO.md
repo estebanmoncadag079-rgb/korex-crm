@@ -1,5 +1,24 @@
 # Un dueño por dato: el prompt con dos escritores
 
+> ## ✅ Estado a 20-ago-2026 — leer antes que nada
+>
+> Este documento se escribió el **15-ago** y su mitad final describe un plan que
+> **ya se ejecutó**. Se conserva entero porque el diagnóstico sigue siendo la
+> mejor explicación de por qué las cosas son como son, pero hay que leerlo
+> sabiendo qué frases ya no describen el presente:
+>
+> | Lo que dice el documento | Hoy |
+> |---|---|
+> | Las 5 colisiones | **1, 3 y 5 cerradas**; la 2 dejó de ser colisión al tratar el prompt como derivado; la 4 sigue mitigada |
+> | *"El cuestionario fuerza `enabled: false`"* | ❌ Ya no lo escribe. Un alta nace apagada por `default(false)` en la columna |
+> | *"El cuestionario deduce `appointmentsEnabled`"* | ❌ Ya no. Si la ficha y lo contratado no coinciden, **avisa** en vez de pisar |
+> | *"`flujo` y `politicas`: el cuestionario NO las toca"* | ⚠️ **Cambiado el 20-ago** — ver el recuadro de la tabla de secciones |
+> | *"El plan propuesto"* | Ejecutado: los tres negocios tienen la ficha por secciones |
+> | `generado_de` (hash de la ficha) | ⬜ **Lo único del plan que sigue sin hacerse** |
+>
+> La **regla** del título no cambió y no está en discusión:
+> *cada dato tiene un dueño, y lo derivado no se escribe: se recompila.*
+
 > 🔑 **Esto no es un problema de arquitectura, es de propiedad de los datos.**
 > Lo formuló el dueño, y conviene tenerlo delante al leer todo lo demás:
 >
@@ -106,11 +125,11 @@ Nueve rutas, contando el alta y la demo:
 
 | # | Campo | Escritores | Qué pasa cuando chocan |
 |---|---|---|---|
-| **1** | **`ficha`** | cuestionario + script | 🔴 **La que ya mordió.** El 15-ago a las 12:59 el prompt de La Churra pasó de 18.053 a 11.889 caracteres y perdió sus reglas de flujo |
-| **2** | `instructions` · `greeting` · `escalationRules` · `name` | los tres | El último gana. Ninguno avisa |
-| **3** | **`enabled`** | cuestionario + panel del cliente | 🔴 El cuestionario lo fuerza a `false`: **un cliente enciende su agente y al reenviar el cuestionario se apaga solo** |
-| **4** | `notifyPhones` | cuestionario + panel | Mitigado el 15-ago (solo escribe si vienen teléfonos), pero los dos siguen pudiendo |
-| **5** | `appointmentsEnabled` | cuestionario + `/admin` | El cuestionario lo deduce del vertical y pisa lo que puso la agencia |
+| **1** | **`ficha`** | cuestionario + script | 🔴 **La que ya mordió.** El 15-ago a las 12:59 el prompt de La Churra pasó de 18.053 a 11.889 caracteres y perdió sus reglas de flujo · ✅ **cerrada**: secciones con dueño, y desde el 20-ago además fusión campo a campo |
+| **2** | `instructions` · `greeting` · `escalationRules` · `name` | los tres | El último gana. Ninguno avisa · ✅ **dejó de ser colisión**: son derivados, se recompilan con `generarPerfil` |
+| **3** | **`enabled`** | cuestionario + panel del cliente | 🔴 El cuestionario lo fuerza a `false`: **un cliente enciende su agente y al reenviar el cuestionario se apaga solo** · ✅ **cerrada**: `aplicarFicha` ya no lo escribe |
+| **4** | `notifyPhones` | cuestionario + panel | Mitigado el 15-ago (solo escribe si vienen teléfonos), pero los dos siguen pudiendo · 🟢 **sigue igual**, y es aceptable: no escribe si no vienen |
+| **5** | `appointmentsEnabled` | cuestionario + `/admin` | El cuestionario lo deduce del vertical y pisa lo que puso la agencia · ✅ **cerrada**: manda lo contratado, y la discrepancia se **avisa** (`avisoDeVertical`) |
 
 ## Lo que nadie había dicho: fuente contra derivado
 
@@ -184,6 +203,33 @@ objeto entero:
 | `politicas` | **el operador**, por script | el cuestionario |
 | ~~`catalogo`~~ | **se elimina**: vive en `product` desde la Fase 1 | — |
 
+> ### ⚠️ 20-ago-2026: la columna derecha de `flujo` y `politicas` ya no es así
+>
+> **El cuestionario sí las escribe**, y la tabla de arriba se deja como estaba
+> porque es el razonamiento del 15-ago, no el estado de hoy.
+>
+> El motivo del cambio: el cuestionario **pregunta** cuatro campos de esas dos
+> secciones —el saludo, las reglas propias y el paso 8 entero, *"cuándo debe
+> llamarte a ti"*— y prohibirle escribirlos significaba que **los pedía y los
+> tiraba en silencio** al reeditar.
+>
+> Prohibirlo era una mitigación del incidente del 15-ago, y ese incidente **no
+> ocurrió porque el cuestionario tuviera permiso**: ocurrió porque el formulario
+> salía en blanco y mandaba vacíos. Se atacaron las dos causas de verdad:
+>
+> 1. el formulario **se precarga** con la ficha aplicada
+>    ([117](117-EL-CUESTIONARIO-VEIA-VACIO.md));
+> 2. una sección escribible **se fusiona, no se reemplaza** — `undefined` es *"no
+>    lo tocó"* y `""`/`[]` es *"lo borró queriendo"*.
+>
+> Con eso, lo que protege el trabajo del operador ya no es prohibir, es que
+> **omitir no borre** — y eso protege a **todos** los escritores, no solo a uno.
+> Demostrado en `pnpm probar:propiedad` con las tres secciones abiertas.
+>
+> **Lo que NO cambió: el script del operador sigue sin poder tocar `negocio`.**
+> Esa mitad protege al cliente y sigue en pie. Detalle completo en
+> [120](120-EL-CUESTIONARIO-GUARDA-LO-QUE-PREGUNTA.md).
+
 ```mermaid
 flowchart TD
     C[Cliente:<br/>cuestionario] -->|solo .negocio| FN[(ficha.negocio)]
@@ -208,13 +254,19 @@ flowchart TD
 
 Tres cambios más, pequeños y con consecuencia grande:
 
-1. **El cuestionario deja de tocar `enabled`.** Encender y apagar es del
+1. ✅ **El cuestionario deja de tocar `enabled`.** Encender y apagar es del
    cliente. Hoy reenviar el cuestionario apaga un agente que estaba vendiendo.
-2. **`appointmentsEnabled` pasa a `/admin`**, que es quien contrata el vertical;
+2. ✅ **`appointmentsEnabled` pasa a `/admin`**, que es quien contrata el vertical;
    el cuestionario deja de deducirlo.
-3. **`generado_de` (hash de la ficha)**: si no coincide con la ficha actual, el
+3. ⬜ **`generado_de` (hash de la ficha)**: si no coincide con la ficha actual, el
    prompt está viejo y se sabe **antes** de que alguien lo note en una
    conversación.
+
+> Los dos primeros están hechos. **El tercero es lo único de este documento que
+> sigue sin implementarse**, y no es cosmético: hoy la única forma de saber si el
+> prompt de un cliente corresponde a su ficha es recompilarlo y comparar — que es
+> justo lo que hace `pnpm regenerar:flota` **sin** `--aplicar`. Ver la deuda viva en
+> [121](121-PENDIENTES-20AGO.md).
 
 ## El plan de migración, con rollback en cada paso
 

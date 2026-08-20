@@ -25,9 +25,23 @@ en dos verticales — y **ninguno de los dos tiene un solo cliente**:
 
 | | Cliente | Qué valida | Estado |
 |---|---|---|---|
-| **1** | **La Churra** | El flujo completo de pedidos, en real | 🟡 encendiéndose |
-| **2** | **Lashes Valen** | **La parte más compleja de toda la arquitectura**: recursos, profesionales, disponibilidad y reservas | ⏳ paso 4 |
-| **3** | **Lis Pastelería** | **La replicabilidad**: que VOCERO incorpore un negocio nuevo **sin tocar el núcleo** | ⏳ **al final, y a propósito** |
+| **1** | **La Churra** | El flujo completo de pedidos, en real | 🟡 catálogo en tablas; Fase 2 pendiente de encender |
+| **2** | **Lashes Valen** | **La parte más compleja de toda la arquitectura**: recursos, profesionales, disponibilidad y reservas | 🟡 paso 4b ejecutado; Fase 2 pendiente (ver [112](112-PLAN-ALINEAR-LA-FLOTA.md)) |
+| **3** | **Lis Pastelería** | **La replicabilidad**: que VOCERO incorpore un negocio nuevo **sin tocar el núcleo** | ✅ **migrada el 19/20-ago** ([111](111-LIS-EN-LA-ARQUITECTURA-NUEVA.md)) |
+
+> ⚠️ **El orden se rompió a propósito el 19-ago, y salió bien.** Lis se migró
+> ANTES que los otros dos, invirtiendo lo que dice el recuadro de abajo. La razón
+> no fue prisa: el candado que la mantenía al final —*"su Laboratorio quedó entre
+> 83 y 75 frente a los 92 de su prompt de siempre"*— resultó **no ser
+> comparable**; medido el mismo día con el mismo juez, el prompt manual sacó 75
+> igual que el generado.
+>
+> Y la excepción se pagó sola: **fue Lis quien destapó que la Fase 2 nunca había
+> funcionado en ningún cliente** — el modelo jamás emitía la clave `estado` y
+> nadie se enteraba ([110](110-EL-MODELO-NO-EMITIA-EL-ESTADO.md)). El cliente que
+> iba a ser "la comprobación que cierra el proyecto" acabó siendo el que encontró
+> el agujero. El razonamiento de abajo sigue siendo bueno; lo que caducó fue el
+> número en el que se apoyaba.
 
 > **Lis no vuelve a la hoja de ruta antes de tiempo.** Su valor no es ser el
 > segundo cliente de pedidos: es ser **la prueba de que la arquitectura se
@@ -142,9 +156,22 @@ campos obligatorios. Eso es configuración de cada negocio, y su sitio es Pocero
 | **3.6** | **SELECCIÓN MÚLTIPLE, EN LOS DOS VERTICALES.** No es «pedidos con varios productos»: es que ni pedidos ni citas saben sostener varios elementos, **en dos motores que no comparten código** | ✅ **hecho en los dos verticales**: pedidos el 17-ago ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md), [90](90-LA-CONDUCTA-EN-PLURAL.md)), citas el 18-ago ([97](97-BITACORA-RESERVA-MULTIPLE.md)) — auditado y decidido en [88](88-AUDITORIA-SELECCION-MULTIPLE.md) |
 | **3b** | **Grupos de opciones para `service`.** Primera migración con datos vivos. La pantalla que los configurará **ya existe** (3a′); lo que falta es el modelo | ⬜ |
 | **4a** | Disponibilidad genérica (`recursoIds`), **sin tocar tablas** | ✅ **implementado el 18-ago** ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) |
-| **4b** | `resource` + `appointment_resource` y el solape movido. **La migración más cara del proyecto** | 🟡 **código listo, migración escrita y SIN ejecutar** ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) — falta el respaldo manual verificado y el despliegue del dueño |
-| **4c** | Horario por recurso | ⬜ dejado fuera a propósito: aditivo, sin caso de uso hoy |
-| **5** | Solo entonces, **encender** | ⬜ |
+| **4b** | `resource` + `appointment_resource` y el solape movido. **La migración más cara del proyecto** | ✅ **EJECUTADA** — verificado contra la base el 20-ago: `staff_member` ya no existe, `resource` 5 filas, `resource_service` 111, y **74 de 74 citas con su vínculo a recurso**. Este renglón dijo "escrita y SIN ejecutar" durante dos días después de haber corrido ([96](96-BITACORA-RECURSOS-Y-RESERVAS.md)) |
+| **4c** | Horario por recurso | ⛔ dejado fuera a propósito: aditivo, sin caso de uso hoy |
+| **5** | Solo entonces, **encender** | 🔄 **en marcha**: Lis ✅ (20-ago), La Churra y Lashes Valen en [112](112-PLAN-ALINEAR-LA-FLOTA.md) |
+
+> 🔑 **Lo que queda de arquitectura es UN paso: el 3b.** Todo lo demás está hecho
+> (1 → 4b), descartado a propósito (4c) o en marcha (5). Conviene decirlo porque
+> el cuello de botella del proyecto ya se movió: lo que hoy impide crecer a 100
+> clientes no es esta hoja de ruta, sino que **dar de alta un cliente sigue
+> siendo manual** ([36](36-PENDIENTES-ESCALADO.md), "el techo real").
+>
+> ⚠️ Y ojo con las tres numeraciones que conviven en la documentación, porque se
+> confunden: las **Fases** (0-3) son dónde vive el conocimiento —prompt, tablas,
+> backend— y su Fase 3 está *diferida a propósito* ([62](62-ARQUITECTURA-ESTADO-Y-CAPACIDADES.md));
+> los **Pasos** (1-5) son esta hoja de ruta multiempresa; y la "fase 3 / Fase 4"
+> del [36](36-PENDIENTES-ESCALADO.md) son escalado operativo. No son la misma
+> escalera.
 
 ## Las tres preguntas obligatorias
 

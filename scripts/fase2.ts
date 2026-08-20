@@ -43,7 +43,16 @@ function envVar(name: string): string | undefined {
     return undefined;
   }
 }
-for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
+// `getDb()` (que usa `catalogoDe`) valida el entorno ENTERO al primer uso, no
+// solo lo que este script toca: sin las dos últimas se muere con "Variables de
+// entorno inválidas" aunque solo vaya a leer un catálogo y cambiar una bandera.
+for (const n of [
+  "DATABASE_URL",
+  "ENCRYPTION_KEY",
+  "BETTER_AUTH_SECRET",
+  "APP_BASE_URL",
+  "META_WEBHOOK_VERIFY_TOKEN",
+]) {
   const v = envVar(n);
   if (v && !process.env[n]) process.env[n] = v;
 }

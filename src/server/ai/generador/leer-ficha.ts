@@ -184,22 +184,37 @@ export function fusionarFicha(
 }
 
 /**
- * Serializa la ficha **en el mismo formato en que estaba guardada**.
+ * Serializa la ficha **en el mismo formato en que estaba guardada**… salvo
+ * cuando no estaba guardada de ninguna forma.
  *
  * Un cliente convertido sigue convertido; uno plano sigue plano. Rellenar un
  * formulario no puede cambiarle el formato de los datos a nadie.
+ *
+ * **Pero una ficha NUEVA no tiene formato que respetar, y nacía en el viejo**
+ * (auditoría del 20-ago-2026). `aplicarFicha` es el único camino que crea
+ * fichas —el alta y `/admin` pasan por él—, así que cada negocio que entraba a
+ * la plataforma nacía plano, y solo se convertía si alguien corría
+ * `convertir:ficha` a mano. Con tres clientes se nota poco; con mil, el
+ * formato por secciones no llega prácticamente a nadie y ponerse al día deja
+ * de ser un valor por defecto para convertirse en una migración masiva.
+ *
+ * No es una conversión silenciosa: **no hay nada que convertir**. Lo ya
+ * guardado sigue intocable, y eso incluye una ficha ilegible — si el JSON no
+ * se entiende tampoco se sabe qué formato tenía, así que se respeta el
+ * comportamiento de siempre en vez de decidir por él.
  */
 export function serializarComoEstaba(
   guardadaCruda: string | null | undefined,
   ficha: FichaDelNegocio
 ): string {
+  // Nada guardado = ficha nueva: nace en el formato de hoy.
+  if (!guardadaCruda?.trim()) return JSON.stringify(aSecciones(ficha));
+
   let eraPorSecciones = false;
-  if (guardadaCruda?.trim()) {
-    try {
-      eraPorSecciones = esPorSecciones(JSON.parse(guardadaCruda));
-    } catch {
-      eraPorSecciones = false;
-    }
+  try {
+    eraPorSecciones = esPorSecciones(JSON.parse(guardadaCruda));
+  } catch {
+    eraPorSecciones = false;
   }
   return JSON.stringify(eraPorSecciones ? aSecciones(ficha) : ficha);
 }

@@ -143,8 +143,11 @@ export function leerCatalogoDeTexto(
     const linea = cruda.trim();
     if (!linea) continue;
 
-    // Cabecera de categoría: *CREMOSOS*, **CREMOSOS**, CREMOSOS:
-    const cat = linea.match(/^\*{1,2}\s*([^*]+?)\s*\*{1,2}$/) ?? linea.match(/^([A-ZÁÉÍÓÚÑ\s]{3,}):$/);
+    // Cabecera de categoría: *CREMOSOS*, **CREMOSOS**, CREMOSOS:, 🥤 *CREMOSOS*
+    // (el emoji delante es habitual — no debe impedir reconocer la cabecera).
+    const cat =
+      linea.match(/^[^\p{L}\d*]*\*{1,2}\s*([^*]+?)\s*\*{1,2}$/u) ??
+      linea.match(/^([A-ZÁÉÍÓÚÑ\s]{3,}):$/);
     if (cat && !/\d/.test(linea)) {
       categoriaActual = cat[1]!.trim();
       continue;
@@ -167,12 +170,20 @@ export function leerCatalogoDeTexto(
       continue;
     }
 
-    const precioCents = precioACents(linea);
-    // El nombre es lo que va antes del guion largo o del precio.
-    const nombre = linea
-      .split(/—|--|\s-\s|\$/)[0]!
+    // El nombre es lo que va antes del guion largo o del precio; el precio se
+    // busca SOLO después de ese punto de corte, nunca en el nombre.
+    //
+    // Antes se buscaba el precio en la línea entera, y el primer número que
+    // apareciera ganaba — en "Cremoso 7 oz — $12.000" ese número era el "7"
+    // de la onzada, no el precio real. Cortar primero y buscar después evita
+    // que cualquier tamaño, talla o cantidad en el nombre del producto se
+    // confunda con su precio.
+    const partes = linea.split(/—|--|\s-\s|\$/);
+    const nombre = partes[0]!
       .replace(/^[^\p{L}\d]+/u, "") // emojis y viñetas del principio
       .trim();
+    const restoParaPrecio = linea.slice(partes[0]!.length);
+    const precioCents = precioACents(restoParaPrecio || linea);
 
     if (!nombre) {
       sinInterpretar.push(linea);

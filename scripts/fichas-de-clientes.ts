@@ -250,19 +250,26 @@ const SALON: FichaDelNegocio = {
  * incidentes ha pagado — casi todas las lecciones de `conducta.ts` salieron de
  * sus conversaciones.
  *
- * ⚠️ Su horario estaba SOLO en el conocimiento ("de 10 am a 8 pm, domingos no
- * abrimos") y no en su configuración: `hours_open`, `hours_close` y
- * `hours_days` estaban vacíos. Con eso, el sistema no podía calcular si estaba
- * abierta, así que todo el bloque de "¿está abierto el negocio?" de su prompt
- * no se activaba nunca. Al guardar la ficha, el horario queda donde el motor
- * puede leerlo.
+ * ⚠️ Este comentario decía que su horario estaba SOLO en el conocimiento
+ * ("de 10 am a 8 pm, domingos no abrimos") y que `hours_open`/`hours_close`/
+ * `hours_days` estaban vacíos. Verificado en la base el 19-ago-2026: ya NO es
+ * así — están cargados (10:00-20:00 lunes a sábado) y además con domingo
+ * reducido (`hours_open_sunday`/`hours_close_sunday` = 14:00-19:00), algo que
+ * "domingos no abrimos" no contemplaba. `horario` de abajo ya refleja el
+ * domingo real; si vuelve a haber duda, la base manda sobre este comentario.
  */
 const LIS: FichaDelNegocio = {
   nombre: "Lis Pastelería",
   queVende:
     "Vendes cremosos, polvorosos y tortas artesanales. Tu trabajo es cerrar pedidos hablando poquito, dulce y sin trabarte.",
   ubicacion: "Cali, barrio Santo Domingo — Carrera 47 #13b-03, local 2",
-  horario: { abre: "10:00", cierra: "20:00", dias: [1, 2, 3, 4, 5, 6] },
+  horario: {
+    abre: "10:00",
+    cierra: "20:00",
+    dias: [1, 2, 3, 4, 5, 6],
+    abreDomingo: "14:00",
+    cierraDomingo: "19:00",
+  },
   vertical: "pedidos",
 
   catalogo: [
@@ -276,18 +283,33 @@ const LIS: FichaDelNegocio = {
     "• Polvoroso 12 oz — $19.000 (2 capas de bizcocho + 2 de cremoso + 2 de galletas Ducales + 2 de leche Klim)",
     "• Polvoroso 16 oz — $23.000 (3 de cada una)",
     "",
-    "🍰 *PORCIONES DE TORTA* — $12.500 cada una: Zanahoria (nueces y frosting de queso crema) · Red Velvet (rellena y cubierta de frosting de queso) · Chocolate (rellena y cubierta de arequipe)",
+    "🍰 *PORCIONES DE TORTA*",
+    "• Porción Zanahoria — $12.500 (nueces y frosting de queso crema)",
+    "• Porción Red Velvet — $12.500 (rellena y cubierta de frosting de queso)",
+    "• Porción Chocolate — $12.500 (rellena y cubierta de arequipe)",
     "",
     "🎁 *PARA COMPARTIR*",
     "• Cremoso Familiar 44 oz — $60.000 (2 capas + 2 de cremoso + 2 toppings)",
     "• Mini Box — $40.000 (6 cremosos de 4 oz, eliges 6 toppings)",
     "",
-    "💧 *BEBIDAS*: Agua $3.000 · Sodas $15.000 · Café $4.000 · Capuchino $6.000",
+    "💧 *BEBIDAS*",
+    "• Agua — $3.000",
+    "• Sodas — $15.000",
+    "• Café — $4.000",
+    "• Capuchino — $6.000",
   ].join("\n"),
 
+  // Formato "por producto" (el mismo que usa La Churra de verdad, ver
+  // `scripts/corregir-ficha-churra.ts`): cada tamaño declara CUÁNTOS toppings
+  // lleva, no una frase suelta que el lector de catálogo no puede repartir
+  // por producto. El Cremoso de Temporada, los Polvorosos y las porciones de
+  // torta no aparecen aquí a propósito: no llevan elección de topping.
   variantes: [
-    "TOPPINGS (siempre en MAYÚSCULAS): 🍫 MILO · 🍪 OREO · 🍯 AREQUIPE · 🍓 FRESA · 🍍 PIÑA · 🥭 MANGO · 🍫 CHOCOLATE SEMIAMARGO · 🍋 LIMÓN · 💚 LULO · 🫐 MORA · 🧡 MARACUYÁ.",
-    "Cuántos lleva cada producto: Cremoso 7 oz = 1 · Cremoso 12 oz = 2 · Cremoso 16 oz = 3 · Cremoso Familiar 44 oz = 2 · Mini Box = 6. El Cremoso de Temporada, los Polvorosos y las porciones de torta NO llevan elección de topping: no se los preguntes.",
+    "Cremoso 7 oz — $12.000-1 topping a eleccion entre MILO,OREO,AREQUIPE,FRESA,PIÑA,MANGO,CHOCOLATE SEMIAMARGO,LIMÓN,LULO,MORA,MARACUYÁ",
+    "Cremoso 12 oz — $18.000-2 topping a eleccion entre MILO,OREO,AREQUIPE,FRESA,PIÑA,MANGO,CHOCOLATE SEMIAMARGO,LIMÓN,LULO,MORA,MARACUYÁ",
+    "Cremoso 16 oz — $22.000-3 topping a eleccion entre MILO,OREO,AREQUIPE,FRESA,PIÑA,MANGO,CHOCOLATE SEMIAMARGO,LIMÓN,LULO,MORA,MARACUYÁ",
+    "Cremoso Familiar 44 oz — $60.000-2 topping a eleccion entre MILO,OREO,AREQUIPE,FRESA,PIÑA,MANGO,CHOCOLATE SEMIAMARGO,LIMÓN,LULO,MORA,MARACUYÁ",
+    "Mini Box — $40.000-6 topping a eleccion entre MILO,OREO,AREQUIPE,FRESA,PIÑA,MANGO,CHOCOLATE SEMIAMARGO,LIMÓN,LULO,MORA,MARACUYÁ",
   ].join("\n"),
 
   entrega: {
@@ -394,23 +416,32 @@ const LIS: FichaDelNegocio = {
 };
 
 /*
- * ⚠️ Lis va con `pausado: true` A PROPÓSITO.
+ * ⚠️ Lis se aplicó de verdad el 19-ago-2026 — ya NO está pausada.
  *
- * Su ficha está escrita y probada, pero su Laboratorio quedó entre 83 y 75
- * frente a los 92 de su prompt de siempre, y eso no alcanza para tocarle el
- * prompt al cliente que más factura ([54](../docs/korexia/54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md)).
+ * El "83 y 75 frente a los 92 de siempre" que la mantuvo pausada semanas
+ * (citado en [54](../docs/korexia/54-UN-ARREGLO-PARA-TODA-LA-FLOTA.md)) resultó
+ * no ser comparable: medido el 19-ago, en las mismas condiciones para los dos,
+ * el prompt MANUAL sacó 75 — igual que el generado, no 92. El "92" era de otra
+ * versión del juez/código, semanas atrás. Ver `docs/korexia/93-PENDIENTES-17AGO.md`
+ * y siguientes para el detalle de esa medición.
  *
- * El flag existe porque ya pasó: corriendo este script para arreglar el
- * ESCALADO DEL SALÓN se le reescribió a Lis el prompt de paso, sin querer. Un
- * script que toca a todos los clientes a la vez necesita una forma de decir
- * "este no".
+ * Además, al aplicar se encontraron y corrigieron: el domingo (14:00-19:00,
+ * la ficha decía "domingos no abrimos"), y el catálogo — `catalogo`/`variantes`
+ * de más abajo estaban en un formato que el lector de `catalog/sembrar.ts` leía
+ * mal (precios confundidos con la onzada del producto, bebidas y porciones de
+ * torta colapsadas en una sola línea, toppings sin cantidad por tamaño). Dos de
+ * esos —el precio y las cabeceras con emoji— eran bugs genéricos del parser, ya
+ * corregidos ahí; los otros dos se resolvieron reescribiendo el catálogo aquí,
+ * con el mismo formato "por producto" que ya usa La Churra.
  *
- * Para aplicarle la suya cuando esté lista: `--incluir-pausados`.
+ * El flag `pausado` sigue existiendo para el próximo caso: un script que toca
+ * a todos los clientes a la vez necesita una forma de decir "este no" mientras
+ * algo está a medio terminar.
  */
 CLIENTES.push(
   { organizationId: "org_lo5gdlt6k43z9fg1ling", ficha: CHURRA },
   { organizationId: "org_novxv78s08h12arzatr2", ficha: SALON },
-  { organizationId: "org_lispasteleria0001", ficha: LIS, pausado: true }
+  { organizationId: "org_lispasteleria0001", ficha: LIS }
 );
 
 const aplicar = process.argv.includes("--aplicar");
@@ -507,8 +538,7 @@ for (const g of generados) {
     const [f] = await db
       .select()
       .from(schema.agentProfile)
-        }).where(eq(schema.agentProfile.organizationId, g.organizationId))
-  );
+      .where(eq(schema.agentProfile.organizationId, g.organizationId));
     return (f as unknown as Fila) ?? null;
   };
   await conRegistro(
@@ -529,7 +559,8 @@ for (const g of generados) {
       ficha: serializarComoEstaba(fila?.ficha ?? null, ficha),
       updatedAt: new Date(),
     })
-    .where(eq(schema.agentProfile.organizationId, g.organizationId));
+      .where(eq(schema.agentProfile.organizationId, g.organizationId))
+  );
   console.log(
     `[fichas] ${ficha.nombre}: flujo y políticas guardados` +
       (conservadas.length ? ` · se conservó: ${conservadas.join(", ")}` : " · ficha sembrada entera")

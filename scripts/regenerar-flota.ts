@@ -121,8 +121,7 @@ for (const p of perfiles) {
     const [f] = await db
       .select()
       .from(schema.agentProfile)
-        }).where(eq(schema.agentProfile.organizationId, p.organizationId))
-  );
+      .where(eq(schema.agentProfile.organizationId, p.organizationId));
     return (f as unknown as Fila) ?? null;
   };
   await conRegistro(
@@ -142,7 +141,8 @@ for (const p of perfiles) {
       greeting: perfil.greeting,
       updatedAt: new Date(),
     })
-    .where(eq(schema.agentProfile.organizationId, p.organizationId));
+      .where(eq(schema.agentProfile.organizationId, p.organizationId))
+  );
 }
 
 const sinFicha = todos.filter((t) => !t.ficha).map((t) => t.nombre);

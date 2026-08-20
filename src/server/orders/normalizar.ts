@@ -164,6 +164,41 @@ export type Resultado = {
 };
 
 /** Sin tildes, sin mayúsculas y sin plural: comparar nombres, no ortografías. */
+/**
+ * Resuelve la modalidad que propuso el modelo contra las que el negocio OFRECE.
+ *
+ * El modelo propone; **esta función decide**. Devuelve siempre uno de los ids
+ * que vinieron en `ofrecidas` o `null` — nunca inventa una modalidad, ni deja
+ * pasar texto libre a la base. Un negocio sin modalidades declaradas devuelve
+ * `null` siempre, y entonces la modalidad no participa en nada.
+ *
+ * La tolerancia es mecánica, no un diccionario de sinónimos: se comparan las
+ * dos partes ya normalizadas (sin tildes, sin mayúsculas, sin plural) y se
+ * acepta que la propuesta CONTENGA el id — así "recogida en el local" resuelve
+ * a "recogida" sin que este archivo aprenda vocabulario de ningún negocio.
+ * Meter aquí una lista de sinónimos sería el conocimiento del negocio volviendo
+ * al núcleo por la puerta de atrás.
+ */
+export function normalizarModalidad(
+  propuesta: string | null | undefined,
+  ofrecidas: readonly string[]
+): string | null {
+  if (!propuesta?.trim() || ofrecidas.length === 0) return null;
+  const dicho = llave(propuesta);
+  if (!dicho) return null;
+  for (const id of ofrecidas) {
+    const canonica = llave(id);
+    if (dicho === canonica) return id;
+  }
+  // Segunda pasada, para que "recogida en el local" resuelva a "recogida".
+  // Va aparte para que una coincidencia EXACTA siempre gane a una parcial.
+  for (const id of ofrecidas) {
+    const canonica = llave(id);
+    if (canonica && dicho.split(" ").includes(canonica)) return id;
+  }
+  return null;
+}
+
 function llave(s: string): string {
   return s
     .toLowerCase()

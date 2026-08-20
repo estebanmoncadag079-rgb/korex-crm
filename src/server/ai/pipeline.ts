@@ -66,6 +66,7 @@ import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import {
   pagoAntesDeLaCitaDe,
+  modalidadesDeEntrega,
   requisitosDe,
   type FichaDelNegocio,
   type Requisito,
@@ -617,9 +618,18 @@ export async function runAgentTurn(
    * memoria, sin ir a la base— así que calcularla siempre no cuesta nada.
    */
   const fichaDelNegocio = leerFicha(profile.ficha);
-  const requisitos: Requisito[] | undefined = fichaDelNegocio
+  /**
+   * Se recalcula más abajo con la modalidad del pedido, en cuanto se lee el
+   * estado. Aquí se resuelve solo con la ficha, que es lo correcto mientras no
+   * se sepa nada del pedido — y lo único posible con la Fase 2 apagada.
+   */
+  let requisitos: Requisito[] | undefined = fichaDelNegocio
     ? requisitosDe(fichaDelNegocio as FichaDelNegocio)
     : undefined;
+  /** Lo que este negocio OFRECE. La elección del cliente vive en el estado. */
+  const modalidadesOfrecidas = fichaDelNegocio
+    ? modalidadesDeEntrega(fichaDelNegocio as FichaDelNegocio)
+    : [];
   /**
    * Igual que `requisitos`: se calcula siempre que haya ficha, sin depender
    * de la Fase 2. Solo se usa si el vertical es citas — en pedidos el pago
@@ -646,6 +656,20 @@ export async function runAgentTurn(
         await borrarEstado(conversation.id, { actor: "pipeline", proceso: "reinicio" });
       }
       estadoGuardado = await leerEstado(conversation.id);
+      /*
+       * Ahora sí se sabe cómo quiere recibirlo el cliente, así que los
+       * requisitos se resuelven con las DOS mitades: lo que el negocio ofrece
+       * (ficha) y lo que este pedido eligió (estado).
+       *
+       * Se recalcula aquí, en el mismo productor, y no en los consumidores: la
+       * lista que les llega cambia de contenido, nunca de forma — ninguno sabe
+       * que la modalidad existe.
+       */
+      if (fichaDelNegocio) {
+        requisitos = requisitosDe(fichaDelNegocio as FichaDelNegocio, {
+          modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega ?? null,
+        });
+      }
       /*
        * El catálogo ENTERO, con sus grupos: quien decide qué falta es el
        * catálogo del negocio, no una línea escrita aquí. Antes esto calculaba
@@ -697,7 +721,7 @@ export async function runAgentTurn(
   // propuesta, no sobre el turno entero. Con el estado apagado no se mide nada.
   const t0 = estadoEstructurado ? Date.now() : 0;
   const conEstado = estadoEstructurado
-    ? await chatJsonConEstado(messages, requisitos ?? [], vertical)
+    ? await chatJsonConEstado(messages, requisitos ?? [], vertical, modalidadesOfrecidas)
     : null;
   const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
@@ -718,6 +742,7 @@ export async function runAgentTurn(
       msModelo,
       requisitos,
       vertical,
+      modalidadesOfrecidas,
     });
   }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
@@ -2045,6 +2070,8 @@ async function guardarEstadoPropuesto(entrada: {
   msModelo?: number;
   requisitos?: Requisito[];
   vertical: Vertical;
+  /** Contra qué se resuelve la modalidad que proponga el modelo. */
+  modalidadesOfrecidas: readonly string[];
 }): Promise<void> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
@@ -2073,7 +2100,13 @@ async function guardarEstadoPropuesto(entrada: {
 
   try {
     const productos = await catalogoDe(entrada.organizationId, entrada.vertical);
-    const v = validarPropuesta(entrada.propuesta, productos, undefined, entrada.requisitos);
+    const v = validarPropuesta(
+      entrada.propuesta,
+      productos,
+      undefined,
+      entrada.requisitos,
+      entrada.modalidadesOfrecidas
+    );
     if (!v.ok) {
       metrica("rechazado", { validacion: v });
       return;
@@ -2100,7 +2133,11 @@ async function guardarEstadoPropuesto(entrada: {
  * en el vertical de citas. Ni un nombre de cliente ni de producto aquí — la
  * forma es del núcleo, el contenido lo pone el catálogo de cada uno.
  */
-function esquemaDelEstado(requisitos: Requisito[], vertical: Vertical): unknown {
+function esquemaDelEstado(
+  requisitos: Requisito[],
+  vertical: Vertical,
+  modalidadesOfrecidas: readonly string[] = []
+): unknown {
   const propiedades: Record<string, unknown> = {
     items: {
       type: "array",
@@ -2143,6 +2180,24 @@ function esquemaDelEstado(requisitos: Requisito[], vertical: Vertical): unknown 
     paso: { type: ["string", "number", "null"] },
     confirmado: { type: ["boolean", "null"] },
   };
+  /*
+   * Solo se declara si el negocio ofrece MÁS DE UNA: con una sola no hay nada
+   * que elegir, y pedírsela al modelo sería invitarle a inventar una decisión
+   * que el cliente nunca tomó.
+   *
+   * Va con `enum` a propósito, y no contradice la regla 4 (nada de enums
+   * cerrados): los valores no están escritos en el núcleo, salen de la ficha
+   * de cada negocio. Lo que se cierra es lo que puede DECIR el modelo sobre
+   * una decisión que ya tiene opciones conocidas — y aun así el backend lo
+   * vuelve a resolver contra la ficha antes de creérselo.
+   */
+  if (modalidadesOfrecidas.length > 1) {
+    propiedades.modalidadDeEntrega = {
+      type: ["string", "null"],
+      enum: [...modalidadesOfrecidas, null],
+      description: "Cómo eligió el cliente recibir ESTE pedido. null si aún no lo ha dicho.",
+    };
+  }
   if (contrataCitas(vertical)) {
     propiedades.reserva = {
       type: ["object", "null"],
@@ -2180,7 +2235,9 @@ function sinNulos(objeto: Record<string, unknown>): Record<string, unknown> {
 async function chatJsonConEstado(
   messages: ChatMessage[],
   requisitos: Requisito[] = [],
-  vertical: Vertical = "pedidos"
+  vertical: Vertical = "pedidos",
+  /** Las que ofrece ESTE negocio; salen de su ficha, no de una lista del núcleo. */
+  modalidadesOfrecidas: readonly string[] = []
 ): Promise<{ resultado: ChatJsonResult<AgentActionType>; propuesta?: PropuestaDelModelo }> {
   const EsquemaConEstado = z
     .object({ estado: z.record(z.string(), z.unknown()).optional() })
@@ -2231,6 +2288,12 @@ async function chatJsonConEstado(
         'y en el orden en que las dijo: si pide dos veces lo mismo, van DOS entradas. ' +
         '"grupo" es el título bajo el que aparece esa opción en el catálogo: ' +
         "ponlo siempre que puedas, porque el mismo nombre puede estar en dos grupos con precios distintos. " +
+        (modalidadesOfrecidas.length > 1
+          ? `Añade también "modalidadDeEntrega" con CÓMO dijo el cliente que quiere recibirlo, ` +
+            `usando exactamente uno de estos valores: ${modalidadesOfrecidas.join(", ")}. ` +
+            "Es la elección del cliente para ESTE pedido, no lo que el negocio ofrece. " +
+            "Si todavía no lo ha dicho, va en null — no lo deduzcas ni lo des por supuesto. "
+          : "") +
         "Lo que el cliente aún no haya dicho va en null (o lista vacía). No inventes nada.",
     },
       ...messages.slice(1),
@@ -2238,7 +2301,11 @@ async function chatJsonConEstado(
     // Sin esto el modelo IGNORA la instrucción de arriba: medido el 19-ago-2026
     // sobre `gemini-2.5-flash`, 0 de 3 con el prompt pidiéndolo (incluso con un
     // prompt de tres líneas) contra 3 de 3 con el esquema exigido al proveedor.
-    { jsonSchema: formatoDeRespuestaConEstado(esquemaDelEstado(requisitos, vertical)) }
+    {
+      jsonSchema: formatoDeRespuestaConEstado(
+        esquemaDelEstado(requisitos, vertical, modalidadesOfrecidas)
+      ),
+    }
   );
 
   if (!bruto.ok) return { resultado: bruto as ChatJsonResult<AgentActionType> };

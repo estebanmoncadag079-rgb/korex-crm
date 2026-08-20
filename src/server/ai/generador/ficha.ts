@@ -51,7 +51,54 @@ export type Requisito = {
    * Ej.: `"entrega.haceDomicilios"`.
    */
   soloSi?: string;
+  /**
+   * Solo hace falta si el cliente eligió una de ESTAS modalidades **para este
+   * pedido**.
+   *
+   * ⚠️ No confundir con `soloSi`, que mira la ficha. Son dos preguntas
+   * distintas, y las dos hacen falta:
+   *
+   *   `soloSi`             → ¿este negocio podría necesitarlo alguna vez?  (ficha)
+   *   `soloEnModalidades`  → ¿lo necesita ESTE pedido?                    (estado)
+   *
+   * Nació de un caso real (20-ago-2026): la dirección se exigía con
+   * `soloSi: "entrega.haceDomicilios"` —cierto, el negocio reparte— y por eso
+   * se le pedía también a quien pasaba a recoger. El modelo, obligado a
+   * rellenar un campo sin valor válido, escribió `"Recoge en el local"`
+   * DENTRO del campo dirección. La ficha no estaba mal: le faltaba la otra
+   * mitad de la condición.
+   *
+   * Sin declarar = el requisito no depende de la modalidad, que es el caso
+   * normal (el nombre y el celular hacen falta siempre).
+   *
+   * Los valores se comparan contra las modalidades que la ficha OFRECE
+   * (`modalidadesDeEntrega`), nunca contra una lista escrita en el núcleo.
+   */
+  soloEnModalidades?: readonly string[];
 };
+
+/**
+ * Las modalidades de entrega que este negocio OFRECE, derivadas de su ficha.
+ *
+ * **Es el único sitio del núcleo que conoce nombres de modalidad**, y es a
+ * propósito: son los ids canónicos contra los que se normaliza lo que proponga
+ * el modelo y contra los que se comparan los `soloEnModalidades` de un
+ * requisito. Una tercera modalidad mañana es un campo en la ficha y una línea
+ * aquí — en un solo lugar, no repartida por el código.
+ *
+ * Un negocio que no declare ninguna devuelve lista vacía, y entonces la
+ * modalidad no participa en decidir requisitos: se comporta igual que antes de
+ * que esto existiera.
+ */
+export const MODALIDAD_DOMICILIO = "domicilio";
+export const MODALIDAD_RECOGIDA = "recogida";
+
+export function modalidadesDeEntrega(ficha: FichaDelNegocio): string[] {
+  const ofrecidas: string[] = [];
+  if (ficha.entrega?.haceDomicilios) ofrecidas.push(MODALIDAD_DOMICILIO);
+  if (ficha.entrega?.recogerEnLocal?.trim()) ofrecidas.push(MODALIDAD_RECOGIDA);
+  return ofrecidas;
+}
 
 /** Cómo entrega el negocio lo que vende. */
 export type Entrega = {
@@ -290,10 +337,23 @@ export function faltantesDeLaFicha(ficha: Partial<FichaDelNegocio>): string[] {
  * > clientes de agosto fueron una excepción de compatibilidad, no una regla — y
  * > se resolvió migrándolos, no programándolos.
  */
-export function requisitosDe(ficha: FichaDelNegocio): Requisito[] | undefined {
+export function requisitosDe(
+  ficha: FichaDelNegocio,
+  /**
+   * Lo que se sabe del pedido EN CURSO. `undefined` = todavía no se sabe nada
+   * (o este cliente no lleva el estado en el backend), y entonces se resuelve
+   * solo con la ficha, exactamente como antes de que la modalidad existiera.
+   *
+   * Va aquí, en el productor, para que los cinco consumidores sigan recibiendo
+   * el mismo concepto —"lo que falta para cerrar"— sin saber que la modalidad
+   * existe. Duplicar esta decisión en cada uno es cómo se pierde una
+   * arquitectura.
+   */
+  pedido?: { modalidadDeEntrega?: string | null }
+): Requisito[] | undefined {
   const declarados = ficha.cierre?.requisitos;
   if (!declarados) return undefined;
-  return declarados.filter((r) => aplica(r, ficha));
+  return declarados.filter((r) => aplica(r, ficha, pedido?.modalidadDeEntrega ?? null));
 }
 
 /**
@@ -349,17 +409,51 @@ export function requisitosSugeridos(ficha: FichaDelNegocio): Requisito[] {
         tipo: "direccion",
         etiqueta: "la dirección de entrega",
         obligatorio: true,
+        // Las DOS condiciones: que el negocio reparta (ficha) y que ESTE
+        // pedido sea a domicilio (estado). Con solo la primera se le pedía la
+        // dirección a quien pasaba a recoger — ver `soloEnModalidades`.
         soloSi: "entrega.haceDomicilios",
+        soloEnModalidades: [MODALIDAD_DOMICILIO],
       }
     );
   }
-  return sugeridos.filter((r) => aplica(r, ficha));
+  // Sin modalidad: aquí no hay pedido todavía, solo se propone qué declarar.
+  // Un requisito condicionado a la modalidad SÍ debe proponerse, con su
+  // condición dentro — quien la evalúa después es el pedido, no esta función.
+  return sugeridos.filter((r) => aplica(r, ficha, null));
 }
 
-function aplica(requisito: Requisito, ficha: FichaDelNegocio): boolean {
-  if (!requisito.soloSi) return true;
-  const valor = requisito.soloSi
-    .split(".")
-    .reduce<unknown>((obj, clave) => (obj as Record<string, unknown>)?.[clave], ficha);
-  return Boolean(valor);
+function aplica(
+  requisito: Requisito,
+  ficha: FichaDelNegocio,
+  modalidadElegida: string | null
+): boolean {
+  // 1) ¿Este negocio podría necesitarlo alguna vez? — lo dice la ficha.
+  if (requisito.soloSi) {
+    const valor = requisito.soloSi
+      .split(".")
+      .reduce<unknown>((obj, clave) => (obj as Record<string, unknown>)?.[clave], ficha);
+    if (!valor) return false;
+  }
+
+  // 2) ¿Lo necesita ESTE pedido? — lo dice la modalidad elegida.
+  if (!requisito.soloEnModalidades?.length) return true;
+
+  /*
+   * Modalidad todavía sin saber → **se exige, como antes de que esto
+   * existiera**.
+   *
+   * Es deliberadamente conservador, y la alternativa era peor: si al no saber
+   * la modalidad se dejara de pedir la dirección, bastaría con que el modelo
+   * propusiera una modalidad que el negocio NO ofrece —normalizada a `null`—
+   * para que un pedido a domicilio se cerrara sin dirección. Una propuesta
+   * inválida no puede quitar requisitos.
+   *
+   * "No se sabe" no es "no hace falta": solo se relaja cuando hay una
+   * modalidad REAL, ya normalizada contra lo que la ficha ofrece, y esa
+   * modalidad no está en la lista.
+   */
+  if (!modalidadElegida) return true;
+
+  return requisito.soloEnModalidades.includes(modalidadElegida);
 }

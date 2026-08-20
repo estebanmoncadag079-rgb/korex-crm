@@ -20,6 +20,7 @@ import * as schema from "@/lib/db/schema";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
 import {
+  normalizarModalidad,
   normalizarPedido,
   type EstadoPropuesto,
   type ItemPropuesto,
@@ -116,6 +117,25 @@ export type EstadoDelPedido = {
    * producto que no dura.
    */
   reserva?: ReservaDeCita | null;
+  /**
+   * Cómo recibirá el cliente ESTE pedido, ya resuelto contra lo que la ficha
+   * ofrece (`modalidadesDeEntrega`). `null`/ausente = todavía no se sabe.
+   *
+   * Es la mitad que les faltaba a los requisitos condicionales: la ficha dice
+   * qué modalidades OFRECE el negocio; esto, cuál ELIGIÓ el cliente. Sin este
+   * dato la dirección se pedía en todos los pedidos de un negocio que
+   * repartiera —también a quien pasaba a recoger—, y el modelo acababa
+   * escribiendo `"Recoge en el local"` dentro del campo dirección
+   * (20-ago-2026).
+   *
+   * **Opcional a propósito, y por eso `SCHEMA_VERSION` NO sube**: un estado
+   * escrito antes de que esto existiera se sigue leyendo igual, con la
+   * modalidad sin saber. Subirla habría hecho que un contenedor todavía sin
+   * desplegar DESCARTE los pedidos en curso (ver `leerEstado`) — un precio
+   * real a cambio de nada, porque un lector viejo simplemente ignora una clave
+   * que no conoce.
+   */
+  modalidadDeEntrega?: string | null;
   /** Lo calcula el servidor. NUNCA el número que diga el modelo. */
   totalCents: number | null;
   /** Texto libre: el modelo devuelve etiquetas que ningún enum previó. */
@@ -130,6 +150,7 @@ export function estadoVacio(): EstadoDelPedido {
     items: [],
     datos: {},
     reserva: null,
+    modalidadDeEntrega: null,
     totalCents: null,
     paso: "sin pedido",
     confirmado: false,
@@ -168,6 +189,13 @@ export type PropuestaDelModelo = Omit<EstadoPropuesto, "items"> & {
     hora?: string | null;
     especialista?: string | null;
   } | null;
+  /**
+   * Cómo dijo el cliente que quiere recibir el pedido — **texto libre**, tal
+   * como lo entendió el modelo. Aquí no es verdad todavía: `validarPropuesta`
+   * lo resuelve contra las modalidades que la ficha ofrece y, si no encaja con
+   * ninguna, queda en `null`. El modelo propone; el backend decide.
+   */
+  modalidadDeEntrega?: string | null;
 };
 
 /**
@@ -220,7 +248,14 @@ export function validarPropuesta(
    * `undefined` = **no lo ha declarado**, que no es lo mismo que no necesitar
    * nada: se rechaza la confirmación en vez de darla por buena.
    */
-  requisitos?: Requisito[]
+  requisitos?: Requisito[],
+  /**
+   * Las modalidades de entrega que este negocio OFRECE (`modalidadesDeEntrega`
+   * de su ficha). Sin ellas no hay contra qué resolver lo que proponga el
+   * modelo, así que la modalidad queda sin saber — que es como se comportaba
+   * todo antes de que existiera.
+   */
+  modalidadesOfrecidas: readonly string[] = []
 ): Validacion {
   const rechazos: string[] = [];
 
@@ -279,6 +314,12 @@ export function validarPropuesta(
     })),
     datos: propuesta.datos ?? {},
     reserva,
+    /*
+     * El modelo PROPONE la modalidad; aquí se resuelve contra lo que el
+     * negocio ofrece de verdad. Una modalidad que no ofrece queda en `null`
+     * —"no se sabe"— y nunca se convierte en verdad por haberla escrito.
+     */
+    modalidadDeEntrega: normalizarModalidad(propuesta.modalidadDeEntrega, modalidadesOfrecidas),
     totalCents: r.estado.totalCents,
     // `paso` llega como número cuando el prompt del negocio numera sus mensajes.
     paso: String(propuesta.paso ?? "sin pedido"),

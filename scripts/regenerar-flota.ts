@@ -12,14 +12,16 @@
  * rehacer sin volver a escribir nada.
  *
  * Uso:
- *   pnpm regenerar:flota              → enseña qué cambiaría, NO escribe
- *   pnpm regenerar:flota --aplicar    → escribe, con respaldo previo
+ *   pnpm regenerar:flota                        → enseña qué cambiaría, NO escribe
+ *   pnpm regenerar:flota --aplicar              → escribe, con respaldo previo
+ *   pnpm regenerar:flota <organizationId>       → solo ESE cliente
+ *   pnpm regenerar:flota <organizationId> --aplicar
  *
  * Los clientes sin ficha (prompts escritos a mano, sin migrar) se saltan y se
  * listan al final: no se les toca a ciegas.
  */
 import { readFileSync } from "node:fs";
-import { eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
@@ -47,6 +49,22 @@ for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
 }
 
 const aplicar = process.argv.includes("--aplicar");
+/**
+ * Un `organizationId` suelto acota la regeneración a ESE cliente.
+ *
+ * Sin el filtro, regenerar era todo o nada — y como cada mejora de
+ * `conducta.ts` deja a los prompts guardados por detrás, «todo» significa
+ * empujar lecciones nuevas a varios negocios vivos a la vez. El 20-ago-2026
+ * hizo falta arreglar la deriva de UN cliente (llevaba el catálogo duplicado
+ * en el prompt) sin tocar a los otros dos, que tenían su propia deriva
+ * pendiente de decisión.
+ *
+ * Es el mismo argumento que ya aceptan `migrar:catalogo`, `migrar:requisitos`,
+ * `convertir:ficha` y `fase2`: en una plataforma con muchos negocios, «a
+ * todos» tiene que ser una elección, no el único modo.
+ */
+const soloEsteCliente = process.argv.slice(2).find((a) => !a.startsWith("--"));
+
 const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(sql, { schema });
 
@@ -65,7 +83,22 @@ const perfiles = await db
     schema.organization,
     eq(schema.organization.id, schema.agentProfile.organizationId)
   )
-  .where(isNotNull(schema.agentProfile.ficha));
+  .where(
+    soloEsteCliente
+      ? and(
+          isNotNull(schema.agentProfile.ficha),
+          eq(schema.agentProfile.organizationId, soloEsteCliente)
+        )
+      : isNotNull(schema.agentProfile.ficha)
+  );
+
+if (soloEsteCliente && perfiles.length === 0) {
+  console.error(
+    `[regenerar] ⛔ ${soloEsteCliente} no existe o no tiene ficha guardada: no hay nada que recompilar.`
+  );
+  await sql.end();
+  process.exit(1);
+}
 
 const todos = await db
   .select({

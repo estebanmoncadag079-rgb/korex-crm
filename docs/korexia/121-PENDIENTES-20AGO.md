@@ -31,6 +31,30 @@ llevando el estado de conversaciones reales.
 
 ---
 
+## 🔴 VIVO AHORA MISMO: el agente inventa el sabor de temporada
+
+**Diagnosticado a fondo, sin arreglar** ([123](123-EL-SABOR-QUE-NADIE-LEYO.md)).
+Si un cliente pregunta hoy por los cremosos de Lis, **vuelve a inventar un
+sabor**.
+
+`Cremoso de Temporada` está en `product` **sin descripción**, y el sabor real
+(`Arrechon`) vive en `ficha.negocio.catalogo` — el campo que el dueño edita en el
+cuestionario y que **para un cliente en Fase 1 está muerto**.
+
+Cuatro cosas propuestas, **ninguna hecha**:
+
+| # | Qué | Bloqueo |
+|---|---|---|
+| 1 | Poner `Arrechon` en `product.description` — arregla hoy | ninguno, es un `UPDATE` |
+| 2 | Catálogo en **solo lectura** en el cuestionario si `catalog_source='tabla'` | decisión del dueño |
+| 3 | Recortar `kb_lispasteleria0001`, que duplica el menú con precios | decisión del dueño |
+| 4 | Escenario: producto sin descripción → no atribuirle características | ninguno |
+
+⚠️ **No reejecutar `pnpm migrar:catalogo` sobre Lis tal como está la ficha**: el
+sabor acabaría **dentro del nombre** del producto.
+
+---
+
 ## 🔴 Lo primero, y no es del proyecto
 
 **Cambiar la contraseña del superadministrador.** Lleva pendiente desde el
@@ -67,11 +91,22 @@ checklist de «el bot no responde».
 | 🟠 | **El saludo es el genérico de fábrica**: *"¡Hola! 👋 Soy el asistente de Lashes Valen. ¿En qué te puedo ayudar?"*. Comparado con el de La Churra o Lis, no vende nada |
 | 🟠 | **Una cita se confirma sin pedir el nombre de la clienta.** Auditado y diseñado el 19-ago, **nada implementado** ([102](102-REQUISITO-NOMBRE-EN-CITAS.md)) |
 
-### La Churra y Lis
+### Lis Pastelería
 
-Sin pendientes de configuración conocidos. Lis quedó con 15 productos, 28
-entradas de conocimiento y sus 14 reglas propias; La Churra con sus 4
-presentaciones y la repetición por grupo cargada.
+| | |
+|---|---|
+| 🔴 | **El sabor de temporada, inventado** — ver el bloque de arriba y [123](123-EL-SABOR-QUE-NADIE-LEYO.md). Vivo |
+| 🟠 | **Tres entradas de conocimiento llevan precios** (`0001` el menú entero, `0013` bebidas, `0012` tortas). Es la única de la flota así, y en cuanto cambie un precio en Catálogo el prompt llevará dos cifras distintas del mismo producto |
+
+Por lo demás quedó con 15 productos, 28 entradas de conocimiento y sus 14 reglas
+propias.
+
+### La Churra
+
+Sin pendientes de configuración conocidos: 4 presentaciones y la repetición por
+grupo cargada. Sus cuatro productos **tampoco tienen descripción**, pero sus
+nombres no anuncian ningún atributo variable y sí tienen grupos de opciones — no
+es el mismo caso que el Cremoso de Temporada.
 
 ---
 
@@ -117,6 +152,14 @@ del [93](93-PENDIENTES-17AGO.md) y siguen vigentes; las cinco últimas son del
 - 🆕 **No prohibir escribir como sustituto de arreglar la causa.** La prohibición
   al cuestionario protegía de un formulario en blanco; el problema era el
   formulario en blanco ([120](120-EL-CUESTIONARIO-GUARDA-LO-QUE-PREGUNTA.md)).
+- 🆕 **No dejar editable un campo que ya no manda.** El dueño escribió el sabor de
+  temporada en el catálogo del cuestionario —el sitio con ese nombre— y para un
+  cliente de Fase 1 ese texto está muerto. Un dato en cuatro copias solo es
+  seguro si **una sola** es visible y editable
+  ([123](123-EL-SABOR-QUE-NADIE-LEYO.md)).
+- 🆕 **No empezar por el guardarraíl cuando falta un dato.** La tentación era
+  «el agente inventa, comprobemos lo que afirma». El agente inventó porque en la
+  tabla había un hueco con letrero.
 - 🆕 **No suponer que dos arreglos correctos no se pelean.** Precargar el
   formulario y darle permiso de escritura eran ambos correctos y, juntos, iban a
   borrarle 13 reglas a Lis. Lo destapó mirar la base, no las pruebas.

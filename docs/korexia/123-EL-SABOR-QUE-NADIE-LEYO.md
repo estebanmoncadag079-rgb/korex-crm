@@ -2,11 +2,13 @@
 
 > **Dentro:** El diagnóstico por capas · Las cuatro copias del mismo dato · Por
 > qué el campo que el dueño edita está muerto · La trampa que espera al que
-> arregle esto · Qué se propuso y qué NO se ha hecho
+> arregle esto · El arreglo #1 aplicado · Qué sigue sin hacerse
 >
-> 🔴 **Estado: DIAGNOSTICADO, NO ARREGLADO.** El fallo sigue vivo en producción.
-> No se tocó ni una línea de código ni un dato. Esta investigación fue de solo
-> lectura.
+> ✅ **24-ago-2026: el arreglo #1 (el dato) está aplicado y verificado en vivo.**
+> El resto —solo lectura del catálogo cuando la fuente es la tabla, recortar la
+> entrada de conocimiento duplicada, el escenario de prueba— **sigue sin
+> hacerse**, pendiente de decisión del dueño. Ver el bloque *Arreglo #1* al
+> final.
 
 **20 de agosto de 2026, 11:33.** Un cliente pregunta a Lis Pastelería *"¿cuáles
 son los cremosos que tienes?"*. El agente contesta con la lista correcta y una
@@ -157,17 +159,52 @@ sabor pertenece a la descripción, no al nombre.
 
 ---
 
-## Qué se propuso — y qué NO se ha hecho
-
-**Nada de esto está implementado.** Se documenta para que la decisión no se
-pierda.
+## Qué se propuso — y en qué quedó cada cosa
 
 | # | Capa | Propuesta | Estado |
 |---|---|---|---|
-| 1 | Dato | Poner `Arrechon` en `product.description`. Arregla hoy y queda editable en Catálogo, que es donde toca cambiarlo cada semana | ⬜ **sin hacer** |
+| 1 | Dato | Poner `Arrechon` en `product.description` | ✅ **hecho y verificado el 24-ago** — ver abajo |
 | 2 | Arquitectura | Para clientes con `catalog_source='tabla'`, el cuestionario muestra el catálogo en **solo lectura** con un aviso «esto se edita en Catálogo» | ⬜ **sin decidir** |
 | 3 | Dato | Recortar `kb_lispasteleria0001` a lo que el catálogo NO puede responder (qué es un cremoso), quitándole precios y lista de productos | ⬜ **sin decidir** |
 | 4 | Pruebas | Un escenario en `probar:escenarios`: producto sin descripción → el agente **no le atribuye características** | ⬜ **sin hacer** |
+
+## ✅ Arreglo #1, aplicado el 24-ago-2026
+
+Un `UPDATE` de una fila, con respaldo previo y verificación en vivo — sin tocar
+código:
+
+```sql
+-- Respaldo completo de los 15 productos de Lis, antes de tocar nada:
+CREATE TABLE product_bk_temporada_20260824 AS
+  SELECT * FROM product WHERE organization_id = 'org_lispasteleria0001';
+
+UPDATE product
+   SET description = 'Arrechon', updated_at = now()
+ WHERE organization_id = 'org_lispasteleria0001'
+   AND name = 'Cremoso de Temporada'
+   AND description IS NULL;   -- guarda: si ya tenía algo, no se pisa
+```
+
+**Comprobado que no cambió nada más**: la fila completa (nombre, precio,
+disponibilidad, categoría) contra el respaldo solo difiere en `description`.
+
+**Verificado con la función real del pipeline**, no con una consulta suelta —
+`catalogoDePedidos()` + `renderCatalogoDePedidos()`, las mismas que arma el
+prompt en cada turno:
+
+```
+LINEA REAL QUE VERA EL AGENTE:
+Cremoso de Temporada — $19.000 (Arrechon)
+```
+
+Es exactamente el texto que había en `ficha.negocio.catalogo` (el campo muerto),
+ahora en el sitio que sí manda. El script de verificación era desechable y se
+borró tras confirmar.
+
+⚠️ **Esto no cierra el caso.** Arregla el sabor de HOY; no evita que vuelva a
+faltar la semana que viene, porque el campo editable del dueño sigue
+desconectado de la tabla. Es exactamente lo que cubre la propuesta #2, todavía
+sin decidir.
 
 > 🔑 Sobre la propuesta 2 y el **Paso 3 congelado**: el motivo del congelamiento
 > era que el texto del catálogo en la ficha es la fuente que lee
@@ -185,7 +222,19 @@ pierda.
 
 ## Cómo revertir
 
-Nada que revertir: no se escribió ni una línea de código ni un dato. Los
-respaldos consultados (`agent_profile_bk_canales`,
-`agent_profile_bk_regen_20260820`, `organization_bk_borrador_20260820`) siguen
-intactos.
+El diagnóstico no tocó nada (respaldos consultados:
+`agent_profile_bk_canales`, `agent_profile_bk_regen_20260820`,
+`organization_bk_borrador_20260820` — siguen intactos).
+
+El arreglo #1 sí escribió un dato, y su reversa es directa:
+
+```sql
+UPDATE product SET description = NULL, updated_at = now()
+ WHERE organization_id = 'org_lispasteleria0001' AND name = 'Cremoso de Temporada';
+-- o, para restaurar la fila EXACTA de antes:
+-- SELECT * FROM product_bk_temporada_20260824 WHERE name = 'Cremoso de Temporada';
+```
+
+`product_bk_temporada_20260824` guarda los 15 productos de Lis tal como estaban
+antes del `UPDATE`, sin fecha de expiración — bórrala manualmente cuando ya no
+haga falta.

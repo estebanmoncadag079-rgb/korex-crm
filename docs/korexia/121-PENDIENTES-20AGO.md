@@ -31,24 +31,24 @@ llevando el estado de conversaciones reales.
 
 ---
 
-## 🔴 VIVO AHORA MISMO: el agente inventa el sabor de temporada
+## 🟢 El sabor de temporada: dato arreglado, causa raíz sigue abierta
 
-**Diagnosticado a fondo, sin arreglar** ([123](123-EL-SABOR-QUE-NADIE-LEYO.md)).
-Si un cliente pregunta hoy por los cremosos de Lis, **vuelve a inventar un
-sabor**.
+**Diagnosticado** en [123](123-EL-SABOR-QUE-NADIE-LEYO.md). El síntoma del
+20-ago —el agente inventó *"mango biche"*— **ya no puede repetirse tal cual**:
+`Cremoso de Temporada` tiene descripción `Arrechon` en `product` desde el
+24-ago, verificado con la misma función que arma el prompt en producción.
 
-`Cremoso de Temporada` está en `product` **sin descripción**, y el sabor real
-(`Arrechon`) vive en `ficha.negocio.catalogo` — el campo que el dueño edita en el
-cuestionario y que **para un cliente en Fase 1 está muerto**.
+Pero la causa de fondo sigue viva: el campo que el dueño edita en el
+cuestionario (`ficha.negocio.catalogo`) **sigue desconectado** de la tabla que
+lee el agente. La próxima vez que cambie el sabor de temporada, si lo escribe
+ahí en vez de en Catálogo, **vuelve a fallar igual**.
 
-Cuatro cosas propuestas, **ninguna hecha**:
-
-| # | Qué | Bloqueo |
+| # | Qué | Estado |
 |---|---|---|
-| 1 | Poner `Arrechon` en `product.description` — arregla hoy | ninguno, es un `UPDATE` |
-| 2 | Catálogo en **solo lectura** en el cuestionario si `catalog_source='tabla'` | decisión del dueño |
-| 3 | Recortar `kb_lispasteleria0001`, que duplica el menú con precios | decisión del dueño |
-| 4 | Escenario: producto sin descripción → no atribuirle características | ninguno |
+| 1 | Poner `Arrechon` en `product.description` | ✅ **hecho, 24-ago** |
+| 2 | Catálogo en **solo lectura** en el cuestionario si `catalog_source='tabla'` | ⬜ decisión del dueño — **esto es lo que cierra el caso de verdad** |
+| 3 | Recortar `kb_lispasteleria0001`, que duplica el menú con precios | ⬜ decisión del dueño |
+| 4 | Escenario: producto sin descripción → no atribuirle características | ⬜ sin hacer |
 
 ⚠️ **No reejecutar `pnpm migrar:catalogo` sobre Lis tal como está la ficha**: el
 sabor acabaría **dentro del nombre** del producto.
@@ -95,7 +95,7 @@ checklist de «el bot no responde».
 
 | | |
 |---|---|
-| 🔴 | **El sabor de temporada, inventado** — ver el bloque de arriba y [123](123-EL-SABOR-QUE-NADIE-LEYO.md). Vivo |
+| 🟠 | **El sabor de temporada** — dato arreglado el 24-ago; el campo del cuestionario sigue desconectado de la tabla, ver el bloque de arriba y [123](123-EL-SABOR-QUE-NADIE-LEYO.md) |
 | 🟠 | **Tres entradas de conocimiento llevan precios** (`0001` el menú entero, `0013` bebidas, `0012` tortas). Es la única de la flota así, y en cuanto cambie un precio en Catálogo el prompt llevará dos cifras distintas del mismo producto |
 
 Por lo demás quedó con 15 productos, 28 entradas de conocimiento y sus 14 reglas

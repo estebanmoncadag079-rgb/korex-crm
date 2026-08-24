@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   countVariables,
   renderBody,
+  resolveWabaId,
   validateBodyVariables,
 } from "@/server/whatsapp/templates";
 
@@ -26,6 +27,26 @@ describe("countVariables / validateBodyVariables (FR-050)", () => {
 
   it("variable {{2}} sola → inválida (debe ser {{1}})", () => {
     expect(validateBodyVariables("Tu pedido {{2}} llegó")).toMatch(/\{\{1\}\}/);
+  });
+});
+
+describe("resolveWabaId (doc 131)", () => {
+  it("cuenta de agencia o Meta directo: devuelve wabaId tal cual", () => {
+    expect(
+      resolveWabaId({ wabaId: "123456789", metaWabaId: null })
+    ).toBe("123456789");
+  });
+
+  it("cuenta propia de YCloud con metaWabaId capturado: devuelve el real", () => {
+    expect(
+      resolveWabaId({ wabaId: "ycloud:573155136091", metaWabaId: "987654321" })
+    ).toBe("987654321");
+  });
+
+  it("cuenta propia de YCloud sin metaWabaId: lanza TemplateError claro", () => {
+    expect(() =>
+      resolveWabaId({ wabaId: "ycloud:573155136091", metaWabaId: null })
+    ).toThrowError(/WABA ID real de Meta no está disponible/);
   });
 });
 

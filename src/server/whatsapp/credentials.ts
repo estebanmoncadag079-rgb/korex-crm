@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, isNull, ne, or } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
@@ -16,6 +16,13 @@ export type Credentials = {
   token: string;
   /** Secreto del webhook de la cuenta YCloud del cliente (null = la de la agencia). */
   webhookSecret: string | null;
+  /**
+   * WABA ID real de Meta para clientes con cuenta propia de YCloud.
+   * NULL mientras no llegue en un evento del webhook de YCloud.
+   * Para cuentas de agencia o Meta directo, `wabaId` ya es el real y este campo
+   * no se usa (ver doc 131-WABA-ID-CAPTURADO-Y-USADO-EN-PLANTILLAS).
+   */
+  metaWabaId: string | null;
 };
 
 type Row = typeof schema.metaCredentials.$inferSelect;
@@ -42,6 +49,7 @@ function toCredentials(row: Row): Credentials {
             tag: row.webhookSecretTag,
           })
         : null,
+    metaWabaId: row.metaWabaId ?? null,
   };
 }
 
@@ -246,4 +254,37 @@ export async function markReconnectRequired(
 /** Últimos 4 caracteres del token para mostrar en UI (jamás el token). */
 export function tokenLast4(token: string): string {
   return token.slice(-4);
+}
+
+/**
+ * Persiste el WABA ID real de Meta para una organización con cuenta propia de
+ * YCloud. Llega en cada evento del webhook (`whatsappInboundMessage.wabaId`,
+ * `whatsappMessage.wabaId`): es el identificador que Meta asigna al WABA del
+ * cliente, distinto del sintético `ycloud:<numero>` que solo sirve para enrutar.
+ *
+ * Solo escribe si el valor actual es NULL o cambió — no sobreescribe sin
+ * necesidad. Descarta valores sintéticos (empezando por "ycloud:") para no
+ * meterse en un bucle.
+ *
+ * Ver doc 131-WABA-ID-CAPTURADO-Y-USADO-EN-PLANTILLAS.
+ */
+export async function captureMetaWabaId(
+  organizationId: string,
+  realWabaId: string
+): Promise<void> {
+  if (!realWabaId || realWabaId.startsWith("ycloud:")) return;
+  const db = getDb();
+  await db
+    .update(schema.metaCredentials)
+    .set({ metaWabaId: realWabaId, updatedAt: new Date() })
+    .where(
+      scoped(
+        schema.metaCredentials.organizationId,
+        organizationId,
+        or(
+          isNull(schema.metaCredentials.metaWabaId),
+          ne(schema.metaCredentials.metaWabaId, realWabaId)
+        )
+      )
+    );
 }

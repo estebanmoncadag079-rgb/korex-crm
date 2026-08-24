@@ -284,6 +284,26 @@ export const metaCredentials = pgTable(
       .notNull()
       .references(() => organization.id, { onDelete: "cascade" }),
     wabaId: text("waba_id").notNull(),
+    /**
+     * El WABA ID **real de Meta**, cuando `wabaId` no lo es.
+     *
+     * Un cliente que trae su PROPIA cuenta de YCloud no expone su WABA de Meta
+     * al conectarse: `saveYcloudNumber` guarda en `wabaId` un identificador
+     * SINTÉTICO `ycloud:<numero>` (ver `whatsapp/credentials.ts`), que sirve
+     * para enrutar pero NO es un WABA ID que Meta reconozca. Por eso
+     * `createTemplate`, que llama a Graph con `wabaId`, falla para esos
+     * clientes (docs/korexia/129-WABA-ID-REAL-PARA-YCLOUD-PROPIO.md).
+     *
+     * El WABA real SÍ llega en los webhooks de YCloud (campo `wabaId`) y se
+     * puede obtener con `GET /v2/whatsapp/phoneNumbers`; esta columna es dónde
+     * se persiste para que la creación de plantillas lo use.
+     *
+     * NULL en dos casos, ambos legítimos:
+     *   - cuenta de la agencia o Meta directo: ahí `wabaId` YA es el real, no
+     *     hace falta duplicarlo;
+     *   - cuenta propia de YCloud a la que aún no le hemos capturado el WABA.
+     */
+    metaWabaId: text("meta_waba_id"),
     phoneNumberId: text("phone_number_id").notNull(),
     displayPhoneNumber: text("display_phone_number"),
     verifiedName: text("verified_name"),

@@ -124,10 +124,33 @@ export async function getOrCreateContact(
       );
     }
 
-    // La señal que faltaba: se rellena sin pisar nunca una ya guardada.
+    /*
+     * La señal que faltaba: se rellena sin pisar nunca una ya guardada — y
+     * SIN escribir un valor que ya sea de OTRO candidato (24-ago-2026).
+     *
+     * Hasta ahora esto solo comprobaba `!existing.phone`/`!existing.waUserId`
+     * y lanzaba un UPDATE a ciegas. Cuando `candidatos.length > 1` —el "misma
+     * persona en dos contactos" de arriba— la señal que faltaba en `existing`
+     * casi siempre YA estaba en el otro candidato, y el UPDATE chocaba contra
+     * el índice único de la base sin que nada lo capturara: el webhook
+     * ENTERO fallaba y el mensaje del cliente no quedaba ni registrado.
+     *
+     * Medido en Lis Pastelería: 87 eventos así en 18 días (6 al 24-ago),
+     * 44 de ellos mensajes reales de clientas — no ecos — perdidos sin dejar
+     * una fila (docs/korexia/126). `buscarPorIdentidad` ya trae TODOS los
+     * candidatos que comparten cualquiera de las dos señales, así que basta
+     * con no ofrecer como "faltante" nada que otro candidato ya tenga.
+     */
+    const yaEsDeOtroContacto = (valor: string, campo: "phone" | "waUserId") =>
+      candidatos.some((c) => c.id !== existing.id && c[campo] === valor);
+
     const faltantes: Partial<typeof schema.contact.$inferInsert> = {};
-    if (phone && !existing.phone) faltantes.phone = phone;
-    if (waUserId && !existing.waUserId) faltantes.waUserId = waUserId;
+    if (phone && !existing.phone && !yaEsDeOtroContacto(phone, "phone")) {
+      faltantes.phone = phone;
+    }
+    if (waUserId && !existing.waUserId && !yaEsDeOtroContacto(waUserId, "waUserId")) {
+      faltantes.waUserId = waUserId;
+    }
     // Reactivar si estaba archivado (el nombre editado por el operador se respeta).
     const reactivar = existing.archivedAt !== null;
 

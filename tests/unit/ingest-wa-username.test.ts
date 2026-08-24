@@ -178,21 +178,31 @@ describe("identidad del contacto: teléfono, BSUID o ambos", () => {
    * Defensa por si ya existían duplicados de antes: se usa el más antiguo (el
    * que tiene el historial) y queda el aviso, en vez de mover mensajes,
    * conversaciones y citas por su cuenta.
+   *
+   * 🔴 Y sobre todo: **no intenta rellenar la señal que falta en el elegido
+   * con un valor que ya es del OTRO candidato.** Antes de este arreglo
+   * (24-ago-2026) sí lo intentaba — `UPDATE ... SET waUserId = 'CO.abc123'`
+   * sobre `ct_2`, cuando esa señal ya era de `ct_1` — y contra la base real
+   * eso chocaba con el índice único y tumbaba el webhook ENTERO: 87 eventos
+   * en 18 días, 44 mensajes reales de clientas perdidos sin dejar una fila
+   * (docs/korexia/126). Aquí, sin base real, se prueba que el código ya no
+   * intenta ese `update`.
    */
-  it("con dos contactos para la misma persona, usa el más antiguo y avisa", async () => {
+  it("con dos contactos para la misma persona, usa el más antiguo, avisa y NO intenta rellenar con la señal del otro", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     selectQueue.push([soloTelefono, soloBsuid]); // ordenados por created_at
 
     const { getOrCreateContact } = await import("@/server/inbox/ingest");
     const { contact } = await getOrCreateContact("org_1", {
-      phone: "573165345762",
-      waUserId: "CO.abc123",
+      phone: "573165345762", // ya es de soloTelefono (el elegido): no falta
+      waUserId: "CO.abc123", // ya es de soloBsuid, NO del elegido: es el crash real
     });
 
     expect(contact.id).toBe("ct_2");
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("MISMA PERSONA EN DOS CONTACTOS")
     );
+    expect(updated).toHaveLength(0); // NINGÚN update — esto es lo que crasheaba
     warn.mockRestore();
   });
 

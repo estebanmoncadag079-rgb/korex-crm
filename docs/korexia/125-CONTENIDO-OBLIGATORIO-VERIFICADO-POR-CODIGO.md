@@ -5,10 +5,9 @@
 > despliega (Rappi) · La medición completa: 33% → 12,5% → **0%** · Cómo
 > revertir
 >
-> ✅ **Implementado, probado con 19 pruebas unitarias y verificado con el
-> pipeline real, 24-ago-2026.** Pendiente el despliegue de tres pasos —
-> **este SÍ es código de aplicación**, a diferencia de los arreglos
-> anteriores que solo tocaban datos.
+> ✅ **Implementado, probado con 19 pruebas unitarias, verificado con el
+> pipeline real, y DESPLEGADO — 24-ago-2026.** Confirmado dentro del
+> contenedor: `contenido-obligatorio.ts` presente en el bundle compilado.
 
 ## El porqué de este documento
 
@@ -171,18 +170,25 @@ disparador), y la mutación por cada tipo de acción (`reply`, `update_lead`,
 
 ---
 
-## ⚠️ Esto SÍ requiere desplegar
+## ✅ Desplegado y verificado (24-ago-2026)
 
-A diferencia de los arreglos anteriores de esta semana (que solo tocaban
-`ficha`/`kb_entry`, datos en la base), **este cambio toca código de
-aplicación**: `pipeline.ts`, `generar.ts`, `conducta.ts` y el módulo nuevo
-`contenido-obligatorio.ts`. No tiene efecto hasta que:
+A diferencia de los arreglos anteriores de esa semana (que solo tocaban
+`ficha`/`kb_entry`, datos en la base), este cambio tocó código de aplicación:
+`pipeline.ts`, `generar.ts`, `conducta.ts` y el módulo nuevo
+`contenido-obligatorio.ts`. Los tres pasos, completos:
 
-1. Se empuje el commit.
-2. `git archive` + `scp` + `tar` a la carpeta de EasyPanel (sin `.git`, no se
-   entera de ningún push).
-3. El dueño pulse Desplegar.
-4. Se verifique DENTRO del contenedor.
+1. Commit `759262f`, empujado.
+2. `git archive` + `scp` + `tar` a la carpeta de EasyPanel.
+3. El dueño pulsó Desplegar.
+
+**Verificado dentro del contenedor** (`korex-crm_crm.1.rsol9ez8ckzlf4tdbjhbo98rm`,
+creado 2026-08-24T20:26:42 UTC, `healthy`):
+
+```
+grep -c "contenido obligatorio" .next/server/chunks/*.js
+.next/server/chunks/4019.js:1
+.next/server/chunks/8671.js:1
+```
 
 ---
 

@@ -74,10 +74,10 @@ checklist de «el bot no responde».
 
 | | Qué | Quién |
 |---|---|---|
-| 📦 | **Desplegar el HEAD actual del repo.** Incluye el 7º guardarraíl de contenido obligatorio ([125](125-CONTENIDO-OBLIGATORIO-VERIFICADO-POR-CODIGO.md)) y el arreglo del contacto duplicado que perdía mensajes ([126](126-CONTACTO-DUPLICADO-MENSAJES-PERDIDOS.md), el más urgente: 44 mensajes reales perdidos en 18 días) — los dos son código real, no solo datos, así que no funcionan hasta que se despliegue. El código está en la carpeta de EasyPanel; falta pulsar Desplegar | Esteban |
-| 🔍 | **Verificar el 125 dentro del contenedor**: `grep -c "contenido obligatorio" .next/server/chunks/*.js` (el string sobrevive a la minificación). **El 126 no tiene un string nuevo que buscar** (es lógica, no un mensaje) — su prueba real es que `SELECT count(*) FROM webhook_event WHERE error ILIKE '%contact_org_phone_uq%' AND received_at > <hora del deploy>` se quede en 0 de aquí en adelante | verificación en el contenedor + la base |
+| ✅ | ~~Desplegar el 7º guardarraíl ([125](125-CONTENIDO-OBLIGATORIO-VERIFICADO-POR-CODIGO.md)) y el arreglo del contacto duplicado ([126](126-CONTACTO-DUPLICADO-MENSAJES-PERDIDOS.md))~~ — **desplegado y verificado el 24-ago**: contenedor nuevo, `healthy`, los dos cambios confirmados en el bundle, 0 fallos de `contact_org_phone_uq` desde el despliegue | hecho |
 | 🧹 | **Sobra un cliente de prueba en producción**: `PRUEBA pedidos 1787021834496`, del 18-ago, de una corrida de `probar:estado` que se cortó a medias. Sale en la tabla de flota como si fuera un negocio real. Sin mensajes ni pedidos | decisión de Esteban |
 | ❄️ | **El paso 3 del plan de flota sigue congelado** por decisión tuya: quitar la copia muerta del catálogo de las fichas. No es trivial — ese texto es la fuente que lee `migrar:catalogo` | congelado a propósito |
+| ⬜ | **Una escalada sin causa encontrada** — un simple "Buenas tardes" derivó a una persona sin motivo configurado. Tres hipótesis descartadas, no reprodujo en limpio (5/5). Anotado, no arreglado: no hay patrón que medir todavía. Ver [127](127-ESCALADA-SIN-CAUSA-ENCONTRADA.md) y su protocolo si vuelve a pasar | vigilar |
 | 🟠 | **La regla de Rappi de Lis no queda protegida** por el nuevo guardarraíl (es una afirmación llana, sin disparador condicional). Reescribirla como "SIEMPRE que pregunten por domicilios o Rappi, envíale…" la protegería igual que al catálogo | decisión de Esteban |
 
 ---

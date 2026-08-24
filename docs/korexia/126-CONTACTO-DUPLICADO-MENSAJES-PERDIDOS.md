@@ -4,9 +4,9 @@
 > completa (44 mensajes reales perdidos) · El arreglo, con su prueba · La
 > fusión de los 3 pares reales, con verificación de que no se perdió nada
 >
-> ✅ **Código arreglado y probado. Datos fusionados y verificados en
-> producción, 24-ago-2026.** Pendiente el despliegue de tres pasos — es
-> código de aplicación.
+> ✅ **Código arreglado, probado, DESPLEGADO. Datos fusionados y verificados
+> en producción, 24-ago-2026.** Confirmado: 0 fallos de
+> `contact_org_phone_uq` desde el despliegue.
 
 ## El caso
 
@@ -150,10 +150,22 @@ guarda igual.
 | Pruebas unitarias | **959**, 0 fallos |
 | Verificado en producción | 3 pares fusionados, 0 mensajes perdidos, conversación coherente |
 
-## ⚠️ Esto sí requiere desplegar
+## ✅ Desplegado y verificado (24-ago-2026)
 
-Código de aplicación (`ingest.ts`). La fusión de datos ya está aplicada y en
-vivo — eso no requiere despliegue. El arreglo del código sí.
+Código de aplicación (`ingest.ts`). La fusión de datos ya estaba aplicada y
+en vivo desde antes — eso no requería despliegue. El arreglo del código sí, y
+ya está en producción:
+
+```
+grep -c "MISMA PERSONA EN DOS CONTACTOS" .next/server/chunks/*.js
+.next/server/chunks/4019.js:1
+.next/server/chunks/8671.js:1
+```
+
+**Verificación conductual, no solo de código presente**: cero eventos
+`contact_org_phone_uq` en `webhook_event` desde el momento del despliegue
+(2026-08-24 20:26:42 UTC en adelante). Los 3 contactos fusionados
+(Nathalia, Tatis💙, Alejandra Ramos) siguen íntegros, con las dos señales.
 
 ## Cómo revertir
 

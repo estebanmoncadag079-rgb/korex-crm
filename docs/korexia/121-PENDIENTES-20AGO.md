@@ -97,6 +97,7 @@ checklist de «el bot no responde».
 |---|---|
 | 🟠 | **El sabor de temporada** — dato arreglado el 24-ago; el campo del cuestionario sigue desconectado de la tabla, ver el bloque de arriba y [123](123-EL-SABOR-QUE-NADIE-LEYO.md) |
 | 🟠 | **Tres entradas de conocimiento llevan precios** (`0001` el menú entero, `0013` bebidas, `0012` tortas). Es la única de la flota así, y en cuanto cambie un precio en Catálogo el prompt llevará dos cifras distintas del mismo producto |
+| 🟢 | **El enlace del catálogo no llegaba solo** — regla y arreglo medidos en [124](124-EL-ASESOR-ENVIO-EL-ENLACE-QUE-EL-BOT-PROMETIO.md). Bajó de 33% a 12,5% de fallo; el resto es un rasgo del modelo, no un hueco de dato — no se persigue con más reglas |
 
 Por lo demás quedó con 15 productos, 28 entradas de conocimiento y sus 14 reglas
 propias.

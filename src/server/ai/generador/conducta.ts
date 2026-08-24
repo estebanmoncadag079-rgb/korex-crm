@@ -164,6 +164,25 @@ guardados no significa que este negocio los cobre por adelantado.`;
  * negocio: el relato va aquí, en el comentario, donde lo lee quien mantiene
  * esto (regla 14 de la Fase 2).
  */
+/**
+ * Los enlaces que el negocio configuró, con una garantía por detrás
+ * (24-ago-2026, `contenido-obligatorio.ts`).
+ *
+ * Lis Pastelería ya tenía escrita "SIEMPRE que el cliente pregunte por los
+ * productos envíale el link del catálogo", y el modelo la incumplía 1 de
+ * cada 3 veces — no porque el dato faltara, sino porque una instrucción en
+ * texto no es una garantía. Esta línea no reemplaza esa comprobación —el
+ * servidor la hace igual, la lea el modelo o no—, es para que el modelo siga
+ * intentando en vez de relajarse sabiendo que hay una red debajo.
+ */
+export const VALIDACION_DE_ENLACES = `# Los enlaces que configuró el negocio
+
+Cuando una regla propia o una respuesta de tu conocimiento trae un enlace, y lo
+que pregunta el cliente coincide con eso, el servidor comprueba —antes de que
+la respuesta llegue— que ese enlace quedó incluido. Genera la mejor respuesta
+que puedas, pero no asumas que esa comprobación se te va a pasar por alto:
+está para asegurar el enlace, no para corregirte la redacción.`;
+
 export const NUNCA = `# Nunca
 
 - **Nunca anuncies algo que no hiciste.** Si dices "quedaste agendada", tiene que

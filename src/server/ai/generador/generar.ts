@@ -7,6 +7,7 @@ import {
   meta,
   NO_ENCAJA,
   NUNCA,
+  VALIDACION_DE_ENLACES,
 } from "./conducta";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 
@@ -243,6 +244,7 @@ export function generarPerfil(
     vinetas(ficha.reglasPropias)
       ? `## Reglas propias de este negocio\n\nEstas reglas **mandan sobre todo lo anterior**. Si alguna contradice el orden de preguntas o la forma de escribir que te dije más arriba, haz lo que dice esta sección: son las de este negocio en concreto.\n\n${vinetas(ficha.reglasPropias)}`
       : null,
+    VALIDACION_DE_ENLACES,
     vertical === "citas" ? CIERRE_CITAS : CIERRE,
     // Solo en pedidos: una cita fuera de hora no se "reagenda sola", se pide
     // para un día que el propio catálogo de horarios ya limita.

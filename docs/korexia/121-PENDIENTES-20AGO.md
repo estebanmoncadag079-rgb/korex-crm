@@ -74,10 +74,11 @@ checklist de «el bot no responde».
 
 | | Qué | Quién |
 |---|---|---|
-| 📦 | **Desplegar `1c17796`** — el cuestionario ya guarda el saludo, las reglas y el paso 8. El código está en la carpeta de EasyPanel; falta pulsar Desplegar | Esteban |
-| 🔍 | **Verificarlo**: abrir el cuestionario de Lashes Valen y corregirle el saludo (hoy es el genérico *"Soy el asistente de…"*). Si al guardar cambia, el arreglo está vivo. **Este commit no añade ningún texto nuevo al código compilado, así que no se puede comprobar con un `grep`** | Esteban + verificación en base |
+| 📦 | **Desplegar el HEAD actual del repo.** Incluye, entre otros, el arreglo del cuestionario (`1c17796`) y el 7º guardarraíl de contenido obligatorio ([125](125-CONTENIDO-OBLIGATORIO-VERIFICADO-POR-CODIGO.md)) — este último es código real de `pipeline.ts`, no solo datos, así que no funciona hasta que se despliegue. El código está en la carpeta de EasyPanel; falta pulsar Desplegar | Esteban |
+| 🔍 | **Verificar dentro del contenedor** tras desplegar: `grep -c "contenido obligatorio" .next/server/chunks/*.js` (el string SÍ sobrevive a la minificación, a diferencia de otros cambios de esta semana) | verificación en el contenedor |
 | 🧹 | **Sobra un cliente de prueba en producción**: `PRUEBA pedidos 1787021834496`, del 18-ago, de una corrida de `probar:estado` que se cortó a medias. Sale en la tabla de flota como si fuera un negocio real. Sin mensajes ni pedidos | decisión de Esteban |
 | ❄️ | **El paso 3 del plan de flota sigue congelado** por decisión tuya: quitar la copia muerta del catálogo de las fichas. No es trivial — ese texto es la fuente que lee `migrar:catalogo` | congelado a propósito |
+| 🟠 | **La regla de Rappi de Lis no queda protegida** por el nuevo guardarraíl (es una afirmación llana, sin disparador condicional). Reescribirla como "SIEMPRE que pregunten por domicilios o Rappi, envíale…" la protegería igual que al catálogo | decisión de Esteban |
 
 ---
 
@@ -97,7 +98,7 @@ checklist de «el bot no responde».
 |---|---|
 | 🟠 | **El sabor de temporada** — dato arreglado el 24-ago; el campo del cuestionario sigue desconectado de la tabla, ver el bloque de arriba y [123](123-EL-SABOR-QUE-NADIE-LEYO.md) |
 | 🟠 | **Tres entradas de conocimiento llevan precios** (`0001` el menú entero, `0013` bebidas, `0012` tortas). Es la única de la flota así, y en cuanto cambie un precio en Catálogo el prompt llevará dos cifras distintas del mismo producto |
-| 🟢 | **El enlace del catálogo no llegaba solo** — regla y arreglo medidos en [124](124-EL-ASESOR-ENVIO-EL-ENLACE-QUE-EL-BOT-PROMETIO.md). Bajó de 33% a 12,5% de fallo; el resto es un rasgo del modelo, no un hueco de dato — no se persigue con más reglas |
+| ✅ | **El enlace del catálogo no llegaba solo** — [124](124-EL-ASESOR-ENVIO-EL-ENLACE-QUE-EL-BOT-PROMETIO.md) bajó el fallo del modelo de 33% a 12,5%; [125](125-CONTENIDO-OBLIGATORIO-VERIFICADO-POR-CODIGO.md) lo cerró a **0%** con un guardarraíl genérico (para toda la flota, no solo Lis). Pendiente de desplegar — es código, no datos |
 
 Por lo demás quedó con 15 productos, 28 entradas de conocimiento y sus 14 reglas
 propias.

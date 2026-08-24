@@ -97,6 +97,12 @@ import {
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
 import { encolarTurno } from "@/server/ai/cola";
+import {
+  agregarContenidoFaltante,
+  correccionDeContenidoFaltante,
+  disparadoPor,
+  extraerContenidoObligatorio,
+} from "@/server/ai/contenido-obligatorio";
 
 /**
  * Turno del agente (FR-021..FR-025).
@@ -1293,6 +1299,68 @@ export async function runAgentTurn(
       console.error(
         `[agente] el resumen sigue mal (${falloDeResumen}) tras la corrección; sale como está`
       );
+    }
+  }
+
+  /**
+   * Séptimo guardarraíl: contenido obligatorio del CRM que no llegó al
+   * cliente (24-ago-2026).
+   *
+   * Distinto de "recurso prometido" (arriba): aquel detecta que el modelo
+   * PROMETIÓ algo en su propio texto y no lo cumplió. Este no depende de que
+   * el modelo prometa nada — el disparador es lo que escribió EL CLIENTE, no
+   * lo que dijo el agente. Es el caso de Lis Pastelería: el dueño ya tenía
+   * escrita "SIEMPRE que el cliente pregunte por los productos envíale el
+   * link del catálogo", y el modelo la incumplía 1 de cada 3 veces sin
+   * prometer nada — simplemente no lo mencionaba.
+   *
+   * Medido con el pipeline real, sobre el caso que lo originó: 33 % de fallo
+   * antes de nada · 12,5 % tras corregir la regla en el CRM (menos
+   * inferencia que hacer) · **0 % de fallo del cliente** con este
+   * guardarraíl, porque la última red no es un reintento — es el propio
+   * servidor añadiendo el literal exacto que el negocio escribió. Detalle y
+   * la medición completa en docs/korexia/125.
+   *
+   * Genérico: no hay ninguna palabra de "catálogo" aquí ni en
+   * `contenido-obligatorio.ts`. Cualquier enlace en cualquier regla propia o
+   * entrada de conocimiento de cualquier negocio queda protegido igual.
+   */
+  if (fichaDelNegocio) {
+    const contenidoObligatorio = extraerContenidoObligatorio(
+      fichaDelNegocio as FichaDelNegocio,
+      kb
+    );
+    const disparado = contenidoObligatorio.filter((c) => disparadoPor(pendientesDelCliente, c));
+    if (disparado.length > 0) {
+      const faltaAntes = disparado.filter(
+        (c) => !textosAlCliente(action).some((t) => t.includes(c.literal))
+      );
+      if (faltaAntes.length > 0) {
+        console.warn(
+          `[agente] falta contenido obligatorio (${faltaAntes.map((f) => f.literal).join(", ")}); rehaciendo el turno`
+        );
+        const reintento = await chatJson(AgentAction, [
+          ...messages,
+          { role: "assistant", content: result.raw },
+          { role: "user", content: correccionDeContenidoFaltante(faltaAntes) },
+        ]);
+        await registrarUsoIa(
+          organizationId,
+          reintento.usage,
+          `conv:${conversationId}/contenido-obligatorio`
+        );
+        if (reintento.ok) action = reintento.data;
+
+        const faltaDespues = disparado.filter(
+          (c) => !textosAlCliente(action).some((t) => t.includes(c.literal))
+        );
+        if (faltaDespues.length > 0) {
+          console.warn(
+            `[agente] sigue sin incluir ${faltaDespues.map((f) => f.literal).join(", ")} tras el reintento; se añade directamente`
+          );
+          action = agregarContenidoFaltante(action, faltaDespues);
+        }
+      }
     }
   }
 

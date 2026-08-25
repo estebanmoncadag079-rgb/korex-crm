@@ -352,21 +352,36 @@ function KbSection({
           </Button>
         </div>
 
-        <ul className="space-y-2">
-          {entries.map((e) => (
-            <KbRow
-              key={e.id}
-              entry={e}
-              onChanged={onChanged}
-              onRemove={() => void remove(e.id)}
-            />
-          ))}
-          {entries.length === 0 && (
-            <p className="py-2 text-center text-xs text-muted-foreground">
-              Sin entradas todavía: agrega lo que el agente debe saber.
-            </p>
-          )}
-        </ul>
+        {entries.length === 0 ? (
+          <p className="py-2 text-center text-xs text-muted-foreground">
+            Sin entradas todavía: agrega lo que el agente debe saber.
+          </p>
+        ) : (
+          // Con muchas entradas, cada una colapsada seguía siendo un listado
+          // larguísimo de títulos. Esto envuelve TODO el listado en un solo
+          // desplegable: por defecto solo se ve cuántas hay, y se abre entero
+          // de un clic — cada entrada, adentro, sigue siendo su propio
+          // <details> para leer una sin desplegar las demás.
+          <details className="group rounded-md border">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-3 text-sm font-medium marker:content-none [&::-webkit-details-marker]:hidden">
+              <span>
+                Ver las {entries.length}{" "}
+                {entries.length === 1 ? "entrada guardada" : "entradas guardadas"}
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <ul className="space-y-2 border-t p-3">
+              {entries.map((e) => (
+                <KbRow
+                  key={e.id}
+                  entry={e}
+                  onChanged={onChanged}
+                  onRemove={() => void remove(e.id)}
+                />
+              ))}
+            </ul>
+          </details>
+        )}
       </CardContent>
     </Card>
   );

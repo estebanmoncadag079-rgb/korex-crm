@@ -10,8 +10,15 @@ mismo cuestionario que ya recorre el cliente al darse de alta — la
 
 Se agregó un paso nuevo al final del wizard de onboarding
 (`onboarding-wizard.tsx`), con los mismos checkboxes que ya existían en
-`RequisitosSection` (Agente de IA) — esa pantalla **no se tocó ni se quitó**,
-sigue siendo el lugar para ajustarlo después de terminada el alta.
+`RequisitosSection` (Agente de IA).
+
+**Actualización, mismo día:** la primera versión de este cambio dejó la
+tarjeta de Agente de IA sin tocar, pensando en que serviría para ajustarlo
+después del alta. El dueño la vio seguir ahí y señaló lo obvio — dos
+lugares editando el mismo dato es el mismo problema que ya se resolvió con
+el catálogo (136). Se eliminó `RequisitosSection` y su endpoint
+(`/api/agent/requisitos`): el paso del cuestionario es ahora la única
+puerta para `cierre.requisitos`, sin excepción.
 
 ## El guardarraíl que había que respetar
 
@@ -48,6 +55,6 @@ intacta después.
 
 ## Cómo revertir
 
-`git revert` del commit `dc1d383`. No toca datos de producción — el revert
-solo quita el paso del wizard y la lógica de preservación del endpoint;
-`RequisitosSection` en Agente de IA sigue funcionando exactamente igual.
+`git revert` de los commits `dc1d383` y `9d60feb`. No toca datos de
+producción — el revert solo quita el paso del wizard, la lógica de
+preservación del endpoint, y devuelve `RequisitosSection` a Agente de IA.

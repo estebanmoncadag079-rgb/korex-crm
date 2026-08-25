@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -427,36 +427,46 @@ function KbRow({
   }
 
   if (!editing) {
+    // Sin pregunta propia (bloque de texto libre), el resumen colapsado es
+    // su primera línea — lo que alguien escribiría como título si tuviera uno.
+    const titulo = isQa ? entry.question : (entry.content ?? "").split("\n")[0];
     return (
-      <li className="flex items-start gap-1 rounded-md border p-3">
-        <div className="min-w-0 flex-1 break-words text-sm">
-          {isQa ? (
-            <>
-              <p className="font-medium">{entry.question}</p>
-              <p className="mt-0.5 text-muted-foreground">{entry.answer}</p>
-            </>
-          ) : (
-            <p className="whitespace-pre-wrap text-muted-foreground">
-              {entry.content}
-            </p>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Editar entrada"
-          onClick={() => setEditing(true)}
-        >
-          <Pencil className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Eliminar entrada"
-          onClick={onRemove}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+      <li className="rounded-md border">
+        {/* <details> nativo: colapsa/expande sin JS propio, y el teclado y
+            los lectores de pantalla ya saben qué hacer con <summary>. */}
+        <details className="group">
+          <summary className="flex cursor-pointer list-none items-start justify-between gap-2 p-3 text-sm marker:content-none [&::-webkit-details-marker]:hidden">
+            <span className="min-w-0 flex-1 truncate font-medium">{titulo}</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="flex items-start gap-1 border-t p-3">
+            <div className="min-w-0 flex-1 break-words text-sm">
+              {isQa ? (
+                <p className="text-muted-foreground">{entry.answer}</p>
+              ) : (
+                <p className="whitespace-pre-wrap text-muted-foreground">
+                  {entry.content}
+                </p>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Editar entrada"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Eliminar entrada"
+              onClick={onRemove}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </details>
       </li>
     );
   }

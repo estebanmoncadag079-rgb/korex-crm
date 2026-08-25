@@ -96,6 +96,15 @@ ALTER TABLE "meta_credentials" DROP COLUMN "meta_waba_id";
 (Habría que quitar también `metaWabaId` de `schema.ts` y la entrada idx 27 del
 journal.) No hay datos que perder: la columna nace vacía.
 
+## Nota posterior (mismo día)
+
+Añadir el campo obligatorio `metaWabaId` a `Credentials` rompió el
+typecheck de `tests/unit/ycloud-cuenta-cliente.test.ts`: su fixture
+`credencial()` no incluía la columna nueva en su objeto base, y el spread
+de `Partial<Credentials>` la dejaba `undefined` en vez de `null`. Arreglo
+de una línea (`metaWabaId: null,`, mismo patrón que `webhookSecret: null`
+al lado) — commit `b7d965f`.
+
 ## Lo que este cambio NO hace todavía
 
 Esto es **solo el sitio donde guardar el dato**. Quedan, para otro agente:

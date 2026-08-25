@@ -21,7 +21,7 @@ import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { aSecciones, esPorSecciones, leerFicha } from "@/server/ai/generador/leer-ficha";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
-import { armarMenuDeCatalogo, armarMenuDeIntenciones } from "@/server/catalog/menu";
+import { armarMenuDeIntenciones, armarMenuDelCatalogo } from "@/server/catalog/menu";
 import { catalogoDePedidos } from "@/server/catalog/queries";
 import { conRegistro } from "@/server/registro-de-cambios";
 
@@ -38,7 +38,13 @@ function envVar(name: string): string | undefined {
     return undefined;
   }
 }
-for (const n of ["DATABASE_URL", "ENCRYPTION_KEY", "BETTER_AUTH_SECRET"]) {
+for (const n of [
+  "DATABASE_URL",
+  "ENCRYPTION_KEY",
+  "BETTER_AUTH_SECRET",
+  "APP_BASE_URL",
+  "META_WEBHOOK_VERIFY_TOKEN",
+]) {
   const v = envVar(n);
   if (v && !process.env[n]) process.env[n] = v;
 }
@@ -114,7 +120,7 @@ if (encender) {
   }
   const menuIntenciones = armarMenuDeIntenciones(opciones);
   const productos = await catalogoDePedidos(orgId);
-  const menuCatalogo = armarMenuDeCatalogo(productos);
+  const menuCatalogo = armarMenuDelCatalogo(productos, null);
   if (!menuIntenciones) {
     console.error("[menu] ⛔ el menú de opciones no cabe en los límites de WhatsApp (revisa las etiquetas).");
     await sql.end();
@@ -122,11 +128,16 @@ if (encender) {
   }
   if (!menuCatalogo) {
     console.error(
-      "[menu] ⛔ el catálogo no cabe en una sola lista (más de 10 productos, más de 10 categorías, o un nombre muy largo): encenderlo dejaría al agente sin poder mostrar el menú de productos."
+      "[menu] ⛔ ni el catálogo completo ni sus categorías caben en una lista de WhatsApp (revisa nombres de producto/categoría muy largos, o más de 10 categorías): encenderlo dejaría al agente sin poder mostrar el menú de productos."
     );
     await sql.end();
     process.exit(1);
   }
+  console.log(
+    productos.length <= 10
+      ? "[menu] el catálogo entero cabe en una sola lista."
+      : "[menu] el catálogo no cabe entero: se mostrará primero por categorías (nivel 2)."
+  );
   await db
     .update(schema.agentProfile)
     .set({ menuMode: "guiado", updatedAt: new Date() })

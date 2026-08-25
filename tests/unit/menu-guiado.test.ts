@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   armarMenuDeCatalogo,
+  armarMenuDeCategoria,
+  armarMenuDeCategorias,
   armarMenuDeIntenciones,
+  armarMenuDelCatalogo,
+  ID_VOLVER_A_CATEGORIAS,
   textoPlanoDeMenu,
 } from "@/server/catalog/menu";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
@@ -79,7 +83,7 @@ describe("armarMenuDeCatalogo", () => {
     expect(armarMenuDeCatalogo([])).toBeNull();
   });
 
-  it("más de 10 productos no cabe en una sola lista (nivel 2 pospuesto)", () => {
+  it("más de 10 productos no cabe en una sola lista — hace falta el nivel 2 (categorías)", () => {
     const productos = Array.from({ length: 11 }, (_, i) =>
       producto({ id: `p${i}`, nombre: `Producto ${i}`, categoria: "General" })
     );
@@ -91,6 +95,89 @@ describe("armarMenuDeCatalogo", () => {
       producto({ id: "p1", nombre: "Un nombre de producto absurdamente largo para WhatsApp" }),
     ];
     expect(armarMenuDeCatalogo(productos)).toBeNull();
+  });
+});
+
+/*
+ * Nivel 2 (25-ago-2026): el caso real que lo motivó — Lis tiene 15
+ * productos, más de los 10 que caben en una sola lista de WhatsApp (límite
+ * duro de la plataforma, no de este código). Sin esto, "Ver menú y precios"
+ * degradaba directo a texto y el incidente de "torta de chocolate" seguía
+ * sin resolverse vía menú tocado.
+ */
+const CATALOGO_DE_LIS = [
+  producto({ id: "c1", nombre: "Cremoso 12 oz", categoria: "Cremosos", precioCents: 1800000 }),
+  producto({ id: "c2", nombre: "Cremoso 16 oz", categoria: "Cremosos", precioCents: 2200000 }),
+  producto({ id: "c3", nombre: "Cremoso 7 oz", categoria: "Cremosos", precioCents: 1200000 }),
+  producto({ id: "c4", nombre: "Cremoso Familiar 44 oz", categoria: "Cremosos", precioCents: 5500000 }),
+  producto({ id: "c5", nombre: "Polvoroso 12 oz", categoria: "Polvorosos", precioCents: 1600000 }),
+  producto({ id: "c6", nombre: "Polvoroso 16 oz", categoria: "Polvorosos", precioCents: 2000000 }),
+  producto({ id: "c7", nombre: "Porción Chocolate", categoria: "Porciones de torta", precioCents: 1250000 }),
+  producto({ id: "c8", nombre: "Porción Red Velvet", categoria: "Porciones de torta", precioCents: 1250000 }),
+  producto({ id: "c9", nombre: "Porción Zanahoria", categoria: "Porciones de torta", precioCents: 1250000 }),
+  producto({ id: "c10", nombre: "Agua", categoria: "Bebidas", precioCents: 300000 }),
+  producto({ id: "c11", nombre: "Café", categoria: "Bebidas", precioCents: 300000 }),
+  producto({ id: "c12", nombre: "Capuchino", categoria: "Bebidas", precioCents: 500000 }),
+  producto({ id: "c13", nombre: "Sodas", categoria: "Bebidas", precioCents: 400000 }),
+  producto({ id: "c14", nombre: "Mini Box", categoria: null, precioCents: 3000000 }),
+  producto({ id: "c15", nombre: "Cremoso de Temporada Arrechon", categoria: "Cremosos", precioCents: 1900000 }),
+];
+
+describe("armarMenuDeCategorias", () => {
+  it("lista solo los nombres de categoría, sin productos", () => {
+    const menu = armarMenuDeCategorias(CATALOGO_DE_LIS);
+    expect(menu?.tipo).toBe("list");
+    if (menu?.tipo === "list") {
+      const titulos = menu.secciones.flatMap((s) => s.filas.map((f) => f.titulo));
+      expect(titulos.sort()).toEqual(
+        ["Bebidas", "Cremosos", "General", "Polvorosos", "Porciones de torta"].sort()
+      );
+    }
+  });
+});
+
+describe("armarMenuDeCategoria", () => {
+  it("lista los productos de esa categoría y termina con Volver", () => {
+    const menu = armarMenuDeCategoria(CATALOGO_DE_LIS, "Porciones de torta");
+    expect(menu?.tipo).toBe("list");
+    if (menu?.tipo === "list") {
+      const filas = menu.secciones.flatMap((s) => s.filas);
+      expect(filas.map((f) => f.titulo)).toContain("Porción Chocolate");
+      expect(filas.at(-1)?.id).toBe(ID_VOLVER_A_CATEGORIAS);
+    }
+  });
+
+  it("una categoría que no existe no arma nada", () => {
+    expect(armarMenuDeCategoria(CATALOGO_DE_LIS, "No existe")).toBeNull();
+  });
+});
+
+describe("armarMenuDelCatalogo (lo que usa el pipeline)", () => {
+  it("con un catálogo grande y sin categoría pedida, cae a la lista de categorías", () => {
+    const menu = armarMenuDelCatalogo(CATALOGO_DE_LIS, null);
+    expect(menu?.tipo).toBe("list");
+    if (menu?.tipo === "list") {
+      const titulos = menu.secciones.flatMap((s) => s.filas.map((f) => f.titulo));
+      expect(titulos).not.toContain("Porción Chocolate");
+      expect(titulos).toContain("Porciones de torta");
+    }
+  });
+
+  it("pidiendo una categoría, muestra sus productos directamente", () => {
+    const menu = armarMenuDelCatalogo(CATALOGO_DE_LIS, "Porciones de torta");
+    if (menu?.tipo === "list") {
+      const titulos = menu.secciones.flatMap((s) => s.filas.map((f) => f.titulo));
+      expect(titulos).toContain("Porción Chocolate");
+    }
+  });
+
+  it("con un catálogo pequeño, sigue usando la lista plana de siempre (nivel 1)", () => {
+    const chico = CATALOGO_DE_LIS.slice(0, 3);
+    const menu = armarMenuDelCatalogo(chico, null);
+    if (menu?.tipo === "list") {
+      const titulos = menu.secciones.flatMap((s) => s.filas.map((f) => f.titulo));
+      expect(titulos).toContain("Cremoso 12 oz");
+    }
   });
 });
 

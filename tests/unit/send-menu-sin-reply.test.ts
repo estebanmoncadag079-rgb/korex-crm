@@ -27,4 +27,14 @@ describe("send_menu: sin reply no es una acción válida", () => {
     const r = AgentAction.safeParse({ action: "send_menu", tipo: "otro", reply: "hola" });
     expect(r.success).toBe(false);
   });
+
+  it("acepta categoria (nivel 2, catálogos grandes) como opcional", () => {
+    const r = AgentAction.safeParse({
+      action: "send_menu",
+      tipo: "catalogo",
+      categoria: "Cremosos",
+      reply: "¡Claro! Esto tenemos en cremosos 🍨",
+    });
+    expect(r.success).toBe(true);
+  });
 });

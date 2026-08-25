@@ -72,11 +72,12 @@ export function armarMenuDeIntenciones(
 }
 
 /**
- * El catálogo agrupado por categoría, en una sola lista con secciones.
+ * El catálogo agrupado por categoría, en una sola lista con secciones —
+ * nivel 1: solo funciona si TODO el catálogo cabe en 10 filas.
  *
- * Fase 1 (25-ago-2026): si el catálogo entero no cabe en 10 filas o 10
- * secciones, degrada a `null` — la sub-lista por categoría (nivel 2) queda
- * pospuesta hasta que un negocio real la necesite.
+ * Cuando no cabe (caso real: Lis, 15 productos, 25-ago-2026), quien llama
+ * debe usar `armarMenuDelCatalogo`, que cae a categorías (nivel 2) en vez de
+ * degradar directo a texto.
  */
 export function armarMenuDeCatalogo(
   productos: ProductoDelCatalogo[],
@@ -108,6 +109,76 @@ export function armarMenuDeCatalogo(
   }));
 
   return { tipo: "list", body, boton: "Ver el menú", secciones };
+}
+
+/** La fila con la que se vuelve de una categoría a la lista de categorías. */
+export const ID_VOLVER_A_CATEGORIAS = "__volver__";
+const ETIQUETA_VOLVER = "⬅ Volver a categorías";
+
+/**
+ * Nivel 2, primer paso: solo los NOMBRES de categoría, cuando el catálogo
+ * entero no cabe en una lista. El cliente toca una y el servidor le muestra
+ * sus productos (`armarMenuDeCategoria`).
+ */
+export function armarMenuDeCategorias(
+  productos: ProductoDelCatalogo[],
+  body = "¿Qué te gustaría ver?"
+): MenuInteractivo | null {
+  const categorias = [...new Set(productos.map((p) => p.categoria?.trim() || "General"))];
+  if (categorias.length === 0 || categorias.length > LIMITE_FILAS_LISTA) return null;
+  if (categorias.some((c) => c.length > LIMITE_TITULO_FILA)) return null;
+  return {
+    tipo: "list",
+    body,
+    boton: "Ver categorías",
+    secciones: [{ titulo: "Categorías", filas: categorias.map((c) => ({ id: c, titulo: c })) }],
+  };
+}
+
+/**
+ * Nivel 2, segundo paso: los productos de UNA categoría, con una fila para
+ * volver a la lista de categorías — ninguna sub-lista es un callejón sin
+ * salida.
+ */
+export function armarMenuDeCategoria(
+  productos: ProductoDelCatalogo[],
+  categoria: string,
+  body?: string
+): MenuInteractivo | null {
+  const deLaCategoria = productos.filter((p) => (p.categoria?.trim() || "General") === categoria);
+  if (deLaCategoria.length === 0 || deLaCategoria.length + 1 > LIMITE_FILAS_LISTA) return null;
+  if (deLaCategoria.some((p) => p.nombre.length > LIMITE_TITULO_FILA)) return null;
+
+  const filas: { id: string; titulo: string; descripcion?: string }[] = deLaCategoria.map((p) => ({
+    id: p.id,
+    titulo: p.nombre,
+    descripcion: (p.precioCents === null ? "Precio a confirmar" : pesos(p.precioCents)).slice(
+      0,
+      LIMITE_DESCRIPCION_FILA
+    ),
+  }));
+  filas.push({ id: ID_VOLVER_A_CATEGORIAS, titulo: ETIQUETA_VOLVER });
+
+  return {
+    tipo: "list",
+    body: body ?? `Esto tenemos en ${categoria}:`,
+    boton: "Ver productos",
+    secciones: [{ titulo: categoria, filas }],
+  };
+}
+
+/**
+ * El punto de entrada que usa el pipeline: intenta el catálogo entero en una
+ * lista (nivel 1); si no cabe, cae a categorías (nivel 2). `categoria` no
+ * nula pide directamente los productos de esa categoría.
+ */
+export function armarMenuDelCatalogo(
+  productos: ProductoDelCatalogo[],
+  categoria: string | null,
+  body?: string
+): MenuInteractivo | null {
+  if (categoria) return armarMenuDeCategoria(productos, categoria, body);
+  return armarMenuDeCatalogo(productos, body) ?? armarMenuDeCategorias(productos, body);
 }
 
 /** El menú como texto plano — para la bandeja del CRM, el Laboratorio, o si falla el envío. */

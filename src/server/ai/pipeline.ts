@@ -652,6 +652,18 @@ export async function runAgentTurn(
         }
       : undefined;
 
+  /**
+   * Mismo dato que `pagoDeCitas`, para PEDIDOS — apagado por defecto
+   * (`payment_source = 'prompt'`, como nace todo cliente). Con la bandera en
+   * 'ficha', las formas de pago dejan de depender de que el modelo interprete
+   * bien la prosa de `instructions` y se leen frescas en cada turno, igual
+   * que ya hace citas. Ver el interruptor en `schema.ts` (`paymentSource`).
+   */
+  const pagoDePedidos =
+    !contrataCitas(vertical) && profile.paymentSource === "ficha" && fichaDelNegocio
+      ? (fichaDelNegocio as FichaDelNegocio).pago
+      : undefined;
+
   if (estadoEstructurado) {
     const productos = await catalogoDe(organizationId, vertical);
     if (productos.length === 0) {
@@ -710,6 +722,7 @@ export async function runAgentTurn(
         fotos,
         requisitos,
         pagoDeCitas,
+        pagoDePedidos,
       }),
     },
     ...toChatHistory(history, estado),

@@ -405,6 +405,22 @@ export const agentProfile = pgTable(
      */
     catalogSource: text("catalog_source").notNull().default("prompt"),
     /**
+     * De dónde sale la sección de pago de un negocio de PEDIDOS: `'prompt'`
+     * (el texto de siempre, dentro de `instructions`) o `'ficha'` (se lee
+     * `agent_profile.ficha.pago` en cada turno y se inyecta aparte, con la
+     * misma instrucción de "cópialo tal cual" que ya usa el horario).
+     *
+     * Mismo interruptor que `catalogSource`, mismo motivo: nace en `'prompt'`
+     * (apagado, sin tocar a nadie) y se enciende cliente por cliente. El
+     * rollback es un UPDATE de una fila — el texto original no se borra al
+     * migrar.
+     *
+     * En el vertical de citas no aplica: el pago de una cita ya se resuelve
+     * desde la ficha en cada turno (`pagoDeCitasParaElPrompt`); esta bandera
+     * es la misma capacidad, llevada al vertical que todavía no la tenía.
+     */
+    paymentSource: text("payment_source").notNull().default("prompt"),
+    /**
      * FASE 2. `'prompt'` = el estado del pedido lo sostiene el modelo dentro de
      * la conversación, como hasta hoy. `'backend'` = lo mantiene el servidor en
      * `conversation_state`, validado y con el total recalculado.

@@ -68,8 +68,12 @@ describe("faltantesDeLaFicha: frena el alta antes de romper nada", () => {
     );
   });
 
-  it("un negocio de pedidos sin catálogo no puede vender", () => {
-    expect(faltantesDeLaFicha({ ...LIS, catalogo: "" })).toContain(
+  it("un negocio de pedidos sin catálogo en la ficha SÍ puede terminar el alta (25-ago-2026)", () => {
+    // El catálogo ya no se pide en el cuestionario: se carga en la pantalla
+    // Catálogo, con sus productos y grupos de opciones en tablas — no hay
+    // texto que exigir aquí, y exigirlo bloquearía un alta que puede
+    // completarse perfectamente sin él.
+    expect(faltantesDeLaFicha({ ...LIS, catalogo: "" })).not.toContain(
       "el catálogo con precios"
     );
   });

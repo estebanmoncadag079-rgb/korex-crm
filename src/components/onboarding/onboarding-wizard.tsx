@@ -201,236 +201,6 @@ function Lista({
   );
 }
 
-/** Lo que devuelve el lector de cartas, tal cual: se revisa antes de usarse. */
-type ProductoLeido = {
-  nombre: string;
-  precio: number | null;
-  duracionMin?: number | null;
-  categoria?: string | null;
-};
-
-/**
- * Subir el catálogo —PDF o foto— en vez de teclear producto a producto.
- *
- * El salón de lashes tiene más de 34 servicios: pedirle a alguien que los
- * escriba uno a uno es la mejor forma de que abandone el alta.
- *
- * El **PDF** es el caso real: el catálogo de un salón es un documento de diez
- * páginas, no una foto. Se abre en el navegador (`lib/pdf-cliente.ts`) y solo
- * viaja su texto — del PDF de 36 MB del salón, 2,9 KB. Decirle a un cliente
- * *"tómale una foto a tu catálogo de diez páginas"* no era una respuesta.
- *
- * ⚠️ **Nada se carga sin revisar.** Lo leído aparece primero en una lista
- * editable, con el aviso de comprobar los precios. Viene de un incidente real:
- * el catálogo del salón se cargó a mano con 12 precios equivocados que nadie
- * detectó hasta que llegó el PDF oficial.
- */
-function LectorDeCarta({
-  onLeido,
-  pedirDuracion = false,
-}: {
-  onLeido: (texto: string) => void;
-  /** En citas la duración no es un adorno: de ella depende que no se crucen. */
-  pedirDuracion?: boolean;
-}) {
-  const [leyendo, setLeyendo] = useState(false);
-  const [lectura, setLectura] = useState<{
-    productos: ProductoLeido[];
-    texto: string;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const queEs = pedirDuracion ? "servicios" : "productos";
-
-  /**
-   * El PDF se lee aquí, en el navegador: primero su texto (exacto y gratis) y,
-   * si es un escaneo sin capa de texto, se rasteriza la primera página y se
-   * manda al lector de imágenes de siempre. El documento no sale del computador
-   * del cliente.
-   */
-  async function subirPdf(archivo: File) {
-    setError(null);
-    setLeyendo(true);
-    try {
-      const { textoDePdf, primeraPaginaComoPng } = await import("@/lib/pdf-cliente");
-      const leido = await textoDePdf(archivo);
-      if (leido.ok) {
-        await pedirLectura({ texto: leido.texto });
-        return;
-      }
-      const png = await primeraPaginaComoPng(archivo);
-      if (!png) {
-        setError(
-          `No pudimos leer ese PDF. Prueba con una foto, o escribe tus ${queEs} abajo.`
-        );
-        return;
-      }
-      await pedirLectura({ base64: png.base64, mimeType: "image/png" });
-    } catch {
-      setError(`No pudimos leer ese PDF. Puedes escribir tus ${queEs} a mano.`);
-    } finally {
-      setLeyendo(false);
-    }
-  }
-
-  async function subirFoto(archivo: File) {
-    setError(null);
-    setLeyendo(true);
-    try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const lector = new FileReader();
-        lector.onload = () =>
-          resolve(String(lector.result).split(",")[1] ?? "");
-        lector.onerror = () => reject(new Error("no se pudo leer el archivo"));
-        lector.readAsDataURL(archivo);
-      });
-      await pedirLectura({ base64, mimeType: archivo.type });
-    } catch {
-      setError(`No pudimos leer la foto. Puedes escribir tus ${queEs} a mano.`);
-    } finally {
-      setLeyendo(false);
-    }
-  }
-
-  async function pedirLectura(carga: Record<string, string>) {
-    const res = await fetch("/api/onboarding/catalogo", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(carga),
-    });
-    const d = await res.json();
-    if (!res.ok) {
-      setError(d?.message ?? "No pudimos leer la carta.");
-      return;
-    }
-    const productos: ProductoLeido[] = d.productos ?? [];
-    if (!productos.length) {
-      setError(`No encontramos ${queEs} ahí. Puedes escribirlos abajo.`);
-      return;
-    }
-    /*
-     * El texto lo arma el servidor (`catalogoATexto`) y por eso conserva las
-     * categorías y los minutos de cada línea. Rehacerlo aquí como
-     * "nombre — precio" era justo lo que tiraba las duraciones leídas.
-     */
-    setLectura({ productos, texto: d.texto ?? "" });
-  }
-
-  if (lectura) {
-    const { productos } = lectura;
-    const sinPrecio = productos.filter((p) => p.precio === null).length;
-    const sinDuracion = productos.filter((p) => !p.duracionMin).length;
-    return (
-      <div className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
-        <p className="text-sm font-medium">
-          Encontramos {productos.length} {queEs}. Revísalos antes de continuar —
-          sobre todo los precios.
-        </p>
-        {sinPrecio > 0 ? (
-          <p className="text-[13px] text-amber-800 dark:text-amber-400">
-            ⚠️ {sinPrecio} sin precio: no lo adivinamos, complétalos abajo.
-          </p>
-        ) : null}
-        {pedirDuracion && sinDuracion > 0 ? (
-          <p className="text-[13px] text-amber-800 dark:text-amber-400">
-            ⚠️ {sinDuracion} sin duración. Ponla en la línea (· 90 min) o toma
-            la duración típica de abajo: de ella depende que no se te crucen dos
-            clientas.
-          </p>
-        ) : null}
-        <div className="max-h-56 overflow-y-auto rounded border bg-background">
-          {productos.map((p, i) => (
-            <div
-              key={i}
-              className="flex justify-between gap-3 border-b px-3 py-1.5 text-[13px] last:border-0"
-            >
-              <span className="truncate">
-                {p.nombre}
-                {p.categoria ? (
-                  <span className="text-muted-foreground"> · {p.categoria}</span>
-                ) : null}
-              </span>
-              <span className="shrink-0">
-                <span className={p.precio === null ? "text-destructive" : ""}>
-                  {p.precio === null
-                    ? "sin precio"
-                    : `$${p.precio.toLocaleString("es-CO")}`}
-                </span>
-                {pedirDuracion ? (
-                  <span
-                    className={
-                      p.duracionMin
-                        ? "text-muted-foreground"
-                        : "text-amber-700 dark:text-amber-400"
-                    }
-                  >
-                    {p.duracionMin ? ` · ${p.duracionMin} min` : " · sin duración"}
-                  </span>
-                ) : null}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              onLeido(lectura.texto);
-              setLectura(null);
-            }}
-          >
-            Usar esta lista
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setLectura(null)}
-          >
-            Descartar
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-md border border-dashed p-4">
-      <p className="text-sm font-medium">
-        ¿Tienes tu {pedirDuracion ? "catálogo" : "carta"} en un PDF o una foto?
-      </p>
-      <p className="mt-1 text-[13px] text-muted-foreground">
-        Súbelo y sacamos los {queEs} por ti. Después los revisas y corriges lo
-        que haga falta. El archivo no sale de tu computador.
-      </p>
-      <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm hover:bg-accent">
-        <Upload className="h-4 w-4" />
-        {leyendo ? "Leyendo…" : "Subir mi PDF o foto"}
-        <input
-          type="file"
-          accept="image/*,application/pdf,.pdf"
-          className="hidden"
-          disabled={leyendo}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) {
-              const esPdf =
-                f.type === "application/pdf" ||
-                f.name.toLowerCase().endsWith(".pdf");
-              void (esPdf ? subirPdf(f) : subirFoto(f));
-            }
-            e.target.value = "";
-          }}
-        />
-      </label>
-      {error ? (
-        <p className="mt-2 text-[13px] text-destructive">{error}</p>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * Las fotos que el agente podrá enviar, subidas por el propio cliente.
  *
@@ -752,42 +522,6 @@ export function OnboardingWizard() {
       ),
     },
     {
-      titulo: "Lo que vendes",
-      subtitulo: "Con esto el asistente arma los pedidos y calcula los totales.",
-      contenido: (
-        <>
-          <LectorDeCarta
-            onLeido={(texto) =>
-              set({ catalogo: [ficha.catalogo, texto].filter(Boolean).join("\n") })
-            }
-          />
-          <Campo
-            titulo="Tus productos con su precio, uno por línea"
-            ayuda="Puedes escribirlos, o subir el PDF o la foto de tu carta aquí arriba y revisar lo que salga."
-            ejemplo="Torta de chocolate — $45.000"
-          >
-            <Textarea
-              rows={7}
-              placeholder={"Producto — $precio\nProducto — $precio"}
-              value={ficha.catalogo ?? ""}
-              onChange={(e) => set({ catalogo: e.target.value })}
-            />
-          </Campo>
-          <Campo
-            titulo="¿Alguno tiene opciones para elegir? ¿Cuántas puede escoger?"
-            ayuda="Sabores, tamaños, toppings, colores…"
-            ejemplo="La torta de 16 oz lleva 3 toppings a elección entre 8 sabores."
-          >
-            <Textarea
-              rows={3}
-              value={ficha.variantes ?? ""}
-              onChange={(e) => set({ variantes: e.target.value })}
-            />
-          </Campo>
-        </>
-      ),
-    },
-    {
       titulo: "Cómo reciben lo que piden",
       subtitulo: "Aquí está el dato que más problemas evita: quién paga el domicilio.",
       contenido: (
@@ -1076,26 +810,22 @@ export function OnboardingWizard() {
   ];
 
   /*
-   * En un negocio de CITAS el catálogo no se pide aquí.
+   * El catálogo NUNCA se pide aquí, en ningún vertical (25-ago-2026).
    *
-   * Sus servicios no viven en el prompt sino en la tabla `service`, con su
-   * duración y con quién atiende cada uno (`generar.ts` lo excluye del texto a
-   * propósito, para no tener dos fuentes de verdad). Pedirlos también en el
-   * alta significaba cargarlos dos veces y que la copia del alta empezara a
-   * quedarse vieja el mismo día.
-   *
-   * Se cargan enteros —PDF, foto o lista pegada— en **Servicios**, que es
-   * donde además se reparte quién los hace y donde se avisa de los que no
-   * atiende nadie. El aviso del final del alta lleva allí.
+   * En CITAS los servicios viven en la tabla `service`, con su duración y con
+   * quién atiende cada uno. En PEDIDOS, los productos y sus grupos de
+   * opciones viven en `product`/`product_option_group` — antes se escribían
+   * como texto libre en este paso y alguien los migraba después, así que la
+   * copia del alta se quedaba vieja el mismo día en que el negocio ya
+   * gestionaba su catálogo desde el CRM. Se cargan en **Servicios** o
+   * **Catálogo** según el vertical, nunca los dos. El aviso del final del
+   * alta lleva a la pantalla que corresponde.
    */
-  const etapaSobra = (titulo: string) =>
-    ficha.vertical === "citas" ? titulo === "Lo que vendes" : false;
-  const visibles = etapas.filter((e) => !etapaSobra(e.titulo));
-  // `visibles` nunca está vacío (las etapas son literales), pero TypeScript no
-  // puede saberlo: el fallback evita un `actual` posiblemente indefinido sin
-  // ensuciar el JSX con interrogaciones.
-  const actual = visibles[Math.min(etapa, visibles.length - 1)] ?? etapas[0]!;
-  const ultima = etapa >= visibles.length - 1;
+  // El fallback evita un `actual` posiblemente indefinido sin ensuciar el
+  // JSX con interrogaciones — `etapas` nunca está vacío (son literales), pero
+  // TypeScript no puede saberlo.
+  const actual = etapas[Math.min(etapa, etapas.length - 1)] ?? etapas[0]!;
+  const ultima = etapa >= etapas.length - 1;
 
   async function terminar() {
     setError(null);
@@ -1134,10 +864,9 @@ export function OnboardingWizard() {
             hable con tus clientes antes de que tú lo veas funcionando.
           </CardDescription>
         </CardHeader>
-        {/* El alta de un negocio de citas NO pide el catálogo: sus servicios
-            viven en la pantalla de Servicios, con duración y con quién los
-            atiende. Decirlo aquí es lo que evita que alguien termine el alta
-            creyendo que ya está todo — que fue el fallo original, silencioso. */}
+        {/* El alta NO pide el catálogo en ningún vertical: decirlo aquí es lo
+            que evita que alguien termine el alta creyendo que ya está todo —
+            que fue el fallo original, silencioso, con las citas. */}
         {ficha.vertical === "citas" ? (
           <CardContent>
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[13px] dark:border-amber-800 dark:bg-amber-950/30">
@@ -1150,7 +879,18 @@ export function OnboardingWizard() {
               </p>
             </div>
           </CardContent>
-        ) : null}
+        ) : (
+          <CardContent>
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[13px] dark:border-amber-800 dark:bg-amber-950/30">
+              <p className="font-medium">Falta un paso: tu catálogo.</p>
+              <p className="mt-1 text-muted-foreground">
+                Se carga en la pantalla <strong>Catálogo</strong> — ahí agregas
+                cada producto con su precio y, si tiene, sus opciones para
+                elegir (sabores, tamaños, toppings).
+              </p>
+            </div>
+          </CardContent>
+        )}
       </Card>
     );
   }
@@ -1159,7 +899,7 @@ export function OnboardingWizard() {
     <div className="mx-auto max-w-2xl space-y-4">
       {/* Barra de progreso: saber cuánto falta es lo que evita el abandono. */}
       <div className="flex items-center gap-2">
-        {visibles.map((_, i) => (
+        {etapas.map((_, i) => (
           <div
             key={i}
             className={`h-1.5 flex-1 rounded-full ${
@@ -1169,7 +909,7 @@ export function OnboardingWizard() {
         ))}
       </div>
       <p className="text-[13px] text-muted-foreground">
-        Paso {etapa + 1} de {visibles.length}
+        Paso {etapa + 1} de {etapas.length}
         {guardando ? " · guardando…" : " · se guarda solo al avanzar"}
       </p>
 

@@ -1,42 +1,49 @@
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
-import { actualizarPermiteRepeticion } from "@/server/catalog/grupos";
+import { actualizarGrupo, eliminarGrupo } from "@/server/catalog/grupos";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
 /**
- * Lo ÚNICO que este paso deja cambiar de un grupo de opciones.
- *
- * `.strict()` no es celo: un cuerpo que traiga `minSelect`, `maxSelect` o un
- * precio tiene que fallar con un 422, no colarse ignorado. El día que el CRM
- * edite los mínimos será porque alguien lo añadió aquí a propósito y con su
- * prueba, no porque una pantalla mandara un campo de más.
+ * `.strict()` no es celo: un cuerpo con un campo que este endpoint no conoce
+ * tiene que fallar con un 422, no colarse ignorado — mismo principio que
+ * cuando este endpoint solo dejaba tocar `permiteRepeticion`
+ * ([94](../../../../../docs/korexia/94-BITACORA-PERMITE-REPETICION-CRM.md)).
+ * Ahora la pantalla de catálogo completo también edita nombre y mínimo/máximo,
+ * así que el conjunto permitido creció con ella — a propósito y declarado.
  */
-const cuerpo = z.object({ permiteRepeticion: z.boolean() }).strict();
+const cuerpo = z
+  .object({
+    nombre: z.string().min(1).max(100).optional(),
+    minimo: z.number().int().min(0).max(20).optional(),
+    maximo: z.number().int().min(0).max(20).optional(),
+    permiteRepeticion: z.boolean().optional(),
+  })
+  .strict();
 
-/**
- * Cambiar si un grupo de opciones **admite repetir** la misma opción.
- *
- * Es el sustituto de `pnpm repeticion`: la misma decisión de negocio, tomada
- * desde el CRM por quien lleva el negocio y no por quien tiene acceso a la
- * base ([94](../../../../../docs/korexia/94-BITACORA-PERMITE-REPETICION-CRM.md)).
- */
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   const { id } = await ctx.params;
   const body = await parseBody(req, cuerpo);
   if (!body.ok) return body.response;
 
-  const grupo = await actualizarPermiteRepeticion(
+  const grupo = await actualizarGrupo(
     session.organizationId,
     id,
-    body.data.permiteRepeticion,
+    body.data,
     `user:${session.userId}`
   );
   // Mismo 404 para "no existe" y para "es de otro cliente": el WHERE va
-  // filtrado por organización, así que un id ajeno no actualiza nada — y esta
-  // respuesta tampoco confirma que exista.
+  // filtrado por organización, así que un id ajeno no actualiza nada y
+  // tampoco confirma que exista.
   if (!grupo) return apiError(404, "not_found", "Grupo de opciones no encontrado");
   return Response.json({ grupo });
+});
+
+export const DELETE = withAuth(async (session, _req: Request, ctx: Params) => {
+  const { id } = await ctx.params;
+  const ok = await eliminarGrupo(session.organizationId, id, `user:${session.userId}`);
+  if (!ok) return apiError(404, "not_found", "Grupo de opciones no encontrado");
+  return Response.json({ eliminado: true });
 });

@@ -652,3 +652,27 @@ export function confirmaPagoSinVerificar(texto: string | null | undefined): bool
 /** La corrección cuando el agente da un pago por recibido sin que nadie lo haya verificado. */
 export const CORRECCION_DE_PAGO_SIN_VERIFICAR =
   "ALTO. Tu respuesta le dice al cliente que su pago fue recibido, confirmado o exitoso, y eso NO es cierto: tú no puedes verificar un pago, ni viendo un comprobante — puede estar retocado, ser de otro pedido o de otra cuenta. NUNCA digas 'pago confirmado', 'recibimos tu pago' ni 'ya nos llegó'. Si el cliente mandó un comprobante, dile que lo pasas al equipo para verificarlo y sigue con el pedido con normalidad. Si el cliente solo dijo CÓMO va a pagar (por ejemplo 'pago por nequi', sin comprobante todavía), pídele que haga la transferencia y te envíe la captura — no des nada por pagado. Responde ÚNICAMENTE el objeto JSON.";
+
+/*
+ * ============================================================
+ * El turno mudo: provide_requirement / update_lead sin reply
+ * (24-ago-2026)
+ * ============================================================
+ *
+ * **Caso real (Lis Pastelería, 24-ago-2026)**: la clienta dio nombre,
+ * teléfono y dirección para su domicilio. El modelo emitió
+ * `provide_requirement` sin `reply` —el campo es opcional en el esquema— y
+ * el ejecutor solo manda algo `if (action.reply)`. Resultado: la clienta se
+ * quedó sin una sola palabra del agente, sin error en ningún log, hasta que
+ * la dueña la vio sin responder y contestó a mano 4 minutos después.
+ *
+ * A diferencia de los guardarraíles de texto (cierre falso, cita fantasma,
+ * pago sin verificar), este no busca una frase incorrecta: busca la
+ * AUSENCIA total de una. Por eso el detector vive en `pipeline.ts`, junto a
+ * la comprobación (`textosAlCliente(action).length === 0`) — aquí solo el
+ * mensaje de corrección, igual que el de requisito faltante.
+ */
+
+/** La corrección cuando el agente iba a dejar al cliente sin ninguna respuesta en el turno. */
+export const CORRECCION_DE_TURNO_MUDO =
+  "ALTO. Tu acción no incluye ningún \"reply\": el cliente se quedaría sin recibir ni una sola palabra tuya en este turno. Repite la MISMA acción, con el mismo requisitoId/valor o nota, pero agregando \"reply\" con una respuesta normal para seguir la conversación (agradece el dato, retoma lo que faltaba o confirma el siguiente paso). Responde ÚNICAMENTE el objeto JSON.";

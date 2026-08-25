@@ -84,6 +84,7 @@ import {
   CORRECCION_DE_PAGO_SIN_VERIFICAR,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   CORRECCION_DE_RECURSO_PROMETIDO,
+  CORRECCION_DE_TURNO_MUDO,
   CORRECCION_SIN_RESUMEN,
   CORRECCION_SIN_TOTAL,
   confirmaPagoSinVerificar,
@@ -1063,6 +1064,62 @@ export async function runAgentTurn(
     } else {
       console.error(
         "[agente] sigue confirmando un pago sin verificarlo; lo toma una persona"
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * `provide_requirement` y `update_lead` traen `reply` OPCIONAL en el
+   * esquema —"para seguir la conversación en el mismo turno"— pero el
+   * ejecutor solo manda algo `if (action.reply)`: si el modelo la omite, el
+   * turno termina sin una sola palabra al cliente. Sin error, sin handoff,
+   * sin fila de mensaje: silencio total.
+   *
+   * **Caso real (Lis Pastelería, 24-ago-2026, 17:07 Colombia)**: la clienta
+   * dio nombre, teléfono y dirección para su domicilio. El modelo emitió
+   * `provide_requirement` (requisitoId "direccion") SIN `reply`. El estado
+   * se guardó (`conversation_state.datos.direccion`), pero como este negocio
+   * no tiene destino de captura para "direccion" en `CAMPO_DE_REQUISITO`
+   * (deuda ya documentada, docs/korexia/103), `capturar()` además falló — y
+   * ninguna de las dos cosas importó para el cliente: no llegó nada. Quedó
+   * esperando 4 minutos hasta que la dueña, viendo el chat sin responder,
+   * contestó a mano.
+   *
+   * Ningún guardarraíl de texto lo detecta: `textosAlCliente(action)` ya
+   * devuelve `[]` cuando no hay `reply`, así que los detectores que revisan
+   * TEXTO no tienen nada que mirar. Este es estructural, no de texto: la
+   * condición es la AUSENCIA de cualquier mensaje al cliente en una acción
+   * que no cierra la conversación por otra vía (a diferencia de `handoff`,
+   * que sí puede quedarse callado a propósito mientras espera a una
+   * persona).
+   */
+  const ACCIONES_QUE_SIGUEN_LA_CONVERSACION = ["provide_requirement", "update_lead"];
+  if (
+    ACCIONES_QUE_SIGUEN_LA_CONVERSACION.includes(action.action) &&
+    textosAlCliente(action).length === 0
+  ) {
+    console.warn(`[agente] "${action.action}" sin reply; el cliente se quedaría sin respuesta, rehaciendo el turno`);
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_TURNO_MUDO },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/turno-mudo`
+    );
+    if (
+      reintento.ok &&
+      (!ACCIONES_QUE_SIGUEN_LA_CONVERSACION.includes(reintento.data.action) ||
+        textosAlCliente(reintento.data).length > 0)
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        `[agente] "${action.action}" sigue sin reply; lo toma una persona`
       );
       await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };

@@ -418,6 +418,33 @@ export const REQUISITOS_DISPONIBLES: readonly Requisito[] = [
 ];
 
 /**
+ * Combina lo que "Datos que deben solicitarse antes de confirmar" gestiona
+ * (el catálogo de arriba, marcado/desmarcado por checkbox) con lo que un
+ * negocio ya tuviera declarado por otra vía — hoy, solo "direccion" para
+ * pedidos con domicilio (ver `requisitosSugeridos`, aplicado antes a mano con
+ * `migrar:requisitos`). Esa pantalla no pregunta por "direccion", así que no
+ * debe borrarlo: se preserva tal cual estuviera en la ficha ya aplicada.
+ *
+ * Sin esto, terminar el cuestionario borraba en silencio la dirección de
+ * domicilio de cualquier negocio migrado así (25-ago-2026, Lis) — y antes de
+ * eso, el propio guardado fallaba siempre con un 400, porque el schema de
+ * entrada solo aceptaba los cuatro ids de este catálogo.
+ */
+export function fusionarRequisitosDelCatalogo(
+  marcados: { id: string }[],
+  requisitosPrevios: Requisito[] | undefined
+): Requisito[] {
+  const delCatalogo = REQUISITOS_DISPONIBLES.filter((r) =>
+    marcados.some((x) => x.id === r.id)
+  ).map((r) => ({ ...r, obligatorio: true }));
+  const idsDelCatalogo = new Set(REQUISITOS_DISPONIBLES.map((r) => r.id));
+  const fueraDelCatalogo = (requisitosPrevios ?? []).filter(
+    (r) => !idsDelCatalogo.has(r.id)
+  );
+  return [...fueraDelCatalogo, ...delCatalogo];
+}
+
+/**
  * Los requisitos que le tocarían a una ficha que aún no los declara.
  *
  * ⚠️ **Esto NO lo usa el pipeline ni el validador**: existe solo para que

@@ -7,6 +7,7 @@ import {
 } from "@/server/ai/generador/aplicar";
 import {
   faltantesDeLaFicha,
+  fusionarRequisitosDelCatalogo,
   REQUISITOS_DISPONIBLES,
   type FichaDelNegocio,
 } from "@/server/ai/generador/ficha";
@@ -34,14 +35,18 @@ export const dynamic = "force-dynamic";
 const preguntaSchema = z.object({ pregunta: z.string(), respuesta: z.string() });
 
 /**
- * Solo lo que "Datos que deben solicitarse antes de confirmar" deja tocar:
- * marcar/desmarcar de un catálogo fijo (`REQUISITOS_DISPONIBLES`). El id es
- * lo único que decide el cliente; `tipo` y `etiqueta` los pone el servidor al
- * aplicar la ficha — mandarlos aquí no cambiaría nada, así que no se piden.
+ * "Datos que deben solicitarse antes de confirmar" solo deja marcar/desmarcar
+ * el catálogo fijo de esta pantalla (`REQUISITOS_DISPONIBLES`) — los que se
+ * guardan en el contacto. `id` es `string` a propósito, NO un enum de ese
+ * catálogo: un negocio de pedidos con domicilio puede tener además
+ * "direccion" declarado por otra vía (`requisitosSugeridos`/
+ * `migrar:requisitos`, ver ficha.ts), y el borrador que este formulario
+ * recarga trae ese requisito completo aunque esta pantalla no lo pregunte.
+ * Un enum estricto aquí bloqueaba con un 400 CUALQUIER guardado de ese
+ * negocio, incluso sin tocar nada (25-ago-2026, Lis). El POST más abajo es
+ * quien preserva lo que este catálogo no cubre.
  */
-const requisitoSchema = z.object({
-  id: z.enum(REQUISITOS_DISPONIBLES.map((r) => r.id) as [string, ...string[]]),
-});
+const requisitoSchema = z.object({ id: z.string() });
 
 /**
  * Laxo a propósito: aquí solo se guarda el avance, y a media ficha casi todo
@@ -164,9 +169,10 @@ export const POST = withAuth(async (session, req: Request) => {
    * de apagarlo por accidente cada vez que alguien reenvía el cuestionario.
    */
   const fichaPrevia = await leerBorrador(session.organizationId);
-  const requisitos = REQUISITOS_DISPONIBLES.filter((r) =>
-    (body.data.borrador.cierre?.requisitos ?? []).some((x) => x.id === r.id)
-  ).map((r) => ({ ...r, obligatorio: true }));
+  const requisitos = fusionarRequisitosDelCatalogo(
+    body.data.borrador.cierre?.requisitos ?? [],
+    fichaPrevia.cierre?.requisitos
+  );
   const borradorConCierre: FichaDelNegocio = {
     ...borrador,
     cierre: {

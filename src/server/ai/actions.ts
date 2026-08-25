@@ -109,6 +109,13 @@ export const AgentAction = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("send_menu"),
     tipo: z.enum(["intenciones", "catalogo"]),
+    /**
+     * Cuando el catálogo no cabe en una sola lista, `tipo: "catalogo"` sin
+     * `categoria` muestra primero los NOMBRES de categoría; el cliente toca
+     * una y el modelo repite `send_menu` con esa categoría exacta aquí para
+     * ver sus productos. Ignorado si el catálogo entero sí cabe en una lista.
+     */
+    categoria: z.string().optional(),
     reply: z.string().optional(),
   }),
   /**
@@ -248,6 +255,7 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
   etiqueta: { type: ["string", "null"] },
   label: { type: ["string", "null"] },
   tipo: { type: ["string", "null"] },
+  categoria: { type: ["string", "null"] },
   requisitoId: { type: ["string", "null"] },
   valor: { type: ["string", "null"] },
   servicio: { type: ["string", "null"] },

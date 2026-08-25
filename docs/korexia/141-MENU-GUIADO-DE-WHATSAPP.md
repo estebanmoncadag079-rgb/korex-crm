@@ -94,10 +94,44 @@ son pasos que gastan una llamada real al modelo y tocan producción, así que
 quedan para cuando Esteban decida darle luz verde, siguiendo el mismo patrón
 de todo `regenerar:flota`/`migrar:*` de este proyecto.
 
+## Actualización del mismo día: el nivel 2 SÍ hacía falta
+
+Al preparar la prueba real con Lis, este documento decía "ningún negocio real
+necesita sub-listas de nivel 2" — **era falso**. El catálogo real de Lis
+tiene 15 productos, y el límite de WhatsApp para una lista es **10 filas en
+total, sumando todas las secciones** (no 10 por sección, como se asumió al
+diseñar). Encender el menú guiado para Lis con el diseño original habría
+dejado "Ver menú y precios" degradando siempre a texto — exactamente el
+mismo comportamiento de hoy, sin resolver el incidente que lo motivó.
+
+Se agregó el nivel 2 el mismo día: `armarMenuDeCategorias` (lista solo los
+nombres de categoría) y `armarMenuDeCategoria` (los productos de una,
+terminando en una fila "⬅ Volver a categorías" — ninguna sub-lista es un
+callejón sin salida). `armarMenuDelCatalogo` es el punto de entrada que usa
+el pipeline: intenta el catálogo entero en una lista: si no cabe, cae a
+categorías. La acción `send_menu` gana un campo opcional `categoria`, y la
+instrucción del prompt le explica al modelo el ida-y-vuelta (tocar una
+categoría → pedir esa categoría; tocar "Volver" → pedir sin categoría).
+
+De paso, al preparar los datos reales de Lis para la prueba, se encontraron y
+corrigieron dos errores de captura en su `ficha.menu` (recién escrito desde
+el wizard): las 4 opciones estaban pegadas como una sola entrada de texto
+(se separaron), y una etiqueta con un emoji compuesto ("🧑‍💼", persona +
+maletín) medía 26 caracteres — sobre el límite de 24 para una fila de lista —
+así que se le quitó el emoji.
+
+## Verificado (ampliado)
+
+9 pruebas más (24 en total): categorías derivadas correctamente del catálogo
+real de Lis reproducido en el test, la sub-lista de una categoría con su fila
+de volver, y que `armarMenuDelCatalogo` elige automáticamente entre plano y
+por categorías según si cabe. Suite completa: **1016 pruebas, 0 fallos**.
+
 ## Lo que no se resuelve en esta fase (documentado, no descartado)
 
-- Sub-listas de nivel 2 (categoría con más de 10 productos): ningún negocio
-  real las necesita hoy.
+- Sub-listas de nivel 3 (una categoría que ella misma supere 9 productos,
+  descontando la fila de "Volver"): no ha aparecido en ningún negocio real
+  todavía — si aparece, es el mismo patrón otra vez, un nivel más.
 - Vertical de citas: el catálogo de servicios tiene su propia estructura
   (duración, especialista); se evalúa aparte con datos reales.
 - El wizard no valida en vivo los límites de WhatsApp mientras el dueño

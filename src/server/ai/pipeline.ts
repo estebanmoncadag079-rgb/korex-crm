@@ -57,7 +57,7 @@ import {
   resolverEspecialistaMultiple,
 } from "@/server/appointments/queries";
 import { catalogoDe, catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
-import { armarMenuDeCatalogo, armarMenuDeIntenciones, textoPlanoDeMenu } from "@/server/catalog/menu";
+import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
@@ -1598,7 +1598,11 @@ export async function runAgentTurn(
       const menu =
         action.tipo === "intenciones"
           ? armarMenuDeIntenciones(fichaDelNegocio?.menu?.opciones ?? [], action.reply)
-          : armarMenuDeCatalogo(await catalogoDePedidosQuery(organizationId), action.reply);
+          : armarMenuDelCatalogo(
+              await catalogoDePedidosQuery(organizationId),
+              action.categoria ?? null,
+              action.reply
+            );
 
       if (!menu) {
         console.warn(

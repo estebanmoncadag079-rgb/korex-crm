@@ -65,6 +65,7 @@ function menuGuiadoParaElPrompt(
     "## Cómo arrancas la conversación",
     'Este negocio tiene un menú guiado: cuando alguien te escriba por primera vez, o te salude sin pedir algo concreto, usa la acción `send_menu` con `tipo: "intenciones"` — el sistema arma la lista o los botones reales, tú no escribes el saludo a mano.',
     'Cuando pregunten qué vendes o qué tienes en la carta, usa `send_menu` con `tipo: "catalogo"` para mostrarles las opciones reales, en vez de describirlas en un párrafo.',
+    'Si el catálogo es grande, `send_menu` te muestra primero categorías (Cremosos, Bebidas…) en vez de todos los productos de una vez. Cuando el cliente toque o mencione una de esas categorías EXACTAS, repite `send_menu` con `tipo: "catalogo"` y `categoria` igual a ese nombre, para que vea los productos de esa categoría. Si toca "⬅ Volver a categorías", repite `send_menu` con `tipo: "catalogo"` sin `categoria`, para regresar a la lista de categorías.',
     "Si el sistema no puede armar el menú, te llega tu propio `reply` como respuesta normal — no menciones que intentaste mandar un menú ni insistas."
   );
 }

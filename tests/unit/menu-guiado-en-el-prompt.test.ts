@@ -49,6 +49,12 @@ describe("el menú guiado en el prompt", () => {
     expect(p).toMatch(/tipo: "catalogo"/);
   });
 
+  it("instruye el flujo de categorías (nivel 2) y cómo volver", () => {
+    const p = generarPerfil(ficha({ menu: MENU }), { menuGuiado: true }).instructions;
+    expect(p).toContain("categoria");
+    expect(p).toMatch(/Volver a categorías/);
+  });
+
   it("en citas nunca aparece, aunque las dos condiciones estén dadas", () => {
     const p = generarPerfil(ficha({ vertical: "citas", menu: MENU }), {
       menuGuiado: true,

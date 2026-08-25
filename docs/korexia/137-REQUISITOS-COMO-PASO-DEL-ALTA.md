@@ -1,60 +1,78 @@
-# "Datos que debe pedir el agente", como paso 8 del alta
+# Requisitos y pago de citas, dentro del cuestionario de alta
 
 **25-ago-2026.** El dueño, viendo "Datos que deben solicitarse antes de
 confirmar" dentro de "Agente de IA", pidió que en vez de vivir solo ahí (una
 pantalla que se visita después de terminar el alta), fuera un paso más del
 mismo cuestionario que ya recorre el cliente al darse de alta — la
-"configuración 8 de 8".
+"configuración 8 de 8". Al revisar el cambio ya aplicado, encontró la misma
+duplicación en "Pago al confirmar una cita" y pidió lo mismo para ese dato.
 
 ## Qué se hizo
 
-Se agregó un paso nuevo al final del wizard de onboarding
-(`onboarding-wizard.tsx`), con los mismos checkboxes que ya existían en
-`RequisitosSection` (Agente de IA).
+1. **Requisitos** ("Datos que deben solicitarse antes de confirmar"): paso
+   nuevo al final del wizard de onboarding (`onboarding-wizard.tsx`), con los
+   mismos checkboxes que tenía `RequisitosSection`.
+2. **Pago de citas** ("¿cobras por adelantado al confirmar una cita?"):
+   checkbox agregado dentro del paso ya existente "Cómo te pagan", visible
+   solo cuando `vertical === "citas"` — mismo lugar donde ya se configuran
+   las formas de pago generales del negocio, en vez de un paso aparte.
 
-**Actualización, mismo día:** la primera versión de este cambio dejó la
-tarjeta de Agente de IA sin tocar, pensando en que serviría para ajustarlo
-después del alta. El dueño la vio seguir ahí y señaló lo obvio — dos
-lugares editando el mismo dato es el mismo problema que ya se resolvió con
-el catálogo (136). Se eliminó `RequisitosSection` y su endpoint
-(`/api/agent/requisitos`): el paso del cuestionario es ahora la única
-puerta para `cierre.requisitos`, sin excepción.
+En los dos casos se eliminó la tarjeta que existía en "Agente de IA"
+(`RequisitosSection`, `PagoCitasSection`) y su endpoint
+(`/api/agent/requisitos`, `/api/agent/pago-citas`): el paso del cuestionario
+quedó como la **única** pantalla que edita cada dato. La primera versión de
+este cambio dejó la tarjeta de Requisitos sin tocar por si servía para
+ajustes posteriores; el dueño señaló que dos lugares editando lo mismo es
+el mismo problema que ya se resolvió con el catálogo (136), y se corrigió
+el mismo día.
 
 ## El guardarraíl que había que respetar
 
-`cierre.requisitos` vive en la sección `flujo` de la ficha, **junto con**
-`pagoAntesDeLaCita` (que edita la pantalla de Pago de Citas). `fusionarFicha`
-fusiona por sección completa, no campo a campo dentro de `cierre`: mandar
-solo `{ requisitos }` desde este paso nuevo habría reemplazado `cierre`
-entero y borrado silenciosamente `pagoAntesDeLaCita` de cualquier negocio de
-citas que ya lo tuviera configurado — el mismo tipo de pérdida silenciosa que
-ya documentó el incidente del 15-ago con las reglas de flujo.
+`cierre.requisitos` y `cierre.pagoAntesDeLaCita` viven **en la misma
+sección** de la ficha (`flujo`). `fusionarFicha` fusiona por sección
+completa, no campo a campo dentro de `cierre`: reconstruir `cierre` a mano
+sin partir de lo ya guardado habría borrado silenciosamente el otro campo
+cada vez que alguien reenviara el cuestionario — el mismo tipo de pérdida
+silenciosa que ya documentó el incidente del 15-ago con las reglas de flujo.
 
-Se preserva explícitamente en el `POST /api/onboarding`, leyendo la ficha
-guardada antes de aplicar y conservando `pagoAntesDeLaCita`, mismo patrón que
-ya usa `/api/agent/requisitos` (`{ ...fichaActual.cierre, requisitos }`).
+`POST /api/onboarding` arma `cierre` así:
 
-El cliente solo manda el id de lo que marca (`nombre`, `telefono`, `email`,
-`documento`); el servidor completa `tipo`/`etiqueta`/`obligatorio` desde
-`REQUISITOS_DISPONIBLES` al aplicar — no puede inventar un id que
-`server/contacts.ts` no sepa capturar.
+```ts
+cierre: {
+  ...fichaPrevia.cierre,
+  requisitos,
+  pagoAntesDeLaCita: body.data.borrador.cierre?.pagoAntesDeLaCita
+    ?? fichaPrevia.cierre?.pagoAntesDeLaCita,
+}
+```
+
+`pagoAntesDeLaCita` es `undefined` cuando el negocio es de pedidos (ese
+checkbox ni se muestra en su wizard): el `??` conserva ahí lo que ya
+hubiera, en vez de apagarlo por accidente. `requisitos` siempre se manda
+(aunque sea `[]`), porque ese paso es el mismo para los dos verticales.
+
+El cliente solo manda ids/booleanos; el servidor completa
+`tipo`/`etiqueta`/`obligatorio` desde `REQUISITOS_DISPONIBLES` al aplicar —
+no puede inventar un id que `server/contacts.ts` no sepa capturar.
 
 ## Verificación
 
-`tsc --noEmit` y `eslint` limpios. 982 pruebas, 0 fallos (ninguna se rompió).
+`tsc --noEmit` y `eslint` limpios en cada uno de los tres commits. 982
+pruebas, 0 fallos (ninguna se rompió en ningún paso).
 
 **Lo que NO se hizo, con honestidad:** no se agregó una prueba de
-integración específica para el escenario "guardar requisitos desde este
-paso nuevo no borra `pagoAntesDeLaCita`" — se verificó por lectura cuidadosa
-de `fusionarFicha` y replicando el patrón ya probado del otro endpoint, no
-con un test nuevo contra Postgres real. Tampoco se probó la pantalla en un
-navegador real en esta sesión. Antes de confiar en esto con un cliente de
-citas real, vale la pena una prueba manual: marcar un requisito en este
-paso nuevo y confirmar que "Pago de Citas" sigue mostrando su configuración
-intacta después.
+integración específica para estos dos escenarios de preservación cruzada
+(guardar requisitos no borra el pago de citas, y viceversa) — se verificó
+por lectura cuidadosa de `fusionarFicha` y replicando el patrón ya probado
+de los endpoints que existían antes. Tampoco se probó ninguna de las dos
+pantallas en un navegador real en esta sesión. Antes de confiar en esto del
+todo con Lashes Valen (el único cliente de citas), vale la pena una prueba
+manual: marcar un requisito y el pago por adelantado en el mismo recorrido
+del wizard, y confirmar que las dos configuraciones quedan guardadas juntas.
 
 ## Cómo revertir
 
-`git revert` de los commits `dc1d383` y `9d60feb`. No toca datos de
-producción — el revert solo quita el paso del wizard, la lógica de
-preservación del endpoint, y devuelve `RequisitosSection` a Agente de IA.
+`git revert` de los commits `dc1d383`, `9d60feb` y `6e5cfb6`. No toca datos
+de producción — el revert solo quita los pasos del wizard y la lógica de
+preservación, y devuelve `RequisitosSection`/`PagoCitasSection` a Agente de
+IA.

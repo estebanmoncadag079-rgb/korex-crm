@@ -5,7 +5,11 @@ import {
   guardarBorrador,
   leerBorrador,
 } from "@/server/ai/generador/aplicar";
-import { faltantesDeLaFicha, type FichaDelNegocio } from "@/server/ai/generador/ficha";
+import {
+  faltantesDeLaFicha,
+  REQUISITOS_DISPONIBLES,
+  type FichaDelNegocio,
+} from "@/server/ai/generador/ficha";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +32,16 @@ export const dynamic = "force-dynamic";
  */
 
 const preguntaSchema = z.object({ pregunta: z.string(), respuesta: z.string() });
+
+/**
+ * Solo lo que "Datos que deben solicitarse antes de confirmar" deja tocar:
+ * marcar/desmarcar de un catálogo fijo (`REQUISITOS_DISPONIBLES`). El id es
+ * lo único que decide el cliente; `tipo` y `etiqueta` los pone el servidor al
+ * aplicar la ficha — mandarlos aquí no cambiaría nada, así que no se piden.
+ */
+const requisitoSchema = z.object({
+  id: z.enum(REQUISITOS_DISPONIBLES.map((r) => r.id) as [string, ...string[]]),
+});
 
 /**
  * Laxo a propósito: aquí solo se guarda el avance, y a media ficha casi todo
@@ -76,6 +90,14 @@ const borradorSchema = z
     preguntasFrecuentes: z.array(preguntaSchema),
     escalarSiempre: z.array(z.string()),
     nuncaPrometer: z.array(z.string()),
+    /*
+     * Qué debe recoger el agente antes de cerrar — el mismo dato que edita
+     * "Datos que deben solicitarse antes de confirmar" en `/api/agent/
+     * requisitos`. Ahí solo se manda el id; `tipo`/`etiqueta`/`obligatorio`
+     * los pone el servidor al aplicar (ver el POST más abajo), igual que en
+     * ese otro endpoint.
+     */
+    cierre: z.object({ requisitos: z.array(requisitoSchema) }),
   })
   .partial();
 
@@ -84,24 +106,37 @@ export const GET = withAuth(async (session) => {
   return Response.json({
     borrador,
     faltan: faltantesDeLaFicha(borrador),
+    requisitosDisponibles: REQUISITOS_DISPONIBLES.map((r) => ({
+      id: r.id,
+      etiqueta: r.etiqueta,
+    })),
   });
 });
 
 export const PUT = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, z.object({ borrador: borradorSchema }));
   if (!body.ok) return body.response;
-  await guardarBorrador(session.organizationId, body.data.borrador);
+  /*
+   * `cierre.requisitos` aquí solo trae `{ id }` — el borrador es un avance a
+   * medio llenar, no la ficha aplicada. `tipo`/`etiqueta`/`obligatorio` los
+   * pone `REQUISITOS_DISPONIBLES` recién en el POST, así que el tipo formal
+   * no calza con `Partial<FichaDelNegocio>`; ninguna de las funciones de
+   * abajo lee esos tres campos, solo persisten/leen el borrador tal cual.
+   */
+  const borrador = body.data.borrador as unknown as Partial<FichaDelNegocio>;
+  await guardarBorrador(session.organizationId, borrador);
   return Response.json({
     guardado: true,
-    faltan: faltantesDeLaFicha(body.data.borrador),
+    faltan: faltantesDeLaFicha(borrador),
   });
 });
 
 export const POST = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, z.object({ borrador: borradorSchema }));
   if (!body.ok) return body.response;
+  const borrador = body.data.borrador as unknown as Partial<FichaDelNegocio>;
 
-  const faltan = faltantesDeLaFicha(body.data.borrador);
+  const faltan = faltantesDeLaFicha(borrador);
   if (faltan.length > 0) {
     return apiError(
       422,
@@ -112,11 +147,29 @@ export const POST = withAuth(async (session, req: Request) => {
 
   // El borrador se guarda también al aplicar: así queda el registro de lo que
   // respondió el cliente y se puede corregir un dato sin volver a empezar.
-  await guardarBorrador(session.organizationId, body.data.borrador);
+  await guardarBorrador(session.organizationId, borrador);
+
+  /*
+   * `cierre` lleva DOS datos de dueños distintos: `requisitos` (este paso) y
+   * `pagoAntesDeLaCita` (la pantalla de Pago de Citas, `PagoCitasSection`).
+   * `fusionarFicha` fusiona por SECCIÓN completa (`flujo`), no campo a campo
+   * dentro de `cierre` — así que si aquí solo se manda `{ requisitos }`, eso
+   * REEMPLAZARÍA el `cierre` guardado entero y borraría `pagoAntesDeLaCita`
+   * sin que nadie lo pidiera. Se preserva explícitamente, mismo patrón que
+   * ya usa `/api/agent/requisitos` (`{ ...fichaActual.cierre, requisitos }`).
+   */
+  const fichaPrevia = await leerBorrador(session.organizationId);
+  const requisitos = REQUISITOS_DISPONIBLES.filter((r) =>
+    (body.data.borrador.cierre?.requisitos ?? []).some((x) => x.id === r.id)
+  ).map((r) => ({ ...r, obligatorio: true }));
+  const borradorConCierre: FichaDelNegocio = {
+    ...borrador,
+    cierre: { ...fichaPrevia.cierre, requisitos },
+  } as FichaDelNegocio;
 
   const resultado = await aplicarFicha(
     session.organizationId,
-    body.data.borrador as FichaDelNegocio,
+    borradorConCierre,
     {
       // Quién rellenó el cuestionario: el cliente, con nombre y apellidos en el log.
       actor: `user:${session.userId}`,

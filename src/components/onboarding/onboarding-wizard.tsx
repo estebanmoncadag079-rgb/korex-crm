@@ -68,6 +68,12 @@ type Ficha = {
   preguntasFrecuentes?: { pregunta: string; respuesta: string }[];
   escalarSiempre?: string[];
   nuncaPrometer?: string[];
+  /**
+   * Qué debe recoger el agente antes de cerrar — solo el id de cada uno
+   * marcado; el servidor completa tipo/etiqueta/obligatorio al aplicar
+   * (mismo dato que edita "Ajustar mi agente" → Datos antes de confirmar).
+   */
+  cierre?: { requisitos?: { id: string }[] };
 };
 
 const DIAS = [
@@ -371,12 +377,16 @@ export function OnboardingWizard() {
   const [terminado, setTerminado] = useState(false);
   const [avisoGuardado, setAvisoGuardado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requisitosDisponibles, setRequisitosDisponibles] = useState<
+    { id: string; etiqueta: string }[]
+  >([]);
 
   useEffect(() => {
     void fetch("/api/onboarding")
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.borrador) setFicha(d.borrador);
+        if (d?.requisitosDisponibles) setRequisitosDisponibles(d.requisitosDisponibles);
       })
       .catch(() => null)
       .finally(() => setCargado(true));
@@ -805,6 +815,37 @@ export function OnboardingWizard() {
             />
           </Campo>
         </>
+      ),
+    },
+    {
+      titulo: "Datos que deben solicitarse antes de confirmar",
+      subtitulo:
+        "El asistente los pedirá —si el cliente no los ha dado— antes de cerrar un pedido o una cita.",
+      contenido: (
+        <Campo titulo="¿Qué datos son obligatorios?" ayuda="Se guardan en el contacto.">
+          <div className="space-y-2">
+            {requisitosDisponibles.map((r) => {
+              const marcado = (ficha.cierre?.requisitos ?? []).some((x) => x.id === r.id);
+              return (
+                <label key={r.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={marcado}
+                    onChange={() => {
+                      const actuales = ficha.cierre?.requisitos ?? [];
+                      const siguientes = marcado
+                        ? actuales.filter((x) => x.id !== r.id)
+                        : [...actuales, { id: r.id }];
+                      set({ cierre: { requisitos: siguientes } });
+                    }}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  Solicitar {r.etiqueta}.
+                </label>
+              );
+            })}
+          </div>
+        </Campo>
       ),
     },
   ];

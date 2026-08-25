@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -188,7 +189,7 @@ function Lista({
   return (
     <div className="space-y-2">
       {filas.map((v, i) => (
-        <Input
+        <ExpandableInput
           key={i}
           value={v}
           placeholder={marcador}
@@ -337,7 +338,7 @@ function FotosDeProductos() {
           Escribe el nombre tal como lo llamas tú. Es lo que el asistente busca
           cuando un cliente pregunta por ese producto.
         </p>
-        <Input
+        <ExpandableInput
           placeholder="Ej: Volumen Ruso"
           value={etiqueta}
           onChange={(e) => setEtiqueta(e.target.value)}
@@ -418,7 +419,7 @@ export function OnboardingWizard() {
       contenido: (
         <>
           <Campo titulo="¿Cómo se llama tu negocio?" ejemplo="Pastelería La Dulce">
-            <Input
+            <ExpandableInput
               value={ficha.nombre ?? ""}
               onChange={(e) => set({ nombre: e.target.value })}
             />
@@ -440,7 +441,7 @@ export function OnboardingWizard() {
             />
           </Campo>
           <Campo titulo="¿En qué ciudad y barrio estás?" ejemplo="Cali, barrio Granada">
-            <Input
+            <ExpandableInput
               value={ficha.ubicacion ?? ""}
               onChange={(e) => set({ ubicacion: e.target.value })}
             />
@@ -570,7 +571,7 @@ export function OnboardingWizard() {
                 titulo="¿Con quién los haces y cuánto tardan?"
                 ejemplo="Por Yango, llega en 1 hora aproximadamente."
               >
-                <Input
+                <ExpandableInput
                   value={ficha.entrega?.como ?? ""}
                   onChange={(e) =>
                     set({
@@ -587,7 +588,7 @@ export function OnboardingWizard() {
                 ayuda="Es el dato que más discusiones evita. Si el cliente no lo sabe, cree que el total ya lo incluye."
                 ejemplo="El domicilio se paga aparte, directo al repartidor cuando llega."
               >
-                <Input
+                <ExpandableInput
                   value={ficha.entrega?.quienPagaElDomicilio ?? ""}
                   onChange={(e) =>
                     set({
@@ -603,7 +604,7 @@ export function OnboardingWizard() {
                 titulo="¿Alguna restricción para entregar?"
                 ejemplo="No entramos a conjuntos ni centros comerciales; entregamos en portería."
               >
-                <Input
+                <ExpandableInput
                   value={ficha.entrega?.restricciones ?? ""}
                   onChange={(e) =>
                     set({
@@ -621,7 +622,7 @@ export function OnboardingWizard() {
             titulo="¿Pueden recoger donde ti? ¿Cómo funciona?"
             ejemplo="Sí, pasando por el local en horario de atención."
           >
-            <Input
+            <ExpandableInput
               value={ficha.entrega?.recogerEnLocal ?? ""}
               onChange={(e) =>
                 set({
@@ -659,7 +660,7 @@ export function OnboardingWizard() {
       contenido: (
         <>
           <Campo titulo="¿Qué formas de pago aceptas?" ejemplo="Transferencia y efectivo.">
-            <Input
+            <ExpandableInput
               value={ficha.pago?.formas ?? ""}
               onChange={(e) =>
                 set({
@@ -769,7 +770,7 @@ export function OnboardingWizard() {
             titulo="¿Se puede pedir como regalo? ¿Manejas tarjetas o dedicatorias?"
             ejemplo="Sí, y se puede agregar una tarjeta con mensaje."
           >
-            <Input
+            <ExpandableInput
               value={ficha.regalos ?? ""}
               onChange={(e) => set({ regalos: e.target.value })}
             />

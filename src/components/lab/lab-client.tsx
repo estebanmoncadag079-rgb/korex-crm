@@ -18,7 +18,7 @@ import type { TranscriptLine } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -492,7 +492,7 @@ function HallazgoCard({
         <div className="mt-3 space-y-2 rounded-md border bg-card p-3">
           <div className="space-y-1">
             <Label htmlFor={`sug-q-${caseId}-${index}`}>Pregunta</Label>
-            <Input
+            <ExpandableInput
               id={`sug-q-${caseId}-${index}`}
               value={pregunta}
               onChange={(e) => setPregunta(e.target.value)}

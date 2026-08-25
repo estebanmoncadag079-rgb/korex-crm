@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -198,7 +199,7 @@ function ServicesSection({
         <div className="space-y-2 rounded-md border p-3">
           <p className="text-sm font-medium">Nuevo servicio</p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <Input placeholder="Nombre (p. ej. Semipermanente)" value={name} onChange={(e) => setName(e.target.value)} />
+            <ExpandableInput placeholder="Nombre (p. ej. Semipermanente)" value={name} onChange={(e) => setName(e.target.value)} />
             <SelectorDeCategoria valor={category} categorias={categorias} onChange={setCategory} />
             <Input placeholder="Precio en COP (p. ej. 40000)" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} />
             <Input placeholder="Duración en minutos (p. ej. 45)" inputMode="numeric" value={duration} onChange={(e) => setDuration(e.target.value)} />
@@ -599,7 +600,7 @@ function ServiceEditor({
   return (
     <div className="space-y-2 rounded-md border border-primary/40 p-3 text-sm">
       <div className="grid gap-2 sm:grid-cols-2">
-        <Input
+        <ExpandableInput
           aria-label="Nombre del servicio"
           placeholder="Nombre"
           value={name}
@@ -703,7 +704,7 @@ function StaffSection({
       <CardContent className="space-y-4">
         <div className="space-y-2 rounded-md border p-3">
           <p className="text-sm font-medium">Nueva persona del equipo</p>
-          <Input placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
+          <ExpandableInput placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)} />
           {activos.length > 0 && (
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Servicios que atiende</Label>

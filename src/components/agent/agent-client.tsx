@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { AprendizajeSection } from "@/components/agent/aprendizaje-section";
 import { EntrenamientoCard } from "@/components/agent/entrenamiento-card";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -183,7 +184,7 @@ function ProfileSection({
         */}
         <div className="space-y-1.5">
           <Label htmlFor="agent-notify">Avisar pedidos a estos WhatsApp</Label>
-          <Input
+          <ExpandableInput
             id="agent-notify"
             placeholder="573001112233, 573004445566"
             value={form.notifyPhones ?? ""}
@@ -313,7 +314,7 @@ function KbSection({
       <CardContent className="space-y-4">
         <div className="space-y-2 rounded-md border p-3">
           <p className="text-sm font-medium">Nueva pregunta / respuesta</p>
-          <Input
+          <ExpandableInput
             placeholder="Pregunta (p. ej. ¿Hacen envíos?)"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -490,7 +491,7 @@ function KbRow({
     <li className="space-y-2 rounded-md border p-3">
       {isQa ? (
         <>
-          <Input
+          <ExpandableInput
             aria-label="Pregunta"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}

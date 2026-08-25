@@ -905,7 +905,7 @@ export function OnboardingWizard() {
     setGuardando(false);
     if (!res?.ok) {
       const d = await res?.json().catch(() => null);
-      setError(d?.message ?? "No se pudo guardar. Revisa que no falte nada.");
+      setError(d?.error?.message ?? "No se pudo guardar. Revisa que no falte nada.");
       return;
     }
     setTerminado(true);

@@ -95,6 +95,23 @@ export const AgentAction = z.discriminatedUnion("action", [
     reply: z.string().optional(),
   }),
   /**
+   * El menú guiado de WhatsApp (25-ago-2026, solo `menu_mode='guiado'`): una
+   * lista o botones que el cliente TOCA, en vez de texto libre que el modelo
+   * tiene que interpretar.
+   *
+   * El modelo solo decide EL MOMENTO ("intenciones" al abrir la
+   * conversación, "catalogo" cuando preguntan qué venden) — nunca arma las
+   * filas: el servidor las construye desde `ficha.menu` y el catálogo real,
+   * y **degrada a `reply`** si el menú no cabe en los límites de WhatsApp.
+   * Mismo criterio que `send_image`: comprobar el hecho, no confiar en la
+   * intención.
+   */
+  z.object({
+    action: z.literal("send_menu"),
+    tipo: z.enum(["intenciones", "catalogo"]),
+    reply: z.string().optional(),
+  }),
+  /**
    * Vertical de citas (solo orgs con agent_profile.appointmentsEnabled).
    *
    * `consult_availability` es una acción INTERNA: nunca llega al cliente. El
@@ -178,6 +195,22 @@ export const AgentAction = z.discriminatedUnion("action", [
         'send_image necesita "etiqueta" (o "label") con el nombre EXACTO de la lista de fotos: sin ella no se puede enviar nada. Si lo que quieres no está en esa lista, usa reply y no prometas el envío.',
     });
   }
+  /*
+   * `send_menu` degrada a `reply` cuando el menú no cabe en los límites de
+   * WhatsApp o no hay datos para armarlo (ver pipeline.ts). Sin `reply` de
+   * respaldo, esa degradación deja al cliente sin una sola palabra — el
+   * mismo fallo que ya cerró el guardarraíl del turno mudo
+   * (docs/korexia/133-TURNO-MUDO-SIN-REPLY.md), aquí evitado desde el
+   * esquema en vez de detectado después.
+   */
+  if (accion.action === "send_menu" && !accion.reply) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["reply"],
+      message:
+        'send_menu necesita "reply" con lo que le dirías al cliente si el menú no se pudiera armar: sin él, degradar a texto deja la conversación muda.',
+    });
+  }
 });
 
 export type AgentActionType = z.infer<typeof AgentAction>;
@@ -200,8 +233,9 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
     type: "string",
     enum: [
       "none", "reply", "update_lead", "provide_requirement", "move_stage",
-      "handoff", "notify_order", "send_image", "consult_availability",
-      "book_appointment", "reschedule_appointment", "cancel_appointment",
+      "handoff", "notify_order", "send_image", "send_menu",
+      "consult_availability", "book_appointment", "reschedule_appointment",
+      "cancel_appointment",
     ],
   },
   text: { type: ["string", "null"] },
@@ -213,6 +247,7 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
   summary: { type: ["string", "null"] },
   etiqueta: { type: ["string", "null"] },
   label: { type: ["string", "null"] },
+  tipo: { type: ["string", "null"] },
   requisitoId: { type: ["string", "null"] },
   valor: { type: ["string", "null"] },
   servicio: { type: ["string", "null"] },

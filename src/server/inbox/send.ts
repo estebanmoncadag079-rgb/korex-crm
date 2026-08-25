@@ -6,8 +6,11 @@ import {
   isYcloudEnabled,
   ycloudSendDocument,
   ycloudSendImage,
+  ycloudSendInteractive,
   ycloudSendText,
 } from "@/lib/ycloud/client";
+import { textoPlanoDeMenu } from "@/server/catalog/menu";
+import type { MenuInteractivo } from "@/server/catalog/menu";
 import { publish } from "@/server/events/bus";
 import { registrarUsoWhatsapp } from "@/server/usage";
 import { getCredentialsByOrg, type Credentials } from "@/server/whatsapp/credentials";
@@ -406,6 +409,78 @@ export async function sendImage(input: {
     mediaUrl: input.link,
     aiGenerated: input.aiGenerated,
   });
+}
+
+/**
+ * Envía un menú interactivo (lista o botones que el cliente toca) — el
+ * arranque guiado de un negocio con `menu_mode='guiado'` (25-ago-2026).
+ * Mismas guardas que `sendImage`/`sendDocument`: conversación de prueba
+ * prohibida, ventana de 24 h, solo YCloud.
+ */
+export async function sendInteractiveMenu(input: {
+  conversationId: string;
+  organizationId: string;
+  menu: MenuInteractivo;
+  aiGenerated?: boolean;
+}): Promise<SendResult> {
+  const { to, credentials, clientApiKey } = await prepararEnvioDeMedia(
+    input.conversationId,
+    input.organizationId,
+    "menús interactivos"
+  );
+
+  let waMessageId: string;
+  try {
+    waMessageId = await ycloudSendInteractive({
+      from: credentials.displayPhoneNumber ?? "",
+      to,
+      menu: input.menu,
+      apiKey: clientApiKey,
+    });
+  } catch (err) {
+    throw new SendError(
+      "meta_error",
+      err instanceof Error ? err.message : "Error enviando el menú por YCloud"
+    );
+  }
+
+  const db = getDb();
+  const inserted = await db
+    .insert(schema.message)
+    .values({
+      id: newId("message"),
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      waMessageId,
+      direction: "out",
+      type: "interactive",
+      text: textoPlanoDeMenu(input.menu),
+      status: "pending",
+      aiGenerated: input.aiGenerated ?? false,
+    })
+    .returning();
+  const message = inserted[0]!;
+
+  await registrarUsoWhatsapp({
+    organizationId: input.organizationId,
+    tipo: "interactive",
+    ref: waMessageId,
+  });
+
+  await db
+    .update(schema.conversation)
+    .set({ lastMessageAt: new Date(), updatedAt: new Date() })
+    .where(eq(schema.conversation.id, input.conversationId));
+
+  publish(input.organizationId, {
+    type: "message.new",
+    data: {
+      conversationId: input.conversationId,
+      message: serializeMessage(message),
+    },
+  });
+
+  return { messageId: message.id };
 }
 
 /**

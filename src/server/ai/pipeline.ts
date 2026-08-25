@@ -7,7 +7,13 @@ import { chatJson, type ChatJsonResult, type ChatMessage } from "@/lib/ai";
 import { z } from "zod";
 import { publish } from "@/server/events/bus";
 import { isWindowOpen } from "@/server/inbox/window";
-import { SendError, sendDocument, sendImage, sendText } from "@/server/inbox/send";
+import {
+  SendError,
+  sendDocument,
+  sendImage,
+  sendInteractiveMenu,
+  sendText,
+} from "@/server/inbox/send";
 import {
   comoSeEntrega,
   fotoPorEtiqueta,
@@ -51,6 +57,8 @@ import {
   resolverEspecialistaMultiple,
 } from "@/server/appointments/queries";
 import { catalogoDe, catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
+import { armarMenuDeCatalogo, armarMenuDeIntenciones, textoPlanoDeMenu } from "@/server/catalog/menu";
+import type { MenuInteractivo } from "@/server/catalog/menu";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
@@ -1578,6 +1586,33 @@ export async function runAgentTurn(
       }
       return action;
     }
+    /*
+     * El menú guiado de WhatsApp (25-ago-2026): el modelo pide CUÁNDO
+     * ("intenciones" al abrir, "catalogo" cuando preguntan qué venden), y el
+     * servidor arma las filas desde datos reales — nunca desde lo que
+     * proponga el modelo. Si no hay ficha.menu, no hay catálogo, o el menú
+     * no cabe en los límites de WhatsApp, degrada a `reply` — igual que
+     * `send_image` con un recurso que no existe.
+     */
+    case "send_menu": {
+      const menu =
+        action.tipo === "intenciones"
+          ? armarMenuDeIntenciones(fichaDelNegocio?.menu?.opciones ?? [], action.reply)
+          : armarMenuDeCatalogo(await catalogoDePedidosQuery(organizationId), action.reply);
+
+      if (!menu) {
+        console.warn(
+          `[agente] no se pudo armar el menú "${action.tipo}" (sin datos o fuera de los límites de WhatsApp); se responde con texto`
+        );
+        // El esquema exige `reply` para send_menu (superRefine en actions.ts):
+        // en runtime siempre llega. El `??` es solo para que TypeScript vea
+        // el `string` que zod ya garantizó.
+        await deliverReply(conversation, action.reply ?? "¿En qué te puedo ayudar?");
+        return action;
+      }
+      await deliverMenu(conversation, menu);
+      return action;
+    }
     case "handoff": {
       if (action.farewell) {
         await deliverReply(conversation, action.farewell);
@@ -2033,6 +2068,33 @@ async function deliverDocument(
   } catch (err) {
     console.warn("[agente] falló el envío del documento; se responde con texto:", err);
     if (pie) await deliverReply(conversation, pie);
+  }
+}
+
+/**
+ * Manda un menú interactivo (lista o botones). Mismo criterio que
+ * `deliverImage`: si falla, cae a texto plano con las mismas opciones y
+ * sigue — un menú es una mejora de forma, nunca un motivo para dejar al
+ * cliente sin respuesta.
+ */
+async function deliverMenu(
+  conversation: Conversation,
+  menu: MenuInteractivo
+): Promise<void> {
+  if (conversation.isTest) {
+    await persistTestOutbound(conversation, textoPlanoDeMenu(menu));
+    return;
+  }
+  try {
+    await sendInteractiveMenu({
+      conversationId: conversation.id,
+      organizationId: conversation.organizationId,
+      menu,
+      aiGenerated: true,
+    });
+  } catch (err) {
+    console.warn("[agente] falló el envío del menú; se responde con texto:", err);
+    await deliverReply(conversation, textoPlanoDeMenu(menu));
   }
 }
 

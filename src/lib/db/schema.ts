@@ -431,6 +431,24 @@ export const agentProfile = pgTable(
      */
     stateSource: text("state_source").notNull().default("prompt"),
     /**
+     * El menú guiado de WhatsApp (listas/botones que el cliente toca) para
+     * un negocio de PEDIDOS: `'texto'` (como siempre, el modelo redacta
+     * libremente) o `'guiado'` (la apertura ofrece un menú interactivo real,
+     * armado desde `ficha.menu` y el catálogo en tablas).
+     *
+     * Mismo patrón que `catalogSource`: nace apagado, se enciende negocio
+     * por negocio con `pnpm migrar:menu <org> --encender`, y depende de que
+     * `catalogSource` ya esté en `'tabla'` — sin eso no hay de dónde derivar
+     * las secciones del menú. Rollback: UPDATE de una fila.
+     *
+     * Nace del incidente real del 25-ago-2026 (Lis): una clienta escribió
+     * "torta de chocolate" y el modelo no conectó el sinónimo con el
+     * producto real del catálogo ("Porción Chocolate"), y escaló a una
+     * persona en vez de responder. Un menú que el cliente TOCA no depende
+     * de que el modelo interprete texto.
+     */
+    menuMode: text("menu_mode").notNull().default("texto"),
+    /**
      * La ficha del negocio con la que se generó este prompt (JSON).
      *
      * Sin ella, una lección nueva en `conducta.ts` solo llegaba a los clientes

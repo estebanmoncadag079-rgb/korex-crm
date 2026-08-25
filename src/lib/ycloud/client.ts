@@ -1,5 +1,6 @@
 import { getEnv } from "@/lib/env";
 import type { RecipientTarget } from "@/lib/meta/client";
+import type { MenuInteractivo } from "@/server/catalog/menu";
 
 /**
  * `sendDirectly` de YCloud exige exactamente uno de "to" (E.164) o
@@ -90,6 +91,60 @@ export async function ycloudSendText(input: {
       ...recipientField(input.to),
       type: "text",
       text: { body: input.text },
+    },
+    key
+  );
+}
+
+/**
+ * Envía un menú interactivo (lista o botones que el cliente toca), ya armado
+ * y validado contra los límites de WhatsApp por `armarMenuDeIntenciones` /
+ * `armarMenuDeCatalogo` (`@/server/catalog/menu`) — este cliente solo lo
+ * transporta, no decide su contenido.
+ */
+export async function ycloudSendInteractive(input: {
+  from: string;
+  to: RecipientTarget;
+  menu: MenuInteractivo;
+  apiKey?: string | null;
+}): Promise<string> {
+  const key = resolveApiKey(input.apiKey);
+  if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
+
+  const interactive =
+    input.menu.tipo === "button"
+      ? {
+          type: "button",
+          body: { text: input.menu.body },
+          action: {
+            buttons: input.menu.botones.map((b) => ({
+              type: "reply",
+              reply: { id: b.id, title: b.titulo },
+            })),
+          },
+        }
+      : {
+          type: "list",
+          body: { text: input.menu.body },
+          action: {
+            button: input.menu.boton,
+            sections: input.menu.secciones.map((s) => ({
+              title: s.titulo,
+              rows: s.filas.map((f) => ({
+                id: f.id,
+                title: f.titulo,
+                ...(f.descripcion ? { description: f.descripcion } : {}),
+              })),
+            })),
+          },
+        };
+
+  return sendDirectly(
+    {
+      from: input.from,
+      ...recipientField(input.to),
+      type: "interactive",
+      interactive,
     },
     key
   );

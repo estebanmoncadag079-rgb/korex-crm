@@ -1,0 +1,105 @@
+# 141 — El menú guiado de WhatsApp (listas y botones)
+
+25-ago-2026.
+
+## El incidente que lo motiva
+
+Una clienta de Lis Pastelería escribió "¿Tienen disponible torta de
+chocolate?" y luego "¿La porción?". El bot escaló a una persona en vez de
+responder. Investigado a fondo contra la base real (ver
+[140](140-REQUISITO-FUERA-DE-CATALOGO-BLOQUEABA-EL-GUARDADO.md) para el
+incidente vecino del mismo día): el catálogo estaba bien cargado — el
+producto real se llama **"Porción Chocolate"**, $12.500, disponible — pero el
+modelo no conectó el sinónimo de la clienta con el nombre exacto del
+catálogo, y en otras conversaciones anteriores (19-ago, 21-ago) sí lo había
+hecho. Es un fallo probabilístico del modelo, no un dato faltante.
+
+Esteban pidió la solución de raíz: que el cliente **toque** una opción en vez
+de escribir texto libre que el modelo tenga que adivinar — y que sea una
+capacidad genérica de Vocero, no un parche solo para Lis.
+
+## Por qué esto no es un guardarraíl
+
+Antes de escribir código se investigó si WhatsApp soporta esto de verdad
+(fuente oficial de YCloud, el proveedor que ya usa el sistema): sí — mensajes
+de **lista** (hasta 10 opciones en hasta 10 secciones) y de **botones**
+(hasta 3), por el mismo endpoint que el sistema ya usa para texto e imágenes
+(`sendDirectly`). Cuando el cliente toca, el sistema recibe exactamente qué
+eligió — cero ambigüedad, cero interpretación del modelo.
+
+Se consultó a un diseñador UX y a un arquitecto (con este contexto ya
+confirmado) antes de tocar código. Conclusión alineada de los dos: **no**
+conviene un árbol profundo de listas encadenadas — cada nivel extra es
+fricción, no ayuda. Basta un menú de intenciones (nivel 0) y, si el catálogo
+cabe en 10 filas, una sola lista con secciones por categoría (nivel 1). Una
+sub-lista por categoría (nivel 2) queda pospuesta: ningún negocio real la
+necesita hoy.
+
+## La arquitectura
+
+**Nivel 0 (intenciones)** vive en `ficha.menu` — un campo nuevo, análogo a
+`saludoInicial`, editable en el wizard de alta con el mismo componente
+`Lista` que ya existía. El dueño del negocio solo escribe el texto ("Hacer un
+pedido"); el `id` que WhatsApp necesita se deriva solo (`idDeOpcionDeMenu`,
+`ficha.ts`) — nunca lo ve ni lo escribe.
+
+**Nivel 1 (categorías → productos) NO se declara aparte.** Se deriva de la
+tabla `product` en el momento de armar el menú (`armarMenuDeCatalogo`,
+`src/server/catalog/menu.ts`). Declararlo en la ficha habría repetido
+exactamente el error que ya corrigió `catalog_source`: un catálogo editable
+en dos lugares, donde uno se queda viejo sin que nadie se entere.
+
+**El modelo decide el momento, nunca el contenido.** Nueva acción
+`send_menu` (`tipo: "intenciones" | "catalogo"`, mismo contrato que
+`send_image`): el modelo pide cuándo mostrar el menú, y el servidor arma las
+filas desde datos reales. Si el menú no cabe en los límites de WhatsApp (más
+de 10 productos sin categorías, un nombre demasiado largo) o no hay datos,
+**degrada al texto normal** — nunca falla en silencio. `reply` es obligatorio
+en el esquema para esta acción, por la misma razón que ya cerró el
+guardarraíl del turno mudo
+([133](133-TURNO-MUDO-SIN-REPLY.md)): sin él, degradar dejaría al cliente sin
+una sola palabra.
+
+**Recepción**: cuando el cliente toca una opción, YCloud manda
+`interactive.list_reply`/`button_reply` con el título elegido. Se convierte
+en el `text` del mensaje entrante — igual que ya se hace con una edición
+(`type: "edit"`) — así que el resto del pipeline (ingesta, historial,
+guardarraíles) no cambió ni una línea: el agente sigue la conversación con
+naturalidad después del toque, no se volvió un árbol rígido.
+
+**Interruptor**: `agent_profile.menu_mode` (`'texto'` por defecto, `'guiado'`
+encendido), mismo patrón Fase 1 que `catalog_source`/`payment_source`.
+Depende de `catalog_source='tabla'` — sin el catálogo en tablas no hay de
+dónde derivar las secciones. Script `pnpm migrar:menu <org>
+[--aplicar|--encender|--apagar]`: sin flags revisa (marca violaciones de
+límites sin escribir nada), `--aplicar` siembra un `ficha.menu` de partida
+neutral para quien no pasó por el wizard nuevo, `--encender`/`--apagar`
+activan o revierten con las guardas correspondientes.
+
+## Verificado
+
+- `tsc --noEmit` y `eslint`: limpios en los 20 archivos tocados.
+- 21 pruebas unitarias nuevas: el renderer del menú (agrupa por categoría,
+  respeta los límites de WhatsApp, degrada a `null` en vez de truncar un
+  nombre a algo ambiguo), el parser del webhook (`list_reply`/`button_reply`
+  → texto), la instrucción condicionada en el prompt (solo aparece con las
+  dos condiciones a la vez, nunca en citas), la validación del esquema
+  (`send_menu` sin `reply` no es válido) y `idDeOpcionDeMenu`.
+- Suite completa: **1008 pruebas, 0 fallos**, sin regresiones.
+
+**Lo que NO se verificó todavía** (decisión pendiente, no de código): probar
+en el Laboratorio con el catálogo real de Lis, y encender `menu_mode='guiado'`
+para Lis con `pnpm migrar:menu org_lispasteleria0001 --aplicar --encender` —
+son pasos que gastan una llamada real al modelo y tocan producción, así que
+quedan para cuando Esteban decida darle luz verde, siguiendo el mismo patrón
+de todo `regenerar:flota`/`migrar:*` de este proyecto.
+
+## Lo que no se resuelve en esta fase (documentado, no descartado)
+
+- Sub-listas de nivel 2 (categoría con más de 10 productos): ningún negocio
+  real las necesita hoy.
+- Vertical de citas: el catálogo de servicios tiene su propia estructura
+  (duración, especialista); se evalúa aparte con datos reales.
+- El wizard no valida en vivo los límites de WhatsApp mientras el dueño
+  escribe (solo el script `migrar:menu` los marca) — una mejora de UX
+  razonable, no bloqueante para esta fase.

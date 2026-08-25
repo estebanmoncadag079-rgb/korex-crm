@@ -93,6 +93,45 @@ export type Requisito = {
 export const MODALIDAD_DOMICILIO = "domicilio";
 export const MODALIDAD_RECOGIDA = "recogida";
 
+/**
+ * Una opción del menú guiado de WhatsApp (25-ago-2026): lo que el cliente
+ * TOCA al escribir por primera vez, en vez de texto libre que el modelo
+ * tiene que interpretar.
+ *
+ * Nace de un incidente real: una clienta de Lis escribió "torta de
+ * chocolate" y el modelo no conectó el sinónimo con "Porción Chocolate" del
+ * catálogo — escaló a una persona en vez de responder. El catálogo (nivel 1
+ * del menú: categorías → productos) NO se declara aquí ni en ningún otro
+ * campo de la ficha: se deriva de `product` en el momento de armar el menú,
+ * para no repetir el mismo dato en dos lugares (ver `catalogo`/`catalog_source`).
+ */
+export type OpcionDeMenu = {
+  /** Con la que WhatsApp identifica qué tocó el cliente. Estable. */
+  id: string;
+  /** Lo que ve el cliente en el botón o la fila de la lista. */
+  etiqueta: string;
+};
+
+/**
+ * El `id` de una opción, derivado de su etiqueta — el dueño del negocio
+ * escribe solo el texto ("Hacer un pedido"); nunca ve ni escribe un id.
+ * `existentes` evita que dos opciones con etiquetas parecidas choquen.
+ */
+export function idDeOpcionDeMenu(etiqueta: string, existentes: Set<string>): string {
+  const base =
+    etiqueta
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(new RegExp("[̀-ͯ]", "g"), "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "opcion";
+  let id = base;
+  let sufijo = 2;
+  while (existentes.has(id)) id = `${base}_${sufijo++}`;
+  return id;
+}
+
 export function modalidadesDeEntrega(ficha: FichaDelNegocio): string[] {
   const ofrecidas: string[] = [];
   if (ficha.entrega?.haceDomicilios) ofrecidas.push(MODALIDAD_DOMICILIO);
@@ -250,6 +289,13 @@ export type FichaDelNegocio = {
   regalos?: string;
   /** Menú o saludo inicial propio, si lo quiere. */
   saludoInicial?: string;
+  /**
+   * El menú guiado de WhatsApp: 3-4 opciones que el cliente toca al escribir
+   * por primera vez ("Ver menú", "Hacer un pedido"…). Opcional: sin esto, o
+   * con `menu_mode='texto'` en `agent_profile`, el agente sigue redactando
+   * el saludo libremente como siempre.
+   */
+  menu?: { opciones: OpcionDeMenu[] };
 
   /**
    * Reglas propias que no encajan en ninguna categoría de arriba.

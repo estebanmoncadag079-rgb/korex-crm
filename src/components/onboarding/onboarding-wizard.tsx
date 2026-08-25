@@ -70,8 +70,10 @@ type Ficha = {
   nuncaPrometer?: string[];
   /**
    * Qué debe recoger el agente antes de cerrar — solo el id de cada uno
-   * marcado; el servidor completa tipo/etiqueta/obligatorio al aplicar
-   * (mismo dato que edita "Ajustar mi agente" → Datos antes de confirmar).
+   * marcado; el servidor completa tipo/etiqueta/obligatorio al aplicar. Este
+   * paso del alta es la ÚNICA pantalla que edita este dato (25-ago-2026): la
+   * tarjeta que existía en "Agente de IA" se quitó para no tener dos lugares
+   * editando lo mismo.
    */
   cierre?: { requisitos?: { id: string }[] };
 };

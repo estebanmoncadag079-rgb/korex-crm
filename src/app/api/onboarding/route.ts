@@ -156,7 +156,8 @@ export const POST = withAuth(async (session, req: Request) => {
    * dentro de `cierre` — así que si aquí solo se manda `{ requisitos }`, eso
    * REEMPLAZARÍA el `cierre` guardado entero y borraría `pagoAntesDeLaCita`
    * sin que nadie lo pidiera. Se preserva explícitamente, mismo patrón que
-   * ya usa `/api/agent/requisitos` (`{ ...fichaActual.cierre, requisitos }`).
+   * usa `/api/agent/pago-citas` en sentido contrario (preserva `requisitos`
+   * al guardar su propio interruptor).
    */
   const fichaPrevia = await leerBorrador(session.organizationId);
   const requisitos = REQUISITOS_DISPONIBLES.filter((r) =>

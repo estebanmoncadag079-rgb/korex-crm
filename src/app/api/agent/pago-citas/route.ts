@@ -17,9 +17,13 @@ export const dynamic = "force-dynamic";
  * prompt al modelo según este dato— vive en `prompts.ts`. Aquí solo se lee
  * y se escribe el booleano.
  *
- * `cierre` vive en la sección `flujo` (leer-ficha.ts:42), que el
- * cuestionario del cliente NUNCA escribe — así que esta es la única puerta
- * para este dato, igual que para los requisitos.
+ * `cierre` vive en la sección `flujo` (leer-ficha.ts:42). Esta sigue siendo
+ * la ÚNICA puerta para `pagoAntesDeLaCita` — a diferencia de `requisitos`,
+ * que desde el 25-ago-2026 también se edita como el último paso del
+ * cuestionario de alta (`POST /api/onboarding`). Ese paso preserva
+ * `pagoAntesDeLaCita` al guardar, mismo motivo por el que esta pantalla
+ * preserva `requisitos` más abajo: los dos campos comparten la sección y
+ * `fusionarFicha` la fusiona entera, no campo a campo.
  */
 
 async function fichaDe(organizationId: string) {
@@ -60,9 +64,9 @@ export const PATCH = withAuth(async (session, req: Request) => {
     return apiError(409, "no_aplica", "Este ajuste solo aplica a negocios de citas.");
   }
 
-  // Igual que en /api/agent/requisitos: el spread de `cierre` conserva
-  // `requisitos`, que vive en la MISMA sección y no debe perderse al guardar
-  // este interruptor.
+  // Igual que en el paso de requisitos de `POST /api/onboarding`: el spread
+  // de `cierre` conserva `requisitos`, que vive en la MISMA sección y no
+  // debe perderse al guardar este interruptor.
   await aplicarFicha(
     session.organizationId,
     {

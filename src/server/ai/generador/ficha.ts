@@ -395,8 +395,9 @@ export function pagoAntesDeLaCitaDe(ficha: FichaDelNegocio): boolean {
 }
 
 /**
- * Los requisitos que la pantalla "Ajustar mi agente" puede ofrecer como
- * casillas — el catálogo cerrado, no lo que escriba quien llama.
+ * Los requisitos que el paso "Datos que deben solicitarse antes de
+ * confirmar" del cuestionario de alta puede ofrecer como casillas — el
+ * catálogo cerrado, no lo que escriba quien llama.
  *
  * El negocio solo decide QUÉ marcar; `tipo` y `etiqueta` los fija el
  * servidor, para que la pantalla sea de verdad "solo la interfaz para editar

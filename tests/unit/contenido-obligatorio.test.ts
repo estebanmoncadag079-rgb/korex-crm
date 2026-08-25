@@ -107,6 +107,85 @@ describe("extraerContenidoObligatorio: qué cuenta como literal verificable", ()
   });
 });
 
+/**
+ * 24-ago-2026 (docs/korexia/130): el mismo mecanismo cubre cualquier literal
+ * INCONFUNDIBLE por su forma, no solo enlaces. Un correo y un teléfono con
+ * prefijo internacional lo son; un número "pelado", un precio o un @usuario de
+ * redes NO, y forzar la cifra equivocada sería peor que no forzar nada — por
+ * eso quedan fuera a propósito (esperan al editor de literales declarados).
+ */
+describe("extraerContenidoObligatorio: literales verificables más allá del enlace", () => {
+  it("saca un correo de una entrada de conocimiento", () => {
+    const kb = [
+      {
+        id: "kb_correo",
+        kind: "qa",
+        question: "¿Cuál es su correo de contacto?",
+        answer: "Escríbenos a ventas@negocio.com y te respondemos.",
+        content: null,
+      },
+    ] as const;
+    const resultado = extraerContenidoObligatorio(undefined, kb);
+    expect(resultado.map((r) => r.literal)).toContain("ventas@negocio.com");
+    expect(disparadoPor(["¿tienen correo?"], resultado[0]!)).toBe(true);
+  });
+
+  it("saca un correo de una regla propia con disparador condicional", () => {
+    const ficha = {
+      reglasPropias: [
+        "SIEMPRE que el cliente pregunte por facturación, escríbele a facturacion@negocio.com.co",
+      ],
+    } as Pick<FichaDelNegocio, "reglasPropias">;
+    const [regla] = extraerContenidoObligatorio(ficha, []);
+    expect(regla?.literal).toBe("facturacion@negocio.com.co");
+  });
+
+  it("saca un teléfono CON prefijo internacional, con sus espacios tal cual", () => {
+    const kb = [
+      {
+        id: "kb_tel",
+        kind: "qa",
+        question: "¿Cuál es su número de WhatsApp?",
+        answer: "Escríbenos al +57 300 123 4567 en horario de oficina.",
+        content: null,
+      },
+    ] as const;
+    const resultado = extraerContenidoObligatorio(undefined, kb);
+    expect(resultado.map((r) => r.literal)).toContain("+57 300 123 4567");
+  });
+
+  it("un teléfono LOCAL sin prefijo (dígitos sueltos) NO se extrae: choca con precios y cantidades", () => {
+    const ficha = {
+      reglasPropias: [
+        "SIEMPRE que pregunten por el teléfono, dales el 3001234567 para que llamen.",
+      ],
+    } as Pick<FichaDelNegocio, "reglasPropias">;
+    expect(extraerContenidoObligatorio(ficha, [])).toEqual([]);
+  });
+
+  it("un precio con signo (+50000) NO se confunde con un teléfono", () => {
+    const ficha = {
+      reglasPropias: [
+        "SIEMPRE que pregunten el precio del domicilio, di que cuesta +50000 pesos.",
+      ],
+    } as Pick<FichaDelNegocio, "reglasPropias">;
+    expect(extraerContenidoObligatorio(ficha, [])).toEqual([]);
+  });
+
+  it("un @usuario de redes (sin dominio) NO se confunde con un correo", () => {
+    const kb = [
+      {
+        id: "kb_redes",
+        kind: "qa",
+        question: "¿Dónde los sigo?",
+        answer: "Somos @negocio en Instagram y TikTok.",
+        content: null,
+      },
+    ] as const;
+    expect(extraerContenidoObligatorio(undefined, kb)).toEqual([]);
+  });
+});
+
 describe("disparadoPor: el caso real de Maricel", () => {
   it("'quiero hacer un pedido' dispara la regla propia (pedir → pedido, por raíz)", () => {
     const [contenido] = extraerContenidoObligatorio(FICHA_LIS, []).filter(

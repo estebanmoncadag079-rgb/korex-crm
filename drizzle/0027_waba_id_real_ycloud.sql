@@ -1,0 +1,38 @@
+-- El WABA ID real de Meta, para los clientes con cuenta propia de YCloud
+-- (docs/korexia/129-WABA-ID-REAL-PARA-YCLOUD-PROPIO.md).
+--
+-- Un cliente que trae su PROPIA cuenta de YCloud no expone su WABA de Meta al
+-- conectarse: `saveYcloudNumber` guarda en `waba_id` un identificador
+-- SINTÉTICO `ycloud:<numero>` (server/whatsapp/credentials.ts), que enruta pero
+-- NO es un WABA que Meta reconozca. Por eso `createTemplate`, que llama a Graph
+-- con ese `waba_id`, falla para esos clientes — que son todos los nuevos.
+--
+-- El WABA real SÍ llega en los webhooks de YCloud (campo `wabaId`) y se puede
+-- obtener con `GET /v2/whatsapp/phoneNumbers`. Esta columna es dónde se
+-- persiste; la lógica que lo captura y el envío de plantillas la consumirán
+-- después (otro agente).
+--
+--   1. meta_waba_id: ADITIVA y NULLABLE. NULL en dos casos, ambos legítimos:
+--      - cuenta de la agencia o Meta directo, donde `waba_id` YA es el real y
+--        no hace falta duplicarlo;
+--      - cuenta propia de YCloud a la que aún no se le ha capturado el WABA.
+--      Al ser NULLABLE no reescribe ni invalida ninguna de las filas
+--      existentes de meta_credentials.
+--
+--   Sin UNIQUE, igual que `waba_id` (que tampoco lo tiene): la unicidad de la
+--   fila ya la garantiza `meta_credentials_org_uq` (una fila por organización).
+--
+-- Escrita a mano, como la 0019 a la 0026 (ninguna tiene snapshot en
+-- drizzle/meta/): drizzle-kit generate diffizaría contra el snapshot
+-- desactualizado de la 0020.
+--
+-- NO se ejecutó contra ninguna base al escribirla: sin base de pruebas local,
+-- se revisó statement por statement contra schema.ts. El `localhost:15433` es
+-- un TÚNEL A PRODUCCIÓN, jamás una base de pruebas.
+--
+-- REVERTIR:
+--   ALTER TABLE "meta_credentials" DROP COLUMN "meta_waba_id";
+--   (seguro en cualquier momento: la columna es aditiva y nullable, nada más
+--    depende de ella hasta que el otro agente la empiece a leer.)
+
+ALTER TABLE "meta_credentials" ADD COLUMN IF NOT EXISTS "meta_waba_id" text;

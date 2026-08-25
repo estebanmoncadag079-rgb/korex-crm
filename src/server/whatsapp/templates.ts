@@ -41,6 +41,32 @@ export function templateErrorStatus(err: TemplateError): number {
   return TEMPLATE_ERROR_STATUS[err.code];
 }
 
+/**
+ * Resuelve el WABA ID correcto para llamar a Meta Graph API.
+ *
+ * - Cuentas de agencia o Meta directo: `creds.wabaId` ya es un WABA real →
+ *   se usa tal cual.
+ * - Cuentas propias de YCloud: `creds.wabaId` es sintético (`ycloud:<numero>`)
+ *   y Meta no lo reconoce. Se necesita `creds.metaWabaId` (capturado
+ *   automáticamente del primer mensaje entrante por `ycloud-events.ts`).
+ *   Si todavía es NULL, falla con un error claro y accionable.
+ *
+ * Ver doc 131-WABA-ID-CAPTURADO-Y-USADO-EN-PLANTILLAS.
+ */
+export function resolveWabaId(creds: { wabaId: string; metaWabaId: string | null }): string {
+  if (!creds.wabaId.startsWith("ycloud:")) return creds.wabaId;
+  if (creds.metaWabaId) return creds.metaWabaId;
+  throw new TemplateError(
+    "not_connected",
+    "El WABA ID real de Meta no está disponible aún para este cliente. " +
+      "Se captura automáticamente del primer mensaje que reciba el número " +
+      "a través del webhook de YCloud. Verifica que el webhook esté " +
+      "configurado y que el número haya recibido al menos un mensaje desde " +
+      "que se dio de alta. Si el problema persiste, revisa la tabla " +
+      "meta_credentials (columna meta_waba_id) para confirmar que se pobló."
+  );
+}
+
 const VARIABLE_REGEX = /\{\{\s*(\d+)\s*\}\}/g;
 
 /** Cuenta variables {{n}} y valida el acotamiento v1: máximo UNA y debe ser {{1}}. */
@@ -104,11 +130,12 @@ export async function createTemplate(
     .replace(/[^a-z0-9_]/g, "");
   if (!name) throw new TemplateError("invalid", "Nombre de plantilla inválido");
 
+  const wabaId = resolveWabaId(creds);
   const hasVariable = countVariables(input.body) === 1;
   let waTemplateId: string | null = null;
   try {
     const res = await graphRequest<{ id?: string; status?: string }>(
-      `${creds.wabaId}/message_templates`,
+      `${wabaId}/message_templates`,
       {
         method: "POST",
         token: creds.token,
@@ -192,11 +219,12 @@ export async function syncTemplates(organizationId: string): Promise<number> {
     throw new TemplateError("not_connected", "Conecta tu número de WhatsApp primero");
   }
 
+  const wabaId = resolveWabaId(creds);
   let data: {
     data?: { id?: string; name?: string; language?: string; status?: string; quality_score?: unknown; rejected_reason?: string }[];
   };
   try {
-    data = await graphRequest(`${creds.wabaId}/message_templates`, {
+    data = await graphRequest(`${wabaId}/message_templates`, {
       token: creds.token,
     });
   } catch (err) {

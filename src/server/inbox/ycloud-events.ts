@@ -12,6 +12,7 @@ import {
 } from "@/server/inbox/ingest";
 import { notifyTeam } from "@/server/ai/notify-team";
 import { eventoParaLog, resumirTexto } from "@/server/registro-de-cambios";
+import { captureMetaWabaId } from "@/server/whatsapp/credentials";
 
 /**
  * Procesamiento de un evento de YCloud, común a las dos puertas de entrada:
@@ -119,6 +120,12 @@ export async function handleYcloudEvent(
     return { organizationId: route.organizationId };
   }
 
+  // Capturar el WABA real de Meta para que createTemplate pueda usarlo (doc 131).
+  // Fire-and-forget: un fallo aquí no debe bloquear la ingesta del mensaje.
+  captureMetaWabaId(route.organizationId, msg.wabaId).catch((err) => {
+    console.warn("[ycloud webhook] no se pudo capturar meta_waba_id:", err);
+  });
+
   await ingestInboundMessage(
     {
       organizationId: route.organizationId,
@@ -178,6 +185,10 @@ async function handleHistory(
     return { organizationId: route.organizationId };
   }
 
+  captureMetaWabaId(route.organizationId, msg.wabaId).catch((err) => {
+    console.warn("[ycloud webhook] no se pudo capturar meta_waba_id (historial):", err);
+  });
+
   const { guardado } = await ingestHistoryMessage({
     organizationId: route.organizationId,
     direction: msg.direction,
@@ -222,6 +233,10 @@ async function handleEcho(
     );
     return { organizationId: route.organizationId };
   }
+
+  captureMetaWabaId(route.organizationId, echo.wabaId).catch((err) => {
+    console.warn("[ycloud webhook] no se pudo capturar meta_waba_id (eco):", err);
+  });
 
   await ingestOutboundEcho({
     organizationId: route.organizationId,

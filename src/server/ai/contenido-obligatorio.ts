@@ -15,7 +15,8 @@ import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
  *
  * **Genérico, no de un cliente**: no hay ni una palabra de "catálogo" ni de
  * comida en este archivo. Cualquier regla propia o entrada de conocimiento de
- * CUALQUIER negocio que contenga un enlace queda protegida por el mismo
+ * CUALQUIER negocio que contenga un literal verificable (un enlace, un correo
+ * o un teléfono con prefijo internacional) queda protegida por el mismo
  * mecanismo, sin código nuevo por cliente.
  */
 
@@ -24,11 +25,45 @@ export type ContenidoObligatorio = {
   fuente: "conocimiento" | "reglaPropia";
   /** Raíces (4 letras) de las palabras significativas del disparador. */
   raices: string[];
-  /** La URL exacta que debe aparecer, tal cual, en la respuesta. */
+  /** El literal exacto (enlace, correo, teléfono…) que debe aparecer, tal cual, en la respuesta. */
   literal: string;
 };
 
-const URL_RE = /https?:\/\/[^\s)\]}"'<>]+/g;
+/**
+ * Los TIPOS de literal que se pueden verificar por código sin ambigüedad y sin
+ * otra llamada al modelo: o el texto EXACTO aparece en la respuesta, o no. Un
+ * enlace fue el primero (docs/korexia/125); los demás entran por la MISMA
+ * regla —la FORMA del literal debe ser inconfundible—, para que extraerlo del
+ * texto del CRM no lo confunda con un precio, una cantidad o una fecha (el
+ * mismo riesgo del falso positivo de Rappi, docs/korexia/125).
+ *
+ * ⚠️ Por eso NO están aquí los teléfonos "pelados" (dígitos sueltos, como se
+ * escriben en Colombia), las direcciones ni las llaves de pago numéricas: en
+ * prosa libre "3001234567" es indistinguible de un total o de una referencia,
+ * y forzar la cifra equivocada es peor que no forzar nada. Esos esperan al
+ * editor donde el dueño DECLARA el literal explícitamente (docs/korexia/128,
+ * hoja de ruta #2), no a que el código lo adivine.
+ */
+const DETECTORES_DE_LITERAL: readonly RegExp[] = [
+  // Enlace: el esquema `http(s)://` es inconfundible.
+  /https?:\/\/[^\s)\]}"'<>]+/g,
+  // Correo: la `@` con dominio y punto no aparece en un precio ni en una
+  // cantidad; un @usuario de redes (sin dominio) no coincide.
+  /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi,
+  // Teléfono CON prefijo internacional explícito ("+57 300…"): el `+` inicial
+  // y los 8+ dígitos lo separan de un precio. El número local suelto queda
+  // fuera a propósito — ver la nota de arriba.
+  /\+\d[\d\s().-]{6,}\d/g,
+];
+
+/** Todos los literales verificables presentes en un texto, sin duplicar. */
+function literalesEn(texto: string): string[] {
+  const encontrados = new Set<string>();
+  for (const re of DETECTORES_DE_LITERAL) {
+    for (const m of texto.match(re) ?? []) encontrados.add(m);
+  }
+  return [...encontrados];
+}
 
 /**
  * Palabras vacías del ESPAÑOL, no del negocio — la distinción que importa
@@ -86,9 +121,10 @@ function raicesSignificativas(texto: string, extra: Set<string> = new Set()): st
 
 /**
  * Lee todo lo que el negocio configuró (conocimiento + reglas propias) y
- * separa lo que trae un enlace de lo que no. Solo eso se protege: un enlace
- * es un literal verificable sin ambigüedad; una frase de tono ("sé cálida")
- * no lo es, y forzarla no tendría sentido.
+ * separa lo que trae un literal verificable de lo que no. Solo eso se protege:
+ * un enlace, un correo o un teléfono con prefijo son literales sin ambigüedad
+ * (ver `DETECTORES_DE_LITERAL`); una frase de tono ("sé cálida") no lo es, y
+ * forzarla no tendría sentido.
  */
 export function extraerContenidoObligatorio(
   ficha: Pick<FichaDelNegocio, "reglasPropias"> | null | undefined,
@@ -99,22 +135,22 @@ export function extraerContenidoObligatorio(
   for (const entrada of kb) {
     const texto = entrada.kind === "qa" ? entrada.answer : entrada.content;
     if (!texto) continue;
-    const urls = texto.match(URL_RE);
-    if (!urls?.length) continue;
+    const literales = literalesEn(texto);
+    if (!literales.length) continue;
     // La pregunta es el disparador natural: literalmente representa "cuándo
     // el cliente quiere esto". El contenido libre (`content`) no trae
     // pregunta, así que se usa a sí mismo.
     const base = entrada.kind === "qa" ? entrada.question ?? "" : texto;
     const raices = raicesSignificativas(base);
     if (!raices.length) continue;
-    for (const url of new Set(urls)) {
-      resultado.push({ id: `kb:${entrada.id}:${url}`, fuente: "conocimiento", raices, literal: url });
+    for (const literal of literales) {
+      resultado.push({ id: `kb:${entrada.id}:${literal}`, fuente: "conocimiento", raices, literal });
     }
   }
 
   for (const [i, regla] of (ficha?.reglasPropias ?? []).entries()) {
-    const urls = regla.match(URL_RE);
-    if (!urls?.length) continue;
+    const literales = literalesEn(regla);
+    if (!literales.length) continue;
     const clausula = clausulaDelDisparador(regla);
     // Sin un disparador explícito, no hay de dónde sacar palabras de la
     // INTENCIÓN del cliente sin arriesgar chocar con otra regla — ver el
@@ -122,8 +158,8 @@ export function extraerContenidoObligatorio(
     if (!clausula) continue;
     const raices = raicesSignificativas(clausula, PALABRAS_DE_INSTRUCCION);
     if (!raices.length) continue;
-    for (const url of new Set(urls)) {
-      resultado.push({ id: `regla:${i}:${url}`, fuente: "reglaPropia", raices, literal: url });
+    for (const literal of literales) {
+      resultado.push({ id: `regla:${i}:${literal}`, fuente: "reglaPropia", raices, literal });
     }
   }
 
@@ -170,11 +206,11 @@ export function disparadoPor(mensajesDelCliente: readonly string[], contenido: C
 
 /** El texto de corrección, listando exactamente qué falta — nunca "algo". */
 export function correccionDeContenidoFaltante(faltantes: readonly ContenidoObligatorio[]): string {
-  const enlaces = faltantes.map((f) => f.literal).join(", ");
+  const literales = faltantes.map((f) => f.literal).join(", ");
   return (
     "ALTO. El cliente preguntó por algo que el negocio configuró con una respuesta obligatoria, " +
-    `y tu respuesta NO incluye el enlace que debía llevar: ${enlaces}. Reescribe tu respuesta e ` +
-    "incluye ese enlace tal cual, sin acortarlo ni cambiarlo. Responde ÚNICAMENTE el objeto JSON."
+    `y tu respuesta NO incluye el dato exacto que debía llevar: ${literales}. Reescribe tu ` +
+    "respuesta e inclúyelo tal cual, sin acortarlo ni cambiarlo. Responde ÚNICAMENTE el objeto JSON."
   );
 }
 
@@ -182,7 +218,8 @@ export function correccionDeContenidoFaltante(faltantes: readonly ContenidoOblig
  * Última red: si el modelo insiste en omitirlo tras el reintento, el servidor
  * lo añade él mismo — sin una tercera llamada al modelo. Es seguro hacerlo
  * así porque lo único que se fuerza es un literal que el propio negocio
- * escribió (un enlace), nunca un dato inventado por el sistema.
+ * escribió (un enlace, un correo, un teléfono…), nunca un dato inventado por
+ * el sistema.
  */
 export function agregarContenidoFaltante(
   action: AgentActionType,

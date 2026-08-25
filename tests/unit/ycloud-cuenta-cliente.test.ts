@@ -20,6 +20,7 @@ const credencial = (over: Partial<Credentials>): Credentials => ({
   status: "connected",
   token: "",
   webhookSecret: null,
+  metaWabaId: null,
   ...over,
 });
 

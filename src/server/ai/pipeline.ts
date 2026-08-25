@@ -81,10 +81,12 @@ import {
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
   CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR,
+  CORRECCION_DE_PAGO_SIN_VERIFICAR,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   CORRECCION_DE_RECURSO_PROMETIDO,
   CORRECCION_SIN_RESUMEN,
   CORRECCION_SIN_TOTAL,
+  confirmaPagoSinVerificar,
   noDioElTotal,
   productosOlvidados,
   prometeRecurso,
@@ -1027,6 +1029,40 @@ export async function runAgentTurn(
     } else {
       console.error(
         "[agente] sigue prometiendo un recurso sin enviarlo; lo toma una persona"
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Confirma un pago que nadie verificó (24-ago-2026, ver
+   * anuncio-de-cierre.ts). Mismo tratamiento que el cierre falso, la cita
+   * fantasma y el recurso prometido: una oportunidad de rehacerlo con la
+   * corrección delante y, si insiste, lo atiende una persona — un pago que
+   * no existe pasando por confirmado es dinero real en juego, no un detalle
+   * recuperable en el resumen.
+   */
+  if (textosAlCliente(action).some(confirmaPagoSinVerificar)) {
+    console.warn("[agente] confirmó un pago sin verificarlo; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_PAGO_SIN_VERIFICAR },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/pago-sin-verificar`
+    );
+    if (
+      reintento.ok &&
+      !textosAlCliente(reintento.data).some(confirmaPagoSinVerificar)
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        "[agente] sigue confirmando un pago sin verificarlo; lo toma una persona"
       );
       await derivarAUnaPersona(conversation);
       return { action: "handoff", reason: "error" };

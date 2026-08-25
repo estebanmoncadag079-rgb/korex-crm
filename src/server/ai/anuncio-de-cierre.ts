@@ -586,3 +586,69 @@ export function niegaDisponibilidadSinVerificar(texto: string | null | undefined
 /** La corrección cuando confirma o niega disponibilidad sin haberla consultado. */
 export const CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR =
   "ALTO. Tu respuesta afirma o niega disponibilidad (con una especialista, un horario o un periodo) sin haber llamado a consult_availability en este turno para comprobarlo: podrías estar equivocado, en cualquiera de los dos sentidos, y el cliente se queda con algo que no es cierto — puede perder una venta real o presentarse a una cita que no existe. Si el cliente ya te dio el servicio, llama a consult_availability con ese servicio (y esa especialista, si la mencionó) AHORA, antes de decir nada más. Si todavía no sabes el servicio, pregúntaselo con reply sin afirmar ni negar nada todavía. Responde ÚNICAMENTE el objeto JSON.";
+
+/*
+ * ============================================================
+ * Confirma un pago que nadie verificó (24-ago-2026)
+ * ============================================================
+ *
+ * **Caso real (Lis Pastelería, 24-ago-2026)**: la clienta escribió "Pago por
+ * nequi" —declarando el MEDIO que iba a usar, sin comprobante todavía— y el
+ * agente respondió *"¡Recibimos tu pago con éxito! 🎉 Ya estamos preparando
+ * tu pedido con mucho amor..."*. No existía ningún pago: ni comprobante, ni
+ * verificación humana, ni una acción de cobro — nada. El prompt YA lo
+ * prohibía con todas las letras ("NUNCA des un pago por bueno... no digas
+ * 'pago confirmado', 'ya me llegó' ni 'listo, recibido el dinero'" —
+ * `prompts.ts`) y no bastó, la misma lección que la cita fantasma y el
+ * cierre falso: una regla crítica que vive solo en el prompt, el modelo la
+ * incumple.
+ *
+ * **Medido contra 82 respuestas reales de los tres negocios** (60 días,
+ * filtradas por "pago", "comprobante", "nequi", "daviplata",
+ * "transferencia", "bancolombia", "llave"): el patrón correcto SIEMPRE
+ * habla de recibir el COMPROBANTE y pasarlo a verificar ("recibimos tu
+ * comprobante... lo pasamos al equipo para que lo verifiquen"; "estamos
+ * validando tu pago"). Ni una sola vez, en 82 mensajes reales, el agente
+ * dice "recibimos tu pago" a secas — la única excepción es este incidente.
+ * Por eso el detector no necesita saber si hubo o no un `[COMPROBANTE]` en
+ * el turno: no hay una forma legítima de decirlo así en este proyecto,
+ * comprobante real o no (el prompt pide "pasarlo a verificar" incluso
+ * cuando SÍ llegó uno).
+ */
+
+const CONFIRMA_PAGO: RegExp[] = [
+  // "recibimos/recibí tu pago" — nunca "recibimos tu comprobante (de
+  // pago)", que ya queda fuera porque la oración con "comprobante" se
+  // descarta antes de probar estos patrones.
+  /\brecib(?:imos|[íi]|iste|ió)\s+(?:tu\s+|el\s+|su\s+)?pago\b/i,
+  // "pago con éxito / exitoso / confirmado / recibido correctamente"
+  /\bpago\s+(?:ha\s+sido\s+|fue\s+)?(?:con\s+[ée]xito|exitoso|confirmado|recibido\s+correctamente)\b/i,
+  // "confirmamos/confirmo tu pago" — no "tu pedido" ni "tu cita", que sí
+  // son afirmaciones correctas y no las toca este patrón.
+  /\bconfirm(?:amos|o)\s+(?:tu\s+|el\s+|su\s+)?pago\b/i,
+  // "ya (nos/te) llegó tu pago"
+  /\b(?:ya\s+)?(?:nos\s+|te\s+)?lleg[óo]\s+(?:tu\s+|el\s+|su\s+)?pago\b/i,
+];
+
+/**
+ * `true` si el texto afirma que un pago se recibió, llegó o se confirmó.
+ *
+ * Por oración, igual que `prometeRecurso` y compañía: una pregunta legítima
+ * ("¿cómo confirmo el pago?", típica de un FAQ) no debe camuflarse por
+ * llevar las mismas palabras, y una oración que ya habla de "comprobante"
+ * —recibirlo, pasarlo a verificar— es exactamente el patrón correcto, no el
+ * fallo.
+ */
+export function confirmaPagoSinVerificar(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    if (/comprobante/i.test(oracion)) return false;
+    return CONFIRMA_PAGO.some((re) => re.test(oracion));
+  });
+}
+
+/** La corrección cuando el agente da un pago por recibido sin que nadie lo haya verificado. */
+export const CORRECCION_DE_PAGO_SIN_VERIFICAR =
+  "ALTO. Tu respuesta le dice al cliente que su pago fue recibido, confirmado o exitoso, y eso NO es cierto: tú no puedes verificar un pago, ni viendo un comprobante — puede estar retocado, ser de otro pedido o de otra cuenta. NUNCA digas 'pago confirmado', 'recibimos tu pago' ni 'ya nos llegó'. Si el cliente mandó un comprobante, dile que lo pasas al equipo para verificarlo y sigue con el pedido con normalidad. Si el cliente solo dijo CÓMO va a pagar (por ejemplo 'pago por nequi', sin comprobante todavía), pídele que haga la transferencia y te envíe la captura — no des nada por pagado. Responde ÚNICAMENTE el objeto JSON.";

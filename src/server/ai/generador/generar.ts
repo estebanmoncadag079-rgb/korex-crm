@@ -7,6 +7,7 @@ import {
   meta,
   NO_ENCAJA,
   NUNCA,
+  PREGUNTAS_FRECUENTES,
   VALIDACION_DE_ENLACES,
 } from "./conducta";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
@@ -251,6 +252,7 @@ export function generarPerfil(
     vertical === "citas" ? null : FUERA_DE_HORARIO,
     NUNCA,
     NO_ENCAJA,
+    PREGUNTAS_FRECUENTES,
     // Lo propio del negocio se añade al final del bloque universal, no lo
     // sustituye: son prohibiciones suyas que se suman a las de siempre.
     vinetas(ficha.nuncaPrometer)

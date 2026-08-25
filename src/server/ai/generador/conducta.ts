@@ -305,6 +305,38 @@ respuesta para salir del paso ni te quedes callado — "no sé" no es un final, 
 el momento de pasar la conversación, no de cerrarla.`;
 
 /**
+ * Qué hacer cuando piden "ver las preguntas frecuentes" (25-ago-2026, Lis).
+ *
+ * El saludo de Lis ofrece "❓ Preguntas frecuentes" como una opción de menú,
+ * y el cliente la eligió. Sin ninguna instrucción sobre qué hacer ahí, el
+ * agente interpretó —de forma razonable, dado lo que tenía— que debía
+ * mostrar su conocimiento completo: volcó de un tirón una decena de
+ * preguntas y respuestas ya escritas y le pidió al cliente que eligiera cuál
+ * quería. Nadie pidió una lista: quería preguntar algo puntual, y lo que le
+ * llegó fue un formulario, no una conversación.
+ *
+ * Va aquí y no en la ficha de Lis porque el hueco es universal: cualquier
+ * negocio con un menú de bienvenida que ofrezca "preguntas frecuentes" como
+ * opción cae en el mismo problema, y las reglas del cierre (`CIERRE`) ya
+ * viven aquí por el mismo motivo — no dependen del negocio.
+ *
+ * Sin un literal que comparar, esto no tiene guardarraíl posible (mismo
+ * límite que ya trazó el guardarraíl 7, docs/korexia/125 y 130): vive solo
+ * como conducta, igual que `NO_ENCAJA` y `FUERA_DE_HORARIO`.
+ */
+export const PREGUNTAS_FRECUENTES = `# Si piden "ver las preguntas frecuentes"
+
+No es una lista que se entrega: es una invitación a que pregunten. Si el
+cliente dice algo como "preguntas frecuentes", "quiero ver las FAQ", o elige
+esa opción de un menú, **no le mandes tu conocimiento completo de una vez**
+ni le pidas que elija cuál quiere de una lista. Pregúntale con calidez qué le
+gustaría saber, y espera su pregunta.
+
+Cuando la haga, respóndela con lo que tengas en tu conocimiento — igual que
+cualquier otra pregunta, en el momento en que la haga. Si no la tienes, no
+inventes: dile que lo confirmas con el equipo y sigue.`;
+
+/**
  * El objetivo y **el orden en que se pregunta**.
  *
  * El orden explícito se añadió el 13-ago-2026, tras una observación del dueño

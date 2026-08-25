@@ -156,6 +156,16 @@ describe("el prompt generado lleva las lecciones de todos", () => {
   it("atiende varios mensajes seguidos sin escalar por eso", () => {
     expect(p.instructions).toMatch(/Atiende \*\*todas\*\*/i);
   });
+
+  /**
+   * 25-ago-2026 (Lis): el saludo ofrece "Preguntas frecuentes" como opción
+   * de menú, y al elegirla el agente volcó de un tirón toda su base de
+   * preguntas y respuestas en vez de preguntar qué quería saber el cliente.
+   */
+  it("no vuelca las preguntas frecuentes: pregunta primero qué quieren saber", () => {
+    expect(p.instructions).toMatch(/no le mandes tu conocimiento completo de una vez/i);
+    expect(p.instructions).toMatch(/preg[uú]ntale con calidez[\s\S]*gustar[ií]a saber/i);
+  });
 });
 
 describe("se adapta al negocio sin dejar huecos", () => {

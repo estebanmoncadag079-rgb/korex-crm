@@ -17,6 +17,7 @@
  */
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
 import type { Fila } from "@/server/ai/generador/comparar-fila";
 import { conRegistro, type Actor } from "@/server/registro-de-cambios";
@@ -210,4 +211,131 @@ export async function actualizarPermiteRepeticion(
 
   if (actualizadas.length === 0) return null;
   return (await leerGrupos(organizationId, grupoId))[0] ?? null;
+}
+
+/**
+ * Da de alta un grupo de opciones para un producto — "Salsa", "Tamaño",
+ * "Toppings". El producto tiene que ser de la MISMA organización: la FK
+ * compuesta (`product_option_group_product_fk`) lo exige a nivel de base de
+ * datos, así que un id ajeno falla al insertar, no solo al leer.
+ */
+export async function crearGrupo(
+  organizationId: string,
+  productoId: string,
+  datos: { nombre: string; minimo: number; maximo: number },
+  actor: Actor
+): Promise<GrupoConfigurable | null> {
+  const db = getDb();
+  const id = newId("productOptionGroup");
+  try {
+    await db.insert(schema.productOptionGroup).values({
+      id,
+      organizationId,
+      productId: productoId,
+      name: datos.nombre,
+      minSelect: datos.minimo,
+      maxSelect: datos.maximo,
+    });
+  } catch {
+    // FK compuesta rechazó el insert: el producto no existe en esta org.
+    return null;
+  }
+  console.log(
+    `[cambio] tabla=product_option_group registro=${id} campo=<fila nueva> valor_anterior=ausente ` +
+      `valor_nuevo=<creada> proceso=crm:catalogo actor=${actor} timestamp=${new Date().toISOString()}`
+  );
+  return (await leerGrupos(organizationId, id))[0] ?? null;
+}
+
+/**
+ * Cambia nombre, mínimo, máximo o si repite — lo que venga en `datos`. Es la
+ * versión completa de `actualizarPermiteRepeticion`: existen las dos porque
+ * la pantalla de "solo repetición" ya estaba en producción y no había motivo
+ * para tocarla; esta la usa la pantalla de catálogo completo.
+ */
+export async function actualizarGrupo(
+  organizationId: string,
+  grupoId: string,
+  datos: { nombre?: string; minimo?: number; maximo?: number; permiteRepeticion?: boolean },
+  actor: Actor
+): Promise<GrupoConfigurable | null> {
+  const db = getDb();
+  const donde = and(
+    scoped(schema.productOptionGroup.organizationId, organizationId),
+    eq(schema.productOptionGroup.id, grupoId)
+  )!;
+
+  const leerFila = async (): Promise<Fila | null> => {
+    const [f] = await db.select().from(schema.productOptionGroup).where(donde);
+    return (f as unknown as Fila) ?? null;
+  };
+
+  const set: Record<string, unknown> = {};
+  const declarados: string[] = [];
+  if (datos.nombre !== undefined) {
+    set.name = datos.nombre;
+    declarados.push("name");
+  }
+  if (datos.minimo !== undefined) {
+    set.minSelect = datos.minimo;
+    declarados.push("minSelect");
+  }
+  if (datos.maximo !== undefined) {
+    set.maxSelect = datos.maximo;
+    declarados.push("maxSelect");
+  }
+  if (datos.permiteRepeticion !== undefined) {
+    set.permiteRepeticion = datos.permiteRepeticion;
+    declarados.push("permiteRepeticion");
+  }
+  if (declarados.length === 0) return (await leerGrupos(organizationId, grupoId))[0] ?? null;
+
+  const actualizados = await conRegistro(
+    {
+      tabla: "product_option_group",
+      registro: grupoId,
+      leerFila,
+      declarados,
+      proceso: "crm:catalogo",
+      actor,
+    },
+    async () =>
+      db
+        .update(schema.productOptionGroup)
+        .set(set)
+        .where(donde)
+        .returning({ id: schema.productOptionGroup.id })
+  );
+  if (actualizados.length === 0) return null;
+  return (await leerGrupos(organizationId, grupoId))[0] ?? null;
+}
+
+/**
+ * Elimina un grupo de opciones — y sus opciones con él (`ON DELETE CASCADE`
+ * en `product_option_group_fk`). A diferencia de los productos, un grupo SÍ
+ * se borra de verdad: no es algo que un pedido viejo necesite recordar por
+ * su id, solo por su texto ya guardado en el resumen.
+ */
+export async function eliminarGrupo(
+  organizationId: string,
+  grupoId: string,
+  actor: Actor
+): Promise<boolean> {
+  const db = getDb();
+  const donde = and(
+    scoped(schema.productOptionGroup.organizationId, organizationId),
+    eq(schema.productOptionGroup.id, grupoId)
+  )!;
+  const borrados = await db
+    .delete(schema.productOptionGroup)
+    .where(donde)
+    .returning({ id: schema.productOptionGroup.id });
+  if (borrados.length > 0) {
+    console.log(
+      `[cambio] tabla=product_option_group registro=${grupoId} campo=<fila borrada> ` +
+        `valor_anterior=<existía> valor_nuevo=ausente proceso=crm:catalogo actor=${actor} ` +
+        `timestamp=${new Date().toISOString()}`
+    );
+  }
+  return borrados.length > 0;
 }

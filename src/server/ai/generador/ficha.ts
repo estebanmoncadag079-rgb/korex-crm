@@ -314,9 +314,10 @@ export function faltantesDeLaFicha(ficha: Partial<FichaDelNegocio>): string[] {
     );
   }
 
-  if (ficha.vertical === "pedidos" && !ficha.catalogo?.trim()) {
-    faltan.push("el catálogo con precios");
-  }
+  // El catálogo de PEDIDOS ya no se pide en el alta (25-ago-2026): se carga
+  // en la pantalla Catálogo, igual que los de CITAS se cargan en Servicios.
+  // Que falte no bloquea terminar el cuestionario — un negocio puede
+  // completar su ficha y cargar el menú después, o al revés.
   if (ficha.pago && !ficha.pago.formas?.trim()) {
     faltan.push("las formas de pago");
   }

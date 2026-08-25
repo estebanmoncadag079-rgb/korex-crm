@@ -157,6 +157,34 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     permiteRepeticion: "negocio",
     position: "negocio",
   },
+  /**
+   * Un producto del catálogo (25-ago-2026, catálogo completo desde el CRM).
+   * Igual que arriba: describe qué vende el negocio, no a quién se lo vende.
+   */
+  product: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    archivedAt: "tecnico",
+    createdAt: "tecnico",
+    updatedAt: "tecnico",
+    name: "negocio",
+    category: "negocio",
+    priceCents: "negocio",
+    description: "negocio",
+    available: "negocio",
+    position: "negocio",
+  },
+  /** Una opción dentro de un grupo (un topping, un tamaño). Mismo criterio. */
+  product_option: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    groupId: "tecnico",
+    createdAt: "tecnico",
+    name: "negocio",
+    priceDeltaCents: "negocio",
+    available: "negocio",
+    position: "negocio",
+  },
   conversation_state: {
     conversationId: "tecnico",
     organizationId: "tecnico",

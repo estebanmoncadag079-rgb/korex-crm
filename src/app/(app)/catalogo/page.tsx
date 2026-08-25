@@ -1,19 +1,19 @@
 import { redirect } from "next/navigation";
 import { getSessionOrNull } from "@/lib/auth/session";
-import { GruposDeOpciones } from "@/components/catalogo/grupos-de-opciones";
+import { CatalogoProductos } from "@/components/catalogo/catalogo-productos";
 
 export const dynamic = "force-dynamic";
 
 /**
- * La configuración del catálogo que hasta hoy solo se podía cambiar con un
- * script contra producción.
+ * El catálogo de un negocio de PEDIDOS: productos, grupos de opciones y sus
+ * opciones, todo desde aquí — **única fuente**, sin un texto libre aparte que
+ * quede sin efecto una vez migrado.
  *
- * **No se filtra por vertical**: quien tenga grupos de opciones los ve aquí,
- * venda churros, manicuras o cambios de frenos. Si no tiene ninguno, la
- * pantalla lo dice y el menú ni siquiera la ofrece.
+ * Los negocios de CITAS no pasan por aquí: su catálogo vive en Servicios,
+ * con duración y quién atiende cada uno, que este núcleo no necesita saber.
  */
 export default async function CatalogoPage() {
   const session = await getSessionOrNull();
   if (!session) redirect("/login");
-  return <GruposDeOpciones />;
+  return <CatalogoProductos />;
 }

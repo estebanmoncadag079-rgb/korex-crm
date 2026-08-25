@@ -667,6 +667,43 @@ export function pagoDeCitasParaElPrompt(
   ].join("\n");
 }
 
+/**
+ * Las formas de pago de un negocio de PEDIDOS, decididas por el SERVIDOR y
+ * copiadas tal cual — mismo principio que el horario (`estadoDelNegocio`):
+ * un dato que el modelo interpreta mal si se lo deja como prosa larga y
+ * mezclada con reglas de tono se le entrega ya resuelto, en su propia
+ * sección, con instrucción de no tocarlo.
+ *
+ * Nace del caso Nequi (24-ago-2026, Lis Pastelería): un cliente preguntó "¿te
+ * puedo pagar por Nequi?" a un negocio cuya única forma declarada en el
+ * prompt era "transferencia", y el modelo respondió que no — leyendo la
+ * ausencia literal de la palabra "Nequi" como un rechazo, en vez de
+ * reconocer que en Colombia pagar por Nequi ES transferir. Este código no
+ * puede inventar sinónimos que el negocio no declaró en `pago.formas` (eso
+ * lo decide el dueño desde el CRM, no el pipeline) — lo que sí puede hacer
+ * es dos cosas: (1) dejar esa lista como la ÚNICA fuente, en vez de una
+ * frase perdida entre reglas de tono; (2) prohibir el "no" categórico ante
+ * un método que el modelo no reconoce, cambiándolo por "lo confirmo" — para
+ * que una lista de formas incompleta pierda una confirmación pendiente, no
+ * una venta cerrada de una vez con un rechazo falso.
+ */
+export function pagoDePedidosParaElPrompt(pago: {
+  formas: string;
+  datosDeCuenta?: string;
+}): string {
+  const datos = pago.datosDeCuenta
+    ? `\nDatos para el pago (cópialos TAL CUAL, sin cambiar ni un dígito, y solo DESPUÉS de que confirme): ${pago.datosDeCuenta}`
+    : "";
+  return [
+    "MÉTODOS DE PAGO ACEPTADOS (decidido por el negocio; esta es tu ÚNICA fuente, no la amplíes ni la reduzcas):",
+    pago.formas,
+    "Si el cliente nombra un método que no reconoces en esa lista (una app, un banco, una billetera digital), NO le digas que no se acepta: dile que lo confirmas en un momento y sigue tomando el resto del pedido con normalidad. Un rechazo equivocado aquí pierde una venta que sí se podía cerrar.",
+    datos,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export function buildAgentSystemPrompt(input: {
   profile: AgentProfile;
   kb: KbEntry[];
@@ -707,6 +744,12 @@ export function buildAgentSystemPrompt(input: {
    * pago lo maneja `CIERRE`, de otra forma.
    */
   pagoDeCitas?: { pago?: { formas: string; datosDeCuenta?: string }; antes: boolean };
+  /**
+   * Igual que `pagoDeCitas`, para el vertical de pedidos. Presente solo
+   * cuando `agent_profile.payment_source = 'ficha'` — apagado por defecto,
+   * como todos los interruptores de fase de este proyecto (ver `pipeline.ts`).
+   */
+  pagoDePedidos?: { formas: string; datosDeCuenta?: string };
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -745,6 +788,7 @@ export function buildAgentSystemPrompt(input: {
     input.pagoDeCitas
       ? pagoDeCitasParaElPrompt(input.pagoDeCitas.pago, input.pagoDeCitas.antes)
       : null,
+    input.pagoDePedidos ? pagoDePedidosParaElPrompt(input.pagoDePedidos) : null,
     CONTRATO_DE_ACCIONES,
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.

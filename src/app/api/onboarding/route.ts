@@ -91,13 +91,16 @@ const borradorSchema = z
     escalarSiempre: z.array(z.string()),
     nuncaPrometer: z.array(z.string()),
     /*
-     * Qué debe recoger el agente antes de cerrar — el mismo dato que edita
-     * "Datos que deben solicitarse antes de confirmar" en `/api/agent/
-     * requisitos`. Ahí solo se manda el id; `tipo`/`etiqueta`/`obligatorio`
-     * los pone el servidor al aplicar (ver el POST más abajo), igual que en
-     * ese otro endpoint.
+     * `requisitos`: qué debe recoger el agente antes de cerrar — solo el id;
+     * tipo/etiqueta/obligatorio los pone el servidor al aplicar (ver el POST
+     * más abajo). `pagoAntesDeLaCita`: solo aparece en el paso "Cómo te
+     * pagan" cuando el vertical es citas — optional a propósito, para que un
+     * negocio de pedidos no lo mande nunca y no haya nada que preservar.
      */
-    cierre: z.object({ requisitos: z.array(requisitoSchema) }),
+    cierre: z.object({
+      requisitos: z.array(requisitoSchema),
+      pagoAntesDeLaCita: z.boolean().optional(),
+    }),
   })
   .partial();
 
@@ -150,14 +153,15 @@ export const POST = withAuth(async (session, req: Request) => {
   await guardarBorrador(session.organizationId, borrador);
 
   /*
-   * `cierre` lleva DOS datos de dueños distintos: `requisitos` (este paso) y
-   * `pagoAntesDeLaCita` (la pantalla de Pago de Citas, `PagoCitasSection`).
-   * `fusionarFicha` fusiona por SECCIÓN completa (`flujo`), no campo a campo
-   * dentro de `cierre` — así que si aquí solo se manda `{ requisitos }`, eso
-   * REEMPLAZARÍA el `cierre` guardado entero y borraría `pagoAntesDeLaCita`
-   * sin que nadie lo pidiera. Se preserva explícitamente, mismo patrón que
-   * usa `/api/agent/pago-citas` en sentido contrario (preserva `requisitos`
-   * al guardar su propio interruptor).
+   * `cierre` lleva `requisitos` y `pagoAntesDeLaCita`, los dos editados
+   * desde este mismo paso ahora (25-ago-2026). `fusionarFicha` fusiona por
+   * SECCIÓN completa (`flujo`), no campo a campo dentro de `cierre` — así
+   * que construir `cierre` a mano aquí, sin partir de lo ya guardado,
+   * borraría lo que no se reconstruya explícitamente.
+   *
+   * `pagoAntesDeLaCita` es `undefined` cuando el vertical es pedidos (ese
+   * checkbox ni se muestra): el `??` conserva ahí lo que ya hubiera, en vez
+   * de apagarlo por accidente cada vez que alguien reenvía el cuestionario.
    */
   const fichaPrevia = await leerBorrador(session.organizationId);
   const requisitos = REQUISITOS_DISPONIBLES.filter((r) =>
@@ -165,7 +169,12 @@ export const POST = withAuth(async (session, req: Request) => {
   ).map((r) => ({ ...r, obligatorio: true }));
   const borradorConCierre: FichaDelNegocio = {
     ...borrador,
-    cierre: { ...fichaPrevia.cierre, requisitos },
+    cierre: {
+      ...fichaPrevia.cierre,
+      requisitos,
+      pagoAntesDeLaCita:
+        body.data.borrador.cierre?.pagoAntesDeLaCita ?? fichaPrevia.cierre?.pagoAntesDeLaCita,
+    },
   } as FichaDelNegocio;
 
   const resultado = await aplicarFicha(

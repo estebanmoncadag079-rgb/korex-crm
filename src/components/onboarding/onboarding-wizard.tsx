@@ -69,13 +69,15 @@ type Ficha = {
   escalarSiempre?: string[];
   nuncaPrometer?: string[];
   /**
-   * Qué debe recoger el agente antes de cerrar — solo el id de cada uno
-   * marcado; el servidor completa tipo/etiqueta/obligatorio al aplicar. Este
-   * paso del alta es la ÚNICA pantalla que edita este dato (25-ago-2026): la
-   * tarjeta que existía en "Agente de IA" se quitó para no tener dos lugares
+   * `requisitos`: qué debe recoger el agente antes de cerrar — solo el id de
+   * cada uno marcado; el servidor completa tipo/etiqueta/obligatorio al
+   * aplicar. `pagoAntesDeLaCita`: solo CITAS, si se cobra por adelantado al
+   * agendar. Los dos viven en la misma sección de la ficha y este paso del
+   * alta es la ÚNICA pantalla que los edita (25-ago-2026): las tarjetas que
+   * existían en "Agente de IA" se quitaron para no tener dos lugares
    * editando lo mismo.
    */
-  cierre?: { requisitos?: { id: string }[] };
+  cierre?: { requisitos?: { id: string }[]; pagoAntesDeLaCita?: boolean };
 };
 
 const DIAS = [
@@ -692,6 +694,27 @@ export function OnboardingWizard() {
             <strong>nunca da un pago por bueno</strong>: eso lo revisa siempre una
             persona de tu equipo, para que nadie te pase un comprobante falso.
           </p>
+          {ficha.vertical === "citas" && (
+            <Campo
+              titulo="¿Cobras por adelantado al confirmar una cita?"
+              ayuda="Si no lo marcas, la conversación termina en la confirmación sin mencionar el pago."
+            >
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={ficha.cierre?.pagoAntesDeLaCita ?? false}
+                  onChange={(e) =>
+                    set({
+                      cierre: { ...ficha.cierre, pagoAntesDeLaCita: e.target.checked },
+                    })
+                  }
+                  className="h-4 w-4 accent-primary"
+                />
+                Pedir el pago por adelantado (con los datos de arriba) para
+                dejar la cita en firme.
+              </label>
+            </Campo>
+          )}
         </>
       ),
     },

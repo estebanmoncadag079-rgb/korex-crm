@@ -204,6 +204,13 @@
       "when": 1787631476151,
       "tag": "0028_formas_de_pago_estructuradas",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787717876151,
+      "tag": "0029_menu_guiado_de_whatsapp",
+      "breakpoints": true
     }
   ]
 }

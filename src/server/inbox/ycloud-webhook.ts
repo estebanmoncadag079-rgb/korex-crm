@@ -128,6 +128,19 @@ export type YcloudEvent = {
       message?: { type?: string; text?: { body?: string } };
     };
     /**
+     * El cliente TOCÓ una opción de un menú guiado (25-ago-2026): `type`
+     * llega como "interactive" y el título elegido viaja aquí, no en `text`.
+     * Se trata igual que una edición — se convierte en el `text` del
+     * mensaje, para que el agente lo reciba como si el cliente lo hubiera
+     * escrito. El `id` (el `product.id` o el id de la intención) no se usa
+     * todavía; el título ya es exacto porque lo armó el propio servidor.
+     */
+    interactive?: {
+      type?: string;
+      list_reply?: { id?: string; title?: string };
+      button_reply?: { id?: string; title?: string };
+    };
+    /**
      * A qué está respondiendo el cliente. Llega de dos formas y la diferencia
      * importa (medido sobre 489 entrantes reales el 9-ago-2026: 40 de la
      * primera, 6 de la segunda):
@@ -226,6 +239,10 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
    * el agente veía un marcador de "no compatible" y podía confundirse.
    */
   const editedText = m.type === "edit" ? (m.edit?.message?.text?.body ?? null) : null;
+  const interactiveText =
+    m.type === "interactive"
+      ? (m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? null)
+      : null;
   return {
     id: m.id,
     wabaId: m.wabaId,
@@ -234,9 +251,9 @@ export function parseYcloudInbound(event: YcloudEvent): ParsedInbound | null {
     waUserId: m.fromUserId ?? null,
     to: stripPlus(m.to ?? ""),
     name: m.customerProfile?.name ?? null,
-    type: editedText ? "text" : (m.type ?? "text"),
+    type: editedText || interactiveText ? "text" : (m.type ?? "text"),
     // El pie de foto es el texto del mensaje (un comprobante suele traer nota).
-    text: m.text?.body ?? editedText ?? media?.caption ?? media?.filename ?? null,
+    text: m.text?.body ?? editedText ?? interactiveText ?? media?.caption ?? media?.filename ?? null,
     unixTs: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
     mediaUrl: media?.link ?? null,
     mediaId: media?.id ?? null,

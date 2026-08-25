@@ -231,6 +231,7 @@ export async function aplicarFicha(
     .select({
       ficha: schema.agentProfile.ficha,
       catalogSource: schema.agentProfile.catalogSource,
+      menuMode: schema.agentProfile.menuMode,
       hoursOpen: schema.agentProfile.hoursOpen,
       hoursClose: schema.agentProfile.hoursClose,
     })
@@ -284,6 +285,7 @@ export async function aplicarFicha(
 
   const perfil = generarPerfil(ficha, {
     catalogoEnTabla: guardada[0]?.catalogSource === "tabla",
+    menuGuiado: guardada[0]?.menuMode === "guiado",
     vertical: contratado,
   });
 

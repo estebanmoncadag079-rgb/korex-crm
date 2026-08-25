@@ -77,6 +77,7 @@ const perfiles = await db
     // Quien ya tiene su catálogo en tablas NO debe llevarlo también en el
     // prompt: serían dos fuentes del mismo dato y la primera en quedarse vieja.
     catalogSource: schema.agentProfile.catalogSource,
+    menuMode: schema.agentProfile.menuMode,
   })
   .from(schema.agentProfile)
   .innerJoin(
@@ -134,6 +135,7 @@ for (const p of perfiles) {
   try {
     perfil = generarPerfil(ficha, {
       catalogoEnTabla: p.catalogSource === "tabla",
+      menuGuiado: p.menuMode === "guiado",
     });
   } catch (err) {
     // `faltantesDeLaFicha` frena antes de romper: mejor dejar el prompt viejo

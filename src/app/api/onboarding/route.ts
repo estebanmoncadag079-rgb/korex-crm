@@ -8,8 +8,10 @@ import {
 import {
   faltantesDeLaFicha,
   fusionarRequisitosDelCatalogo,
+  idDeOpcionDeMenu,
   REQUISITOS_DISPONIBLES,
   type FichaDelNegocio,
+  type OpcionDeMenu,
 } from "@/server/ai/generador/ficha";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +93,13 @@ const borradorSchema = z
     tono: z.string(),
     regalos: z.string(),
     saludoInicial: z.string(),
+    /*
+     * El menú guiado de WhatsApp (25-ago-2026): aquí solo las etiquetas de
+     * texto que escribe el dueño. El servidor deriva el `id` de cada una
+     * (`idDeOpcionDeMenu`) recién al aplicar la ficha — igual que
+     * `cierre.requisitos` solo trae el id y el servidor completa el resto.
+     */
+    menu: z.object({ opciones: z.array(z.string()) }).optional(),
     reglasPropias: z.array(z.string()),
     preguntasFrecuentes: z.array(preguntaSchema),
     escalarSiempre: z.array(z.string()),
@@ -173,8 +182,28 @@ export const POST = withAuth(async (session, req: Request) => {
     body.data.borrador.cierre?.requisitos ?? [],
     fichaPrevia.cierre?.requisitos
   );
+  /*
+   * El menú guiado (25-ago-2026): el borrador solo trae etiquetas de texto;
+   * aquí se les pone un `id` derivado y estable. Vacío se omite del todo
+   * (`undefined`), igual que cualquier otro campo opcional de la ficha — sin
+   * esto, `ficha.menu = { opciones: [] }` seguiría pasando la comprobación
+   * de "¿hay menú?" en otros sitios que solo miran si la clave existe.
+   */
+  const etiquetasDeMenu = (body.data.borrador.menu?.opciones ?? [])
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const menu = etiquetasDeMenu.length
+    ? {
+        opciones: etiquetasDeMenu.reduce<OpcionDeMenu[]>((acc, etiqueta) => {
+          const id = idDeOpcionDeMenu(etiqueta, new Set(acc.map((o) => o.id)));
+          acc.push({ id, etiqueta });
+          return acc;
+        }, []),
+      }
+    : undefined;
   const borradorConCierre: FichaDelNegocio = {
     ...borrador,
+    menu,
     cierre: {
       ...fichaPrevia.cierre,
       requisitos,

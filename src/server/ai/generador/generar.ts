@@ -49,6 +49,26 @@ function vinetas(items: string[] | undefined): string | null {
   return limpios.map((i) => `- ${i}`).join("\n");
 }
 
+/**
+ * Cuándo usar el menú guiado de WhatsApp (25-ago-2026) en vez de texto libre.
+ *
+ * Solo aparece cuando `menu_mode='guiado'` Y el negocio declaró opciones en
+ * `ficha.menu` — sin eso, no hay nada que ofrecer y el agente sigue
+ * saludando con su texto de siempre.
+ */
+function menuGuiadoParaElPrompt(
+  ficha: FichaDelNegocio,
+  opciones?: { menuGuiado?: boolean }
+): string | null {
+  if (!opciones?.menuGuiado || !ficha.menu?.opciones?.length) return null;
+  return bloques(
+    "## Cómo arrancas la conversación",
+    'Este negocio tiene un menú guiado: cuando alguien te escriba por primera vez, o te salude sin pedir algo concreto, usa la acción `send_menu` con `tipo: "intenciones"` — el sistema arma la lista o los botones reales, tú no escribes el saludo a mano.',
+    'Cuando pregunten qué vendes o qué tienes en la carta, usa `send_menu` con `tipo: "catalogo"` para mostrarles las opciones reales, en vez de describirlas en un párrafo.',
+    "Si el sistema no puede armar el menú, te llega tu propio `reply` como respuesta normal — no menciones que intentaste mandar un menú ni insistas."
+  );
+}
+
 /** Lo que el negocio vende y a qué precio. */
 function queOfrece(
   ficha: FichaDelNegocio,
@@ -180,6 +200,12 @@ export function generarPerfil(
   opciones?: {
     catalogoEnTabla?: boolean;
     /**
+     * `true` = este negocio tiene `agent_profile.menu_mode='guiado'`: el
+     * agente ofrece el menú guiado de WhatsApp en vez de texto libre. Igual
+     * que `catalogoEnTabla`, lo decide `agent_profile`, no la ficha.
+     */
+    menuGuiado?: boolean;
+    /**
      * El vertical CONTRATADO, que sale de `agent_profile.appointments_enabled`
      * — no de la ficha (ver `@/server/vertical`).
      *
@@ -210,6 +236,9 @@ export function generarPerfil(
       ? "# Lo que ofreces y cómo te pagan"
       : "# Lo que ofreces y cómo se recibe",
     queOfrece(ficha, vertical, opciones),
+    // Solo en pedidos: el menú guiado depende del catálogo en tablas, que en
+    // citas ya llega aparte desde `service`.
+    vertical === "citas" ? null : menuGuiadoParaElPrompt(ficha, opciones),
     // En un salón no hay nada que entregar: el bloque de domicilios acababa
     // diciéndole "no hacemos domicilios, ofrécele recoger" a quien viene a que
     // le hagan las pestañas.

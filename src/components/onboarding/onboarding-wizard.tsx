@@ -65,6 +65,13 @@ type Ficha = {
   tono?: string;
   regalos?: string;
   saludoInicial?: string;
+  /**
+   * El menú guiado de WhatsApp (25-ago-2026): opciones que el cliente TOCA
+   * en vez de escribir. Aquí solo son etiquetas de texto — el `id` de cada
+   * una lo pone el servidor al aplicar la ficha (`idDeOpcionDeMenu`), nunca
+   * el dueño del negocio.
+   */
+  menu?: { opciones: string[] };
   reglasPropias?: string[];
   preguntasFrecuentes?: { pregunta: string; respuesta: string }[];
   escalarSiempre?: string[];
@@ -784,6 +791,17 @@ export function OnboardingWizard() {
               rows={2}
               value={ficha.saludoInicial ?? ""}
               onChange={(e) => set({ saludoInicial: e.target.value })}
+            />
+          </Campo>
+          <Campo
+            titulo="¿Quieres que el cliente elija de un menú al escribirte por primera vez?"
+            ayuda="En vez de escribir libremente, tu cliente toca una opción. Déjalo vacío si prefieres que el asistente conteste libremente, como hasta ahora."
+            ejemplo="Ver menú y precios · Hacer un pedido · Preguntas frecuentes · Hablar con un asesor"
+          >
+            <Lista
+              valores={ficha.menu?.opciones ?? []}
+              marcador="Ej: Hacer un pedido"
+              onChange={(v) => set({ menu: { opciones: v } })}
             />
           </Campo>
         </>

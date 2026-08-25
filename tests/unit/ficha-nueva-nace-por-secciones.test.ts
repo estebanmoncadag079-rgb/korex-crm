@@ -33,6 +33,7 @@ const FICHA: Required<FichaDelNegocio> = {
   tono: "cercano",
   regalos: "Sí, con tarjeta.",
   saludoInicial: "Hola",
+  menu: { opciones: [{ id: "pedido", etiqueta: "Hacer un pedido" }] },
   reglasPropias: ["una regla propia"],
   preguntasFrecuentes: [{ pregunta: "¿abren domingo?", respuesta: "no" }],
   escalarSiempre: ["un reclamo"],

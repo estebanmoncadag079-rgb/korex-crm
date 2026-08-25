@@ -29,6 +29,7 @@
     "probar:citas": "esbuild scripts/probar-citas.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-citas.mjs --alias:@=./src --packages=external && node .tmp-probar-citas.mjs",
     "probar:agente": "esbuild scripts/probar-agente.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-agente.mjs --alias:@=./src --packages=external && node .tmp-probar-agente.mjs",
     "migrar:catalogo": "esbuild scripts/migrar-catalogo.ts --bundle --platform=node --format=esm --outfile=.tmp-catalogo.mjs --alias:@=./src --packages=external && node .tmp-catalogo.mjs",
+    "migrar:pago": "esbuild scripts/migrar-pago.ts --bundle --platform=node --format=esm --outfile=.tmp-pago.mjs --alias:@=./src --packages=external && node .tmp-pago.mjs",
     "medir:extraccion": "esbuild scripts/medir-extraccion.ts --bundle --platform=node --format=esm --outfile=.tmp-medir-extraccion.mjs --alias:@=./src --packages=external && node .tmp-medir-extraccion.mjs",
     "simular:ficha": "esbuild scripts/simular-ficha-v2.ts --bundle --platform=node --format=esm --outfile=.tmp-simular-ficha.mjs --alias:@=./src --packages=external && node .tmp-simular-ficha.mjs",
     "probar:propiedad": "esbuild scripts/probar-propiedad-ficha.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-propiedad.mjs --alias:@=./src --packages=external && node .tmp-probar-propiedad.mjs",

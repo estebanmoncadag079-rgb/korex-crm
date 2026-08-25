@@ -362,7 +362,7 @@ function estadoDelNegocio(
     // 10:00" en domingo aunque el negocio abriera a las 14:00 ese día.
     const dia = diaDeLaSemana(now, BUSINESS_TIMEZONE);
     const horaApertura = rangoDelDia(hours, dia).open;
-    return `${hora} EL NEGOCIO TODAVÍA NO HA ABIERTO HOY: abre a las ${horaApertura} (faltan ${faltan} minutos). NO digas que "ya cerramos" ni reagendes para mañana — el pedido sale HOY. Dile cuándo abren, tómale el pedido y avísale que se lo preparan apenas abran.`;
+    return `${hora} EL NEGOCIO TODAVÍA NO HA ABIERTO HOY: abre a las ${horaApertura} (dato para TI, para que sepas que abre hoy y no mañana — faltan ${faltan} minutos, pero esa cifra en minutos NUNCA se la dices al cliente así). NO digas que "ya cerramos" ni reagendes para mañana — el pedido sale HOY. Dile la hora de apertura en palabras normales ("abrimos a las ${horaApertura}"), nunca en minutos, tómale el pedido y avísale que se lo preparan apenas abran.`;
   }
   return `${hora} EL NEGOCIO ESTÁ CERRADO ahora mismo y HOY YA NO ABRE: aplica la regla de pedidos fuera del horario.`;
 }

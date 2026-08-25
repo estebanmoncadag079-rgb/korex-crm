@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 import type { StageDto } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 
 /** Gestión de etapas: renombrar, reordenar, agregar, eliminar (con reasignación). */
@@ -103,7 +104,7 @@ export function StageManager({
         <ul className="space-y-2">
           {sorted.map((s, i) => (
             <li key={s.id} className="flex items-center gap-1 sm:gap-2">
-              <Input
+              <ExpandableInput
                 defaultValue={s.name}
                 onBlur={(e) => void rename(s, e.target.value)}
                 className="min-w-0 flex-1"

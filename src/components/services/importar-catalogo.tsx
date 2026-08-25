@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -613,7 +614,7 @@ export function ImportarCatalogo({ onImportado }: Props) {
                   {filas.map((f, i) => (
                     <tr key={i} className="border-b last:border-0">
                       <td className="px-2 py-1">
-                        <Input
+                        <ExpandableInput
                           className="h-8"
                           value={f.nombre}
                           onChange={(e) => editar(i, "nombre", e.target.value)}

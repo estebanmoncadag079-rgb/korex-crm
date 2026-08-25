@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Textarea } from "@/components/ui/textarea";
 
 /**
@@ -169,7 +169,7 @@ function PropuestaRow({
 
   return (
     <div className="space-y-2 rounded-md border p-4">
-      <Input
+      <ExpandableInput
         value={question}
         onChange={(e) => setQuestion(e.target.value)}
         aria-label="Pregunta propuesta"

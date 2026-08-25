@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { repeticionObligatoria } from "@/lib/catalogo-repeticion";
@@ -205,7 +206,7 @@ function FormularioProducto({
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <Label htmlFor="nombre-producto">Nombre</Label>
-            <Input
+            <ExpandableInput
               id="nombre-producto"
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
@@ -385,7 +386,7 @@ function FormularioGrupo({
       <div className="grid gap-3 sm:grid-cols-3">
         <div>
           <Label htmlFor="nombre-grupo">Nombre del grupo</Label>
-          <Input
+          <ExpandableInput
             id="nombre-grupo"
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}

@@ -8,6 +8,7 @@ import { formatPhone } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -181,7 +182,7 @@ function EditDialog({
             <label className="text-sm font-medium" htmlFor="edit-name">
               Nombre
             </label>
-            <Input
+            <ExpandableInput
               id="edit-name"
               value={name}
               onChange={(e) => setName(e.target.value)}

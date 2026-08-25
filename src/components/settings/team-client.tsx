@@ -6,6 +6,7 @@ import { ContactAvatar } from "@/components/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -85,7 +86,7 @@ export function TeamClient() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="team-name">Nombre</Label>
-              <Input
+              <ExpandableInput
                 id="team-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}

@@ -449,6 +449,20 @@ export const agentProfile = pgTable(
      */
     menuMode: text("menu_mode").notNull().default("texto"),
     /**
+     * Fuerza la verificación backend de `consultar_producto` para preguntas
+     * factuales concretas ("¿tienen X?", "¿cuánto cuesta X?"), en vez de
+     * dejar que el modelo decida por su cuenta si consulta o responde
+     * directo con el catálogo en prosa (docs/korexia/143).
+     *
+     * Nace `false` (comportamiento de hoy, sin cambios) y se enciende
+     * negocio por negocio — mismo patrón que `catalogSource`. Solo tiene
+     * efecto si `catalogSource = 'tabla'`: sin catálogo real no hay contra
+     * qué verificar.
+     */
+    consultasVerificadasEnabled: boolean("consultas_verificadas_enabled")
+      .notNull()
+      .default(false),
+    /**
      * La ficha del negocio con la que se generó este prompt (JSON).
      *
      * Sin ella, una lección nueva en `conducta.ts` solo llegaba a los clientes

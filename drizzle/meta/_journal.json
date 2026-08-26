@@ -211,6 +211,13 @@
       "when": 1787717876151,
       "tag": "0029_menu_guiado_de_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1787793600000,
+      "tag": "0030_consultas_verificadas_por_organizacion",
+      "breakpoints": true
     }
   ]
 }

@@ -56,10 +56,15 @@ import {
   reprogramarCita,
   resolverEspecialistaMultiple,
 } from "@/server/appointments/queries";
-import { catalogoDe, catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
+import {
+  catalogoDe,
+  catalogoDePedidos as catalogoDePedidosQuery,
+  type ProductoDelCatalogo,
+} from "@/server/catalog/queries";
 import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { buscarProductos } from "@/server/catalog/buscar";
+import { detectarConsultaFactualDeProducto } from "@/server/catalog/deteccion";
 import { resolverMetodoDePago } from "@/server/pagos/metodo";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
@@ -638,10 +643,17 @@ export async function runAgentTurn(
    * blanco: una migración a medias no puede tumbar a un cliente.
    */
   let catalogoDePedidos: string | undefined;
+  /**
+   * El mismo catálogo, en crudo — reutilizado más abajo por la detección
+   * factual (docs/korexia/143) y por el bucle de `consultar_producto`, para
+   * no repetir la consulta a la base de datos dos o tres veces en el mismo
+   * turno.
+   */
+  let productosDelPedido: ProductoDelCatalogo[] = [];
   if (!contrataCitas(vertical) && profile.catalogSource === "tabla") {
-    const productos = await catalogoDePedidosQuery(organizationId);
-    if (productos.length > 0) {
-      catalogoDePedidos = renderCatalogoDePedidos(productos);
+    productosDelPedido = await catalogoDePedidosQuery(organizationId);
+    if (productosDelPedido.length > 0) {
+      catalogoDePedidos = renderCatalogoDePedidos(productosDelPedido);
     } else {
       console.warn(
         `[catalogo] ${organizationId}: catalog_source='tabla' pero sin productos; se usa el del prompt`
@@ -781,6 +793,47 @@ export async function runAgentTurn(
     },
     ...toChatHistory(history, estado),
   ];
+
+  /**
+   * Verificación factual FORZADA, antes de darle la palabra al modelo
+   * (docs/korexia/143).
+   *
+   * `consultar_producto` (más abajo) depende de que el modelo DECIDA
+   * pedirla — y la prueba controlada con Lis (26-ago-2026) mostró que no
+   * siempre lo hace: con "¿tienen torta de chocolate?" a veces resolvía
+   * directo con el catálogo en prosa, que sigue en el prompt. Cuando el
+   * mensaje es una pregunta factual concreta y este negocio lo tiene
+   * encendido, el SERVIDOR consulta el catálogo real ANTES de la primera
+   * llamada, y el modelo ya recibe el hecho verificado en su primera
+   * respuesta — sin depender de su criterio para decidir verificar.
+   *
+   * `detectarConsultaFactualDeProducto` es deliberadamente conservador:
+   * ante cualquier señal de pregunta abierta (recomendación, categoría,
+   * ocasión) devuelve `null` y este bloque no hace nada — el modelo sigue
+   * respondiendo con el catálogo completo, como siempre. Reutiliza
+   * `productosDelPedido` (ya en memoria desde arriba) y `buscarProductos`/
+   * `textoDeResultadoProducto` (el mismo camino de `consultar_producto`):
+   * es el mismo hecho verificado, solo que el servidor lo pide primero.
+   */
+  let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
+  if (
+    profile.consultasVerificadasEnabled &&
+    !contrataCitas(vertical) &&
+    productosDelPedido.length > 0 &&
+    lastInbound.text
+  ) {
+    const consultaFactual = detectarConsultaFactualDeProducto(lastInbound.text);
+    if (consultaFactual) {
+      resultadoProducto = buscarProductos(productosDelPedido, consultaFactual);
+      console.warn(
+        `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status} (verificado antes de llamar al modelo)`
+      );
+      messages.push({
+        role: "user",
+        content: `${textoDeResultadoProducto(consultaFactual, resultadoProducto)} (Esto ya está verificado: no hace falta que uses la acción consultar_producto para lo mismo.)`,
+      });
+    }
+  }
 
   /*
    * Con el estado encendido, la propuesta viaja en la MISMA llamada que la
@@ -989,13 +1042,13 @@ export async function runAgentTurn(
    */
   const MAX_CONSULTAS_PRODUCTO = 2;
   let consultasProducto = 0;
-  let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
   while (
     action.action === "consultar_producto" &&
     consultasProducto < MAX_CONSULTAS_PRODUCTO
   ) {
     consultasProducto++;
-    const productosDelPedido = await catalogoDePedidosQuery(organizationId);
+    // Reutiliza el catálogo ya cargado arriba (una sola consulta a la base
+    // de datos por turno, sin importar cuántas veces se llegue aquí).
     resultadoProducto = buscarProductos(productosDelPedido, action.consulta);
     console.warn(
       `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}`

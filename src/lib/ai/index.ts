@@ -121,6 +121,19 @@ async function intentarCon<T>(
   // estructuradas debe seguir atendiendo, no quedarse sin turno.
   let esquemaDelProveedor = jsonSchema;
   let lastDetail = "";
+  const CORRECCION_GENERICA =
+    "STRICT: tu respuesta anterior no fue JSON válido según el esquema. Responde ÚNICAMENTE el objeto JSON, sin explicaciones ni markdown.";
+  /**
+   * El mensaje de corrección para el PRÓXIMO intento (docs/korexia/144).
+   *
+   * Antes era siempre el genérico de arriba, sin importar POR QUÉ había
+   * fallado el intento anterior — "no fue JSON válido" para una respuesta
+   * que sí era JSON pero le faltaba un campo concreto. Con el detalle real
+   * de Zod (qué campo, qué exigía) el modelo tiene la corrección exacta que
+   * necesita en vez de tener que adivinar qué estuvo mal, y sube la chance
+   * de que el reintento (que ya existía, `MAX_ATTEMPTS`) tenga éxito.
+   */
+  let correccionParaElSiguiente = CORRECCION_GENERICA;
   // Se suma lo gastado en cada intento: un turno que necesitó tres llamadas
   // costó las tres, aunque solo una devolviera algo usable.
   const gastado: AiUsage = { model, tokensIn: 0, tokensOut: 0, costUsd: 0 };
@@ -128,14 +141,7 @@ async function intentarCon<T>(
     const attemptMessages: ChatMessage[] =
       attempt === 1
         ? messages
-        : [
-            ...messages,
-            {
-              role: "system",
-              content:
-                "STRICT: tu respuesta anterior no fue JSON válido según el esquema. Responde ÚNICAMENTE el objeto JSON, sin explicaciones ni markdown.",
-            },
-          ];
+        : [...messages, { role: "system", content: correccionParaElSiguiente }];
     try {
       const { content: raw, usage } = await callProvider(
         model,
@@ -149,18 +155,24 @@ async function intentarCon<T>(
       const extracted = extractJson(raw);
       if (extracted === null) {
         lastDetail = `sin JSON extraíble (raw=${truncate(raw)})`;
+        correccionParaElSiguiente = CORRECCION_GENERICA;
         continue;
       }
       const parsed = schema.safeParse(extracted);
       if (!parsed.success) {
-        lastDetail = `no cumple el esquema: ${parsed.error.issues
+        const detalle = parsed.error.issues
           .map((i) => i.path.join(".") + " " + i.message)
-          .join("; ")} (raw=${truncate(raw)})`;
+          .join("; ");
+        lastDetail = `no cumple el esquema: ${detalle} (raw=${truncate(raw)})`;
+        correccionParaElSiguiente = `STRICT: tu respuesta anterior no cumplió el contrato exacto: ${detalle}. Corrige ÚNICAMENTE eso, sin cambiar de acción si sigue siendo la correcta. Responde ÚNICAMENTE el objeto JSON.`;
         continue;
       }
       return { ok: true, data: parsed.data, raw, usage: gastado };
     } catch (err) {
       lastDetail = err instanceof Error ? err.message : String(err);
+      // Error de red/proveedor, no de contenido: no hay un campo concreto
+      // que corregir, así que el próximo intento vuelve al mensaje genérico.
+      correccionParaElSiguiente = CORRECCION_GENERICA;
       /*
        * Un proveedor que no admite salidas estructuradas responde 4xx nombrando
        * `response_format`. No es un fallo del turno: se reintenta sin el

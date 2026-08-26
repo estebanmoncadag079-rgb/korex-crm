@@ -879,8 +879,16 @@ export async function runAgentTurn(
   await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
   if (!result.ok) {
     if (result.error === "not_configured") return null;
-    // Fallo persistente del proveedor o salida imposible → escalar (FR-022).
-    console.error(`[agente] fallo del proveedor (raw): ${result.detail}`);
+    /*
+     * Fallo persistente tras agotar la recuperación disponible → escalar
+     * (FR-022). `result.error` distingue la causa para quien lea el log
+     * (docs/korexia/144): `invalid_output` es el modelo devolviendo algo
+     * que no cumple el contrato incluso tras reintentar (Nivel 2, arriba y
+     * en `chatJsonConEstado`) — no un proveedor caído. `handoffReason`
+     * sigue siendo `"error"` sin distinguir, a propósito: no romper lo que
+     * ya cuenta por ese valor en el CRM.
+     */
+    console.error(`[agente] fallo tras la recuperación (${result.error}): ${result.detail}`);
     await derivarAUnaPersona(conversation);
     return { action: "handoff", reason: "error" };
   }
@@ -1875,9 +1883,9 @@ export async function runAgentTurn(
         console.warn(
           `[agente] no se pudo armar el menú "${action.tipo}" (sin datos o fuera de los límites de WhatsApp); se responde con texto`
         );
-        // El esquema exige `reply` para send_menu (superRefine en actions.ts):
-        // en runtime siempre llega. El `??` es solo para que TypeScript vea
-        // el `string` que zod ya garantizó.
+        // `reply` es opcional a propósito (docs/korexia/144): sin fallback
+        // aquí, un turno donde el modelo lo omitió se quedaría sin una sola
+        // palabra para el cliente.
         await deliverReply(conversation, action.reply ?? "¿En qué te puedo ayudar?");
         return action;
       }
@@ -2826,21 +2834,48 @@ async function chatJsonConEstado(
    */
   const validada = AgentAction.safeParse(sinNulos(accion));
   if (!validada.success) {
-    return {
-      resultado: {
-        ok: false,
-        error: "invalid_output",
-        // Con el nombre del campo, no solo "Required": el mensaje pelado no
-        // dice cuál falta, y con doce acciones y el modo estricto emitiendo
-        // nulos, adivinarlo cuesta una reproducción entera.
-        detail: `la acción no cumple el contrato: ${
-          validada.error.issues
-            .map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`)
-            .join(" · ") || "?"
-        } · acción recibida: ${String((accion as { action?: unknown }).action ?? "(sin action)")}`,
-        usage: bruto.usage,
+    // Con el nombre del campo, no solo "Required": el mensaje pelado no dice
+    // cuál falta, y con doce acciones y el modo estricto emitiendo nulos,
+    // adivinarlo cuesta una reproducción entera.
+    const detalle =
+      validada.error.issues
+        .map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`)
+        .join(" · ") || "?";
+    const accionRecibida = String((accion as { action?: unknown }).action ?? "(sin action)");
+    /*
+     * NIVEL 2 de recuperación (docs/korexia/144): un reintento acotado (una
+     * sola vez) pidiendo solo la acción corregida, antes de tratar esto
+     * como un fallo del proveedor.
+     *
+     * Hace falta AQUÍ y no basta con los reintentos que ya tiene `chatJson`
+     * (arriba, hasta 3): esa llamada valida contra `EsquemaConEstado`
+     * (`passthrough`, acepta cualquier cosa) y la da por buena — este
+     * rechazo ocurre una capa más arriba, así que sin este reintento el
+     * turno se perdía a la primera, sin la red que sí tienen los negocios
+     * sin Fase 2. Confirmado en la prueba real contra Lis: "Hola, buenas
+     * noches" escaló a una persona el 71% de las veces exactamente por
+     * esto (`send_menu` sin `reply`, un campo que hoy ya tiene fallback
+     * seguro — ver `actions.ts`).
+     */
+    console.warn(
+      `[agente] la acción con estado no cumple el contrato (${detalle}); reintentando solo la acción`
+    );
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: bruto.raw },
+      {
+        role: "user",
+        content: `ALTO. Tu respuesta anterior (acción "${accionRecibida}") no cumplió el contrato: ${detalle}. Repite la MISMA acción, corrigiendo únicamente eso. Responde ÚNICAMENTE el objeto JSON.`,
       },
-    };
+    ]);
+    if (reintento.usage) {
+      reintento.usage.tokensIn += bruto.usage?.tokensIn ?? 0;
+      reintento.usage.tokensOut += bruto.usage?.tokensOut ?? 0;
+      reintento.usage.costUsd += bruto.usage?.costUsd ?? 0;
+    }
+    // Sin estado: se pierde la propuesta de ESTE turno (preferible a un
+    // handoff) — el pedido se retoma con normalidad en el siguiente turno.
+    return { resultado: reintento };
   }
   return {
     resultado: { ok: true, data: validada.data, raw: bruto.raw, usage: bruto.usage },

@@ -116,6 +116,7 @@ function perfil(organizationId: string, pagoFormas: string) {
     hoursOpen: "09:00 AM",
     hoursClose: "21:00",
     hoursDays: "1,2,3,4,5,6",
+    catalogSource: "tabla",
     paymentSource: "ficha",
     ficha: JSON.stringify({ pago: { formas: pagoFormas } }),
   };
@@ -236,6 +237,7 @@ describe("runAgentTurn: consultar_producto / consultar_medio_pago (docs/korexia/
   it("método de pago permitido (Nequi ~ transferencia): lo confirma con seguridad", async () => {
     const conv = conversacion("org_1");
     queueTurnoBase(conv, perfil("org_1", "Transferencia bancaria"), historial("¿Aceptan Nequi?"));
+    catalogoDePedidosMock.mockResolvedValue([]);
 
     chatJson
       .mockResolvedValueOnce({
@@ -262,6 +264,7 @@ describe("runAgentTurn: consultar_producto / consultar_medio_pago (docs/korexia/
   it("método de pago NO permitido: lo rechaza contradiciendo el guardarraíl y lo corrige", async () => {
     const conv = conversacion("org_1");
     queueTurnoBase(conv, perfil("org_1", "Solo efectivo"), historial("¿Aceptan tarjeta de crédito?"));
+    catalogoDePedidosMock.mockResolvedValue([]);
 
     chatJson
       .mockResolvedValueOnce({

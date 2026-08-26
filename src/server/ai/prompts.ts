@@ -474,6 +474,31 @@ export function calendarioProximosDias(
 }
 
 /**
+ * Adenda SOLO para negocios de PEDIDOS con catálogo en tablas
+ * (`catalog_source='tabla'`) — mismo principio que `CONTRATO_DE_ACCIONES_CITAS`
+ * hace para `consult_availability`, llevado a "¿tienen X?".
+ *
+ * Nace del incidente real de Lis (25-ago-2026): el catálogo llegaba como
+ * prosa y el modelo tenía que decidir por su cuenta si "torta de chocolate"
+ * era "Porción Chocolate" — un turno lo acertó, otro no. Esta acción hace
+ * que esa correspondencia la calcule el servidor, siempre igual.
+ */
+export const CONTRATO_DE_CONSULTA_DE_PRODUCTO = [
+  '- {"action":"consultar_producto","consulta":"lo que preguntó, con sus palabras"} — antes de decir que SÍ o que NO tienen algo, o cuánto cuesta, consulta el catálogo real. Es una acción interna: el sistema te responde en un mensaje de sistema inmediatamente después, en el mismo turno — no le llega nada al cliente todavía, así que tras recibir la respuesta debes emitir OTRA acción (normalmente reply).',
+  "Úsala cuando el cliente pregunte si tienen algo, cuánto cuesta, o nombre un producto que no reconozcas EXACTO del catálogo de arriba. No hace falta si ya usó el nombre tal cual aparece en el catálogo, o si la pregunta es abierta (una recomendación, comparar opciones, \"algo para 15 personas\"): ahí responde con el catálogo que ya tienes, como siempre.",
+].join("\n");
+
+/**
+ * Adenda SOLO para negocios de PEDIDOS con pago estructurado
+ * (`payment_source='ficha'`) — mismo principio, para el caso Nequi
+ * (24-ago-2026): en vez de decidir tú si un método "cuenta como" lo
+ * declarado, pregúntaselo al servidor.
+ */
+export const CONTRATO_DE_CONSULTA_DE_PAGO = [
+  '- {"action":"consultar_medio_pago","metodo":"lo que nombró el cliente"} — cuando el cliente pregunte si aceptan un método de pago que no está escrito tal cual en "MÉTODOS DE PAGO ACEPTADOS" de arriba, consúltalo antes de responder que sí o que no. Acción interna, mismo funcionamiento que consultar_producto.',
+].join("\n");
+
+/**
  * Adenda del contrato SOLO para organizaciones con vertical de citas
  * (agent_profile.appointmentsEnabled). Aparte de CONTRATO_DE_ACCIONES para no
  * inflar el prompt de los clientes de pedidos (La Churra, Lis) con acciones
@@ -790,6 +815,8 @@ export function buildAgentSystemPrompt(input: {
       : null,
     input.pagoDePedidos ? pagoDePedidosParaElPrompt(input.pagoDePedidos) : null,
     CONTRATO_DE_ACCIONES,
+    input.catalogoDePedidos ? CONTRATO_DE_CONSULTA_DE_PRODUCTO : null,
+    input.pagoDePedidos ? CONTRATO_DE_CONSULTA_DE_PAGO : null,
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.
     //

@@ -676,3 +676,72 @@ export const CORRECCION_DE_PAGO_SIN_VERIFICAR =
 /** La corrección cuando el agente iba a dejar al cliente sin ninguna respuesta en el turno. */
 export const CORRECCION_DE_TURNO_MUDO =
   "ALTO. Tu acción no incluye ningún \"reply\": el cliente se quedaría sin recibir ni una sola palabra tuya en este turno. Repite la MISMA acción, con el mismo requisitoId/valor o nota, pero agregando \"reply\" con una respuesta normal para seguir la conversación (agradece el dato, retoma lo que faltaba o confirma el siguiente paso). Responde ÚNICAMENTE el objeto JSON.";
+
+/*
+ * ============================================================
+ * Contradice un hecho ya verificado: producto o pago (25-ago-2026)
+ * ============================================================
+ *
+ * Mitad simétrica de "niega disponibilidad sin verificar": ahí el modelo
+ * NUNCA consultó; aquí SÍ consultó (`consultar_producto` /
+ * `consultar_medio_pago`, ver pipeline.ts), el servidor le devolvió el
+ * hecho real en el mismo turno, y la respuesta final lo contradice de
+ * todas formas. Nace del incidente de Lis (25-ago-2026, "torta de
+ * chocolate"): sin esto, nada impedía que el modelo, tras recibir "SÍ lo
+ * tienen" del sistema, igual le dijera al cliente que no.
+ *
+ * Exige, igual que el resto de este archivo, comprobar el HECHO (que la
+ * oración de negación mencione el propio producto/método, no cualquier
+ * "no" del mensaje) — "no manejamos domicilios a Bogotá" no es una
+ * contradicción sobre una torta de chocolate.
+ */
+
+const NIEGA_EXISTENCIA_O_PERMISO = [
+  /\bno\s+(?:lo\s+|la\s+|los\s+|las\s+)?(?:tenemos|manejamos|hay|contamos|aceptamos)\b/i,
+  /\bno\s+se\s+(?:acepta|puede|maneja)\b/i,
+];
+
+function palabrasSignificativas(s: string): string[] {
+  return s
+    .normalize("NFD")
+    .replace(new RegExp("[̀-ͯ]", "g"), "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((p) => p.length >= 4);
+}
+
+/** `true` si el texto niega, en la misma oración, algo que el sistema ya confirmó. */
+function contradiceEnLaMismaOracion(texto: string | null | undefined, nombreClave: string): boolean {
+  if (!texto || !nombreClave) return false;
+  const palabrasClave = palabrasSignificativas(nombreClave);
+  if (!palabrasClave.length) return false;
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    if (!NIEGA_EXISTENCIA_O_PERMISO.some((re) => re.test(oracion))) return false;
+    const palabrasOracion = new Set(palabrasSignificativas(oracion));
+    return palabrasClave.some((p) => palabrasOracion.has(p));
+  });
+}
+
+/** El sistema confirmó que el producto SÍ existe; el texto dice lo contrario. */
+export function contradiceProductoEncontrado(
+  texto: string | null | undefined,
+  nombreProducto: string
+): boolean {
+  return contradiceEnLaMismaOracion(texto, nombreProducto);
+}
+
+/** El sistema confirmó que el método de pago SÍ está permitido; el texto dice lo contrario. */
+export function niegaMetodoDePagoPermitido(
+  texto: string | null | undefined,
+  metodo: string
+): boolean {
+  return contradiceEnLaMismaOracion(texto, metodo);
+}
+
+export const CORRECCION_DE_PRODUCTO_CONTRADICHO =
+  "ALTO. El sistema ya confirmó, en este mismo turno, que SÍ existe el producto que preguntaron — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí lo tienen, con el precio que te dio el sistema. Responde ÚNICAMENTE el objeto JSON.";
+
+export const CORRECCION_DE_PAGO_CONTRADICHO =
+  "ALTO. El sistema ya confirmó, en este mismo turno, que ese método de pago SÍ está permitido — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí se acepta. Responde ÚNICAMENTE el objeto JSON.";

@@ -119,6 +119,35 @@ export const AgentAction = z.discriminatedUnion("action", [
     reply: z.string().optional(),
   }),
   /**
+   * Consultas verificables de PEDIDOS (25-ago-2026, `catalog_source='tabla'`):
+   * el mismo patrón que `consult_availability` ya resolvió para citas,
+   * llevado a "¿tienen X?" / "¿cuánto cuesta X?". Son acciones INTERNAS —
+   * nunca llegan al cliente — que el servidor resuelve contra la base real
+   * y devuelve como hecho en el mismo turno (ver pipeline.ts). El modelo
+   * decide CUÁNDO preguntar; nunca decide el hecho leyendo el catálogo en
+   * prosa.
+   *
+   * Nace del incidente real: "¿Tienen disponible torta de chocolate?" contra
+   * un catálogo que sí tenía "Porción Chocolate" — el modelo no conectó el
+   * sinónimo y escaló. `consultar_producto` existe para que esa
+   * correspondencia la calcule el servidor, no el modelo.
+   */
+  z.object({
+    action: z.literal("consultar_producto"),
+    consulta: z.string().min(1),
+  }),
+  /**
+   * Mismo principio para métodos de pago (caso Nequi, 24-ago-2026): en vez
+   * de que el modelo decida si un método "cuenta como" lo declarado leyendo
+   * una instrucción en prosa, el servidor lo resuelve contra
+   * `ficha.pago.formas` (ver `server/pagos/metodo.ts`). Solo aparece cuando
+   * `payment_source='ficha'`.
+   */
+  z.object({
+    action: z.literal("consultar_medio_pago"),
+    metodo: z.string().min(1),
+  }),
+  /**
    * Vertical de citas (solo orgs con agent_profile.appointmentsEnabled).
    *
    * `consult_availability` es una acción INTERNA: nunca llega al cliente. El
@@ -241,6 +270,7 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
     enum: [
       "none", "reply", "update_lead", "provide_requirement", "move_stage",
       "handoff", "notify_order", "send_image", "send_menu",
+      "consultar_producto", "consultar_medio_pago",
       "consult_availability", "book_appointment", "reschedule_appointment",
       "cancel_appointment",
     ],
@@ -256,6 +286,8 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
   label: { type: ["string", "null"] },
   tipo: { type: ["string", "null"] },
   categoria: { type: ["string", "null"] },
+  consulta: { type: ["string", "null"] },
+  metodo: { type: ["string", "null"] },
   requisitoId: { type: ["string", "null"] },
   valor: { type: ["string", "null"] },
   servicio: { type: ["string", "null"] },

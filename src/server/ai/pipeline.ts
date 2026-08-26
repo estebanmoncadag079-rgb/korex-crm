@@ -59,6 +59,8 @@ import {
 import { catalogoDe, catalogoDePedidos as catalogoDePedidosQuery } from "@/server/catalog/queries";
 import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
+import { buscarProductos } from "@/server/catalog/buscar";
+import { resolverMetodoDePago } from "@/server/pagos/metodo";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
@@ -96,6 +98,10 @@ import {
   CORRECCION_SIN_RESUMEN,
   CORRECCION_SIN_TOTAL,
   confirmaPagoSinVerificar,
+  contradiceProductoEncontrado,
+  niegaMetodoDePagoPermitido,
+  CORRECCION_DE_PRODUCTO_CONTRADICHO,
+  CORRECCION_DE_PAGO_CONTRADICHO,
   noDioElTotal,
   productosOlvidados,
   prometeRecurso,
@@ -396,6 +402,46 @@ const COMO_OFRECER =
   "CUALQUIER otra hora que esté en esta lista, agéndala directamente. Decirle " +
   "que no está disponible una hora que sí aparece aquí es un error grave: le " +
   "quita una cita al negocio.";
+
+function pesosPipeline(cents: number): string {
+  return `$${(cents / 100).toLocaleString("es-CO", { minimumFractionDigits: 0 })}`;
+}
+
+/**
+ * Arma el mensaje `[SISTEMA]` de `consultar_producto` — mismo espíritu que
+ * `resolverConsultaDisponibilidad`: el servidor calcula el hecho contra
+ * `product` (ya filtrado a disponibles por `catalogoDePedidos`), nunca el
+ * modelo leyendo el catálogo en prosa.
+ */
+function textoDeResultadoProducto(
+  consulta: string,
+  resultado: ReturnType<typeof buscarProductos>
+): string {
+  if (resultado.status === "found") {
+    const p = resultado.producto;
+    const precio = p.precioCents === null ? "precio a confirmar con el equipo" : pesosPipeline(p.precioCents);
+    return `[SISTEMA] Encontré "${p.nombre}" en el catálogo real — ${precio}. Este dato es real: SÍ lo tienen. Úsalo tal cual, no digas que no lo tienen ni que necesitas confirmarlo.`;
+  }
+  if (resultado.status === "multiple_matches") {
+    const lista = resultado.productos.map((p) => `"${p.nombre}"`).join(", ");
+    return `[SISTEMA] Encontré varios productos que podrían ser lo que preguntan: ${lista}. Pregúntale al cliente cuál de estos es, antes de dar un precio o confirmar que lo tienen.`;
+  }
+  return `[SISTEMA] No encontré "${consulta}" en el catálogo real. No digas que sí lo tienen: sigue tus reglas de siempre (decir que no lo manejan, o que lo confirmas con el equipo).`;
+}
+
+/** Mismo principio que `textoDeResultadoProducto`, para métodos de pago (caso Nequi). */
+function textoDeResultadoPago(
+  metodo: string,
+  resultado: ReturnType<typeof resolverMetodoDePago>
+): string {
+  if (resultado.status === "recognized" && resultado.allowed) {
+    return `[SISTEMA] "${metodo}" SÍ está entre las formas de pago de este negocio. Confírmalo con seguridad, no lo pongas en duda.`;
+  }
+  if (resultado.status === "recognized") {
+    return `[SISTEMA] "${metodo}" NO está entre las formas de pago de este negocio. Dilo con naturalidad y sigue con el resto del pedido.`;
+  }
+  return `[SISTEMA] No reconozco "${metodo}" con certeza contra las formas de pago declaradas. No lo rechaces categóricamente: sigue tus reglas de siempre (di que lo confirmas con el equipo y continúa).`;
+}
 
 /**
  * Ejecuta UN turno del agente ahora (el Laboratorio lo llama directo, con
@@ -931,6 +977,174 @@ export async function runAgentTurn(
         await derivarAUnaPersona(conversation);
         return { action: "handoff", reason: "error" };
       }
+    }
+  }
+
+  /**
+   * `consultar_producto`: mismo patrón que `consult_availability`, para el
+   * vertical de pedidos (docs/korexia/142). Nace del incidente de Lis
+   * (25-ago-2026, "¿Tienen torta de chocolate?"): antes de esto, el modelo
+   * decidía el hecho leyendo el catálogo en prosa; ahora se lo pide al
+   * servidor y lo recibe verificado, en el mismo turno.
+   */
+  const MAX_CONSULTAS_PRODUCTO = 2;
+  let consultasProducto = 0;
+  let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
+  while (
+    action.action === "consultar_producto" &&
+    consultasProducto < MAX_CONSULTAS_PRODUCTO
+  ) {
+    consultasProducto++;
+    const productosDelPedido = await catalogoDePedidosQuery(organizationId);
+    resultadoProducto = buscarProductos(productosDelPedido, action.consulta);
+    console.warn(
+      `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}`
+    );
+    const infoProducto = textoDeResultadoProducto(action.consulta, resultadoProducto);
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+    messages.push({ role: "user", content: infoProducto });
+    const siguiente = await chatJson(AgentAction, messages, {
+      jsonSchema: formatoDeRespuestaDeAccion(),
+    });
+    await registrarUsoIa(
+      organizationId,
+      siguiente.usage,
+      `conv:${conversationId}/producto`
+    );
+    if (!siguiente.ok) {
+      if (siguiente.error === "not_configured") return null;
+      console.error(
+        `[agente] fallo del proveedor tras consultar producto: ${siguiente.detail}`
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+    action = siguiente.data;
+  }
+  if (action.action === "consultar_producto") {
+    // Se agotaron los intentos sin llegar a una acción final: mejor una
+    // persona que una respuesta sin dato real detrás.
+    await derivarAUnaPersona(conversation);
+    return { action: "handoff", reason: "error" };
+  }
+
+  /**
+   * El sistema ya confirmó que el producto SÍ existe, en este mismo turno, y
+   * la respuesta lo niega de todas formas. A diferencia del guardarraíl de
+   * disponibilidad (que exige CERO consultas), este exige que SÍ hubo una
+   * consulta real: es la otra mitad del mismo problema, cuando el modelo
+   * ignora el hecho que él mismo pidió.
+   */
+  if (
+    resultadoProducto?.status === "found" &&
+    action.action === "reply" &&
+    contradiceProductoEncontrado(action.text, resultadoProducto.producto.nombre)
+  ) {
+    console.warn("[producto] contradijo el hecho verificado; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_PRODUCTO_CONTRADICHO },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/producto-contradicho`
+    );
+    if (
+      reintento.ok &&
+      !(
+        reintento.data.action === "reply" &&
+        contradiceProductoEncontrado(reintento.data.text, resultadoProducto.producto.nombre)
+      )
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        "[producto] sigue contradiciendo el hecho verificado; lo toma una persona"
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * `consultar_medio_pago`: mismo principio, para el caso Nequi
+   * (24-ago-2026, Lis). `pagoDePedidos` puede no existir (payment_source
+   * distinto de 'ficha'); en ese caso `resolverMetodoDePago` recibe "" y
+   * devuelve `unknown` para casi todo, que es el comportamiento seguro.
+   */
+  const MAX_CONSULTAS_PAGO = 2;
+  let consultasPago = 0;
+  let resultadoPago: ReturnType<typeof resolverMetodoDePago> | null = null;
+  while (
+    action.action === "consultar_medio_pago" &&
+    consultasPago < MAX_CONSULTAS_PAGO
+  ) {
+    consultasPago++;
+    resultadoPago = resolverMetodoDePago(pagoDePedidos?.formas ?? "", action.metodo);
+    console.warn(
+      `[pago] ${organizationId}: metodo="${action.metodo}" status=${resultadoPago.status}` +
+        (resultadoPago.status === "recognized" ? ` allowed=${resultadoPago.allowed}` : "")
+    );
+    const infoPago = textoDeResultadoPago(action.metodo, resultadoPago);
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+    messages.push({ role: "user", content: infoPago });
+    const siguiente = await chatJson(AgentAction, messages, {
+      jsonSchema: formatoDeRespuestaDeAccion(),
+    });
+    await registrarUsoIa(
+      organizationId,
+      siguiente.usage,
+      `conv:${conversationId}/pago`
+    );
+    if (!siguiente.ok) {
+      if (siguiente.error === "not_configured") return null;
+      console.error(
+        `[agente] fallo del proveedor tras consultar medio de pago: ${siguiente.detail}`
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
+    }
+    action = siguiente.data;
+  }
+  if (action.action === "consultar_medio_pago") {
+    await derivarAUnaPersona(conversation);
+    return { action: "handoff", reason: "error" };
+  }
+
+  /** Mismo criterio que el guardarraíl de producto, para el método de pago. */
+  if (
+    resultadoPago?.status === "recognized" &&
+    resultadoPago.allowed &&
+    action.action === "reply" &&
+    niegaMetodoDePagoPermitido(action.text, resultadoPago.method)
+  ) {
+    console.warn("[pago] contradijo el método permitido; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_PAGO_CONTRADICHO },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/pago-contradicho`
+    );
+    if (
+      reintento.ok &&
+      !(
+        reintento.data.action === "reply" &&
+        niegaMetodoDePagoPermitido(reintento.data.text, resultadoPago.method)
+      )
+    ) {
+      action = reintento.data;
+    } else {
+      console.error(
+        "[pago] sigue contradiciendo el método permitido; lo toma una persona"
+      );
+      await derivarAUnaPersona(conversation);
+      return { action: "handoff", reason: "error" };
     }
   }
 

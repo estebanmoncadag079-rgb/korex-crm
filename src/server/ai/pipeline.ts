@@ -65,6 +65,15 @@ import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { buscarProductos } from "@/server/catalog/buscar";
 import { detectarConsultaFactualDeProducto } from "@/server/catalog/deteccion";
+import {
+  agregarGuardarrail,
+  agregarHecho,
+  crearTraza,
+  registrarHandoff,
+  registrarRecuperacion,
+  registrarTrazaDelTurno,
+  type TrazaDelTurno,
+} from "@/server/ai/traza";
 import { resolverMetodoDePago } from "@/server/pagos/metodo";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
@@ -815,6 +824,21 @@ export async function runAgentTurn(
    * `textoDeResultadoProducto` (el mismo camino de `consultar_producto`):
    * es el mismo hecho verificado, solo que el servidor lo pide primero.
    */
+  /**
+   * Trazabilidad diagnóstica por turno (docs/korexia/145): una sola línea al
+   * final que consolida qué se verificó, qué guardarraíl actuó y cómo
+   * terminó — para no tener que reconstruir un incidente a mano juntando
+   * logs sueltos por `conversationId` y cercanía de timestamps, como costó
+   * con "Luisa" (doc 144). Se crea aquí, justo antes de la primera llamada
+   * al modelo: antes de este punto no hay ninguna decisión que trazar.
+   */
+  const traza = crearTraza({
+    organizationId,
+    conversationId: conversation.id,
+    mensajeId: lastInbound.id,
+    mensajeTexto: lastInbound.text,
+  });
+
   let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
   if (
     profile.consultasVerificadasEnabled &&
@@ -828,6 +852,13 @@ export async function runAgentTurn(
       console.warn(
         `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status} (verificado antes de llamar al modelo)`
       );
+      traza.deteccionFactual = consultaFactual;
+      agregarHecho(traza, {
+        tipo: "producto",
+        consulta: consultaFactual,
+        resultado: resultadoProducto.status,
+        origen: "backend",
+      });
       messages.push({
         role: "user",
         content: `${textoDeResultadoProducto(consultaFactual, resultadoProducto)} (Esto ya está verificado: no hace falta que uses la acción consultar_producto para lo mismo.)`,
@@ -850,7 +881,7 @@ export async function runAgentTurn(
   // propuesta, no sobre el turno entero. Con el estado apagado no se mide nada.
   const t0 = estadoEstructurado ? Date.now() : 0;
   const conEstado = estadoEstructurado
-    ? await chatJsonConEstado(messages, requisitos ?? [], vertical, modalidadesOfrecidas)
+    ? await chatJsonConEstado(messages, requisitos ?? [], vertical, modalidadesOfrecidas, traza)
     : null;
   const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
@@ -890,6 +921,9 @@ export async function runAgentTurn(
      */
     console.error(`[agente] fallo tras la recuperación (${result.error}): ${result.detail}`);
     await derivarAUnaPersona(conversation);
+    registrarHandoff(traza, result.error);
+    traza.accionFinal = "handoff";
+    registrarTrazaDelTurno(traza);
     return { action: "handoff", reason: "error" };
   }
 
@@ -928,6 +962,12 @@ export async function runAgentTurn(
      * modelo lo lea como información, no como algo que dijo el cliente.
      */
     messages.push({ role: "user", content: infoDisponibilidad });
+    agregarHecho(traza, {
+      tipo: "disponibilidad",
+      consulta: action.servicios.join("|"),
+      resultado: "consultado",
+      origen: "backend",
+    });
     // Con el esquema exigido al proveedor, igual que la llamada de arriba: era
     // la única del camino de citas sin garantía, y con la Fase 2 encendida
     // devolvió prosa en vez de JSON — handoff por error con los horarios ya
@@ -946,6 +986,9 @@ export async function runAgentTurn(
         `[agente] fallo del proveedor tras consultar disponibilidad: ${siguiente.detail}`
       );
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "backend_error");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
     action = siguiente.data;
@@ -954,6 +997,9 @@ export async function runAgentTurn(
     // Se agotaron los intentos sin llegar a una acción final: mejor una
     // persona que una promesa de horario sin datos reales detrás.
     await derivarAUnaPersona(conversation);
+    registrarHandoff(traza, "model_output_recovery_failed");
+    traza.accionFinal = "handoff";
+    registrarTrazaDelTurno(traza);
     return { action: "handoff", reason: "error" };
   }
 
@@ -1031,11 +1077,16 @@ export async function runAgentTurn(
         sinVerificar(reintento.data.text);
       if (reintento.ok && !sigueSinVerificar) {
         action = reintento.data;
+        agregarGuardarrail(traza, "disponibilidad_sin_verificar", true);
       } else {
         console.error(
           "[citas] sigue afirmando o negando disponibilidad sin verificar; lo toma una persona"
         );
+        agregarGuardarrail(traza, "disponibilidad_sin_verificar", false);
         await derivarAUnaPersona(conversation);
+        registrarHandoff(traza, "model_output_recovery_failed");
+        traza.accionFinal = "handoff";
+        registrarTrazaDelTurno(traza);
         return { action: "handoff", reason: "error" };
       }
     }
@@ -1061,6 +1112,12 @@ export async function runAgentTurn(
     console.warn(
       `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}`
     );
+    agregarHecho(traza, {
+      tipo: "producto",
+      consulta: action.consulta,
+      resultado: resultadoProducto.status,
+      origen: "backend",
+    });
     const infoProducto = textoDeResultadoProducto(action.consulta, resultadoProducto);
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoProducto });
@@ -1078,6 +1135,9 @@ export async function runAgentTurn(
         `[agente] fallo del proveedor tras consultar producto: ${siguiente.detail}`
       );
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "backend_error");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
     action = siguiente.data;
@@ -1086,6 +1146,9 @@ export async function runAgentTurn(
     // Se agotaron los intentos sin llegar a una acción final: mejor una
     // persona que una respuesta sin dato real detrás.
     await derivarAUnaPersona(conversation);
+    registrarHandoff(traza, "model_output_recovery_failed");
+    traza.accionFinal = "handoff";
+    registrarTrazaDelTurno(traza);
     return { action: "handoff", reason: "error" };
   }
 
@@ -1120,11 +1183,16 @@ export async function runAgentTurn(
       )
     ) {
       action = reintento.data;
+      agregarGuardarrail(traza, "producto_contradicho", true);
     } else {
       console.error(
         "[producto] sigue contradiciendo el hecho verificado; lo toma una persona"
       );
+      agregarGuardarrail(traza, "producto_contradicho", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1148,6 +1216,15 @@ export async function runAgentTurn(
       `[pago] ${organizationId}: metodo="${action.metodo}" status=${resultadoPago.status}` +
         (resultadoPago.status === "recognized" ? ` allowed=${resultadoPago.allowed}` : "")
     );
+    agregarHecho(traza, {
+      tipo: "medio_pago",
+      consulta: action.metodo,
+      resultado:
+        resultadoPago.status === "recognized"
+          ? `recognized:${resultadoPago.allowed ? "allowed" : "not_allowed"}`
+          : resultadoPago.status,
+      origen: "backend",
+    });
     const infoPago = textoDeResultadoPago(action.metodo, resultadoPago);
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoPago });
@@ -1165,12 +1242,18 @@ export async function runAgentTurn(
         `[agente] fallo del proveedor tras consultar medio de pago: ${siguiente.detail}`
       );
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "backend_error");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
     action = siguiente.data;
   }
   if (action.action === "consultar_medio_pago") {
     await derivarAUnaPersona(conversation);
+    registrarHandoff(traza, "model_output_recovery_failed");
+    traza.accionFinal = "handoff";
+    registrarTrazaDelTurno(traza);
     return { action: "handoff", reason: "error" };
   }
 
@@ -1200,11 +1283,16 @@ export async function runAgentTurn(
       )
     ) {
       action = reintento.data;
+      agregarGuardarrail(traza, "pago_contradicho", true);
     } else {
       console.error(
         "[pago] sigue contradiciendo el método permitido; lo toma una persona"
       );
+      agregarGuardarrail(traza, "pago_contradicho", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1238,11 +1326,16 @@ export async function runAgentTurn(
     );
     if (reintento.ok && !textosAlCliente(reintento.data).some(anunciaCierre)) {
       action = reintento.data;
+      agregarGuardarrail(traza, "cierre_falso", true);
     } else {
       console.error(
         "[agente] el cierre falso persiste tras la corrección; lo toma una persona"
       );
+      agregarGuardarrail(traza, "cierre_falso", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1282,11 +1375,16 @@ export async function runAgentTurn(
         !textosAlCliente(reintento.data).some(anunciaCitaAgendada))
     ) {
       action = reintento.data;
+      agregarGuardarrail(traza, "cita_fantasma", true);
     } else {
       console.error(
         "[agente] sigue confirmando una cita inexistente; lo toma una persona"
       );
+      agregarGuardarrail(traza, "cita_fantasma", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1323,11 +1421,16 @@ export async function runAgentTurn(
         !textosAlCliente(reintento.data).some(prometeRecurso))
     ) {
       action = reintento.data;
+      agregarGuardarrail(traza, "recurso_prometido", true);
     } else {
       console.error(
         "[agente] sigue prometiendo un recurso sin enviarlo; lo toma una persona"
       );
+      agregarGuardarrail(traza, "recurso_prometido", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1357,11 +1460,16 @@ export async function runAgentTurn(
       !textosAlCliente(reintento.data).some(confirmaPagoSinVerificar)
     ) {
       action = reintento.data;
+      agregarGuardarrail(traza, "pago_sin_verificar", true);
     } else {
       console.error(
         "[agente] sigue confirmando un pago sin verificarlo; lo toma una persona"
       );
+      agregarGuardarrail(traza, "pago_sin_verificar", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1413,11 +1521,16 @@ export async function runAgentTurn(
         textosAlCliente(reintento.data).length > 0)
     ) {
       action = reintento.data;
+      agregarGuardarrail(traza, "turno_mudo", true);
     } else {
       console.error(
         `[agente] "${action.action}" sigue sin reply; lo toma una persona`
       );
+      agregarGuardarrail(traza, "turno_mudo", false);
       await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
   }
@@ -1458,11 +1571,16 @@ export async function runAgentTurn(
       );
       if (reintento.ok && !ACCIONES_DE_CIERRE.includes(reintento.data.action)) {
         action = reintento.data;
+        agregarGuardarrail(traza, "requisito_faltante", true);
       } else {
         console.error(
           "[requisitos] sigue cerrando sin los datos declarados; lo toma una persona"
         );
+        agregarGuardarrail(traza, "requisito_faltante", false);
         await derivarAUnaPersona(conversation);
+        registrarHandoff(traza, "missing_required_information");
+        traza.accionFinal = "handoff";
+        registrarTrazaDelTurno(traza);
         return { action: "handoff", reason: "error" };
       }
     }
@@ -1749,6 +1867,10 @@ export async function runAgentTurn(
           );
           action = agregarContenidoFaltante(action, faltaDespues);
         }
+        // Siempre `true`: la última red (agregarContenidoFaltante) fuerza el
+        // literal directamente, así que este guardarraíl nunca deriva a una
+        // persona — 0% de fallo del cliente, doc 125.
+        agregarGuardarrail(traza, "contenido_obligatorio", true);
       }
     }
   }
@@ -1766,9 +1888,41 @@ export async function runAgentTurn(
       if (action.reply) {
         await deliverReply(conversation, action.reply);
       }
+      traza.accionFinal = action.action;
+      registrarTrazaDelTurno(traza);
       return action;
     }
   }
+
+  /**
+   * Punto único de registro de la traza (docs/korexia/145) para el resto de
+   * acciones: en este punto `action` ya refleja la decisión final, con
+   * todos los guardarraíles de arriba ya aplicados — lo que sigue es solo
+   * EJECUTARLA (enviar el mensaje, guardar en la base), no decidir nada más.
+   *
+   * Un `handoff` que llega hasta aquí sin causa ya anotada es una decisión
+   * VOLUNTARIA del modelo (una regla de escalado del negocio, no un error
+   * de esquema ni un guardarraíl agotado — esos ya marcaron su causa antes
+   * de llegar aquí): caso real, "Retiro de acrílicas" (26-ago-2026, doc
+   * 144), donde el modelo derivó por dudar si el salón podía hacer dos
+   * servicios simultáneos con especialistas distintas.
+   */
+  if (action.action === "handoff" && !traza.handoffCausa) {
+    registrarHandoff(traza, "business_rule");
+  }
+  /*
+   * Nivel 1 de recuperación (docs/korexia/144): `send_menu` sin `reply` ya
+   * es una acción válida — el ejecutor de más abajo usa el fallback
+   * determinista (el texto por defecto de `armarMenuDeIntenciones`/
+   * `armarMenuDelCatalogo`, o "¿En qué te puedo ayudar?" en la
+   * degradación). Se detecta aquí, sin esperar a la ejecución: la ausencia
+   * del campo ya se sabe en este punto.
+   */
+  if (action.action === "send_menu" && !action.reply) {
+    registrarRecuperacion(traza, 1, true);
+  }
+  traza.accionFinal = action.action;
+  registrarTrazaDelTurno(traza);
 
   switch (action.action) {
     case "none":
@@ -2752,7 +2906,9 @@ async function chatJsonConEstado(
   requisitos: Requisito[] = [],
   vertical: Vertical = "pedidos",
   /** Las que ofrece ESTE negocio; salen de su ficha, no de una lista del núcleo. */
-  modalidadesOfrecidas: readonly string[] = []
+  modalidadesOfrecidas: readonly string[] = [],
+  /** Para anotar el Nivel 2 de recuperación (docs/korexia/144/145) cuando se dispare. */
+  traza?: TrazaDelTurno
 ): Promise<{ resultado: ChatJsonResult<AgentActionType>; propuesta?: PropuestaDelModelo }> {
   const EsquemaConEstado = z
     .object({ estado: z.record(z.string(), z.unknown()).optional() })
@@ -2873,6 +3029,7 @@ async function chatJsonConEstado(
       reintento.usage.tokensOut += bruto.usage?.tokensOut ?? 0;
       reintento.usage.costUsd += bruto.usage?.costUsd ?? 0;
     }
+    if (traza) registrarRecuperacion(traza, 2, reintento.ok);
     // Sin estado: se pierde la propuesta de ESTE turno (preferible a un
     // handoff) — el pedido se retoma con normalidad en el siguiente turno.
     return { resultado: reintento };

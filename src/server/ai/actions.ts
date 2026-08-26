@@ -232,21 +232,25 @@ export const AgentAction = z.discriminatedUnion("action", [
     });
   }
   /*
-   * `send_menu` degrada a `reply` cuando el menú no cabe en los límites de
-   * WhatsApp o no hay datos para armarlo (ver pipeline.ts). Sin `reply` de
-   * respaldo, esa degradación deja al cliente sin una sola palabra — el
-   * mismo fallo que ya cerró el guardarraíl del turno mudo
-   * (docs/korexia/133-TURNO-MUDO-SIN-REPLY.md), aquí evitado desde el
-   * esquema en vez de detectado después.
+   * `send_menu.reply` NO se exige aquí a propósito (docs/korexia/144):
+   * exigirlo en el esquema convertía su ausencia en un turno perdido — sin
+   * red de reintentos en el camino de la Fase 2 (`chatJsonConEstado`
+   * valida `AgentAction` DESPUÉS de que `chatJson` ya dio la llamada por
+   * buena contra un esquema laxo), así que un "reply" omitido de forma
+   * intermitente por el modelo escalaba a una persona el 71% de las veces
+   * en la prueba real contra Lis, con "Hola, buenas noches" como único
+   * disparador.
+   *
+   * El dato tiene fallback determinista y seguro en cada uno de sus usos
+   * reales — `armarMenuDeIntenciones`/`armarMenuDeCatalogo`/
+   * `armarMenuDeCategoria` (server/catalog/menu.ts) ya traen un texto
+   * neutral por defecto, y el propio `pipeline.ts` ya usa
+   * `action.reply ?? "¿En qué te puedo ayudar?"` en la degradación — así
+   * que rechazar la acción entera por este campo tiraba a la basura un
+   * turno perfectamente ejecutable. `reply` sigue siendo información real
+   * cuando el modelo la da (el texto exacto que quiso decir); cuando no,
+   * el sistema ya sabe qué decir sin inventar nada del negocio.
    */
-  if (accion.action === "send_menu" && !accion.reply) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["reply"],
-      message:
-        'send_menu necesita "reply" con lo que le dirías al cliente si el menú no se pudiera armar: sin él, degradar a texto deja la conversación muda.',
-    });
-  }
 });
 
 export type AgentActionType = z.infer<typeof AgentAction>;

@@ -1283,7 +1283,14 @@ export async function updateAppointmentStatus(
 export async function registrarOfrecidos(input: {
   organizationId: string;
   conversationId: string;
-  serviceId: string;
+  /**
+   * TODOS los servicios de la visita que se ofreció junto para estos horarios
+   * (p. ej. "manos y pies" son dos). Se guarda una fila por cada combinación
+   * (slot × servicio) para que `book_appointment` pueda comprobar, servicio a
+   * servicio, que la combinación que intenta agendar es la misma que se
+   * consultó — no solo el primero (docs/korexia/149).
+   */
+  serviceIds: string[];
   /** Pares fecha (DD/MM/AAAA) + hora (HH:MM) tal como se le muestran al cliente. */
   slots: { fecha: string; hora: string }[];
 }): Promise<void> {
@@ -1297,17 +1304,53 @@ export async function registrarOfrecidos(input: {
         eq(schema.offeredSlot.conversationId, input.conversationId)
       )
     );
-  if (!input.slots.length) return;
+  if (!input.slots.length || !input.serviceIds.length) return;
   await db.insert(schema.offeredSlot).values(
-    input.slots.map((s) => ({
-      id: newId("offeredSlot"),
-      organizationId: input.organizationId,
-      conversationId: input.conversationId,
-      serviceId: input.serviceId,
-      fecha: s.fecha,
-      hora: s.hora,
-    }))
+    input.slots.flatMap((s) =>
+      input.serviceIds.map((serviceId) => ({
+        id: newId("offeredSlot"),
+        organizationId: input.organizationId,
+        conversationId: input.conversationId,
+        serviceId,
+        fecha: s.fecha,
+        hora: s.hora,
+      }))
+    )
   );
+}
+
+/**
+ * Los servicios (ids DISTINCT) que el agente ofreció para una fecha+hora
+ * EXACTAS en esta conversación. Vacío = no hay nada registrado para ese
+ * horario (p. ej. el cliente dio fecha/hora directa sin pasar por una
+ * consulta de disponibilidad) — el que llama decide qué hacer con eso; aquí
+ * solo se lee lo que hay.
+ *
+ * Sostiene el guardarraíl "no agendes un servicio que nunca se consultó junto"
+ * de `book_appointment` (docs/korexia/149): permite comparar la combinación
+ * que el modelo intenta agendar contra la que efectivamente se ofreció para
+ * ese horario.
+ */
+export async function serviciosOfrecidosPara(
+  organizationId: string,
+  conversationId: string,
+  fecha: string,
+  hora: string
+): Promise<string[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ serviceId: schema.offeredSlot.serviceId })
+    .from(schema.offeredSlot)
+    .where(
+      scoped(
+        schema.offeredSlot.organizationId,
+        organizationId,
+        eq(schema.offeredSlot.conversationId, conversationId),
+        eq(schema.offeredSlot.fecha, fecha),
+        eq(schema.offeredSlot.hora, hora)
+      )
+    );
+  return [...new Set(rows.map((r) => r.serviceId))];
 }
 
 export async function ofrecidosDeConversacion(

@@ -20,14 +20,20 @@ vi.mock("@/server/catalog/queries", () => ({
   catalogoDe: (...a: unknown[]) => catalogoDeMock(...a),
 }));
 
+const resolverEspecialistaMultiple = vi.fn();
+const catalogoParaPrompt = vi.fn();
+const proximasFechasConCupoMultiple = vi.fn();
+const crearCitaMultiple = vi.fn();
+const serviciosOfrecidosPara = vi.fn();
 vi.mock("@/server/appointments/queries", () => ({
-  resolverEspecialistaMultiple: vi.fn(),
-  catalogoParaPrompt: vi.fn(),
-  proximasFechasConCupoMultiple: vi.fn(),
-  crearCitaMultiple: vi.fn(),
+  resolverEspecialistaMultiple: (...a: unknown[]) => resolverEspecialistaMultiple(...a),
+  catalogoParaPrompt: (...a: unknown[]) => catalogoParaPrompt(...a),
+  proximasFechasConCupoMultiple: (...a: unknown[]) => proximasFechasConCupoMultiple(...a),
+  crearCitaMultiple: (...a: unknown[]) => crearCitaMultiple(...a),
+  serviciosOfrecidosPara: (...a: unknown[]) => serviciosOfrecidosPara(...a),
   reprogramarCita: vi.fn(),
   cancelarCita: vi.fn(),
-  citasActivasDeContacto: vi.fn(),
+  citasActivasDeContacto: vi.fn().mockResolvedValue([]),
   disponibilidadRealMultiple: vi.fn(),
   estaEntreLosOfrecidos: () => Promise.resolve({ ok: true }),
   registrarOfrecidos: () => Promise.resolve(),
@@ -100,12 +106,15 @@ function conversacion(organizationId: string, id = "cv_1") {
   };
 }
 
-function perfil(organizationId: string, opts: { consultasVerificadasEnabled?: boolean } = {}) {
+function perfil(
+  organizationId: string,
+  opts: { consultasVerificadasEnabled?: boolean; appointmentsEnabled?: boolean } = {}
+) {
   return {
     id: `agp_${organizationId}`,
     organizationId,
     enabled: true,
-    appointmentsEnabled: false,
+    appointmentsEnabled: opts.appointmentsEnabled ?? false,
     name: "Asistente",
     tone: null,
     instructions: null,
@@ -159,6 +168,11 @@ describe("runAgentTurn: traza diagnóstica por turno (docs/korexia/145)", () => 
     chatJson.mockReset();
     catalogoDePedidosMock.mockReset();
     catalogoDeMock.mockReset();
+    resolverEspecialistaMultiple.mockReset().mockResolvedValue({ ok: true, staffId: "st_1" });
+    catalogoParaPrompt.mockReset().mockResolvedValue([]);
+    proximasFechasConCupoMultiple.mockReset().mockResolvedValue([]);
+    crearCitaMultiple.mockReset().mockResolvedValue({ ok: true, staffName: "Vale" });
+    serviciosOfrecidosPara.mockReset().mockResolvedValue([]);
     selectQueue.length = 0;
     inserted.length = 0;
   });
@@ -282,5 +296,177 @@ describe("runAgentTurn: traza diagnóstica por turno (docs/korexia/145)", () => 
     expect(action?.action).toBe("handoff");
     expect(linea).toContain("handoff=si");
     expect(linea).toContain("causa_handoff=business_rule");
+  });
+
+  it("ESCENARIO 6 — respuesta normal: categorias=normal, sin hechos ni guardarraíles", async () => {
+    const conv = conversacion("org_1");
+    queueTurnoBase(conv, perfil("org_1", { consultasVerificadasEnabled: false }), historial("Hola, buenas"));
+    catalogoDePedidosMock.mockResolvedValue([]);
+    chatJson.mockResolvedValueOnce({
+      ok: true,
+      data: { action: "reply", text: "¡Hola! ¿En qué te puedo ayudar?" },
+      raw: "{}",
+    });
+
+    const captura = capturarTraza();
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+    const linea = captura.obtener();
+    captura.restaurar();
+
+    expect(action?.action).toBe("reply");
+    expect(linea).toContain("categorias=normal");
+    expect(linea).toContain("accion=reply");
+    expect(linea).toContain("hechos=-");
+    expect(linea).toContain("guardarrailes=-");
+    expect(linea).toContain("handoff=no");
+  });
+
+  it("ESCENARIO 7 — acción interna consult_availability: hecho de disponibilidad verificado", async () => {
+    const conv = conversacion("org_1");
+    queueTurnoBase(
+      conv,
+      perfil("org_1", { consultasVerificadasEnabled: false, appointmentsEnabled: true }),
+      historial("¿Tienes cupo para manicure?")
+    );
+    catalogoParaPrompt.mockResolvedValue([
+      {
+        id: "svc_1",
+        name: "Manicure",
+        category: null,
+        priceCents: 3000000,
+        durationMin: 45,
+        staffNames: ["Vale"],
+      },
+    ]);
+    resolverEspecialistaMultiple.mockResolvedValue({ ok: true, staffId: "st_vale" });
+    proximasFechasConCupoMultiple.mockResolvedValue([
+      { fecha: "28/08/2026", horarios: ["15:00", "15:30"] },
+    ]);
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "consult_availability", servicios: ["manicure"] },
+        raw: "{}",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "Tengo el 28 a las 3:00 o 3:30 p.m., ¿cuál te sirve?" },
+        raw: "{}",
+      });
+
+    const captura = capturarTraza();
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+    const linea = captura.obtener();
+    captura.restaurar();
+
+    expect(action?.action).toBe("reply");
+    expect(linea).toContain("categorias=fact_verified");
+    expect(linea).toContain('hechos=disponibilidad:"manicure"=consultado@backend');
+    expect(linea).toContain("accion=reply");
+  });
+
+  /**
+   * ESCENARIO 8 — book_appointment con el guardarraíl nuevo de la Parte 1
+   * (docs/korexia/149). Documenta HONESTAMENTE una limitación conocida: como el
+   * `[traza]` del turno se emite ANTES del switch (punto único ~1965, por
+   * crash-safety), el guardarraíl `appointment_incomplete_services` —que se
+   * decide DENTRO del case— NO queda en la línea `[traza]` (aparece
+   * `guardarrailes=-`). Su evidencia en vivo es el `console.warn` de `[citas]`,
+   * que sí se verifica en pipeline-servicio-no-corroborado.test.ts. Aquí se
+   * comprueba lo real: el turno bloquea la reserva y aún así emite su traza.
+   */
+  it("ESCENARIO 8 — book_appointment bloqueado por servicio no corroborado: traza emitida (guardarraíl fuera de la línea, por diseño)", async () => {
+    const conv = conversacion("org_1");
+    queueTurnoBase(
+      conv,
+      perfil("org_1", { consultasVerificadasEnabled: false, appointmentsEnabled: true }),
+      historial("Agéndame manos y pies el 28 a las 3")
+    );
+    catalogoParaPrompt.mockResolvedValue([
+      { id: "svc_manos", name: "Manicure", category: null, priceCents: 3000000, durationMin: 45, staffNames: ["Vale"] },
+      { id: "svc_pies", name: "Pedicure", category: null, priceCents: 3500000, durationMin: 60, staffNames: ["Vale"] },
+    ]);
+    resolverEspecialistaMultiple.mockResolvedValue({ ok: true, staffId: "st_vale" });
+    // Solo se consultó "manos": "pies" quedó sin corroborar → bloqueo.
+    serviciosOfrecidosPara.mockResolvedValue(["svc_manos"]);
+    chatJson.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        action: "book_appointment",
+        reservas: [
+          { servicios: ["manicure", "pedicure"], fecha: "2026-08-28", hora: "15:00", especialista: "Vale" },
+        ],
+      },
+      raw: "{}",
+    });
+
+    const captura = capturarTraza();
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+    const linea = captura.obtener();
+    captura.restaurar();
+
+    // Se bloqueó de verdad: no se creó ninguna cita.
+    expect(crearCitaMultiple).not.toHaveBeenCalled();
+    expect(action?.action).toBe("book_appointment");
+    // El turno SÍ deja traza (pasa por el punto único antes del switch).
+    expect(linea).toContain("accion=book_appointment");
+    // Limitación documentada: el guardarraíl del case no llega a esta línea.
+    expect(linea).toContain("guardarrailes=-");
+  });
+
+  /**
+   * ESCENARIO 9 — excepción controlada del proveedor. El adaptador `chatJson`
+   * captura el fallo de red y lo devuelve como `{ ok:false, error:"provider_error" }`;
+   * el pipeline lo convierte en handoff con causa específica. La traza lo nombra.
+   */
+  it("ESCENARIO 9 — fallo del proveedor (provider_error): handoff con causa específica", async () => {
+    const conv = conversacion("org_1");
+    queueTurnoBase(conv, perfil("org_1", { consultasVerificadasEnabled: false }), historial("Hola"));
+    catalogoDePedidosMock.mockResolvedValue([]);
+    chatJson.mockResolvedValueOnce({
+      ok: false,
+      error: "provider_error",
+      detail: "network timeout",
+    });
+
+    const captura = capturarTraza();
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+    const linea = captura.obtener();
+    captura.restaurar();
+
+    expect(action?.action).toBe("handoff");
+    expect(linea).toContain("handoff=si");
+    expect(linea).toContain("causa_handoff=provider_error");
+    expect(linea).toContain("provider_error");
+  });
+
+  /**
+   * ESCENARIO 10 — retorno anticipado ANTES del LLM. Cuando la conversación ya
+   * está en manos de una persona (`handoffAt`), `runAgentTurn` sale en la
+   * línea ~492, ANTES de crear la traza (que nace justo antes de la primera
+   * llamada al modelo). Es una ruta que DELIBERADAMENTE no genera traza: no
+   * hubo turno de agente ni decisión que trazar — solo enrutamiento. Se declara
+   * explícito aquí para que quede claro que la ausencia de traza es por diseño,
+   * no un hueco (docs/korexia/150).
+   */
+  it("ESCENARIO 10 — conversación ya en handoff: sale antes del LLM y NO emite traza (por diseño)", async () => {
+    const conv = { ...conversacion("org_1"), handoffAt: new Date() };
+    // Solo se llega a leer la conversación; ni siquiera pide perfil/historial.
+    selectQueue.push([conv]);
+    catalogoDePedidosMock.mockResolvedValue([]);
+
+    const captura = capturarTraza();
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+    const linea = captura.obtener();
+    captura.restaurar();
+
+    expect(action).toBeNull();
+    expect(linea).toBe(""); // ninguna línea [traza] emitida
+    expect(chatJson).not.toHaveBeenCalled();
   });
 });

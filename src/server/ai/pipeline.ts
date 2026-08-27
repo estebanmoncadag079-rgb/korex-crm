@@ -55,6 +55,7 @@ import {
   registrarOfrecidos,
   reprogramarCita,
   resolverEspecialistaMultiple,
+  serviciosOfrecidosPara,
 } from "@/server/appointments/queries";
 import {
   catalogoDe,
@@ -281,7 +282,7 @@ export function textosAlCliente(action: AgentActionType): string[] {
 async function anotarOfrecidos(
   organizationId: string,
   conversationId: string | undefined,
-  serviceId: string,
+  serviceIds: string[],
   slots: { fecha: string; hora: string }[]
 ): Promise<void> {
   if (!conversationId) return;
@@ -289,7 +290,7 @@ async function anotarOfrecidos(
     await registrarOfrecidos({
       organizationId,
       conversationId,
-      serviceId,
+      serviceIds,
       slots,
     });
   } catch (err) {
@@ -364,7 +365,7 @@ async function resolverConsultaDisponibilidad(
     await anotarOfrecidos(
       organizationId,
       conversationId,
-      serviceIds[0]!,
+      serviceIds,
       horas.map((hora) => ({ fecha, hora }))
     );
     const lista = horas.map((h) => horaAAmPm(h)).join(", ");
@@ -387,7 +388,7 @@ async function resolverConsultaDisponibilidad(
   await anotarOfrecidos(
     organizationId,
     conversationId,
-    serviceIds[0]!,
+    serviceIds,
     proximas.flatMap((p) => p.horarios.map((hora) => ({ fecha: p.fecha, hora })))
   );
   const texto = proximas
@@ -2214,6 +2215,71 @@ export async function runAgentTurn(
               : "ese horario no fue uno de los que ofrecí",
           });
           continue;
+        }
+
+        /**
+         * Confirmación por servicio (docs/korexia/149). `estaEntreLosOfrecidos`
+         * ya garantizó que el HORARIO se ofreció, pero no QUÉ servicios se
+         * ofrecieron para él. El incidente real (Lashes Valen, 26-27-ago-2026)
+         * fue el modelo agendando dos servicios ("manos y pies") cuando solo
+         * había consultado disponibilidad para uno: `offered_slot` guardaba el
+         * horario, así que pasaba el filtro anterior. Aquí se compara servicio
+         * a servicio la combinación que se intenta agendar contra la que de
+         * verdad se consultó junta para esa fecha+hora exactas.
+         *
+         * Solo para visitas de MÁS de un servicio: con uno solo no hay
+         * combinación que verificar y el comportamiento no cambia (cero riesgo
+         * de regresión). Lista vacía = el horario no pasó por una consulta
+         * (fecha/hora directa): permisivo a propósito, igual que
+         * `estaEntreLosOfrecidos` — no se bloquea lo que no se puede corroborar.
+         *
+         * NO reinterpreta ambigüedad de lenguaje: solo detecta la
+         * inconsistencia entre lo consultado y lo que se intenta agendar. Si el
+         * modelo consultó ambos servicios (aunque el cliente respondiera
+         * "sí, tradicional"), ambos quedaron en `offered_slot` y pasa.
+         */
+        if (servicios.length > 1) {
+          const ofrecidosParaHorario = await serviciosOfrecidosPara(
+            organizationId,
+            conversation.id,
+            fecha,
+            reserva.hora
+          );
+          const idsOfrecidos = new Set(ofrecidosParaHorario);
+          const sinCorroborar =
+            ofrecidosParaHorario.length > 0
+              ? servicios.filter((s) => !idsOfrecidos.has(s.id))
+              : [];
+          if (sinCorroborar.length > 0) {
+            const nombresSinCorroborar = sinCorroborar.map((s) => s.name).join(", ");
+            const corroborados = servicios
+              .filter((s) => idsOfrecidos.has(s.id))
+              .map((s) => s.name)
+              .join(", ");
+            console.warn(
+              `[citas] reserva rechazada en ${conversation.id}: para ${fecha} ${reserva.hora} ` +
+                `se pidió agendar [${servicios.map((s) => s.name).join(", ")}] pero solo se ` +
+                `consultó disponibilidad para [${corroborados || "ninguno de ellos"}]; ` +
+                `servicio(s) sin corroborar: ${nombresSinCorroborar}`
+            );
+            // El [traza] del turno ya se emitió antes del switch (crash-safety,
+            // docs/korexia/145); este guardarraíl se decide dentro del case, así
+            // que su evidencia en vivo es el console.warn de arriba (más rico:
+            // nombra el servicio). `agregarGuardarrail` deja el registro en el
+            // objeto de traza por consistencia y de cara a futuros consumidores.
+            agregarGuardarrail(traza, "appointment_incomplete_services", true);
+            fallidas.push({
+              nombreVisita,
+              motivo:
+                `"${nombresSinCorroborar}" no quedó parte de ningún horario consultado ` +
+                `para esta visita — antes de agendar, vuelve a usar consult_availability ` +
+                `con TODOS los servicios de la visita juntos`,
+            });
+            continue;
+          }
+          // Combinación corroborada (o sin registro que corroborar): el chequeo
+          // corrió limpio, no bloqueó nada.
+          agregarGuardarrail(traza, "appointment_incomplete_services", false);
         }
 
         const resultado = await crearCitaMultiple({

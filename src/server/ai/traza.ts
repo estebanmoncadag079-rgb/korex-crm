@@ -84,6 +84,8 @@ export type TrazaDelTurno = {
   mensajeId: string;
   mensajeResumen: string;
   deteccionFactual: string | null;
+  /** Igual que `deteccionFactual`, pero para el precheck de medios de pago (docs/korexia/146) — campo aparte porque un turno puede disparar los dos. */
+  deteccionFactualPago: string | null;
   hechos: HechoConsultado[];
   guardarrailes: EventoDeGuardarrail[];
   recuperacion: EventoDeRecuperacion | null;
@@ -104,6 +106,7 @@ export function crearTraza(input: {
     mensajeId: input.mensajeId,
     mensajeResumen: resumirTexto(input.mensajeTexto ?? ""),
     deteccionFactual: null,
+    deteccionFactualPago: null,
     hechos: [],
     guardarrailes: [],
     recuperacion: null,
@@ -158,6 +161,7 @@ export function registrarTrazaDelTurno(t: TrazaDelTurno): void {
       `[traza] org=${t.organizationId} conv=${t.conversationId} msg=${t.mensajeId} ` +
       `mensaje=${t.mensajeResumen} ` +
       `deteccion_factual=${t.deteccionFactual ? `"${t.deteccionFactual}"` : "no"} ` +
+      `deteccion_factual_pago=${t.deteccionFactualPago ? `"${t.deteccionFactualPago}"` : "no"} ` +
       `hechos=${hechos} ` +
       `accion=${t.accionFinal ?? "-"} ` +
       `categorias=${categorias} ` +

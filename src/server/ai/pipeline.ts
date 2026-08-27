@@ -65,6 +65,7 @@ import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { buscarProductos } from "@/server/catalog/buscar";
 import { detectarConsultaFactualDeProducto } from "@/server/catalog/deteccion";
+import { detectarConsultaFactualDeMedioPago } from "@/server/pagos/deteccion";
 import {
   agregarGuardarrail,
   agregarHecho,
@@ -866,6 +867,47 @@ export async function runAgentTurn(
     }
   }
 
+  /**
+   * Mismo principio, para medios de pago (docs/korexia/146): la prueba
+   * controlada del doc 145 mostró que "¿Puedo pagar por Nequi?" obtenía la
+   * respuesta correcta SIN pasar por `consultar_medio_pago` — el modelo
+   * respondió leyendo `ficha.pago.formas` en prosa, la misma ruta
+   * probabilística que ya se corrigió para productos. `pagoDePedidos` solo
+   * existe con `payment_source='ficha'`; sin eso no hay contra qué
+   * verificar.
+   */
+  let resultadoPago: ReturnType<typeof resolverMetodoDePago> | null = null;
+  if (
+    profile.consultasVerificadasEnabled &&
+    !contrataCitas(vertical) &&
+    pagoDePedidos &&
+    lastInbound.text
+  ) {
+    const metodoFactual = detectarConsultaFactualDeMedioPago(lastInbound.text);
+    if (metodoFactual) {
+      resultadoPago = resolverMetodoDePago(pagoDePedidos.formas, metodoFactual);
+      console.warn(
+        `[pago] ${organizationId}: consulta factual detectada="${metodoFactual}" status=${resultadoPago.status}` +
+          (resultadoPago.status === "recognized" ? ` allowed=${resultadoPago.allowed}` : "") +
+          " (verificado antes de llamar al modelo)"
+      );
+      traza.deteccionFactualPago = metodoFactual;
+      agregarHecho(traza, {
+        tipo: "medio_pago",
+        consulta: metodoFactual,
+        resultado:
+          resultadoPago.status === "recognized"
+            ? `recognized:${resultadoPago.allowed ? "allowed" : "not_allowed"}`
+            : resultadoPago.status,
+        origen: "backend",
+      });
+      messages.push({
+        role: "user",
+        content: `${textoDeResultadoPago(metodoFactual, resultadoPago)} (Esto ya está verificado: no hace falta que uses la acción consultar_medio_pago para lo mismo.)`,
+      });
+    }
+  }
+
   /*
    * Con el estado encendido, la propuesta viaja en la MISMA llamada que la
    * respuesta. Lo decidió la medición: más barata ($0,002320 contra $0,002508
@@ -1205,7 +1247,6 @@ export async function runAgentTurn(
    */
   const MAX_CONSULTAS_PAGO = 2;
   let consultasPago = 0;
-  let resultadoPago: ReturnType<typeof resolverMetodoDePago> | null = null;
   while (
     action.action === "consultar_medio_pago" &&
     consultasPago < MAX_CONSULTAS_PAGO

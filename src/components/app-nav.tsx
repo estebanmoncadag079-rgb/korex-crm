@@ -42,9 +42,11 @@ const NAV_CITAS = [{ href: "/appointments", label: "Citas", icon: CalendarClock 
 const NAV_SERVICIOS = [{ href: "/services", label: "Servicios", icon: Scissors }] as const;
 
 /**
- * La configuración del catálogo. Se ofrece a quien TIENE grupos de opciones
- * cargados —no por vertical—: una churrería, un salón o un taller entran por la
- * misma puerta, y a quien no tiene ninguno no se le enseña una pantalla vacía.
+ * La configuración del catálogo: única fuente de productos, grupos de
+ * opciones y opciones para el vertical de PEDIDOS (`catalogo/page.tsx`). Se
+ * ofrece por vertical, igual que Citas/Servicios — nunca por si ya tiene
+ * datos cargados: es la única puerta para crear el primer producto, así que
+ * ocultarla a quien todavía no tiene ninguno lo deja sin forma de entrar.
  */
 const NAV_CATALOGO = [{ href: "/catalogo", label: "Catálogo", icon: ListTree }] as const;
 
@@ -58,21 +60,19 @@ export function AppNav({
   role,
   isPlatformAdmin = false,
   appointmentsEnabled = false,
-  optionGroupsEnabled = false,
 }: {
   branding: Branding;
   userName: string;
   role: string;
   isPlatformAdmin?: boolean;
   appointmentsEnabled?: boolean;
-  optionGroupsEnabled?: boolean;
 }) {
   const NAV = [
     ...NAV_BASE,
     ...(appointmentsEnabled ? NAV_CITAS : []),
     ...NAV_AGENTE,
     ...(appointmentsEnabled ? NAV_SERVICIOS : []),
-    ...(optionGroupsEnabled ? NAV_CATALOGO : []),
+    ...(appointmentsEnabled ? [] : NAV_CATALOGO),
     ...(isPlatformAdmin ? NAV_LAB : []),
   ];
   const pathname = usePathname();

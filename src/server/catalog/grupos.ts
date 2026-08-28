@@ -147,23 +147,6 @@ export async function listarGruposDeOpciones(
 }
 
 /**
- * ¿Este negocio tiene algo que configurar aquí?
- *
- * Lo usa el menú para no ofrecer una pantalla vacía. Es una pregunta sobre los
- * DATOS del cliente, no sobre su vertical: quien tenga grupos de opciones tiene
- * dónde configurarlos, sea una churrería o un taller.
- */
-export async function hayGruposDeOpciones(organizationId: string): Promise<boolean> {
-  const db = getDb();
-  const filas = await db
-    .select({ id: schema.productOptionGroup.id })
-    .from(schema.productOptionGroup)
-    .where(scoped(schema.productOptionGroup.organizationId, organizationId))
-    .limit(1);
-  return filas.length > 0;
-}
-
-/**
  * Cambia si un grupo admite repetir la misma opción. **Y nada más.**
  *
  * `null` = ese grupo no existe **en esta organización**. Es el mismo resultado

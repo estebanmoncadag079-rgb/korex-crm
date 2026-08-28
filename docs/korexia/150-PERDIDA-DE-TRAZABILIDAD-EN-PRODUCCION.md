@@ -49,6 +49,18 @@ mal (así se llegó, al principio, a la conclusión errónea de que no había
 tráfico). Para un rango manual, comparar contra literales sin `Z` y sin cast a
 `timestamptz` (`created_at >= '2026-08-26 23:18:00'::timestamp`).
 
+## Segunda observación (28-ago-2026): también pasa turno por turno, no solo por horas
+
+Al investigar un reporte distinto (Lis Pastelería, contacto "Laura Stefanny",
+turno de las 18:02 del 27-ago) se buscó el `[traza]` de ESE turno puntual y
+tampoco apareció — pero esta vez NO fue un apagón de horas: en la misma
+ventana de 35 minutos, otra conversación de la MISMA organización sí dejó sus
+7 líneas `[traza]` con total normalidad. Es decir, el problema también ocurre
+de forma puntual, turno por turno, no solo como un apagón sostenido. Esto
+encaja mejor con la hipótesis ya anotada (un atasco de `stdout` bajo
+escritura concurrente) que con una causa que afecte todo el proceso por
+horas — pero sigue siendo una hipótesis, no una causa confirmada.
+
 ## Lo que queda, sin confirmar
 
 Descartado todo lo anterior, lo único que encaja con la evidencia (proceso

@@ -6,7 +6,7 @@ import { getEnv, isAiConfigured } from "@/lib/env";
 import { chatJson, type ChatJsonResult, type ChatMessage } from "@/lib/ai";
 import { z } from "zod";
 import { publish } from "@/server/events/bus";
-import { isWindowOpen } from "@/server/inbox/window";
+import { isWindowOpen, WINDOW_MS } from "@/server/inbox/window";
 import {
   SendError,
   sendDocument,
@@ -73,6 +73,7 @@ import {
   crearTraza,
   registrarHandoff,
   registrarRecuperacion,
+  registrarSaltoDeHistorial,
   registrarTrazaDelTurno,
   type TrazaDelTurno,
 } from "@/server/ai/traza";
@@ -220,27 +221,96 @@ export function entrantesSinResponder<
   return history.slice(ultimoSaliente + 1).filter((m) => m.direction === "in");
 }
 
+/**
+ * A partir de cuánta inactividad un mensaje nuevo se trata como una
+ * interacción aparte, no como continuación de lo que se hablaba antes
+ * (docs/korexia/151).
+ *
+ * Es el mismo umbral que la ventana de servicio de WhatsApp (`WINDOW_MS`,
+ * 24h): pasado ese punto, WhatsApp mismo ya no deja mandar texto libre sin
+ * plantilla, así que es la frontera real entre "la misma conversación" y
+ * "una nueva" — no un número inventado para este caso. Por debajo de eso
+ * (una pausa de horas dentro del mismo día, alguien que responde después de
+ * salir a almorzar) es exactamente el tipo de silencio normal que NO debe
+ * romper la continuidad: forzarlo habría convertido pausas legítimas en
+ * falsos reinicios.
+ *
+ * Incidente real: una clienta con un pedido cerrado 11 días antes escribió
+ * "Hola" y el bot respondió como si el pedido siguiera en curso — el
+ * historial que ve el modelo no llevaba ninguna marca de tiempo, así que 11
+ * días de silencio se veían exactamente igual que 11 segundos.
+ */
+const SALTO_DE_HISTORIAL_MS = WINDOW_MS;
+
+function diasDeSalto(gapMs: number): number {
+  return Math.floor(gapMs / (24 * 60 * 60 * 1000));
+}
+
+/** Solo los mensajes que de verdad llegan al modelo (con texto y con fecha). */
+function conTextoYFecha<T extends { text: string | null; createdAt?: Date }>(
+  history: T[]
+): (T & { createdAt: Date })[] {
+  return history.filter(
+    (m): m is T & { createdAt: Date } => Boolean(m.text) && m.createdAt !== undefined
+  );
+}
+
+/**
+ * El mayor salto de inactividad (en días) dentro del historial que se le va
+ * a dar al modelo, o `null` si ninguno llega al umbral. Puramente
+ * diagnóstico — lo usa `[traza]` (docs/korexia/151), nunca decide nada del
+ * turno. Sin `createdAt` en los mensajes (el Laboratorio, o pruebas que no
+ * lo necesitan) no hay nada que detectar y devuelve `null`, igual que
+ * siempre se comportó esto antes de existir.
+ */
+export function mayorSaltoDeHistorial(
+  history: { text: string | null; createdAt?: Date }[]
+): number | null {
+  const mensajes = conTextoYFecha(history);
+  let mayorGapMs = 0;
+  for (let i = 1; i < mensajes.length; i++) {
+    const gapMs = mensajes[i]!.createdAt.getTime() - mensajes[i - 1]!.createdAt.getTime();
+    if (gapMs >= SALTO_DE_HISTORIAL_MS && gapMs > mayorGapMs) mayorGapMs = gapMs;
+  }
+  return mayorGapMs > 0 ? diasDeSalto(mayorGapMs) : null;
+}
+
 export function toChatHistory(
-  history: { direction: string; text: string | null; aiGenerated?: boolean }[],
+  history: { direction: string; text: string | null; aiGenerated?: boolean; createdAt?: Date }[],
   estado?: "abierto" | "cerrado" | null
 ): ChatMessage[] {
-  return history
-    .filter((m) => m.text)
-    .map((m) => {
-      if (m.direction === "in") return { role: "user" as const, content: m.text! };
-      if (m.aiGenerated === false) {
-        return {
-          role: "user" as const,
-          content: `[Lo escribió una persona del negocio al cliente, NO tú. Tenlo en cuenta para no repetirlo ni contradecirlo, pero no cambies por esto lo que sabes del horario]: ${m.text!}`,
-        };
+  const mensajes = history.filter((m) => m.text);
+  const resultado: ChatMessage[] = [];
+  for (let i = 0; i < mensajes.length; i++) {
+    const m = mensajes[i]!;
+    const anterior = mensajes[i - 1];
+    if (anterior?.createdAt && m.createdAt) {
+      const gapMs = m.createdAt.getTime() - anterior.createdAt.getTime();
+      if (gapMs >= SALTO_DE_HISTORIAL_MS) {
+        resultado.push({
+          role: "user",
+          content:
+            `[SISTEMA] Pasaron ${diasDeSalto(gapMs)} días sin mensajes en esta conversación. ` +
+            `Trata lo que sigue como una interacción NUEVA: no asumas que continúa un pedido, ` +
+            `una cita o un motivo de escalar de antes de la pausa, salvo que el cliente lo diga.`,
+        });
       }
-      const texto =
-        estado === "abierto" && anunciaCierre(m.text) ? MENSAJE_RETIRADO : m.text!;
-      return {
-        role: "assistant" as const,
-        content: JSON.stringify({ action: "reply", text: texto }),
-      };
-    });
+    }
+    if (m.direction === "in") {
+      resultado.push({ role: "user", content: m.text! });
+      continue;
+    }
+    if (m.aiGenerated === false) {
+      resultado.push({
+        role: "user",
+        content: `[Lo escribió una persona del negocio al cliente, NO tú. Tenlo en cuenta para no repetirlo ni contradecirlo, pero no cambies por esto lo que sabes del horario]: ${m.text!}`,
+      });
+      continue;
+    }
+    const texto = estado === "abierto" && anunciaCierre(m.text) ? MENSAJE_RETIRADO : m.text!;
+    resultado.push({ role: "assistant", content: JSON.stringify({ action: "reply", text: texto }) });
+  }
+  return resultado;
 }
 
 /** Los textos de una acción que llegan a ojos del cliente. */
@@ -840,6 +910,8 @@ export async function runAgentTurn(
     mensajeId: lastInbound.id,
     mensajeTexto: lastInbound.text,
   });
+  const saltoDeHistorial = mayorSaltoDeHistorial(history);
+  if (saltoDeHistorial !== null) registrarSaltoDeHistorial(traza, saltoDeHistorial);
 
   let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
   if (

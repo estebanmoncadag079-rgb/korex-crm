@@ -45,7 +45,8 @@ export type CategoriaDeTraza =
   | "model_output_invalid"
   | "provider_error"
   | "backend_error"
-  | "handoff";
+  | "handoff"
+  | "history_gap";
 
 /** De dónde salió un hecho que el agente usó para responder. */
 export type OrigenDelHecho = "backend" | "crm" | "llm";
@@ -92,6 +93,16 @@ export type TrazaDelTurno = {
   categorias: Set<CategoriaDeTraza>;
   accionFinal: string | null;
   handoffCausa: string | null;
+  /**
+   * Días de inactividad detectados en el historial que se le dio al modelo
+   * (docs/korexia/151), o `null` si no hubo ninguno por encima del umbral.
+   * Puramente diagnóstico: nunca decide nada del turno, solo permite saber
+   * después si el modelo recibió una conversación continua o con una
+   * ruptura temporal — la pregunta que costó reconstruir a mano en el
+   * incidente de Laura Stefanny (un "Hola" tras 11 días de silencio leído
+   * como continuación de un pedido ya entregado).
+   */
+  historialSaltoDias: number | null;
 };
 
 export function crearTraza(input: {
@@ -113,12 +124,19 @@ export function crearTraza(input: {
     categorias: new Set(),
     accionFinal: null,
     handoffCausa: null,
+    historialSaltoDias: null,
   };
 }
 
 export function agregarHecho(t: TrazaDelTurno, h: HechoConsultado): void {
   t.hechos.push(h);
   t.categorias.add("fact_verified");
+}
+
+/** Anota el mayor salto de inactividad detectado en el historial de este turno. */
+export function registrarSaltoDeHistorial(t: TrazaDelTurno, dias: number): void {
+  t.historialSaltoDias = dias;
+  t.categorias.add("history_gap");
 }
 
 export function agregarGuardarrail(t: TrazaDelTurno, nombre: string, corrigio: boolean): void {
@@ -162,6 +180,7 @@ export function registrarTrazaDelTurno(t: TrazaDelTurno): void {
       `mensaje=${t.mensajeResumen} ` +
       `deteccion_factual=${t.deteccionFactual ? `"${t.deteccionFactual}"` : "no"} ` +
       `deteccion_factual_pago=${t.deteccionFactualPago ? `"${t.deteccionFactualPago}"` : "no"} ` +
+      `historial_salto=${t.historialSaltoDias !== null ? `${t.historialSaltoDias}d` : "no"} ` +
       `hechos=${hechos} ` +
       `accion=${t.accionFinal ?? "-"} ` +
       `categorias=${categorias} ` +

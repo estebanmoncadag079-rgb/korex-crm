@@ -569,6 +569,7 @@ function OpcionesDelGrupo({
 }) {
   const [opciones, setOpciones] = useState<Opcion[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     const res = await fetch(`/api/catalogo/grupos/${groupId}/opciones`).catch(() => null);
@@ -584,18 +585,36 @@ function OpcionesDelGrupo({
     void refetch();
   }, [refetch]);
 
-  async function crear(nombre: string) {
+  async function crear(datos: { nombre: string; precio: string }) {
     setError(null);
     const res = await fetch(`/api/catalogo/grupos/${groupId}/opciones`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nombre }),
+      body: JSON.stringify({
+        nombre: datos.nombre,
+        precioDeltaCents: pesosACents(datos.precio) ?? 0,
+      }),
     }).catch(() => null);
     if (!res?.ok) {
       setError("No se pudo agregar.");
       return;
     }
     onTerminarCrear();
+    await Promise.all([refetch(), onCambioGrupo()]);
+  }
+
+  async function guardarPrecio(id: string, precio: string) {
+    setError(null);
+    const res = await fetch(`/api/catalogo/opciones/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ precioDeltaCents: pesosACents(precio) ?? 0 }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setError("No se pudo guardar el precio.");
+      return;
+    }
+    setEditandoId(null);
     await Promise.all([refetch(), onCambioGrupo()]);
   }
 
@@ -617,22 +636,45 @@ function OpcionesDelGrupo({
         <p className="text-[13px] text-muted-foreground">Sin opciones todavía.</p>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {opciones.map((o) => (
-            <span
-              key={o.id}
-              className="flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1 text-[13px]"
-            >
-              {o.nombre}
-              <button
-                type="button"
-                aria-label={`Quitar ${o.nombre}`}
-                onClick={() => void quitar(o.id)}
-                className="text-muted-foreground hover:text-foreground"
+          {opciones.map((o) =>
+            editandoId === o.id ? (
+              <PrecioDeOpcionInline
+                key={o.id}
+                nombre={o.nombre}
+                inicial={centsAPesos(o.precioDeltaCents)}
+                onGuardar={(precio) => void guardarPrecio(o.id, precio)}
+                onCancelar={() => setEditandoId(null)}
+              />
+            ) : (
+              <span
+                key={o.id}
+                className="flex items-center gap-1.5 rounded-full border bg-muted/40 px-2.5 py-1 text-[13px]"
               >
-                ×
-              </button>
-            </span>
-          ))}
+                <button
+                  type="button"
+                  onClick={() => setEditandoId(o.id)}
+                  className="hover:underline"
+                  title="Cambiar el precio extra de esta opción"
+                >
+                  {o.nombre}
+                  {o.precioDeltaCents !== 0 && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      {o.precioDeltaCents > 0 ? "+" : ""}${centsAPesos(o.precioDeltaCents)}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Quitar ${o.nombre}`}
+                  onClick={() => void quitar(o.id)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ×
+                </button>
+              </span>
+            )
+          )}
         </div>
       )}
 
@@ -651,29 +693,82 @@ function NuevaOpcionInline({
   onGuardar,
   onCancelar,
 }: {
-  onGuardar: (nombre: string) => void;
+  onGuardar: (datos: { nombre: string; precio: string }) => void;
   onCancelar: () => void;
 }) {
   const [nombre, setNombre] = useState("");
+  const [precio, setPrecio] = useState("");
   return (
     <div className="flex items-center gap-2">
       <Input
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
         placeholder="Milo"
-        className="h-8 max-w-[180px]"
+        className="h-8 max-w-[140px]"
         autoFocus
         onKeyDown={(e) => {
-          if (e.key === "Enter" && nombre.trim()) onGuardar(nombre.trim());
+          if (e.key === "Enter" && nombre.trim()) onGuardar({ nombre: nombre.trim(), precio });
           if (e.key === "Escape") onCancelar();
         }}
       />
-      <Button size="sm" disabled={!nombre.trim()} onClick={() => onGuardar(nombre.trim())}>
+      <Input
+        value={precio}
+        onChange={(e) => setPrecio(e.target.value)}
+        placeholder="Precio extra (opcional)"
+        inputMode="numeric"
+        className="h-8 max-w-[170px]"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && nombre.trim()) onGuardar({ nombre: nombre.trim(), precio });
+          if (e.key === "Escape") onCancelar();
+        }}
+      />
+      <Button
+        size="sm"
+        disabled={!nombre.trim()}
+        onClick={() => onGuardar({ nombre: nombre.trim(), precio })}
+      >
         Agregar
       </Button>
       <Button size="sm" variant="outline" onClick={onCancelar}>
         Cancelar
       </Button>
     </div>
+  );
+}
+
+function PrecioDeOpcionInline({
+  nombre,
+  inicial,
+  onGuardar,
+  onCancelar,
+}: {
+  nombre: string;
+  inicial: string;
+  onGuardar: (precio: string) => void;
+  onCancelar: () => void;
+}) {
+  const [precio, setPrecio] = useState(inicial);
+  return (
+    <span className="flex items-center gap-1.5 rounded-full border bg-muted/40 py-1 pl-2.5 pr-1.5 text-[13px]">
+      {nombre}
+      <Input
+        value={precio}
+        onChange={(e) => setPrecio(e.target.value)}
+        placeholder="0"
+        inputMode="numeric"
+        autoFocus
+        className="h-6 w-20 px-1.5 text-[13px]"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onGuardar(precio);
+          if (e.key === "Escape") onCancelar();
+        }}
+      />
+      <Button size="sm" className="h-6 px-2 text-[12px]" onClick={() => onGuardar(precio)}>
+        Guardar
+      </Button>
+      <Button size="sm" variant="outline" className="h-6 px-2 text-[12px]" onClick={onCancelar}>
+        Cancelar
+      </Button>
+    </span>
   );
 }

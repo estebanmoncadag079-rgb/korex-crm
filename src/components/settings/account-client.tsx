@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { KeyRound } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { KeyRound, User } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,15 +12,72 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
+
+/**
+ * Nombre de la cuenta: el que se ve en el menú lateral y en el equipo. La
+ * agencia lo escribe al dar de alta y hasta ahora nadie más lo podía tocar
+ * — quien recibía la cuenta con un nombre equivocado se quedaba así.
+ */
+function NombreDeCuenta({ nombreInicial }: { nombreInicial: string }) {
+  const router = useRouter();
+  const [nombre, setNombre] = useState(nombreInicial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function submit() {
+    setSaving(true);
+    setError(null);
+    setDone(false);
+    const { error: err } = await authClient.updateUser({ name: nombre.trim() });
+    setSaving(false);
+    if (err) {
+      setError("No se pudo guardar el nombre.");
+      return;
+    }
+    setDone(true);
+    router.refresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Tu nombre</CardTitle>
+        <CardDescription>Así se te ve en el menú y ante el resto del equipo.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="account-name">Nombre</Label>
+          <Input
+            id="account-name"
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+          />
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {done && <p className="text-sm text-[#3f6b52]">Guardado ✓</p>}
+        <Button
+          className="w-full sm:w-auto"
+          disabled={saving || !nombre.trim() || nombre.trim() === nombreInicial}
+          onClick={() => void submit()}
+        >
+          <User className="h-4 w-4" />
+          {saving ? "Guardando…" : "Guardar nombre"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
 
 /**
  * Cambio de contraseña. Es el cierre del alta de cuentas: la agencia entrega
  * una contraseña temporal a mano, así que quien la recibe necesita poder
  * cambiarla sin pedirle nada a nadie.
  */
-export function AccountClient({ email }: { email: string }) {
+export function AccountClient({ email, name }: { email: string; name: string }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [repeat, setRepeat] = useState("");
@@ -58,6 +116,7 @@ export function AccountClient({ email }: { email: string }) {
 
   return (
     <div className="max-w-xl space-y-6">
+      <NombreDeCuenta nombreInicial={name} />
       <Card>
         <CardHeader>
           <CardTitle>Cambiar contraseña</CardTitle>

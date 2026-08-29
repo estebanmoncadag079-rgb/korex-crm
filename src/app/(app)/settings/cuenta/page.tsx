@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export default async function AccountSettingsPage() {
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
-  return <AccountClient email={session.user.email} />;
+  return <AccountClient email={session.user.email} name={session.user.name} />;
 }

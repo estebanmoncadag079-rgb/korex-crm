@@ -2,6 +2,8 @@ import { and, eq, ne } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { getAuth, runInternalSignup } from "@/lib/auth";
+import { arquitecturaAprobadaPara } from "@/server/auth/arquitectura";
+import { verticalDe } from "@/server/vertical";
 
 /**
  * Alta de organizaciones (tenants). Una organización = un cliente de la
@@ -54,10 +56,20 @@ export async function provisionOrganization(
       kind: s.kind,
     }))
   );
+  /*
+   * La arquitectura con la que nace TODO cliente nuevo — nunca decidida flag
+   * por flag aquí. `arquitecturaAprobadaPara` es la única fuente de verdad
+   * (compartida con `validarConfiguracionArquitectonica`): antes de esto,
+   * este `insert` solo fijaba `appointmentsEnabled` y dejaba
+   * `catalogSource`/`stateSource`/`paymentSource`/`consultasVerificadasEnabled`
+   * en el valor más viejo de la columna, a la espera de que alguien los
+   * encendiera a mano después (lo que le pasó a Malía con `stateSource`).
+   */
+  const vertical = verticalDe(input.needsAppointments ?? false);
   await tx.insert(schema.agentProfile).values({
     id: newId("agentProfile"),
     organizationId: input.organizationId,
-    appointmentsEnabled: input.needsAppointments ?? false,
+    ...arquitecturaAprobadaPara(vertical),
   });
 }
 

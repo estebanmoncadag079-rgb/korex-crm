@@ -19,6 +19,7 @@ import {
   personasPara,
   reglasDe,
   type Persona,
+  type RespuestaReactiva,
   type ServicioDelCatalogo,
 } from "@/server/lab/personas";
 import type { TranscriptLine } from "@/lib/types";
@@ -152,7 +153,7 @@ async function runAllCases(
     : [];
   const appointments = profile?.appointmentsEnabled ? { catalog } : undefined;
 
-  const behaviorText = profile
+  const behaviorTextBase = profile
     ? [
         `Nombre: ${profile.name}`,
         profile.tone ? `Tono: ${profile.tone}` : null,
@@ -202,6 +203,10 @@ async function runAllCases(
       labNow,
       servicios
     );
+
+    const behaviorText = [behaviorTextBase, hechoTelefonoConocido(persona.phone)]
+      .filter(Boolean)
+      .join("\n");
 
     const outcome = await judgeCase({
       personaKey: persona.key,
@@ -260,6 +265,18 @@ function estadoParaElJuez(
 }
 
 /**
+ * El agente recibe el teléfono del contacto como un hecho ya conocido
+ * (`fichaDelContacto`, prompts.ts) — nunca lo pregunta ni lo inventa, lo
+ * copia. El juez solo ve el transcript, así que un resumen con ese teléfono
+ * sin que el cliente lo haya escrito en el chat le parecía un dato salido de
+ * la nada. Sin esta línea, usar bien un dato real quedaba marcado como
+ * alucinación.
+ */
+export function hechoTelefonoConocido(phone: string): string {
+  return `El sistema ya conocía el teléfono de WhatsApp de este cliente antes del primer mensaje (viene del contacto, no lo escribió en el chat): ${phone}. Que el agente lo use en un resumen o cierre sin que el cliente lo haya repetido es correcto — no es una alucinación.`;
+}
+
+/**
  * Traduce una acción del agente a una línea que el juez pueda leer.
  *
  * Sin esto el juez solo veía texto: un "ya te contactan" con handoff REAL le
@@ -296,6 +313,45 @@ function describirAccion(accion: AgentActionType): string | null {
  */
 export const MAX_RESPUESTAS_REACTIVAS = 3;
 
+/** Lo que dice a continuación el cliente simulado, o `null` si ya no tiene nada más que decir. */
+export type PasoDelCliente =
+  | { tipo: "reactiva"; texto: string; indice: number }
+  | { tipo: "script"; texto: string };
+
+/**
+ * Decide la siguiente línea del cliente simulado: pura, sin tocar la base de
+ * datos ni al agente — así se puede probar el bug de cierre (docs de esta
+ * corrección) sin levantar Postgres ni el LLM.
+ *
+ * La reactiva se evalúa SIEMPRE primero, incluso con el guion ya agotado: el
+ * guion de "cliente decidido" termina en una pregunta del cliente ("¿cuánto es
+ * el total?"), y la respuesta del agente a ESA pregunta es la que dispara la
+ * reactiva que confirma el pedido ("Sí, así está perfecto..."). Antes, en
+ * cuanto se acababan las líneas del guion la conversación terminaba sin darle
+ * oportunidad de sonar: el pedido parecía no cerrarse nunca, y el rojo era del
+ * simulador, no del agente.
+ */
+export function siguientePasoDelCliente(
+  persona: Persona,
+  reglas: RespuestaReactiva[],
+  estado: {
+    siguienteLinea: number;
+    reactivas: number;
+    usadas: Set<number>;
+    ultimaDelAgente: string | null;
+  }
+): PasoDelCliente | null {
+  const reactiva =
+    estado.reactivas < MAX_RESPUESTAS_REACTIVAS && estado.ultimaDelAgente
+      ? elegirRespuesta(reglas, estado.usadas, estado.ultimaDelAgente)
+      : null;
+  if (reactiva) return { tipo: "reactiva", texto: reactiva.texto, indice: reactiva.indice };
+  if (estado.siguienteLinea < persona.script.length) {
+    return { tipo: "script", texto: persona.script[estado.siguienteLinea]! };
+  }
+  return null; // ni guion pendiente ni una reactiva que aplique: nada más que decir
+}
+
 /** Conversa el guion completo contra el agente real; corta al primer handoff. */
 async function runConversation(
   organizationId: string,
@@ -330,20 +386,19 @@ async function runConversation(
   let reactivas = 0;
   let ultimaDelAgente: string | null = null;
 
-  while (siguienteLinea < persona.script.length) {
-    // El cliente contesta lo que le preguntaron; si no le preguntaron nada que
-    // sepa contestar, sigue con su guion.
-    const reactiva =
-      reactivas < MAX_RESPUESTAS_REACTIVAS && ultimaDelAgente
-        ? elegirRespuesta(reglas, usadas, ultimaDelAgente)
-        : null;
-    let line: string;
-    if (reactiva) {
-      line = reactiva.texto;
-      usadas.add(reactiva.indice);
+  for (;;) {
+    const paso = siguientePasoDelCliente(persona, reglas, {
+      siguienteLinea,
+      reactivas,
+      usadas,
+      ultimaDelAgente,
+    });
+    if (!paso) break;
+    const line = paso.texto;
+    if (paso.tipo === "reactiva") {
+      usadas.add(paso.indice);
       reactivas += 1;
     } else {
-      line = persona.script[siguienteLinea]!;
       siguienteLinea += 1;
     }
 

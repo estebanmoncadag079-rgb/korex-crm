@@ -34,6 +34,8 @@ export async function judgeCase(input: {
   kbText: string;
   behaviorText: string;
   appointments?: { catalog: CatalogEntry[] };
+  /** El mismo catálogo de PEDIDOS que ya vio el agente, ya renderizado. */
+  pedidosCatalog?: string;
 }): Promise<JudgeOutcome> {
   const { system, user } = buildJudgePrompt({
     persona: input.personaKey,
@@ -41,6 +43,7 @@ export async function judgeCase(input: {
     kbText: input.kbText,
     behaviorText: input.behaviorText,
     appointments: input.appointments,
+    pedidosCatalog: input.pedidosCatalog,
   });
   const result = await chatJson(
     Verdict,

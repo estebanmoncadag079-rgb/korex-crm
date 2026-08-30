@@ -12,6 +12,8 @@ import {
   type CatalogEntry,
 } from "@/server/ai/prompts";
 import { catalogoParaPrompt } from "@/server/appointments/queries";
+import { catalogoDePedidos } from "@/server/catalog/queries";
+import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import { computeScore, judgeCase } from "@/server/lab/judge";
 import {
   concretarPersona,
@@ -153,6 +155,24 @@ async function runAllCases(
     : [];
   const appointments = profile?.appointmentsEnabled ? { catalog } : undefined;
 
+  /**
+   * Lo mismo para PEDIDOS (Problema A, docs de la corrección de Malía):
+   * hasta hoy el juez de un negocio de pedidos no recibía ningún catálogo
+   * real, solo `kbText`/`behaviorText` — así que una respuesta del agente
+   * perfectamente correcta contra la base real (precio, sabor, topping) no
+   * tenía con qué confirmarse, y quedaba marcada "alucinación" por defecto.
+   *
+   * Se reutiliza el MISMO texto que ya arma el agente en su propio prompt
+   * (`renderCatalogoDePedidos`, `pipeline.ts:737`) — nada de un catálogo
+   * paralelo para el juez: es la misma verdad, no una segunda copia que
+   * pueda desalinearse.
+   */
+  let pedidosCatalog: string | undefined;
+  if (!profile?.appointmentsEnabled && profile?.catalogSource === "tabla") {
+    const productos = await catalogoDePedidos(organizationId);
+    if (productos.length > 0) pedidosCatalog = renderCatalogoDePedidos(productos);
+  }
+
   const behaviorTextBase = profile
     ? [
         `Nombre: ${profile.name}`,
@@ -214,6 +234,7 @@ async function runAllCases(
       kbText,
       behaviorText,
       appointments,
+      pedidosCatalog,
     });
 
     await db

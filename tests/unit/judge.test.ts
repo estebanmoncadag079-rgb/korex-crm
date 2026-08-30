@@ -28,6 +28,41 @@ describe("judgeCase (FR-032)", () => {
     expect(chatJson.mock.calls[0]![2]).toMatchObject({ judge: true });
   });
 
+  it("con pedidosCatalog, el sistema del juez incluye el catálogo real de productos (Problema A)", async () => {
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { veredicto: "verde", hallazgos: [] },
+      raw: "{}",
+    });
+    await judgeCase({
+      personaKey: "comprador_decidido",
+      transcript: [{ role: "cliente", text: "hola" }],
+      kbText: "kb",
+      behaviorText: "b",
+      pedidosCatalog: "Torta de Chocolate — $18.000 (elige 1 sabor)",
+    });
+    const sistema = chatJson.mock.calls[0]![1][0].content as string;
+    expect(sistema).toContain("CATÁLOGO DE PRODUCTOS de este cliente (pedidos)");
+    expect(sistema).toContain("Torta de Chocolate — $18.000");
+    expect(sistema.toLowerCase()).toContain("no es alucinación");
+  });
+
+  it("sin pedidosCatalog (negocio sin catalog_source='tabla'), no aparece ningún bloque de catálogo de pedidos", async () => {
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: { veredicto: "verde", hallazgos: [] },
+      raw: "{}",
+    });
+    await judgeCase({
+      personaKey: "comprador_decidido",
+      transcript: [{ role: "cliente", text: "hola" }],
+      kbText: "kb",
+      behaviorText: "b",
+    });
+    const sistema = chatJson.mock.calls[0]![1][0].content as string;
+    expect(sistema).not.toContain("CATÁLOGO DE PRODUCTOS de este cliente");
+  });
+
   it("salida inválida tras reintentos internos → judge_failed (no lanza)", async () => {
     chatJson.mockResolvedValue({
       ok: false,

@@ -17,11 +17,13 @@ vi.mock("@/lib/ai", () => ({ chatJson: (...args: unknown[]) => chatJson(...args)
 const resolverEspecialistaMultiple = vi.fn();
 const proximasFechasConCupoMultiple = vi.fn();
 const catalogoParaPrompt = vi.fn();
+const listStaff = vi.fn();
 
 vi.mock("@/server/appointments/queries", () => ({
   resolverEspecialistaMultiple: (...a: unknown[]) => resolverEspecialistaMultiple(...a),
   catalogoParaPrompt: (...a: unknown[]) => catalogoParaPrompt(...a),
   proximasFechasConCupoMultiple: (...a: unknown[]) => proximasFechasConCupoMultiple(...a),
+  listStaff: (...a: unknown[]) => listStaff(...a),
   crearCitaMultiple: vi.fn(),
   reprogramarCita: vi.fn(),
   cancelarCita: vi.fn(),
@@ -132,6 +134,7 @@ describe("runAgentTurn: niega disponibilidad sin verificar (mitad simétrica del
     resolverEspecialistaMultiple.mockReset();
     proximasFechasConCupoMultiple.mockReset();
     catalogoParaPrompt.mockReset();
+    listStaff.mockReset().mockResolvedValue([{ id: "st_valentina", name: "Valentina", archivedAt: null }]);
     selectQueue.length = 0;
     inserted.length = 0;
   });

@@ -397,6 +397,29 @@ describe("cada opción sabe de qué grupo es (modelo v2)", () => {
     expect(porGrupo).toEqual(["SALSA:arequipe", "RECUBIERTO:azúcar-canela"]);
   });
 
+  it("el modelo puede copiar la anotación del catálogo en 'grupo' (ej. 'ADICIONES (opcional)') sin que se rechace la opción", () => {
+    // Incidente real (29-ago-2026, prueba de cierre contra Malía): el
+    // renderizado del catálogo (Problema 1) le puso a los grupos opcionales
+    // el sufijo " (opcional)" y "aplica a: X, Y" — el modelo a veces copia
+    // esa etiqueta completa como "grupo" en vez del nombre puro, y el
+    // nombre real ("ADICIONES") es más CORTO que lo que dijo el modelo
+    // ("ADICIONES (opcional)"), así que comparar solo en un sentido
+    // ("¿el nombre real empieza como lo dicho?") rechazaba una opción que sí
+    // existe.
+    const v = validarPropuesta(
+      { ...propuesta(), opciones: [{ grupo: "ADICIONES (opcional)", opcion: "lechera" }] },
+      CARTA_3,
+      UNIDADES
+    );
+    // No hay duda sobre ADICIONES/lechera en particular — las que quedan
+    // (recubierto, salsa) son porque esta propuesta no las incluyó, ninguna
+    // relación con el bug de este caso.
+    expect(v.dudas.some((d) => /adicion|lechera/i.test(d.campo) || /adicion|lechera/i.test(d.preguntar))).toBe(false);
+    expect(v.estado.items[0]!.seleccion).toContainEqual(
+      expect.objectContaining({ grupoNombre: "ADICIONES", nombre: "lechera" })
+    );
+  });
+
   it("una salsa incluida no se cobra aunque exista una adición con su nombre", () => {
     const v = validarPropuesta(
       {

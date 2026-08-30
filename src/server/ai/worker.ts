@@ -118,9 +118,16 @@ async function sondear(estado: EstadoWorker): Promise<void> {
 }
 
 async function ejecutar(trabajo: TrabajoTomado): Promise<void> {
+  // Diagnóstico aditivo (patrón F,F/F,F,T de saludos duplicados, auditoría
+  // de Lashes Valen): confirma cuántas veces el worker toma un job para una
+  // misma conversación y cuándo — no cambia qué hace `runAgentTurn`.
+  console.info(
+    `[diag-turno] worker toma job=${trabajo.id} conv=${trabajo.conversationId} intento=${trabajo.attempts}`
+  );
   try {
     await runAgentTurn(trabajo.conversationId);
     await completarTrabajo(trabajo.id);
+    console.info(`[diag-turno] job=${trabajo.id} conv=${trabajo.conversationId} completado`);
   } catch (err) {
     console.error(
       `[worker] turno falló (conversación ${trabajo.conversationId}, intento ${trabajo.attempts}):`,

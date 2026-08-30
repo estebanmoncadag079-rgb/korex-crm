@@ -1,4 +1,4 @@
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { publish } from "@/server/events/bus";
@@ -345,7 +345,19 @@ export async function ingestInboundMessage(
     .onConflictDoNothing({ target: [schema.message.waMessageId] })
     .returning();
   const message = inserted[0];
-  if (!message) return; // duplicado
+  if (!message) {
+    // Puramente diagnóstico (patrón F,F/F,F,T de saludos duplicados,
+    // auditoría de Lashes Valen): confirma si un mensaje ENTRANTE llegó
+    // duplicado por wa_message_id — sin esto no había forma de distinguir
+    // "el cliente escribió dos veces" de "el mismo webhook llegó dos veces".
+    console.info(
+      `[diag-turno] entrante DUPLICADO wamid=${input.waMessageId} conv=${conversation.id}`
+    );
+    return; // duplicado
+  }
+  console.info(
+    `[diag-turno] entrante nuevo wamid=${input.waMessageId} conv=${conversation.id} msg=${message.id}`
+  );
 
   await db
     .update(schema.conversation)
@@ -412,6 +424,7 @@ export async function ingestInboundMessage(
   // espera de agrupación, que ahí solo se siente como demora.
   await maybeRunAgentTurn(conversation.id, {
     immediate: previousMessageAt === null,
+    waMessageId: input.waMessageId,
   });
 }
 
@@ -553,11 +566,76 @@ async function mediaATexto(
 }
 
 /**
+ * Ventana en la que un "eco" de coexistencia se considera el rebote del
+ * propio mensaje que el CRM acaba de enviar, no algo nuevo.
+ *
+ * Medido sobre incidentes reales de Lashes Valen (29/30-ago-2026, auditoría
+ * de saludos duplicados): los ecos confirmados del propio saludo del agente
+ * llegaron entre 2 ms y ~6 s después del envío real. 20 s deja margen de
+ * sobra para esa latencia sin acercarse al tiempo que tardaría un operador en
+ * escribir un mensaje de verdad parecido por su cuenta.
+ */
+const VENTANA_ECO_PROPIO_MS = 20_000;
+
+/** Compara el texto de un eco contra el de un mensaje propio reciente, tolerando solo espacios en los bordes. */
+export function normalizarTextoEco(texto: string | null | undefined): string | null {
+  const t = texto?.trim();
+  return t ? t : null;
+}
+
+/**
+ * ¿Este eco es el rebote de un mensaje que el propio agente ya envió?
+ *
+ * Con la coexistencia activada, WhatsApp le devuelve al webhook un "eco" de
+ * CUALQUIER mensaje saliente — incluido el que el CRM acaba de mandar por su
+ * cuenta — como si el negocio lo hubiera escrito desde el celular. Sin este
+ * filtro, `ingestOutboundEcho` lo registraba como un mensaje nuevo con
+ * `aiGenerated=false` (duplicando el saludo en el hilo) y además llamaba a
+ * `markHumanTookOver`, apagando el agente por error — el propio saludo del
+ * bot terminaba pasando la conversación a "operador" sin que nadie hubiera
+ * escrito nada.
+ *
+ * Solo compara contra mensajes con `aiGenerated=true`: un mensaje real que
+ * una PERSONA repite (aiGenerated=false, como el resto del historial de
+ * "eco" legítimo o lo que ya escribió el operador) nunca entra en esta
+ * comparación, así que nunca se descarta por error.
+ */
+export async function esEcoDeMensajePropio(
+  conversationId: string,
+  texto: string | null
+): Promise<string | null> {
+  const normalizado = normalizarTextoEco(texto);
+  if (!normalizado) return null;
+
+  const db = getDb();
+  const desde = new Date(Date.now() - VENTANA_ECO_PROPIO_MS);
+  const recientes = await db
+    .select({ id: schema.message.id, text: schema.message.text })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.conversationId, conversationId),
+        eq(schema.message.direction, "out"),
+        eq(schema.message.aiGenerated, true),
+        gte(schema.message.createdAt, desde)
+      )
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(5);
+
+  const match = recientes.find((m) => normalizarTextoEco(m.text) === normalizado);
+  return match?.id ?? null;
+}
+
+/**
  * Registra un mensaje que el negocio envió desde su CELULAR (coexistencia) y
  * cede el turno: si una persona está respondiendo por su cuenta, el agente
  * calla — si no, los dos le escriben al mismo cliente a la vez.
  *
  * Idempotente por `wa_message_id`: un eco repetido no vuelve a tocar el turno.
+ * También idempotente por CONTENIDO reciente (ver `esEcoDeMensajePropio`):
+ * el rebote del propio saludo del agente no debe registrarse como un mensaje
+ * nuevo ni ceder el turno a un humano que nunca escribió nada.
  */
 export async function ingestOutboundEcho(input: {
   organizationId: string;
@@ -597,6 +675,15 @@ export async function ingestOutboundEcho(input: {
     organizationId,
     "negocio"
   );
+
+  const propioId = await esEcoDeMensajePropio(conversation.id, texto);
+  if (propioId) {
+    console.info(
+      `[ingesta] eco descartado por coincidir con mensaje propio reciente ` +
+        `(conv=${conversation.id}, mensaje_original=${propioId}, wamid_eco=${input.waMessageId})`
+    );
+    return;
+  }
 
   const inserted = await db
     .insert(schema.message)

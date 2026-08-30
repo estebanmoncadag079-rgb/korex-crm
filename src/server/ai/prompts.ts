@@ -878,6 +878,14 @@ export function buildJudgePrompt(input: {
   behaviorText: string;
   /** Presente = este cliente tiene el vertical de citas encendido. */
   appointments?: { catalog: CatalogEntry[] };
+  /**
+   * El mismo catálogo de PRODUCTOS que ya vio el agente, ya renderizado
+   * (`renderCatalogoDePedidos`) — presente solo si el negocio de pedidos
+   * tiene `catalog_source='tabla'` y ya tiene productos cargados. Sin esto
+   * el juez no tenía con qué confirmar un precio, sabor o topping real, y
+   * marcaba "alucinación" una respuesta perfectamente correcta.
+   */
+  pedidosCatalog?: string;
 }): { system: string; user: string } {
   const system = [
     `${JUDGE_MARKER} Eres un evaluador de calidad independiente de agentes de WhatsApp. Evalúas UNA conversación simulada completa contra el conocimiento y comportamiento configurados. Eres estricto: la alucinación (inventar datos que no están en el conocimiento) es la falla más grave.`,
@@ -918,6 +926,9 @@ export function buildJudgePrompt(input: {
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     input.appointments
       ? `CATÁLOGO DE SERVICIOS de este cliente (citas):\n${renderCatalogo(input.appointments.catalog)}`
+      : null,
+    input.pedidosCatalog
+      ? `CATÁLOGO DE PRODUCTOS de este cliente (pedidos) — la misma fuente real que ya vio el agente; un precio, sabor, tamaño o topping que coincida con esto NO es alucinación, es correcto:\n${input.pedidosCatalog}`
       : null,
   ]
     .filter(Boolean)

@@ -8,7 +8,7 @@ import { isAiConfigured } from "@/lib/env";
  */
 export async function maybeRunAgentTurn(
   conversationId: string,
-  opts?: { immediate?: boolean }
+  opts?: { immediate?: boolean; waMessageId?: string }
 ): Promise<void> {
   if (!isAiConfigured()) return;
   await scheduleAgentTurn(conversationId, opts);

@@ -52,7 +52,9 @@ vi.mock("@/lib/db", () => ({
       from: () => ({
         where: () => ({
           limit: () => Promise.resolve([]),
-          orderBy: () => Promise.resolve([]),
+          orderBy: () => ({
+            limit: () => Promise.resolve([]),
+          }),
         }),
       }),
     }),

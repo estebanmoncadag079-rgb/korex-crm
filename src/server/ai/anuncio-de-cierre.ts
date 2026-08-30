@@ -589,6 +589,57 @@ export const CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR =
 
 /*
  * ============================================================
+ * Handoff por un hecho de especialista que nunca se verificó (30-ago-2026)
+ * ============================================================
+ *
+ * Tercera cara del mismo problema que las dos funciones de arriba: el
+ * modelo puede evitar afirmar o negar nada DELANTE DEL CLIENTE y en su lugar
+ * escalar — pero el motivo interno (`action.reason`, la nota que lee el
+ * equipo, nunca el cliente) puede revelar que la decisión de escalar
+ * depende de un hecho que el backend ya sabe resolver
+ * (`consult_availability` → `resolverEspecialistaMultiple`) y que nunca se
+ * consultó en este turno. `afirmaConEspecialistaSinVerificar` y
+ * `niegaDisponibilidadSinVerificar` no lo detectan porque ninguna de las dos
+ * mira `action.action === "handoff"` — solo auditan `reply`.
+ *
+ * Caso real (Lashes Valen, 30-ago-2026, conv cv_p5k7bbyvh09pr4f4de72): la
+ * clienta pidió cita con "Laura" —especialista archivada 5 días antes— y el
+ * modelo escaló con reason="...Confirmar si Laura existe, si puede atender
+ * esos servicios y su disponibilidad para lunes por la tarde" sin haber
+ * llamado nunca a `consult_availability`, aunque esa acción sí resuelve la
+ * pregunta al instante contra el catálogo real.
+ *
+ * Deliberadamente estrecho, mismo criterio de precisión que las dos
+ * funciones hermanas: solo dispara cuando el motivo NOMBRA a un especialista
+ * real de este negocio Y ese motivo depende de si existe, si atiende cierto
+ * servicio, o su disponibilidad. Un handoff porque el cliente lo pidió
+ * explícitamente, por fuera de horario, por una política del negocio o por
+ * un reclamo no nombra a NINGÚN especialista real como la causa de escalar,
+ * así que nunca entra aquí — el criterio es específico al hecho factual, no
+ * a la palabra "handoff".
+ */
+const DEPENDE_DE_HECHO_VERIFICABLE_DE_ESPECIALISTA =
+  /\b(existe|exista|atiende|atienda|atenderla|puede\s+atender|disponibilidad|disponible|cupo|hor(?:a|ario)s?\s+(?:libres?|disponibles?))\b/i;
+
+/**
+ * ¿El MOTIVO de un handoff (nunca lo que ve el cliente) depende de un hecho
+ * de especialista que el backend podía haber verificado y no se verificó?
+ */
+export function handoffPorHechoDeEspecialistaSinVerificar(
+  reason: string | null | undefined,
+  nombresReales: string[]
+): boolean {
+  if (!reason || nombresReales.length === 0) return false;
+  const normalizar = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const nombresNorm = new Set(nombresReales.map(normalizar));
+  const palabras = normalizar(reason).split(/[^a-z0-9]+/);
+  const mencionaEspecialista = palabras.some((p) => nombresNorm.has(p));
+  if (!mencionaEspecialista) return false;
+  return DEPENDE_DE_HECHO_VERIFICABLE_DE_ESPECIALISTA.test(reason);
+}
+
+/*
+ * ============================================================
  * Confirma un pago que nadie verificó (24-ago-2026)
  * ============================================================
  *

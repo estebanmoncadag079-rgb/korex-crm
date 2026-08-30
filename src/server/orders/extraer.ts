@@ -181,7 +181,19 @@ export function comoTexto(
     const opciones = [...porGrupo]
       .map(([grupo, nombres]) => `${grupo.toLowerCase()}: ${nombres.join(", ")}`)
       .join(" · ");
-    partes.push(opciones ? `${cabecera} (${opciones})` : cabecera);
+    /*
+     * Lo que el cliente rechazó explícitamente ("sin toppings") va aparte de
+     * lo elegido — no es una opción, es la ausencia deliberada de una. Sin
+     * esta línea, un grupo opcional sin nada en `seleccion` se ve IGUAL que
+     * uno al que nunca se le preguntó, y el agente lo volvía a ofrecer.
+     */
+    const declinados = (item.gruposDeclinados ?? [])
+      .map((g) => g.grupoNombre.toLowerCase())
+      .join(", ");
+    const detalle = [opciones, declinados ? `sin ${declinados}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    partes.push(detalle ? `${cabecera} (${detalle})` : cabecera);
   }
   /*
    * Lo ya recogido, con la etiqueta del negocio. Un dato personal no se repite

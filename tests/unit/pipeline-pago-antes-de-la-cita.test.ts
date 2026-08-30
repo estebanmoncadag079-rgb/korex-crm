@@ -17,6 +17,7 @@ vi.mock("@/lib/ai", () => ({ chatJson: (...args: unknown[]) => chatJson(...args)
 const catalogoParaPrompt = vi.fn();
 vi.mock("@/server/appointments/queries", () => ({
   catalogoParaPrompt: (...a: unknown[]) => catalogoParaPrompt(...a),
+  listStaff: vi.fn().mockResolvedValue([{ id: "st_hilary", name: "Hilary", archivedAt: null }]),
   resolverEspecialistaMultiple: vi.fn(),
   crearCitaMultiple: vi.fn(),
   reprogramarCita: vi.fn(),

@@ -24,11 +24,13 @@ vi.mock("@/lib/ai", () => ({ chatJson: (...args: unknown[]) => chatJson(...args)
 const resolverEspecialistaMultiple = vi.fn();
 const proximasFechasConCupoMultiple = vi.fn();
 const catalogoParaPrompt = vi.fn();
+const listStaff = vi.fn();
 
 vi.mock("@/server/appointments/queries", () => ({
   resolverEspecialistaMultiple: (...a: unknown[]) => resolverEspecialistaMultiple(...a),
   catalogoParaPrompt: (...a: unknown[]) => catalogoParaPrompt(...a),
   proximasFechasConCupoMultiple: (...a: unknown[]) => proximasFechasConCupoMultiple(...a),
+  listStaff: (...a: unknown[]) => listStaff(...a),
   crearCitaMultiple: vi.fn(),
   reprogramarCita: vi.fn(),
   cancelarCita: vi.fn(),
@@ -151,6 +153,10 @@ describe("runAgentTurn: especialista confirmada tras consultar de verdad", () =>
     resolverEspecialistaMultiple.mockReset();
     proximasFechasConCupoMultiple.mockReset();
     catalogoParaPrompt.mockReset();
+    listStaff.mockReset().mockResolvedValue([
+      { id: "st_hilary", name: "Hilary", archivedAt: null },
+      { id: "st_valentina", name: "Valentina", archivedAt: null },
+    ]);
     notifyTeam.mockReset().mockResolvedValue({ sent: 0, failed: 0, detail: "ok" });
     contactPhoneOf.mockReset().mockResolvedValue(null);
     selectQueue.length = 0;

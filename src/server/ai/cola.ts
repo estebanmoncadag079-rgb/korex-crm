@@ -68,11 +68,20 @@ export type TrabajoTomado = {
  */
 export async function encolarTurno(
   conversationId: string,
-  opts?: { delayMs?: number }
+  opts?: { delayMs?: number; diagnostico?: { waMessageId?: string; camino: "immediate" | "debounce" } }
 ): Promise<void> {
   const db = getDb();
   const delay = Math.max(0, opts?.delayMs ?? 0);
-  await db.execute(sql`
+  /**
+   * `xmax = 0` es el truco estándar de Postgres para distinguir, en un
+   * `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, si la fila que vuelve es
+   * la recién insertada o una que ya existía y se actualizó (coalescencia).
+   * Puramente diagnóstico (docs/korexia auditoría Lashes Valen, patrón
+   * F,F/F,F,T de saludos duplicados): no cambia qué fila queda ni cuándo
+   * corre — solo permite ver, sin adivinar, si un mensaje generó un job
+   * NUEVO o si se fusionó con uno pendiente ya existente.
+   */
+  const filas = (await db.execute(sql`
     INSERT INTO agent_job (id, organization_id, conversation_id, status, run_at)
     SELECT ${newId("agentJob")}, c.organization_id, c.id, 'pendiente',
            now() + make_interval(secs => ${delay} / 1000.0)
@@ -85,7 +94,17 @@ export async function encolarTurno(
         agent_job.created_at + make_interval(secs => ${ESPERA_MAXIMA_MS} / 1000.0)
       ),
       updated_at = now()
-  `);
+    RETURNING agent_job.id, (xmax = 0) AS inserted
+  `)) as unknown as Array<{ id: string; inserted: boolean }>;
+  const resultado = filas[0];
+  if (opts?.diagnostico && resultado) {
+    console.info(
+      `[diag-turno] encolar conv=${conversationId} job=${resultado.id} ` +
+        `camino=${opts.diagnostico.camino} delayMs=${delay} ` +
+        `resultado=${resultado.inserted ? "job_nuevo" : "coalescido_con_pendiente"} ` +
+        `wamid=${opts.diagnostico.waMessageId ?? "-"}`
+    );
+  }
 }
 
 /**

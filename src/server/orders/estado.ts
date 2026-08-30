@@ -57,6 +57,12 @@ import { paraLog } from "@/server/registro-de-cambios";
  * ítem: los ejemplos reales ("manos y pies", "cejas y pestañas") son siempre
  * una sola visita — un bloque de tiempo, un recurso — igual que `datos` ya es
  * del pedido entero y no se duplica por ítem.
+ *
+ * **`gruposDeclinados` (29-ago-2026, sin subir versión)**: dentro de cada
+ * ítem, opcional, igual que `modalidadDeEntrega` — un cliente que dice "sin
+ * toppings" quedaba indistinguible de uno al que nunca se le preguntó, y el
+ * agente volvía a ofrecer el mismo grupo turno tras turno sin memoria de
+ * que ya se había resuelto. Ausente = `[]` al leerlo.
  */
 export const SCHEMA_VERSION = 5;
 
@@ -78,6 +84,14 @@ export type ItemDelPedido = {
    * son dos salsas, que es como pide la gente.
    */
   seleccion: OpcionElegida[];
+  /**
+   * Grupos OPCIONALES que el cliente rechazó explícitamente para este ítem
+   * ("sin toppings") — no volver a ofrecerlos. Ausente en estados guardados
+   * antes de que este campo existiera; se trata como `[]` al leerlos, igual
+   * que `modalidadDeEntrega` (ver el porqué de que `SCHEMA_VERSION` NO suba
+   * más abajo).
+   */
+  gruposDeclinados?: { grupoId: string; grupoNombre: string }[];
   /** Lo de este ítem, con su cantidad ya multiplicada. Lo calcula el servidor. */
   totalCents: number | null;
 };
@@ -310,6 +324,7 @@ export function validarPropuesta(
       ofrecible: { id: i.ofrecibleId, nombre: i.ofrecible },
       cantidad: Number.isInteger(i.cantidad) && i.cantidad >= 1 ? i.cantidad : 1,
       seleccion: i.seleccion,
+      gruposDeclinados: i.gruposDeclinados,
       totalCents: i.totalCents,
     })),
     datos: propuesta.datos ?? {},
@@ -487,6 +502,7 @@ function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
         [`items.${n}.nombre`, i.ofrecible.nombre],
         [`items.${n}.cantidad`, i.cantidad],
         [`items.${n}.seleccion`, i.seleccion.map((s) => `${s.grupoNombre}:${s.nombre}`).join(", ")],
+        [`items.${n}.gruposDeclinados`, (i.gruposDeclinados ?? []).map((g) => g.grupoNombre).join(", ")],
         [`items.${n}.totalCents`, i.totalCents],
       ])
     ),

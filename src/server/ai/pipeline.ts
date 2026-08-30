@@ -51,6 +51,7 @@ import {
   disponibilidadRealMultiple,
   estaEntreLosOfrecidos,
   limpiarOfrecidos,
+  listStaff,
   proximasFechasConCupoMultiple,
   registrarOfrecidos,
   reprogramarCita,
@@ -116,6 +117,7 @@ import {
   CORRECCION_SIN_TOTAL,
   confirmaPagoSinVerificar,
   contradiceProductoEncontrado,
+  handoffPorHechoDeEspecialistaSinVerificar,
   niegaMetodoDePagoPermitido,
   CORRECCION_DE_PRODUCTO_CONTRADICHO,
   CORRECCION_DE_PAGO_CONTRADICHO,
@@ -172,10 +174,16 @@ export const HISTORY_LIMIT = 20;
  */
 export async function scheduleAgentTurn(
   conversationId: string,
-  opts?: { immediate?: boolean }
+  opts?: { immediate?: boolean; waMessageId?: string }
 ): Promise<void> {
   const delayMs = opts?.immediate ? 0 : getEnv().AGENT_COALESCE_MS;
-  await encolarTurno(conversationId, { delayMs });
+  await encolarTurno(conversationId, {
+    delayMs,
+    diagnostico: {
+      waMessageId: opts?.waMessageId,
+      camino: opts?.immediate ? "immediate" : "debounce",
+    },
+  });
 }
 
 /**
@@ -468,6 +476,160 @@ async function resolverConsultaDisponibilidad(
     `[SISTEMA] Próximas fechas con cupo para "${nombreVisita}": ${texto}. ` +
     `Solo estos horarios se pueden agendar. ${COMO_OFRECER}`
   );
+}
+
+/**
+ * Resultado de agotar (o resolver) un bucle de `consult_availability`.
+ *
+ * `ok:false` significa que el propio bucle YA dejó el turno en un estado
+ * final — ya registró la traza, ya avisó al equipo si hacía falta — y quien
+ * llama debe propagar `resultado` tal cual (o `null`) sin decidir nada más.
+ */
+type ResultadoBucleDisponibilidad =
+  | { ok: true; action: AgentActionType; consultas: number }
+  | { ok: false; resultado: AgentActionType | null };
+
+/**
+ * Agota un bucle de `consult_availability`: cada vuelta consulta el backend
+ * real y le devuelve la respuesta al modelo, hasta que produzca una acción
+ * DISTINTA de `consult_availability` o se agote `MAX_CONSULTAS_DISPONIBILIDAD`.
+ *
+ * Única fuente de esta protección (corrección de los dos defectos bloqueantes
+ * del guardarraíl de Lashes Valen, 30-ago-2026): antes existían DOS copias
+ * de este mismo criterio — el bucle que resuelve la primera
+ * `consult_availability` que propone el modelo, y el reintento de
+ * `disponibilidad_sin_verificar` cuando ese guardarraíl corrige un
+ * `reply`/`handoff` sin verificar. La segunda copia no estaba protegida: si
+ * tras darle al modelo la disponibilidad real este volvía a pedir
+ * `consult_availability` en vez de responder, la acción llegaba intacta
+ * hasta el switch final de `runAgentTurn` — que no tiene `case` para
+ * `consult_availability`, porque nunca debería llegar tan lejos — y el turno
+ * terminaba en el `return null` genérico: el cliente se quedaba sin ninguna
+ * respuesta. Ahora los dos caminos llaman a esta misma función, así que
+ * ningún uso futuro de `consult_availability` puede reabrir ese mismo hueco
+ * sin tocar este único lugar.
+ */
+async function resolverBucleDeDisponibilidad(
+  messages: ChatMessage[],
+  accionInicial: AgentActionType,
+  ctx: {
+    organizationId: string;
+    conversationId: string;
+    conversation: Conversation;
+    services: CatalogEntry[];
+    hours: BusinessHours;
+    now?: Date;
+    traza: TrazaDelTurno;
+    /** Distingue en `registrarUsoIa` el bucle original del que dispara el reintento de `disponibilidad_sin_verificar`, sin cambiar nada del criterio. */
+    sufijoDeUso?: string;
+  }
+): Promise<ResultadoBucleDisponibilidad> {
+  const MAX_CONSULTAS_DISPONIBILIDAD = 2;
+  let action = accionInicial;
+  let consultas = 0;
+  while (
+    action.action === "consult_availability" &&
+    consultas < MAX_CONSULTAS_DISPONIBILIDAD
+  ) {
+    consultas++;
+    const infoDisponibilidad = await resolverConsultaDisponibilidad(
+      ctx.organizationId,
+      ctx.services,
+      ctx.hours,
+      action,
+      ctx.now,
+      ctx.conversationId
+    );
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+    messages.push({ role: "user", content: infoDisponibilidad });
+    agregarHecho(ctx.traza, {
+      tipo: "disponibilidad",
+      consulta: action.servicios.join("|"),
+      resultado: "consultado",
+      origen: "backend",
+    });
+    const siguiente = await chatJson(AgentAction, messages, {
+      jsonSchema: formatoDeRespuestaDeAccion(),
+    });
+    await registrarUsoIa(
+      ctx.organizationId,
+      siguiente.usage,
+      `conv:${ctx.conversationId}/disponibilidad${ctx.sufijoDeUso ?? ""}`
+    );
+    if (!siguiente.ok) {
+      if (siguiente.error === "not_configured") return { ok: false, resultado: null };
+      console.error(
+        `[agente] fallo del proveedor tras consultar disponibilidad: ${siguiente.detail}`
+      );
+      await derivarAUnaPersona(ctx.conversation);
+      registrarHandoff(ctx.traza, "backend_error");
+      ctx.traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(ctx.traza);
+      return { ok: false, resultado: { action: "handoff", reason: "error" } };
+    }
+    action = siguiente.data;
+  }
+  if (action.action === "consult_availability") {
+    // Se agotaron los intentos sin llegar a una acción final: mejor una
+    // persona que una promesa de horario sin datos reales detrás — o que un
+    // silencio total, que es justo lo que esto reemplaza.
+    await derivarAUnaPersona(ctx.conversation);
+    registrarHandoff(ctx.traza, "model_output_recovery_failed");
+    ctx.traza.accionFinal = "handoff";
+    registrarTrazaDelTurno(ctx.traza);
+    return { ok: false, resultado: { action: "handoff", reason: "error" } };
+  }
+  return { ok: true, action, consultas };
+}
+
+/**
+ * Resultado de pasar la respuesta de un reintento de guardarraíl por
+ * `resolverAccionTrasReintento`.
+ */
+type ResultadoReintentoDeGuardarrail =
+  | { ok: true; accion: AgentActionType }
+  | { ok: false; resultado: AgentActionType | null };
+
+/**
+ * Envuelve la respuesta de CUALQUIER reintento de guardarraíl de texto
+ * (cierre falso, cita fantasma, recurso prometido, pago sin verificar, turno
+ * mudo, requisito faltante): si esa respuesta es `consult_availability`, la
+ * resuelve con `resolverBucleDeDisponibilidad` antes de devolverla — nunca la
+ * deja pasar sin resolver hacia el chequeo textual del guardarraíl que la pidió.
+ *
+ * Por qué este mismo defecto vivía en SEIS guardarraíles a la vez, no solo en
+ * uno (corrección de los dos defectos bloqueantes de Lashes Valen,
+ * 30-ago-2026): todos comparten el mismo molde — "acepta la corrección del
+ * reintento si ya no repite el mismo problema textual" — y todos juzgan eso
+ * con `textosAlCliente(reintento.data)`. Esa función no tiene `case` para
+ * `consult_availability` (cae al `default: return []`), así que CUALQUIERA
+ * de esos guardarraíles aceptaba un `consult_availability` sin resolver como
+ * si fuera una corrección válida — un array vacío nunca "repite" nada.
+ *
+ * Evidencia real que lo confirmó (no solo análisis del código): escenario B
+ * de la validación de Lashes Valen — el cliente preguntó por un especialista
+ * inexistente, el modelo "confirmó" una cita sin haberla agendado, disparó
+ * `cita_fantasma`, y en el reintento volvió a pedir `consult_availability`.
+ * Esa acción llegó intacta hasta el switch final de `runAgentTurn` —sin
+ * `case` para ella— y el turno terminó en `return null`: silencio total para
+ * la clienta.
+ */
+async function resolverAccionTrasReintento(
+  messagesReintento: ChatMessage[],
+  reintento: ChatJsonResult<AgentActionType>,
+  ctx: Parameters<typeof resolverBucleDeDisponibilidad>[2]
+): Promise<ResultadoReintentoDeGuardarrail> {
+  if (!reintento.ok) return { ok: false, resultado: null };
+  if (reintento.data.action !== "consult_availability") {
+    return { ok: true, accion: reintento.data };
+  }
+  const resultadoBucle = await resolverBucleDeDisponibilidad(
+    messagesReintento,
+    reintento.data,
+    ctx
+  );
+  if (!resultadoBucle.ok) return { ok: false, resultado: resultadoBucle.resultado };
+  return { ok: true, accion: resultadoBucle.action };
 }
 
 /**
@@ -1049,153 +1211,142 @@ export async function runAgentTurn(
    * horarios reales y se los devuelve al modelo EN EL MISMO turno (nunca le
    * llega nada al cliente todavía), igual que el horario de atención — la
    * disponibilidad la calcula el servidor, no el modelo. Acotado a 2 vueltas
-   * para que una conversación confusa termine en handoff y no en un bucle.
+   * (dentro de `resolverBucleDeDisponibilidad`) para que una conversación
+   * confusa termine en handoff y no en un bucle, ni en un silencio.
    */
-  const MAX_CONSULTAS_DISPONIBILIDAD = 2;
-  let consultas = 0;
-  while (
-    action.action === "consult_availability" &&
-    consultas < MAX_CONSULTAS_DISPONIBILIDAD
-  ) {
-    consultas++;
-    const infoDisponibilidad = await resolverConsultaDisponibilidad(
-      organizationId,
-      services,
-      hours,
-      action,
-      opts?.now,
-      conversation.id
-    );
-    messages.push({ role: "assistant", content: JSON.stringify(action) });
-    /**
-     * "user", no "system": verificado en vivo (1-ago-2026) que
-     * google/gemini-2.5-flash vía OpenRouter devuelve `content: null` cuando el
-     * ÚLTIMO mensaje del array es de rol "system" sin ningún turno de usuario
-     * después — pasa el `finish_reason: "stop"`, pero el contenido viene vacío.
-     * Mismo truco que ya usa `toChatHistory` para los mensajes de una persona
-     * del equipo: rol "user" con la etiqueta "[SISTEMA]" delante, para que el
-     * modelo lo lea como información, no como algo que dijo el cliente.
-     */
-    messages.push({ role: "user", content: infoDisponibilidad });
-    agregarHecho(traza, {
-      tipo: "disponibilidad",
-      consulta: action.servicios.join("|"),
-      resultado: "consultado",
-      origen: "backend",
-    });
-    // Con el esquema exigido al proveedor, igual que la llamada de arriba: era
-    // la única del camino de citas sin garantía, y con la Fase 2 encendida
-    // devolvió prosa en vez de JSON — handoff por error con los horarios ya
-    // calculados en la mano (ver `formatoDeRespuestaDeAccion`).
-    const siguiente = await chatJson(AgentAction, messages, {
-      jsonSchema: formatoDeRespuestaDeAccion(),
-    });
-    await registrarUsoIa(
-      organizationId,
-      siguiente.usage,
-      `conv:${conversationId}/disponibilidad`
-    );
-    if (!siguiente.ok) {
-      if (siguiente.error === "not_configured") return null;
-      console.error(
-        `[agente] fallo del proveedor tras consultar disponibilidad: ${siguiente.detail}`
-      );
-      await derivarAUnaPersona(conversation);
-      registrarHandoff(traza, "backend_error");
-      traza.accionFinal = "handoff";
-      registrarTrazaDelTurno(traza);
-      return { action: "handoff", reason: "error" };
-    }
-    action = siguiente.data;
+  const resultadoDisponibilidadInicial = await resolverBucleDeDisponibilidad(
+    messages,
+    action,
+    { organizationId, conversationId, conversation, services, hours, now: opts?.now, traza }
+  );
+  if (!resultadoDisponibilidadInicial.ok) {
+    return resultadoDisponibilidadInicial.resultado;
   }
-  if (action.action === "consult_availability") {
-    // Se agotaron los intentos sin llegar a una acción final: mejor una
-    // persona que una promesa de horario sin datos reales detrás.
-    await derivarAUnaPersona(conversation);
-    registrarHandoff(traza, "model_output_recovery_failed");
-    traza.accionFinal = "handoff";
-    registrarTrazaDelTurno(traza);
-    return { action: "handoff", reason: "error" };
-  }
+  action = resultadoDisponibilidadInicial.action;
+  const consultas = resultadoDisponibilidadInicial.consultas;
 
   /**
-   * Afirmó o negó disponibilidad sin haberla consultado (19-ago-2026):
+   * Afirmó, negó, o decidió escalar por un hecho de especialista sin
+   * haberlo consultado (19-ago-2026, extendido a `handoff` el 30-ago-2026):
    * "¡Perfecto! Un retoque de Volumen Ruso con Hilary. ¿Para qué día...?"
-   * — Hilary no atiende ese servicio; o al revés, "Ese horario ya no está
-   * disponible" para una hora que sí lo estaba. `consultas` (arriba) es 0
-   * en los dos casos: el modelo nunca llamó a `consult_availability` en
-   * este turno.
+   * — Hilary no atiende ese servicio; "Ese horario ya no está disponible"
+   * para una hora que sí lo estaba; o escala con
+   * reason="Confirmar si Laura existe..." sin haber llamado nunca a
+   * `consult_availability`, que sí puede resolverlo al instante. `consultas`
+   * (arriba) es 0 en los tres casos: el modelo nunca llamó a
+   * `consult_availability` en este turno.
+   *
+   * Caso real que motivó la tercera rama (Lashes Valen, 30-ago-2026, conv
+   * cv_p5k7bbyvh09pr4f4de72): un especialista archivado 5 días antes generó
+   * un handoff inmediato — la clienta esperó a una persona para algo que el
+   * backend ya sabía resolver solo. `afirmaConEspecialistaSinVerificar` y
+   * `niegaDisponibilidadSinVerificar` nunca lo detectaban porque las dos
+   * solo miraban `action.action === "reply"`.
    *
    * No detecta una frase sola — comprueba el HECHO: cero consultas en este
-   * turno + una respuesta de texto libre que AFIRMA (no pregunta) nombrando
-   * a una especialista real, o que NIEGA disponibilidad de forma categórica
-   * (nunca por una hora puntual: esa mitad se dejó fuera a propósito,
-   * porque puede apoyarse con razón en lo que el propio agente ofreció en
-   * el turno inmediato anterior — docs/korexia/109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md).
-   * Detalle de por qué no basta un regex de "frases de confirmación" en
-   * `anuncio-de-cierre.ts`.
+   * turno + (a) una respuesta de texto libre que AFIRMA (no pregunta)
+   * nombrando a una especialista real, (b) que NIEGA disponibilidad de
+   * forma categórica (nunca por una hora puntual: esa mitad se dejó fuera a
+   * propósito, porque puede apoyarse con razón en lo que el propio agente
+   * ofreció en el turno inmediato anterior —
+   * docs/korexia/109-NIEGA-DISPONIBILIDAD-SIN-VERIFICAR.md), o (c) escala
+   * con un motivo interno que depende de si ese especialista existe, atiende
+   * cierto servicio, o tiene cupo. Deliberadamente estrecho en los tres
+   * casos: un handoff porque el cliente lo pidió, por fuera de horario o por
+   * una política del negocio nunca nombra a un especialista real como la
+   * causa, así que nunca dispara esto — no bloquea handoffs legítimos.
    *
-   * Si el reintento decide consultar de verdad, se resuelve aquí mismo —
-   * una sola vuelta más, para no abrir un segundo bucle sin límite. Esa
-   * respuesta YA queda verificada por `resolverConsultaDisponibilidad`: no
-   * se le vuelve a aplicar el mismo criterio de detección, igual que "cita
-   * fantasma" (línea ~901) y "recurso prometido" (línea ~942) ya aceptan su
-   * reintento sin más cuando la acción real se ejecutó (docs/korexia/106).
+   * Si el reintento decide consultar de verdad, se resuelve reutilizando
+   * `resolverBucleDeDisponibilidad` — la MISMA función que resuelve la
+   * primera `consult_availability` de arriba, con su mismo tope y su misma
+   * red de seguridad. Antes (hasta el 30-ago-2026) esto se resolvía con una
+   * sola vuelta manual que no contemplaba que el modelo, tras recibir la
+   * disponibilidad real, volviera a pedir `consult_availability` en vez de
+   * responder: esa acción llegaba intacta hasta el switch final —sin `case`
+   * para ella— y el turno terminaba en el `return null` genérico, dejando al
+   * cliente sin ninguna respuesta. Ver docs/korexia, corrección de los dos
+   * defectos bloqueantes de este guardarraíl.
+   *
+   * `nombresReales` sale de `listStaff(..., {includeArchived: true})`, NO de
+   * `services`/`catalogoParaPrompt`: ese catálogo excluye a propósito a
+   * quien ya no atiende (es lo correcto para ofrecer opciones), pero por eso
+   * mismo es ciego al caso que originó este guardarraíl — un especialista
+   * ARCHIVADO. "Laura" (real, archivada) debe reconocerse como un hecho
+   * verificable; "Camila" (nunca existió) nunca debe convertirse en una
+   * especialista real solo porque el modelo la nombró. `listStaff` es la
+   * fuente correcta para esta pregunta distinta ("¿es alguien que el negocio
+   * conoce?"), sin tocar lo que el cliente ve en el catálogo.
    */
-  if (contrataCitas(vertical) && action.action === "reply" && consultas === 0) {
-    const nombresReales = [...new Set(services.flatMap((s) => s.staffNames))];
-    const sinVerificar = (texto: string | null | undefined) =>
-      afirmaConEspecialistaSinVerificar(texto, nombresReales) ||
-      niegaDisponibilidadSinVerificar(texto);
-    if (sinVerificar(action.text)) {
+  if (
+    contrataCitas(vertical) &&
+    (action.action === "reply" || action.action === "handoff") &&
+    consultas === 0
+  ) {
+    const staffConocido = await listStaff(organizationId, { includeArchived: true });
+    const nombresReales = [...new Set(staffConocido.map((s) => s.name))];
+    const sinVerificar = (a: AgentActionType): boolean => {
+      if (a.action === "reply") {
+        return (
+          afirmaConEspecialistaSinVerificar(a.text, nombresReales) ||
+          niegaDisponibilidadSinVerificar(a.text)
+        );
+      }
+      if (a.action === "handoff") {
+        return handoffPorHechoDeEspecialistaSinVerificar(a.reason, nombresReales);
+      }
+      return false;
+    };
+    if (sinVerificar(action)) {
       console.warn(
-        "[citas] afirmó o negó disponibilidad sin consultarla; rehaciendo el turno"
+        "[citas] afirmó, negó, o escaló por un hecho de especialista sin consultarlo; rehaciendo el turno"
       );
-      let reintento = await chatJson(AgentAction, [
+      const messagesReintento: ChatMessage[] = [
         ...messages,
         { role: "assistant", content: result.raw },
         { role: "user", content: CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR },
-      ]);
+      ];
+      const reintento = await chatJson(AgentAction, messagesReintento);
       await registrarUsoIa(
         organizationId,
         reintento.usage,
         `conv:${conversationId}/disponibilidad-sin-verificar`
       );
+
+      let accionCorregida: AgentActionType | null = null;
       let seVerificoDeVerdad = false;
       if (reintento.ok && reintento.data.action === "consult_availability") {
         seVerificoDeVerdad = true;
-        const infoDisponibilidad = await resolverConsultaDisponibilidad(
-          organizationId,
-          services,
-          hours,
+        const resultadoBucle = await resolverBucleDeDisponibilidad(
+          messagesReintento,
           reintento.data,
-          opts?.now,
-          conversation.id
+          {
+            organizationId,
+            conversationId,
+            conversation,
+            services,
+            hours,
+            now: opts?.now,
+            traza,
+            sufijoDeUso: "-sin-verificar",
+          }
         );
-        reintento = await chatJson(AgentAction, [
-          ...messages,
-          { role: "assistant", content: result.raw },
-          { role: "user", content: CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR },
-          { role: "assistant", content: JSON.stringify(reintento.data) },
-          { role: "user", content: infoDisponibilidad },
-        ]);
-        await registrarUsoIa(
-          organizationId,
-          reintento.usage,
-          `conv:${conversationId}/disponibilidad-sin-verificar/disponibilidad`
-        );
+        // El propio bucle ya dejó el turno en un estado final (handoff
+        // registrado, o null) si no logró resolverlo: nada más que decidir.
+        if (!resultadoBucle.ok) return resultadoBucle.resultado;
+        accionCorregida = resultadoBucle.action;
+      } else if (reintento.ok) {
+        accionCorregida = reintento.data;
       }
+
       const sigueSinVerificar =
-        !seVerificoDeVerdad &&
-        reintento.ok &&
-        reintento.data.action === "reply" &&
-        sinVerificar(reintento.data.text);
-      if (reintento.ok && !sigueSinVerificar) {
-        action = reintento.data;
+        !seVerificoDeVerdad && accionCorregida !== null && sinVerificar(accionCorregida);
+
+      if (accionCorregida !== null && !sigueSinVerificar) {
+        action = accionCorregida;
         agregarGuardarrail(traza, "disponibilidad_sin_verificar", true);
       } else {
         console.error(
-          "[citas] sigue afirmando o negando disponibilidad sin verificar; lo toma una persona"
+          "[citas] sigue afirmando, negando, o escalando sin verificar; lo toma una persona"
         );
         agregarGuardarrail(traza, "disponibilidad_sin_verificar", false);
         await derivarAUnaPersona(conversation);
@@ -1424,7 +1575,7 @@ export async function runAgentTurn(
    */
   if (estado === "abierto" && textosAlCliente(action).some(anunciaCierre)) {
     console.warn("[agente] cierre falso con el negocio abierto; rehaciendo el turno");
-    const reintento = await chatJson(AgentAction, [
+    const messagesReintento: ChatMessage[] = [
       ...messages,
       { role: "assistant", content: result.raw },
       // "user", no "system": verificado en vivo (1-ago-2026) que
@@ -1432,14 +1583,20 @@ export async function runAgentTurn(
       // el ÚLTIMO mensaje del array es de rol "system" sin ningún turno de
       // usuario después. Mismo arreglo que en el loop de consult_availability.
       { role: "user", content: CORRECCION_DE_CIERRE_FALSO },
-    ]);
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
     await registrarUsoIa(
       organizationId,
       reintento.usage,
       `conv:${conversationId}/cierre-falso`
     );
-    if (reintento.ok && !textosAlCliente(reintento.data).some(anunciaCierre)) {
-      action = reintento.data;
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-cierre-falso",
+    });
+    if (!resuelto.ok) return resuelto.resultado;
+    if (!textosAlCliente(resuelto.accion).some(anunciaCierre)) {
+      action = resuelto.accion;
       agregarGuardarrail(traza, "cierre_falso", true);
     } else {
       console.error(
@@ -1473,23 +1630,30 @@ export async function runAgentTurn(
     textosAlCliente(action).some(anunciaCitaAgendada)
   ) {
     console.warn("[agente] confirmó una cita sin agendarla; rehaciendo el turno");
-    const reintento = await chatJson(AgentAction, [
+    const messagesReintento: ChatMessage[] = [
       ...messages,
       { role: "assistant", content: result.raw },
       { role: "user", content: CORRECCION_DE_CITA_FANTASMA },
-    ]);
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
     await registrarUsoIa(
       organizationId,
       reintento.usage,
       `conv:${conversationId}/cita-fantasma`
     );
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-cita-fantasma",
+    });
     if (
-      reintento.ok &&
-      (ACCIONES_QUE_AGENDAN.includes(reintento.data.action) ||
-        !textosAlCliente(reintento.data).some(anunciaCitaAgendada))
+      resuelto.ok &&
+      (ACCIONES_QUE_AGENDAN.includes(resuelto.accion.action) ||
+        !textosAlCliente(resuelto.accion).some(anunciaCitaAgendada))
     ) {
-      action = reintento.data;
+      action = resuelto.accion;
       agregarGuardarrail(traza, "cita_fantasma", true);
+    } else if (!resuelto.ok) {
+      return resuelto.resultado;
     } else {
       console.error(
         "[agente] sigue confirmando una cita inexistente; lo toma una persona"
@@ -1519,23 +1683,30 @@ export async function runAgentTurn(
    */
   if (action.action !== "send_image" && textosAlCliente(action).some(prometeRecurso)) {
     console.warn("[agente] prometió un recurso sin enviarlo; rehaciendo el turno");
-    const reintento = await chatJson(AgentAction, [
+    const messagesReintento: ChatMessage[] = [
       ...messages,
       { role: "assistant", content: result.raw },
       { role: "user", content: CORRECCION_DE_RECURSO_PROMETIDO },
-    ]);
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
     await registrarUsoIa(
       organizationId,
       reintento.usage,
       `conv:${conversationId}/recurso-prometido`
     );
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-recurso-prometido",
+    });
     if (
-      reintento.ok &&
-      (reintento.data.action === "send_image" ||
-        !textosAlCliente(reintento.data).some(prometeRecurso))
+      resuelto.ok &&
+      (resuelto.accion.action === "send_image" ||
+        !textosAlCliente(resuelto.accion).some(prometeRecurso))
     ) {
-      action = reintento.data;
+      action = resuelto.accion;
       agregarGuardarrail(traza, "recurso_prometido", true);
+    } else if (!resuelto.ok) {
+      return resuelto.resultado;
     } else {
       console.error(
         "[agente] sigue prometiendo un recurso sin enviarlo; lo toma una persona"
@@ -1559,22 +1730,29 @@ export async function runAgentTurn(
    */
   if (textosAlCliente(action).some(confirmaPagoSinVerificar)) {
     console.warn("[agente] confirmó un pago sin verificarlo; rehaciendo el turno");
-    const reintento = await chatJson(AgentAction, [
+    const messagesReintento: ChatMessage[] = [
       ...messages,
       { role: "assistant", content: result.raw },
       { role: "user", content: CORRECCION_DE_PAGO_SIN_VERIFICAR },
-    ]);
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
     await registrarUsoIa(
       organizationId,
       reintento.usage,
       `conv:${conversationId}/pago-sin-verificar`
     );
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-pago-sin-verificar",
+    });
     if (
-      reintento.ok &&
-      !textosAlCliente(reintento.data).some(confirmaPagoSinVerificar)
+      resuelto.ok &&
+      !textosAlCliente(resuelto.accion).some(confirmaPagoSinVerificar)
     ) {
-      action = reintento.data;
+      action = resuelto.accion;
       agregarGuardarrail(traza, "pago_sin_verificar", true);
+    } else if (!resuelto.ok) {
+      return resuelto.resultado;
     } else {
       console.error(
         "[agente] sigue confirmando un pago sin verificarlo; lo toma una persona"
@@ -1619,23 +1797,30 @@ export async function runAgentTurn(
     textosAlCliente(action).length === 0
   ) {
     console.warn(`[agente] "${action.action}" sin reply; el cliente se quedaría sin respuesta, rehaciendo el turno`);
-    const reintento = await chatJson(AgentAction, [
+    const messagesReintento: ChatMessage[] = [
       ...messages,
       { role: "assistant", content: result.raw },
       { role: "user", content: CORRECCION_DE_TURNO_MUDO },
-    ]);
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
     await registrarUsoIa(
       organizationId,
       reintento.usage,
       `conv:${conversationId}/turno-mudo`
     );
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-turno-mudo",
+    });
     if (
-      reintento.ok &&
-      (!ACCIONES_QUE_SIGUEN_LA_CONVERSACION.includes(reintento.data.action) ||
-        textosAlCliente(reintento.data).length > 0)
+      resuelto.ok &&
+      (!ACCIONES_QUE_SIGUEN_LA_CONVERSACION.includes(resuelto.accion.action) ||
+        textosAlCliente(resuelto.accion).length > 0)
     ) {
-      action = reintento.data;
+      action = resuelto.accion;
       agregarGuardarrail(traza, "turno_mudo", true);
+    } else if (!resuelto.ok) {
+      return resuelto.resultado;
     } else {
       console.error(
         `[agente] "${action.action}" sigue sin reply; lo toma una persona`
@@ -1673,19 +1858,26 @@ export async function runAgentTurn(
       console.warn(
         `[requisitos] faltan antes de cerrar (${faltan.map((r) => r.id).join(", ")}); rehaciendo el turno`
       );
-      const reintento = await chatJson(AgentAction, [
+      const messagesReintento: ChatMessage[] = [
         ...messages,
         { role: "assistant", content: result.raw },
         { role: "user", content: correccionDeRequisitoFaltante(faltan) },
-      ]);
+      ];
+      const reintento = await chatJson(AgentAction, messagesReintento);
       await registrarUsoIa(
         organizationId,
         reintento.usage,
         `conv:${conversationId}/requisito-faltante`
       );
-      if (reintento.ok && !ACCIONES_DE_CIERRE.includes(reintento.data.action)) {
-        action = reintento.data;
+      const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+        organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+        sufijoDeUso: "-requisito-faltante",
+      });
+      if (resuelto.ok && !ACCIONES_DE_CIERRE.includes(resuelto.accion.action)) {
+        action = resuelto.accion;
         agregarGuardarrail(traza, "requisito_faltante", true);
+      } else if (!resuelto.ok) {
+        return resuelto.resultado;
       } else {
         console.error(
           "[requisitos] sigue cerrando sin los datos declarados; lo toma una persona"
@@ -3011,8 +3203,14 @@ function esquemaDelEstado(
               additionalProperties: false,
             },
           },
+          gruposDeclinados: {
+            type: "array",
+            description:
+              "Nombres de grupos OPCIONALES del catálogo que el cliente dijo explícitamente que NO quiere para esto (ej. \"sin toppings\"). No pongas aquí un grupo que simplemente no se ha mencionado todavía.",
+            items: { type: "string" },
+          },
         },
-        required: ["ofrecible", "cantidad", "opciones"],
+        required: ["ofrecible", "cantidad", "opciones", "gruposDeclinados"],
         additionalProperties: false,
       },
     },
@@ -3138,6 +3336,10 @@ async function chatJsonConEstado(
         'y en el orden en que las dijo: si pide dos veces lo mismo, van DOS entradas. ' +
         '"grupo" es el título bajo el que aparece esa opción en el catálogo: ' +
         "ponlo siempre que puedas, porque el mismo nombre puede estar en dos grupos con precios distintos. " +
+        'En "gruposDeclinados" va el nombre de cada grupo OPCIONAL que el cliente rechazó explícitamente ' +
+        '("sin toppings", "sin salsa", "ninguno"): una vez que lo diga, NO vuelvas a preguntar por ese grupo ' +
+        "en los turnos siguientes. Si el cliente todavía no ha dicho nada de un grupo opcional, no lo pongas " +
+        "aquí — eso significa que sigue pendiente, no que lo rechazó. " +
         (modalidadesOfrecidas.length > 1
           ? `Añade también "modalidadDeEntrega" con CÓMO dijo el cliente que quiere recibirlo, ` +
             `usando exactamente uno de estos valores: ${modalidadesOfrecidas.join(", ")}. ` +

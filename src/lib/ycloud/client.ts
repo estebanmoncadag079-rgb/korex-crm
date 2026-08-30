@@ -279,7 +279,23 @@ async function sendDirectly(
   let ultimo: unknown;
   for (let intento = 0; intento <= REINTENTOS_MS.length; intento++) {
     try {
-      return await postSendDirectly(payload, apiKey);
+      const wamid = await postSendDirectly(payload, apiKey);
+      /*
+       * Diagnóstico aditivo (patrón F,F/F,F,T de saludos duplicados,
+       * auditoría de Lashes Valen): si esto se registra con `intento > 0`,
+       * es evidencia directa de que el POST anterior pudo haber llegado a
+       * YCloud (mensaje real enviado, con su propio wamid) aunque la
+       * respuesta se perdiera del lado del cliente — el "riesgo asumido"
+       * documentado arriba, ahora visible en el log en vez de solo en teoría.
+       */
+      if (intento > 0) {
+        console.warn(
+          `[ycloud] envío tuvo éxito TRAS reintento (intento ${intento + 1} de ` +
+            `${REINTENTOS_MS.length + 1}) — wamid=${wamid}. Si el intento anterior ` +
+            `también llegó a WhatsApp, el cliente puede haber recibido el mensaje dos veces.`
+        );
+      }
+      return wamid;
     } catch (err) {
       ultimo = err;
       const espera = REINTENTOS_MS[intento];

@@ -82,6 +82,14 @@ export type ItemPropuesto = {
    * **Es una lista, no un conjunto**: `[arequipe, arequipe]` son dos salsas.
    */
   opciones: OpcionPropuesta[];
+  /**
+   * Grupos OPCIONALES que el cliente dijo explícitamente que NO quiere para
+   * este ítem ("sin toppings", "sin salsa") — por nombre, igual que las
+   * opciones. Distinto de no mencionarlo: un grupo ausente aquí sigue
+   * "pendiente", uno declinado aquí queda resuelto como "el cliente no
+   * quiere" y no debe volver a ofrecerse.
+   */
+  gruposDeclinados?: string[] | null;
 };
 
 export type EstadoPropuesto = {
@@ -128,6 +136,13 @@ export type ItemNormalizado = {
   cantidad: number;
   /** Lo elegido, resuelto y en orden. Una lista: las repeticiones se conservan. */
   seleccion: OpcionElegida[];
+  /**
+   * Grupos OPCIONALES que el cliente rechazó explícitamente para este ítem —
+   * resueltos contra el catálogo, igual que `seleccion`. El agente no debe
+   * volver a ofrecerlos. Un grupo obligatorio nunca aparece aquí: no se
+   * puede "declinar" algo que el catálogo exige elegir.
+   */
+  gruposDeclinados: { grupoId: string; grupoNombre: string }[];
   /** Lo de ESTE ítem, con su cantidad ya multiplicada. `null` = no se puede aún. */
   totalCents: number | null;
 };
@@ -425,9 +440,23 @@ function resolverItem(
        * 🔴 Y si aparece en MÁS DE UNO, **no se elige por el código**. En La
        * Churra `AREQUIPE` está como salsa incluida y como adición de $1.500: de
        * adivinar salía un cobro de más. Ante la ambigüedad, se pregunta.
+       *
+       * La comparación es en LOS DOS SENTIDOS a propósito (29-ago-2026): el
+       * modelo ve el catálogo con anotaciones que no son el nombre real del
+       * grupo —"TOPPINGS (opcional)", "aplica a: X, Y"— y a veces las repite
+       * tal cual en `grupo`. Comparar solo "¿el nombre real EMPIEZA como lo
+       * que dijo el modelo?" fallaba justo al revés: lo que dijo el modelo
+       * era más LARGO que el nombre real ("toppings opcional" no empieza
+       * como "topping"), y una opción real de un grupo real quedaba
+       * rechazada como si no existiera.
        */
+      const coincideGrupo = (nombreReal: string, dicho: string) => {
+        const a = llave(nombreReal);
+        const b = llave(dicho);
+        return a.startsWith(b) || b.startsWith(a);
+      };
       const candidatos = producto.grupos
-        .filter((g) => (propuesta.grupo ? llave(g.nombre).startsWith(llave(propuesta.grupo)) : true))
+        .filter((g) => (propuesta.grupo ? coincideGrupo(g.nombre, propuesta.grupo) : true))
         .flatMap((g) =>
           g.opciones.filter((o) => llave(o.nombre) === llave(cruda)).map((o) => ({ g, o }))
         );
@@ -545,6 +574,25 @@ function resolverItem(
     }
   }
 
+  // --- Grupos que el cliente rechazó explícitamente -----------------------
+  //
+  // Solo tiene sentido declinar un grupo OPCIONAL: uno obligatorio hay que
+  // elegirlo sí o sí, y si el modelo propone declinar uno (nunca debería,
+  // pero no se rechaza el turno por eso) se ignora en silencio — el grupo
+  // sigue pendiente y `faltaDelItem` lo va a seguir pidiendo, que es lo
+  // correcto.
+  const gruposDeclinados: { grupoId: string; grupoNombre: string }[] = [];
+  if (producto) {
+    for (const nombreDeclinado of propuesto.gruposDeclinados ?? []) {
+      const cruda = nombreDeclinado?.trim();
+      if (!cruda) continue;
+      const grupo = producto.grupos.find((g) => llave(g.nombre) === llave(cruda));
+      if (grupo && grupo.minimo < 1) {
+        gruposDeclinados.push({ grupoId: grupo.id, grupoNombre: grupo.nombre });
+      }
+    }
+  }
+
   // --- El total, siempre del servidor ------------------------------------
   let totalCents: number | null = null;
   if (producto && dudas.length === 0) {
@@ -566,6 +614,7 @@ function resolverItem(
     ofrecible: producto?.nombre ?? null,
     cantidad,
     seleccion,
+    gruposDeclinados,
     totalCents,
   };
 }

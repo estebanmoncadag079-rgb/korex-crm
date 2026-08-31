@@ -42,6 +42,7 @@
     "migrar:requisitos": "esbuild scripts/migrar-requisitos.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-requisitos.mjs --alias:@=./src --packages=external && node .tmp-migrar-requisitos.mjs",
     "migrar:modalidad": "esbuild scripts/migrar-modalidad.ts --bundle --platform=node --format=esm --outfile=.tmp-migrar-modalidad.mjs --alias:@=./src --packages=external && node .tmp-migrar-modalidad.mjs",
     "fase2": "esbuild scripts/fase2.ts --bundle --platform=node --format=esm --outfile=.tmp-fase2.mjs --alias:@=./src --packages=external && node .tmp-fase2.mjs",
+    "consultas-verificadas": "esbuild scripts/consultas-verificadas.ts --bundle --platform=node --format=esm --outfile=.tmp-consultas-verificadas.mjs --alias:@=./src --packages=external && node .tmp-consultas-verificadas.mjs",
     "corregir:ficha-churra": "esbuild scripts/corregir-ficha-churra.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-ficha-churra.mjs --alias:@=./src --packages=external && node .tmp-corregir-ficha-churra.mjs",
     "corregir:regla-catalogo-lis": "esbuild scripts/corregir-regla-catalogo-lis.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-regla-catalogo-lis.mjs --alias:@=./src --packages=external && node .tmp-corregir-regla-catalogo-lis.mjs",
     "subir:media": "esbuild scripts/subir-media.ts --bundle --platform=node --format=esm --outfile=.tmp-subir-media.mjs --alias:@=./src --packages=external && node .tmp-subir-media.mjs"

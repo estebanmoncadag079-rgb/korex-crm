@@ -428,10 +428,25 @@ function resolverItem(
    */
   const seleccion: OpcionElegida[] = [];
 
+  /*
+   * Sin ningún grupo declarado (todo servicio de citas hoy, docs/korexia/83:
+   * `catalogoDe` los devuelve con `grupos: []`), cualquier `opciones` que
+   * proponga el modelo es ruido sobre un campo que este producto/servicio no
+   * tiene — no una elección real que se esté perdiendo. Tratarlo como duda
+   * ("no está entre las opciones de X") lo convertía en un RECHAZO
+   * (`validarPropuesta`, estado.ts) que descartaba el turno ENTERO —
+   * servicio y cantidad correctos incluidos — violando la regla de este
+   * archivo: "normaliza, nunca rechaza". Bug real, encontrado auditando
+   * citas (Lashes Valen, 31-ago-2026): "quiero un Laminado de cejas" nunca
+   * dejaba nada en `conversation_state`.
+   */
+  const sinGruposDeclarados = producto ? producto.grupos.length === 0 : false;
+
   if (producto) {
     for (const propuesta of propuesto.opciones) {
       const cruda = propuesta.opcion?.trim();
       if (!cruda) continue;
+      if (sinGruposDeclarados) continue;
 
       /*
        * Dónde vive esta opción. Si el modelo dijo el grupo, se busca ahí; si no,

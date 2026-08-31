@@ -27,6 +27,7 @@ import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
+import { quitarPagoDuplicado } from "@/server/ai/generador/quitar-bloque-pago";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -62,45 +63,6 @@ const apagar = process.argv.includes("--apagar");
 
 const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(sql, { schema });
-
-/**
- * Corta el bloque "## Cómo te pagan" ... hasta el siguiente "## " (o el final
- * del texto), y dentro de él quita SOLO la línea "Formas de pago: …" y el
- * bloque "Datos para el pago (…): … <líneas>" — deja el resto del encabezado
- * y las reglas de comportamiento intactas.
- */
-function quitarPagoDuplicado(instructions: string): { nuevo: string; huboCambio: boolean } {
-  const inicio = instructions.indexOf("## Cómo te pagan");
-  if (inicio === -1) return { nuevo: instructions, huboCambio: false };
-  const siguienteHeader = instructions.indexOf("\n## ", inicio + 1);
-  const fin = siguienteHeader === -1 ? instructions.length : siguienteHeader;
-  const bloque = instructions.slice(inicio, fin);
-
-  /*
-   * "Formas de pago: …" no siempre termina en un salto de línea propio — en
-   * la ficha real de Lis venía en el MISMO párrafo que una instrucción de
-   * comportamiento ("Si el cliente pregunta…") que hay que conservar. Por
-   * eso el corte se hace hasta el primer terminador reconocible de esa
-   * frase, no hasta el próximo salto de línea.
-   */
-  const sinFormas = bloque.replace(
-    /Formas de pago:[\s\S]*?(?=Si el cliente|\n\nDatos para el pago|\n## |$)/i,
-    ""
-  );
-  const sinDatos = sinFormas.replace(
-    /Datos para el pago \(cópialos TAL CUAL[^)]*\):\n(?:[^\n]*\n)*?\n/i,
-    ""
-  );
-  // Las dos quitas de arriba pueden dejar 3+ saltos de línea seguidos donde
-  // solo debe quedar una línea en blanco entre párrafos.
-  const limpio = sinDatos.replace(/\n{3,}/g, "\n\n");
-
-  if (limpio === bloque) return { nuevo: instructions, huboCambio: false };
-  return {
-    nuevo: instructions.slice(0, inicio) + limpio + instructions.slice(fin),
-    huboCambio: true,
-  };
-}
 
 const rows = await db
   .select()

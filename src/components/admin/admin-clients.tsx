@@ -100,7 +100,7 @@ export function AdminClients({
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-6xl space-y-6">
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {credentials && (
@@ -143,20 +143,28 @@ export function AdminClients({
             Todavía no hay clientes.
           </p>
         )}
-        {clients.map((c) => (
-          <ClientCard
-            key={c.id}
-            client={c}
-            isActive={c.id === activeOrganizationId}
-            onEnter={() => void enter(c.id)}
-            onAccountCreated={(cred) => {
-              setCredentials(cred);
-              void refetch();
-            }}
-            onDeleted={() => void refetch()}
-            onChanged={() => void refetch()}
-          />
-        ))}
+        {/* Cuadrícula de dos clientes por fila en pantallas anchas; en móvil y
+            tablet angosta cae a una sola columna. `items-start` evita que una
+            tarjeta plegada se estire para igualar la altura de la desplegada
+            que tenga al lado. */}
+        {clients.length > 0 && (
+          <div className="grid gap-3 lg:grid-cols-2 lg:items-start">
+            {clients.map((c) => (
+              <ClientCard
+                key={c.id}
+                client={c}
+                isActive={c.id === activeOrganizationId}
+                onEnter={() => void enter(c.id)}
+                onAccountCreated={(cred) => {
+                  setCredentials(cred);
+                  void refetch();
+                }}
+                onDeleted={() => void refetch()}
+                onChanged={() => void refetch()}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

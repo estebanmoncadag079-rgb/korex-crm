@@ -10,7 +10,7 @@ import {
   PREGUNTAS_FRECUENTES,
   VALIDACION_DE_ENLACES,
 } from "./conducta";
-import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
+import { faltantesDeLaFicha, pagoAntesDeLaCitaDe, type FichaDelNegocio } from "./ficha";
 
 /**
  * De la ficha del cliente al prompt completo.
@@ -172,13 +172,32 @@ function comoPagan(ficha: FichaDelNegocio, vertical: Vertical): string {
   // de pedidos colándose en el vertical de citas ya se había visto en las
   // pruebas del 7-ago-2026 ("gracias por tu compra" en un salón de belleza).
   const loQueSeDejaEnFirme = vertical === "citas" ? "la cita" : "el pedido";
+  /*
+   * En PEDIDOS, `compruebaUnaPersona` basta: el comprobante se pide siempre
+   * al cerrar, no hay concepto de "pagar antes". En CITAS existe un segundo
+   * interruptor, `cierre.pagoAntesDeLaCita` (server/ai/prompts.ts,
+   * `pagoDeCitasParaElPrompt`), que decide si el negocio cobra por
+   * adelantado. Un negocio puede declarar `compruebaUnaPersona: true` (revisa
+   * los comprobantes que le llegan) sin exigir el pago como condición para
+   * agendar — caso real, Lashes Valen (31-ago-2026): con
+   * `pagoAntesDeLaCita` sin declarar (⇒ false), este bloque igual generaba
+   * "Pídele la foto del comprobante para dejar la cita en firme", que
+   * contradice textualmente al bloque estructurado ("NO pidas comprobante")
+   * en el mismo prompt. Sin este segundo interruptor, "dejar la cita en
+   * firme" con un comprobante es letra muerta para un negocio que no cobra
+   * antes.
+   */
+  const pideComprobante =
+    vertical === "citas"
+      ? pago.compruebaUnaPersona && pagoAntesDeLaCitaDe(ficha)
+      : pago.compruebaUnaPersona;
   return bloques(
     "## Cómo te pagan",
     `Formas de pago: ${pago.formas.trim()}`,
     pago.datosDeCuenta?.trim()
       ? `Datos para el pago (cópialos TAL CUAL, sin cambiar ni un dígito, y solo DESPUÉS de que confirme):\n${pago.datosDeCuenta.trim()}`
       : null,
-    pago.compruebaUnaPersona
+    pideComprobante
       ? `Pídele la foto del comprobante para dejar ${loQueSeDejaEnFirme} en firme. **Tú nunca das un pago por bueno**: lo revisa una persona del equipo.`
       : null
   );

@@ -145,6 +145,36 @@ export function loQueFalta(
 }
 
 /**
+ * Los requisitos que el PROMPT debe seguir pidiendo — los que TODAVÍA no
+ * están en `estado.datos`, no la lista completa de lo que el negocio
+ * declaró.
+ *
+ * Bug real, auditoría de citas (Lashes Valen, 31-ago-2026), reproducido de
+ * forma determinista en 5 guiones distintos: el prompt volvía a listar
+ * "nombre" turno tras turno aunque `estado.datos.nombre` ya tuviera un
+ * valor, con una instrucción que decía "si el cliente ya te dio esto, EN
+ * ESTE MENSAJE O ANTES EN LA CONVERSACIÓN, emítelo" — una condición que,
+ * una vez cierta, sigue siendo cierta para siempre. El modelo la seguía al
+ * pie de la letra: repetía `provide_requirement` con el mismo valor en
+ * cada turno, sin nunca avanzar a `consult_availability`/`book_appointment`
+ * (o `notify_order` en pedidos).
+ *
+ * Mismo criterio que ya usa `loQueFalta` para decidir "esto falta"
+ * (`!estado.datos[r.id]?.trim()`) — no un criterio nuevo.
+ *
+ * `estado: null` (negocios sin Fase 2, o el turno que crea el primer
+ * estado) devuelve `requisitos` tal cual: sin nada guardado, todo sigue
+ * pendiente — mismo comportamiento de siempre.
+ */
+export function requisitosPendientesDe(
+  estado: EstadoDelPedido | null,
+  requisitos: Requisito[] | undefined
+): Requisito[] | undefined {
+  if (!estado) return requisitos;
+  return requisitos?.filter((r) => !estado.datos[r.id]?.trim());
+}
+
+/**
  * El bloque que se le da al modelo en cada turno.
  *
  * Corto a propósito: sustituye instrucciones, no las añade. Si esto crece, el

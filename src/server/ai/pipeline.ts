@@ -100,7 +100,7 @@ import {
   type Requisito,
 } from "@/server/ai/generador/ficha";
 import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
-import { comoTexto } from "@/server/orders/extraer";
+import { comoTexto, requisitosPendientesDe } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
   afirmaConEspecialistaSinVerificar,
@@ -1029,7 +1029,7 @@ export async function runAgentTurn(
         catalogoDePedidos,
         estadoDelPedido: bloqueDeEstado,
         fotos,
-        requisitos,
+        requisitos: requisitosPendientesDe(estadoGuardado, requisitos),
         pagoDeCitas,
         pagoDePedidos,
       }),

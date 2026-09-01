@@ -156,6 +156,33 @@ function AvisoCorto({ valor, minimo, que }: { valor?: string; minimo: number; qu
   );
 }
 
+/**
+ * Aviso de contenido posiblemente mezclado (1-sep-2026, auditoría de
+ * fichas): el backend ya analizó el texto (`analizarContenidoConfigurable`,
+ * nunca duplicado aquí) y devolvió advertencias por campo. Puramente
+ * informativo, mismo estilo visual que `AvisoCorto` — nunca bloquea
+ * avanzar ni guardar. Deliberadamente sin jerga técnica: el dueño del
+ * negocio no sabe qué es "mezcla_de_audiencia", pero sí entiende la
+ * diferencia entre "lo que le digo al cliente" y "lo que le digo al bot".
+ */
+function AvisoContenidoMezclado({
+  campo,
+  advertencias,
+}: {
+  campo: string;
+  advertencias: { campo: string }[];
+}) {
+  if (!advertencias.some((a) => a.campo === campo)) return null;
+  return (
+    <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+      ⚠️ Este texto parece contener una instrucción para el asistente junto con
+      información que podría mostrarse al cliente. Revisa si ambas cosas
+      deberían estar separadas — las instrucciones especiales van mejor en
+      &ldquo;Reglas propias del negocio&rdquo;.
+    </p>
+  );
+}
+
 /** Una pregunta con su explicación y su ejemplo, como en el cuestionario. */
 function Campo({
   titulo,
@@ -394,6 +421,13 @@ export function OnboardingWizard() {
   const [requisitosDisponibles, setRequisitosDisponibles] = useState<
     { id: string; etiqueta: string }[]
   >([]);
+  /**
+   * Advertencias de contenido mezclado, por campo (1-sep-2026). Solo
+   * informativas — nunca impiden avanzar ni guardar. El análisis vive en
+   * el backend (`analizarContenidoConfigurable`); aquí solo se muestra lo
+   * que la API ya calculó.
+   */
+  const [advertenciasContenido, setAdvertenciasContenido] = useState<{ campo: string }[]>([]);
 
   useEffect(() => {
     void fetch("/api/onboarding")
@@ -413,11 +447,18 @@ export function OnboardingWizard() {
   /** Guarda el avance. Se llama al cambiar de etapa, nunca en cada tecla. */
   const guardar = useCallback(async (datos: Ficha) => {
     setGuardando(true);
-    await fetch("/api/onboarding", {
+    const res = await fetch("/api/onboarding", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ borrador: datos }),
     }).catch(() => null);
+    // Informativo, nunca bloqueante: si la respuesta no trae advertencias
+    // (o falló la petición), simplemente no se muestra ninguna — el
+    // guardado en sí ya ocurrió (o no) independientemente de esto.
+    const data = await res
+      ?.json()
+      .catch(() => null) as { advertenciasContenido?: { campo: string }[] } | null;
+    setAdvertenciasContenido(data?.advertenciasContenido ?? []);
     setGuardando(false);
   }, []);
 
@@ -613,6 +654,10 @@ export function OnboardingWizard() {
                     })
                   }
                 />
+                <AvisoContenidoMezclado
+                  campo="entrega.quienPagaElDomicilio"
+                  advertencias={advertenciasContenido}
+                />
               </Campo>
               <Campo
                 titulo="¿Alguna restricción para entregar?"
@@ -708,6 +753,7 @@ export function OnboardingWizard() {
                 })
               }
             />
+            <AvisoContenidoMezclado campo="pago.datosDeCuenta" advertencias={advertenciasContenido} />
           </Campo>
           <p className="rounded-md border bg-muted/40 p-3 text-[13px] text-muted-foreground">
             El asistente le pedirá la foto del comprobante a tu cliente, pero{" "}

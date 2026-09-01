@@ -5,6 +5,7 @@ import {
   guardarBorrador,
   leerBorrador,
 } from "@/server/ai/generador/aplicar";
+import { advertenciasDeFicha } from "@/server/ai/generador/deteccion-mezcla";
 import {
   faltantesDeLaFicha,
   fusionarRequisitosDelCatalogo,
@@ -145,6 +146,7 @@ export const PUT = withAuth(async (session, req: Request) => {
   return Response.json({
     guardado: true,
     faltan: faltantesDeLaFicha(borrador),
+    advertenciasContenido: advertenciasDeFicha(borrador),
   });
 });
 
@@ -247,5 +249,8 @@ export const POST = withAuth(async (session, req: Request) => {
     // que nadie haya visto una sola conversación de prueba.
     mensaje:
       "¡Listo! Ya tenemos todo para configurar tu asistente. Lo revisamos y lo activamos contigo.",
+    // Informativo, nunca bloqueante — aplicarFicha() ya se ejecutó arriba
+    // aunque haya advertencias: el negocio queda configurado igual.
+    advertenciasContenido: advertenciasDeFicha(borradorConCierre),
   });
 });

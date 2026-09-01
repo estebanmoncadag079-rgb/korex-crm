@@ -16,6 +16,8 @@ const cuerpo = z
     categoria: z.string().max(100).nullable().optional(),
     /** En centavos. Ausente = el negocio no lo sabe aún; el agente lo pedirá. */
     precioCents: z.number().int().min(0).nullable().optional(),
+    /** Dato estructurado del producto: llega al agente vía el catálogo, no es un prompt aparte. */
+    descripcion: z.string().max(500).nullable().optional(),
   })
   .strict();
 

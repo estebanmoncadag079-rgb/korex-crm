@@ -29,6 +29,7 @@ type Producto = {
   categoria: string | null;
   precioCents: number | null;
   disponible: boolean;
+  descripcion: string | null;
 };
 
 type Grupo = {
@@ -87,7 +88,12 @@ export function CatalogoProductos() {
     void refetch();
   }, [refetch]);
 
-  async function crearProducto(datos: { nombre: string; categoria: string; precio: string }) {
+  async function crearProducto(datos: {
+    nombre: string;
+    categoria: string;
+    precio: string;
+    descripcion: string;
+  }) {
     setError(null);
     const res = await fetch("/api/catalogo/productos", {
       method: "POST",
@@ -96,6 +102,7 @@ export function CatalogoProductos() {
         nombre: datos.nombre,
         categoria: datos.categoria.trim() || null,
         precioCents: pesosACents(datos.precio),
+        descripcion: datos.descripcion.trim() || null,
       }),
     }).catch(() => null);
     if (!res?.ok) {
@@ -191,13 +198,19 @@ function FormularioProducto({
   onGuardar,
   onCancelar,
 }: {
-  inicial?: { nombre: string; categoria: string; precio: string };
-  onGuardar: (datos: { nombre: string; categoria: string; precio: string }) => void;
+  inicial?: { nombre: string; categoria: string; precio: string; descripcion: string };
+  onGuardar: (datos: {
+    nombre: string;
+    categoria: string;
+    precio: string;
+    descripcion: string;
+  }) => void;
   onCancelar: () => void;
 }) {
   const [nombre, setNombre] = useState(inicial?.nombre ?? "");
   const [categoria, setCategoria] = useState(inicial?.categoria ?? "");
   const [precio, setPrecio] = useState(inicial?.precio ?? "");
+  const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? "");
   const [guardando, setGuardando] = useState(false);
 
   return (
@@ -233,13 +246,26 @@ function FormularioProducto({
             />
           </div>
         </div>
+        <div>
+          <Label htmlFor="descripcion-producto">Descripción (opcional)</Label>
+          <ExpandableInput
+            id="descripcion-producto"
+            value={descripcion}
+            onChange={(e) => setDescripcion(e.target.value)}
+            placeholder="3 capas de bizcocho + 3 de cremoso + 3 toppings"
+          />
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Información adicional que el agente puede comunicar cuando el cliente
+            pregunte por este producto.
+          </p>
+        </div>
         <div className="flex gap-2">
           <Button
             size="sm"
             disabled={!nombre.trim() || guardando}
             onClick={() => {
               setGuardando(true);
-              onGuardar({ nombre: nombre.trim(), categoria, precio });
+              onGuardar({ nombre: nombre.trim(), categoria, precio, descripcion });
             }}
           >
             Guardar
@@ -266,7 +292,12 @@ function TarjetaProducto({
   const [creandoGrupo, setCreandoGrupo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function guardar(datos: { nombre: string; categoria: string; precio: string }) {
+  async function guardar(datos: {
+    nombre: string;
+    categoria: string;
+    precio: string;
+    descripcion: string;
+  }) {
     setError(null);
     const res = await fetch(`/api/catalogo/productos/${producto.id}`, {
       method: "PATCH",
@@ -275,6 +306,7 @@ function TarjetaProducto({
         nombre: datos.nombre,
         categoria: datos.categoria.trim() || null,
         precioCents: pesosACents(datos.precio),
+        descripcion: datos.descripcion.trim() || null,
       }),
     }).catch(() => null);
     if (!res?.ok) {
@@ -323,6 +355,7 @@ function TarjetaProducto({
           nombre: producto.nombre,
           categoria: producto.categoria ?? "",
           precio: centsAPesos(producto.precioCents),
+          descripcion: producto.descripcion ?? "",
         }}
         onGuardar={guardar}
         onCancelar={() => setEditando(false)}
@@ -341,6 +374,11 @@ function TarjetaProducto({
               ? `$${centsAPesos(producto.precioCents)}`
               : "sin precio — el agente lo preguntará"}
           </p>
+          {producto.descripcion && (
+            <p className="mt-0.5 truncate text-[13px] text-muted-foreground">
+              Descripción: {producto.descripcion}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-2">
           <Button size="sm" variant="outline" onClick={() => setEditando(true)}>

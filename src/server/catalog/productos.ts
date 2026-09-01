@@ -25,6 +25,13 @@ export type ProductoConfigurable = {
   /** En centavos; `null` = el negocio no lo declaró, el agente debe preguntarlo. */
   precioCents: number | null;
   disponible: boolean;
+  /**
+   * Dato estructurado del producto, administrable desde `/catalogo` — no un
+   * prompt escondido. Llega al agente vía `catalogoDePedidos` →
+   * `renderCatalogoDePedidos`, igual que nombre/categoría/precio.
+   * `null` = sin descripción.
+   */
+  descripcion: string | null;
 };
 
 /** Los productos activos (no archivados) de una organización, en su orden. */
@@ -39,6 +46,7 @@ export async function listarProductos(
       categoria: schema.product.category,
       precioCents: schema.product.priceCents,
       disponible: schema.product.available,
+      descripcion: schema.product.description,
     })
     .from(schema.product)
     .where(scoped(schema.product.organizationId, organizationId, isNull(schema.product.archivedAt)))
@@ -53,7 +61,12 @@ export async function listarProductos(
  */
 export async function crearProducto(
   organizationId: string,
-  datos: { nombre: string; categoria?: string | null; precioCents?: number | null },
+  datos: {
+    nombre: string;
+    categoria?: string | null;
+    precioCents?: number | null;
+    descripcion?: string | null;
+  },
   actor: Actor
 ): Promise<ProductoConfigurable> {
   const db = getDb();
@@ -64,6 +77,7 @@ export async function crearProducto(
     name: datos.nombre,
     category: datos.categoria ?? null,
     priceCents: datos.precioCents ?? null,
+    description: datos.descripcion ?? null,
   });
   console.log(
     `[cambio] tabla=product registro=${id} campo=<fila nueva> valor_anterior=ausente ` +
@@ -75,6 +89,7 @@ export async function crearProducto(
     categoria: datos.categoria ?? null,
     precioCents: datos.precioCents ?? null,
     disponible: true,
+    descripcion: datos.descripcion ?? null,
   };
 }
 
@@ -93,6 +108,7 @@ export async function actualizarProducto(
     categoria?: string | null;
     precioCents?: number | null;
     disponible?: boolean;
+    descripcion?: string | null;
   },
   actor: Actor
 ): Promise<ProductoConfigurable | null> {
@@ -125,6 +141,13 @@ export async function actualizarProducto(
     set.available = datos.disponible;
     declarados.push("available");
   }
+  // `undefined` = no tocar (el campo ni siquiera vino en el payload); `null` =
+  // vaciarla a propósito. Mismo patrón que el resto de campos opcionales de
+  // esta función — un valor ausente nunca borra lo que ya había.
+  if (datos.descripcion !== undefined) {
+    set.description = datos.descripcion;
+    declarados.push("description");
+  }
   declarados.push("updatedAt");
 
   const actualizados = await conRegistro(
@@ -148,6 +171,7 @@ export async function actualizarProducto(
     categoria: fila.category,
     precioCents: fila.priceCents,
     disponible: fila.available,
+    descripcion: fila.description,
   };
 }
 

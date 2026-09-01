@@ -12,6 +12,8 @@ const cuerpo = z
     categoria: z.string().max(100).nullable().optional(),
     precioCents: z.number().int().min(0).nullable().optional(),
     disponible: z.boolean().optional(),
+    /** Ausente = no tocar la descripción existente; `null` = vaciarla a propósito. */
+    descripcion: z.string().max(500).nullable().optional(),
   })
   .strict();
 

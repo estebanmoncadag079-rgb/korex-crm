@@ -100,6 +100,75 @@ describe.skipIf(!hayBase)("catálogo completo desde el CRM (Postgres real)", () 
     expect(listado.find((p) => p.id === creado.id)).toBeUndefined();
   }, 60_000);
 
+  it("CASO A — crear con descripción: se persiste y se devuelve", async () => {
+    const creado = await m.catalogoProductos.crearProducto(
+      orgA,
+      { nombre: "Cremoso con descripción", descripcion: "3 capas de bizcocho + 3 de cremoso" },
+      "user:test"
+    );
+    expect(creado.descripcion).toBe("3 capas de bizcocho + 3 de cremoso");
+
+    const listado = await m.catalogoProductos.listarProductos(orgA);
+    expect(listado.find((p) => p.id === creado.id)?.descripcion).toBe(
+      "3 capas de bizcocho + 3 de cremoso"
+    );
+  }, 60_000);
+
+  it("CASO B — crear sin descripción: queda null", async () => {
+    const creado = await m.catalogoProductos.crearProducto(
+      orgA,
+      { nombre: "Cremoso sin descripción" },
+      "user:test"
+    );
+    expect(creado.descripcion).toBeNull();
+  }, 60_000);
+
+  it("CASO C — actualizar descripción: se persiste el cambio", async () => {
+    const creado = await m.catalogoProductos.crearProducto(
+      orgA,
+      { nombre: "Producto a describir", descripcion: "versión vieja" },
+      "user:test"
+    );
+    const editado = await m.catalogoProductos.actualizarProducto(
+      orgA,
+      creado.id,
+      { descripcion: "versión nueva" },
+      "user:test"
+    );
+    expect(editado?.descripcion).toBe("versión nueva");
+  }, 60_000);
+
+  it("CASO D — eliminar descripción con null: queda vacía", async () => {
+    const creado = await m.catalogoProductos.crearProducto(
+      orgA,
+      { nombre: "Producto a vaciar", descripcion: "Arrechon" },
+      "user:test"
+    );
+    const editado = await m.catalogoProductos.actualizarProducto(
+      orgA,
+      creado.id,
+      { descripcion: null },
+      "user:test"
+    );
+    expect(editado?.descripcion).toBeNull();
+  }, 60_000);
+
+  it("CASO E — actualización parcial: cambiar otro campo NO borra la descripción existente", async () => {
+    const creado = await m.catalogoProductos.crearProducto(
+      orgA,
+      { nombre: "Producto con descripción intacta", descripcion: "no debe desaparecer" },
+      "user:test"
+    );
+    const editado = await m.catalogoProductos.actualizarProducto(
+      orgA,
+      creado.id,
+      { precioCents: 1_500_000 },
+      "user:test"
+    );
+    expect(editado?.precioCents).toBe(1_500_000);
+    expect(editado?.descripcion).toBe("no debe desaparecer");
+  }, 60_000);
+
   it("un producto sin precio se guarda así — el agente debe preguntarlo, no inventarlo", async () => {
     const creado = await m.catalogoProductos.crearProducto(
       orgA,

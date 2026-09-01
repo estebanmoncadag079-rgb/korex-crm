@@ -33,12 +33,17 @@ function normalizar(s: string): string {
  * (recomendación, categoría completa, ocasión) y nunca se fuerza una
  * búsqueda de un solo producto — el modelo sigue respondiendo con el
  * catálogo completo, como siempre.
+ *
+ * Incluye 2ª y 3ª persona ("tienes"/"tienen") por el mismo motivo que
+ * `PATRON_EXISTENCIA` (ver más abajo): sin "tienes" aquí, "¿Qué tienes de
+ * chocolate?" no calzaba como abierta y `PATRON_EXISTENCIA` capturaba "de
+ * chocolate" como si fuera el nombre de un producto.
  */
 const SEÑALES_ABIERTAS: RegExp[] = [
   // "qué tienen de X", "qué hay de X", "qué manejan de dulces"
-  /\bque\s+(tienen|tiene|hay|manejan|maneja|venden|vende|ofrecen|ofrece)\b/,
+  /\bque\s+(tienen|tiene|tienes|hay|manejan|maneja|manejas|venden|vende|vendes|ofrecen|ofrece|ofreces)\b/,
   // "tienen algo de X" / "hay algo de X": pide una categoría, no UN producto.
-  /\b(tienen|tiene|hay|venden|vende|manejan|maneja)\s+algo\s+de\b/,
+  /\b(tienen|tiene|tienes|hay|venden|vende|vendes|manejan|maneja|manejas)\s+algo\s+de\b/,
   /\brecomiendas?\b|\brecomendaci[oó]n\b|\brecomendar\b|\bsugerencia\b|\bsugieres\b/,
   /\bpara\s+\d+\s+personas?\b/,
   /\bno\s+(tan|muy)\s+\w+/,
@@ -47,9 +52,15 @@ const SEÑALES_ABIERTAS: RegExp[] = [
   /\bopciones\b/,
 ];
 
-/** "¿tienen/hay/venden/manejan (disponible) X?" → captura X. */
+/**
+ * "¿tienen/tienes/hay/venden/manejan (disponible) X?" → captura X.
+ *
+ * Cubre 2ª persona ("tienes", "vendes", "manejas") además de 3ª — el
+ * incidente real de Malía usó "tienes", que hasta ahora nunca disparaba
+ * esta detección (docs/korexia, auditoría de jerarquía de verdad, 1-sep-2026).
+ */
 const PATRON_EXISTENCIA =
-  /\b(?:tienen|tiene|hay|venden|vende|manejan|maneja)\s+(?:disponible\s+)?([a-z0-9À-ÿ ]+?)\s*[?¿]*\s*$/i;
+  /\b(?:tienen|tiene|tienes|hay|venden|vende|vendes|manejan|maneja|manejas)\s+(?:disponible\s+)?([a-z0-9À-ÿ ]+?)\s*[?¿]*\s*$/i;
 
 /** "¿cuánto cuesta/vale/sale (la/el/los/las) X?" → captura X. */
 const PATRON_PRECIO =
@@ -72,4 +83,57 @@ export function detectarConsultaFactualDeProducto(texto: string): string | null 
     if (consulta && consulta.length >= 2) return consulta;
   }
   return null;
+}
+
+/**
+ * Categorías genéricas de listado — nunca nombres de producto concretos
+ * (eso rompería la regla de "sin listas por cliente/producto").
+ */
+const CATEGORIAS_DE_LISTADO =
+  "sabores|productos|tamaños|tamanos|opciones|presentaciones|variedades|referencias";
+
+/** "qué/cuáles sabores tienen/manejan/hay/venden/ofrecen(/están disponibles)?" */
+const PATRON_LISTADO_CON_SUSTANTIVO = new RegExp(
+  `\\b(?:que|cu[aá]les?)\\s+(?:${CATEGORIAS_DE_LISTADO})\\s+` +
+    `(?:tienen|tiene|tienes|hay|manejan|maneja|manejas|venden|vende|vendes|ofrecen|ofrece|ofreces|est[aá]n?)\\b`
+);
+
+/** "sabores/tamaños/opciones ... disponibles" (sustantivo antes del verbo estar). */
+const PATRON_LISTADO_DISPONIBLES = new RegExp(
+  `\\b(?:${CATEGORIAS_DE_LISTADO})\\s+(?:hay\\s+)?disponibles?\\b`
+);
+
+/**
+ * "qué tienen/manejan/venden(/tienes disponible)?" SIN objeto después — pide
+ * el catálogo completo, no una categoría con calificativo. Ancla al final de
+ * la frase a propósito: "qué tienen de bueno hoy" NO debe calzar aquí (sigue
+ * siendo una pregunta abierta sin verificación forzada, como siempre).
+ */
+const PATRON_LISTADO_GENERICO =
+  /\bque\s+(?:tienen|tiene|tienes|hay|manejan|maneja|manejas|venden|vende|vendes|ofrecen|ofrece|ofreces)\s*(?:disponible)?\s*[?¿]*\s*$/;
+
+/**
+ * Detecta una pregunta de LISTADO abierto de catálogo ("¿qué sabores
+ * tienen?", "¿qué productos manejan?", "¿qué tienen disponible?") — a
+ * diferencia de `detectarConsultaFactualDeProducto`, que busca UN producto
+ * puntual, esto pide el catálogo completo vigente. Nace de la auditoría de
+ * jerarquía de verdad (1-sep-2026): el incidente real de Malía fue
+ * exactamente una de estas preguntas ("¿cuáles son los sabores que
+ * tienes?"), que `SEÑALES_ABIERTAS` excluye a propósito de la detección de
+ * producto puntual — aquí se cubre con su propio mecanismo, sin tocar aquel.
+ *
+ * Deliberadamente conservador, mismo criterio que el resto del archivo: solo
+ * dispara con una categoría genérica reconocida o sin ningún calificativo
+ * después del verbo. "¿Qué tienen de chocolate?" (categoría con
+ * calificativo) sigue sin forzar nada — el modelo sigue con el catálogo en
+ * prosa, como hoy.
+ */
+export function detectarConsultaDeListadoDeProducto(texto: string): boolean {
+  if (!texto?.trim()) return false;
+  const t = normalizar(texto);
+  return (
+    PATRON_LISTADO_CON_SUSTANTIVO.test(t) ||
+    PATRON_LISTADO_DISPONIBLES.test(t) ||
+    PATRON_LISTADO_GENERICO.test(t)
+  );
 }

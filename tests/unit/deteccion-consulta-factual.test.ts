@@ -53,6 +53,22 @@ describe("detectarConsultaFactualDeProducto — TIPO A (factual concreta)", () =
       "cupcakes de vainilla"
     );
   });
+
+  it("2ª persona — ¿tienes X? (el incidente real de Malía usó esta conjugación)", () => {
+    expect(detectarConsultaFactualDeProducto("¿Tienes Pavé de Leche Klim?")).toBe(
+      "pave de leche klim"
+    );
+  });
+
+  it("2ª persona — ¿vendes X?", () => {
+    expect(detectarConsultaFactualDeProducto("¿Vendes cupcakes?")).toBe("cupcakes");
+  });
+
+  it("2ª persona — ¿manejas X?", () => {
+    expect(detectarConsultaFactualDeProducto("¿Manejas tortas sin azúcar?")).toBe(
+      "tortas sin azucar"
+    );
+  });
 });
 
 describe("detectarConsultaFactualDeProducto — TIPO B (abierta, NO forzar)", () => {
@@ -95,5 +111,9 @@ describe("detectarConsultaFactualDeProducto — TIPO B (abierta, NO forzar)", ()
   it("texto vacío o nulo", () => {
     expect(detectarConsultaFactualDeProducto("")).toBeNull();
     expect(detectarConsultaFactualDeProducto("   ")).toBeNull();
+  });
+
+  it("2ª persona, categoría con calificativo: ¿qué tienes de chocolate? sigue abierta", () => {
+    expect(detectarConsultaFactualDeProducto("¿Qué tienes de chocolate?")).toBeNull();
   });
 });

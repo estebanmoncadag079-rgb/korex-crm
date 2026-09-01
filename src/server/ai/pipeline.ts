@@ -66,7 +66,10 @@ import {
 import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { buscarProductos } from "@/server/catalog/buscar";
-import { detectarConsultaFactualDeProducto } from "@/server/catalog/deteccion";
+import {
+  detectarConsultaFactualDeProducto,
+  detectarConsultaDeListadoDeProducto,
+} from "@/server/catalog/deteccion";
 import { detectarConsultaFactualDeMedioPago } from "@/server/pagos/deteccion";
 import {
   agregarGuardarrail,
@@ -311,7 +314,7 @@ export function toChatHistory(
     if (m.aiGenerated === false) {
       resultado.push({
         role: "user",
-        content: `[Lo escribió una persona del negocio al cliente, NO tú. Tenlo en cuenta para no repetirlo ni contradecirlo, pero no cambies por esto lo que sabes del horario]: ${m.text!}`,
+        content: `[Lo escribió una persona del negocio al cliente, NO tú. Respeta los compromisos concretos que haga con este cliente (algo que le prometieron, guardaron o ya está en curso), pero si menciona catálogo, precios, disponibilidad, horarios, especialistas o métodos de pago, esa información puede haber cambiado desde entonces: para esos datos confía siempre en lo que sabes ahora, no en lo que se dijo aquí]: ${m.text!}`,
       });
       continue;
     }
@@ -675,6 +678,21 @@ function textoDeResultadoProducto(
     return `[SISTEMA] Encontré varios productos que podrían ser lo que preguntan: ${lista}. Pregúntale al cliente cuál de estos es, antes de dar un precio o confirmar que lo tienen.`;
   }
   return `[SISTEMA] No encontré "${consulta}" en el catálogo real. No digas que sí lo tienen: sigue tus reglas de siempre (decir que no lo manejan, o que lo confirmas con el equipo).`;
+}
+
+/**
+ * Arma el mensaje `[SISTEMA]` para una consulta de LISTADO abierto ("¿qué
+ * sabores tienen?"), a diferencia de `textoDeResultadoProducto` (un producto
+ * puntual). Reutiliza `renderCatalogoDePedidos` tal cual — el mismo texto que
+ * ya arma el system prompt — para no duplicar el formato del catálogo en dos
+ * sitios distintos.
+ */
+function textoDeListadoDeProducto(productos: ProductoDelCatalogo[]): string {
+  return (
+    `[SISTEMA] Este es el catálogo real y ACTUAL de este negocio. Respóndele al ` +
+    `cliente con base en esta lista, no en lo que se haya dicho antes en la ` +
+    `conversación (puede estar desactualizado):\n${renderCatalogoDePedidos(productos)}`
+  );
 }
 
 /** Mismo principio que `textoDeResultadoProducto`, para métodos de pago (caso Nequi). */
@@ -1075,12 +1093,57 @@ export async function runAgentTurn(
   const saltoDeHistorial = mayorSaltoDeHistorial(history);
   if (saltoDeHistorial !== null) registrarSaltoDeHistorial(traza, saltoDeHistorial);
 
+  /**
+   * Consulta de LISTADO abierto ("¿qué sabores tienen?"), no de un producto
+   * puntual — auditoría de jerarquía de verdad (1-sep-2026), incidente real
+   * de Malía: un mensaje humano desactualizado en el historial ("no tenemos
+   * Leche Klim") quedó como la última palabra porque la pregunta real
+   * ("¿cuáles son los sabores que tienes?") no calzaba con
+   * `detectarConsultaFactualDeProducto` (pide un producto, no una lista).
+   *
+   * Se evalúa ANTES que la consulta de producto puntual (hallazgo Fase C,
+   * 1-sep-2026): con el orden inverso, "¿Qué sabores tienen disponibles?"
+   * caía en `PATRON_EXISTENCIA` (que matchea "tienen" en cualquier
+   * posición) y capturaba "disponibles" como si fuera el nombre de un
+   * producto buscado — `SEÑALES_ABIERTAS` no lo excluía porque exige "que"
+   * inmediatamente antes del verbo, y aquí hay un sustantivo de por medio
+   * ("sabores"). Evaluar el listado primero es seguro: es deliberadamente
+   * conservador (ver `deteccion.ts`) y nunca dispara en una pregunta de
+   * producto identificable ("¿tienen Pavé de leche Klim?", "¿qué tienen de
+   * chocolate?"), así que no le quita precedencia a esos casos.
+   */
+  let huboListado = false;
+  if (
+    profile.consultasVerificadasEnabled &&
+    !contrataCitas(vertical) &&
+    productosDelPedido.length > 0 &&
+    lastInbound.text &&
+    detectarConsultaDeListadoDeProducto(lastInbound.text)
+  ) {
+    huboListado = true;
+    console.warn(
+      `[producto] ${organizationId}: consulta de listado detectada (verificado antes de llamar al modelo)`
+    );
+    traza.deteccionFactual = "(listado de catálogo)";
+    agregarHecho(traza, {
+      tipo: "producto",
+      consulta: "(listado completo)",
+      resultado: "listado",
+      origen: "backend",
+    });
+    messages.push({
+      role: "user",
+      content: textoDeListadoDeProducto(productosDelPedido),
+    });
+  }
+
   let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
   if (
     profile.consultasVerificadasEnabled &&
     !contrataCitas(vertical) &&
     productosDelPedido.length > 0 &&
-    lastInbound.text
+    lastInbound.text &&
+    !huboListado
   ) {
     const consultaFactual = detectarConsultaFactualDeProducto(lastInbound.text);
     if (consultaFactual) {

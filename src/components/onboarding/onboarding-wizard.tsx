@@ -198,6 +198,7 @@ function Lista({
       {filas.map((v, i) => (
         <ExpandableInput
           key={i}
+          autoResize
           value={v}
           placeholder={marcador}
           onChange={(e) => {
@@ -346,6 +347,7 @@ function FotosDeProductos() {
           cuando un cliente pregunta por ese producto.
         </p>
         <ExpandableInput
+          autoResize
           placeholder="Ej: Volumen Ruso"
           value={etiqueta}
           onChange={(e) => setEtiqueta(e.target.value)}
@@ -427,6 +429,7 @@ export function OnboardingWizard() {
         <>
           <Campo titulo="¿Cómo se llama tu negocio?" ejemplo="Pastelería La Dulce">
             <ExpandableInput
+              autoResize
               value={ficha.nombre ?? ""}
               onChange={(e) => set({ nombre: e.target.value })}
             />
@@ -437,6 +440,7 @@ export function OnboardingWizard() {
             ejemplo="Vendemos tortas y postres artesanales por encargo."
           >
             <Textarea
+              autoResize
               rows={2}
               value={ficha.queVende ?? ""}
               onChange={(e) => set({ queVende: e.target.value })}
@@ -449,6 +453,7 @@ export function OnboardingWizard() {
           </Campo>
           <Campo titulo="¿En qué ciudad y barrio estás?" ejemplo="Cali, barrio Granada">
             <ExpandableInput
+              autoResize
               value={ficha.ubicacion ?? ""}
               onChange={(e) => set({ ubicacion: e.target.value })}
             />
@@ -579,6 +584,7 @@ export function OnboardingWizard() {
                 ejemplo="Por Yango, llega en 1 hora aproximadamente."
               >
                 <ExpandableInput
+                  autoResize
                   value={ficha.entrega?.como ?? ""}
                   onChange={(e) =>
                     set({
@@ -596,6 +602,7 @@ export function OnboardingWizard() {
                 ejemplo="El domicilio se paga aparte, directo al repartidor cuando llega."
               >
                 <ExpandableInput
+                  autoResize
                   value={ficha.entrega?.quienPagaElDomicilio ?? ""}
                   onChange={(e) =>
                     set({
@@ -612,6 +619,7 @@ export function OnboardingWizard() {
                 ejemplo="No entramos a conjuntos ni centros comerciales; entregamos en portería."
               >
                 <ExpandableInput
+                  autoResize
                   value={ficha.entrega?.restricciones ?? ""}
                   onChange={(e) =>
                     set({
@@ -630,6 +638,7 @@ export function OnboardingWizard() {
             ejemplo="Sí, pasando por el local en horario de atención."
           >
             <ExpandableInput
+              autoResize
               value={ficha.entrega?.recogerEnLocal ?? ""}
               onChange={(e) =>
                 set({
@@ -653,6 +662,7 @@ export function OnboardingWizard() {
             ejemplo="Rappi — https://rappi.app.link/mi-negocio"
           >
             <Textarea
+              autoResize
               rows={2}
               value={canalesATexto(ficha.canales)}
               onChange={(e) => set({ canales: textoACanales(e.target.value) })}
@@ -668,6 +678,7 @@ export function OnboardingWizard() {
         <>
           <Campo titulo="¿Qué formas de pago aceptas?" ejemplo="Transferencia y efectivo.">
             <ExpandableInput
+              autoResize
               value={ficha.pago?.formas ?? ""}
               onChange={(e) =>
                 set({
@@ -685,6 +696,7 @@ export function OnboardingWizard() {
             ejemplo="Bancolombia Ahorros 12345678901 — a nombre de María Pérez"
           >
             <Textarea
+              autoResize
               rows={3}
               value={ficha.pago?.datosDeCuenta ?? ""}
               onChange={(e) =>
@@ -757,6 +769,7 @@ export function OnboardingWizard() {
             ejemplo="Cercano y alegre, con emojis, hablando siempre de nosotros."
           >
             <Textarea
+              autoResize
               rows={3}
               value={ficha.tono ?? ""}
               onChange={(e) => set({ tono: e.target.value })}
@@ -778,6 +791,7 @@ export function OnboardingWizard() {
             ejemplo="Sí, y se puede agregar una tarjeta con mensaje."
           >
             <ExpandableInput
+              autoResize
               value={ficha.regalos ?? ""}
               onChange={(e) => set({ regalos: e.target.value })}
             />
@@ -788,6 +802,7 @@ export function OnboardingWizard() {
             ejemplo="¡Hola! 💗 Bienvenid@ a La Dulce. ¿Qué se te antoja hoy?"
           >
             <Textarea
+              autoResize
               rows={2}
               value={ficha.saludoInicial ?? ""}
               onChange={(e) => set({ saludoInicial: e.target.value })}

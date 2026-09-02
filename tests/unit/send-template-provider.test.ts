@@ -15,10 +15,17 @@ vi.mock("@/lib/meta/client", async (importOriginal) => {
 
 const ycloudSendTemplate = vi.fn();
 const isYcloudEnabled = vi.fn();
-vi.mock("@/lib/ycloud/client", () => ({
-  isYcloudEnabled: (...args: unknown[]) => isYcloudEnabled(...args),
-  ycloudSendTemplate: (...args: unknown[]) => ycloudSendTemplate(...args),
-}));
+vi.mock("@/lib/ycloud/client", async (importOriginal) => {
+  // `YcloudHttpError` real (no re-implementada aquí): la clasificación de
+  // errores en templates.ts hace `instanceof` contra ESTA clase — un doble
+  // local rompería esa comparación en silencio.
+  const original = await importOriginal<typeof import("@/lib/ycloud/client")>();
+  return {
+    ...original,
+    isYcloudEnabled: (...args: unknown[]) => isYcloudEnabled(...args),
+    ycloudSendTemplate: (...args: unknown[]) => ycloudSendTemplate(...args),
+  };
+});
 
 const getCredentialsByOrg = vi.fn();
 vi.mock("@/server/whatsapp/credentials", () => ({
@@ -153,5 +160,154 @@ describe("sendTemplate elige proveedor igual que sendText", () => {
 
     expect(graphRequest).toHaveBeenCalledTimes(1);
     expect(ycloudSendTemplate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Fase 5C: `sendTemplate()` como wrapper de `enviarTemplateAlProveedor()` —
+ * mismo INSERT, mismo comportamiento de errores histórico (incluida la
+ * asimetría real entre proveedores que ya existía antes de esta fase).
+ */
+describe("sendTemplate: regresión tras la extracción de enviarTemplateAlProveedor", () => {
+  beforeEach(() => {
+    graphRequest.mockReset();
+    ycloudSendTemplate.mockReset();
+    isYcloudEnabled.mockReset();
+    getCredentialsByOrg.mockReset();
+    selectQueue.length = 0;
+  });
+
+  it("Fase 5D, punto 2.D: sendTemplate() NUNCA pasa retry:false — el envío conversacional real conserva su reintento", async () => {
+    selectQueue.push([template], [conversationRow]);
+    ycloudSendTemplate.mockResolvedValue("wamid.ycloud.retry-check");
+    getCredentialsByOrg.mockResolvedValue({
+      organizationId: "org_1",
+      phoneNumberId: "ycloud:573155136091",
+      token: "clientkey",
+      displayPhoneNumber: "573155136091",
+      status: "connected",
+    });
+
+    const { sendTemplate } = await import("@/server/whatsapp/templates");
+    await sendTemplate({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_1",
+      variable: "María",
+    });
+
+    // El wrapper puede omitir `retry` (default true en ycloud/client.ts) o
+    // pasarlo explícito en true — lo único que jamás debe ocurrir es que
+    // llegue `false`, que apagaría el reintento del envío conversacional real.
+    const retryRecibido = ycloudSendTemplate.mock.calls[0]![0].retry;
+    expect(retryRecibido).not.toBe(false);
+  });
+
+  it("éxito: inserta message con los mismos campos de siempre (direction/type/status/text)", async () => {
+    selectQueue.push([template], [conversationRow]);
+    ycloudSendTemplate.mockResolvedValue("wamid.ycloud.regresion");
+    getCredentialsByOrg.mockResolvedValue({
+      organizationId: "org_1",
+      phoneNumberId: "ycloud:573155136091",
+      token: "clientkey",
+      displayPhoneNumber: "573155136091",
+      status: "connected",
+    });
+
+    const { sendTemplate } = await import("@/server/whatsapp/templates");
+    const resultado = await sendTemplate({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_1",
+      variable: "María",
+    });
+
+    expect(resultado.messageId).toEqual(expect.any(String));
+    expect(resultado.messageId.length).toBeGreaterThan(0);
+  });
+
+  it("YCloud: cualquier fallo del proveedor se envuelve en TemplateError('meta_error', …) — igual que siempre", async () => {
+    selectQueue.push([template], [conversationRow]);
+    const { YcloudHttpError } = await import("@/lib/ycloud/client");
+    ycloudSendTemplate.mockRejectedValue(new YcloudHttpError(400, "número inválido"));
+    getCredentialsByOrg.mockResolvedValue({
+      organizationId: "org_1",
+      phoneNumberId: "ycloud:573155136091",
+      token: "clientkey",
+      displayPhoneNumber: "573155136091",
+      status: "connected",
+    });
+
+    const { sendTemplate, TemplateError } = await import("@/server/whatsapp/templates");
+    const promesa = sendTemplate({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_1",
+      variable: "María",
+    });
+
+    await expect(promesa).rejects.toBeInstanceOf(TemplateError);
+    await expect(promesa).rejects.toMatchObject({ code: "meta_error" });
+  });
+
+  it("Graph: el SendError original se sigue propagando SIN envolver — asimetría histórica preservada", async () => {
+    selectQueue.push([template], [conversationRow]);
+    isYcloudEnabled.mockReturnValue(false);
+    const { MetaApiError } = await import("@/lib/meta/client");
+    graphRequest.mockRejectedValue(new MetaApiError("no disponible", { status: 500 }));
+    getCredentialsByOrg.mockResolvedValue({
+      organizationId: "org_1",
+      phoneNumberId: "123456",
+      token: "graph-token",
+      displayPhoneNumber: "573155136091",
+      status: "connected",
+    });
+
+    const { sendTemplate } = await import("@/server/whatsapp/templates");
+    const { SendError } = await import("@/server/inbox/send");
+    const promesa = sendTemplate({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_1",
+      variable: "María",
+    });
+
+    await expect(promesa).rejects.toBeInstanceOf(SendError);
+    await expect(promesa).rejects.toMatchObject({ code: "meta_unavailable" });
+  });
+
+  it("errores de precondición (plantilla no encontrada) no cambian: TemplateError('not_found')", async () => {
+    selectQueue.push([]); // sin plantilla
+    const { sendTemplate, TemplateError } = await import("@/server/whatsapp/templates");
+    const promesa = sendTemplate({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_inexistente",
+    });
+
+    await expect(promesa).rejects.toBeInstanceOf(TemplateError);
+    await expect(promesa).rejects.toMatchObject({ code: "not_found" });
+    expect(ycloudSendTemplate).not.toHaveBeenCalled();
+    expect(graphRequest).not.toHaveBeenCalled();
+  });
+
+  it("sandbox: sigue lanzando SendError('sandbox_violation') ANTES de tocar el proveedor", async () => {
+    selectQueue.push(
+      [template],
+      [{ conversation: { id: "cv_1", organizationId: "org_1", isTest: true }, contact: conversationRow.contact }]
+    );
+    const { sendTemplate } = await import("@/server/whatsapp/templates");
+    const { SendError } = await import("@/server/inbox/send");
+    const promesa = sendTemplate({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_1",
+      variable: "María",
+    });
+
+    await expect(promesa).rejects.toBeInstanceOf(SendError);
+    await expect(promesa).rejects.toMatchObject({ code: "sandbox_violation" });
+    expect(ycloudSendTemplate).not.toHaveBeenCalled();
+    expect(graphRequest).not.toHaveBeenCalled();
   });
 });

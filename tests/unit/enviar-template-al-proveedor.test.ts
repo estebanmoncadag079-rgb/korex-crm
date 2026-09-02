@@ -236,3 +236,103 @@ describe("enviarTemplateAlProveedor: clasificación Graph", () => {
     });
   });
 });
+
+/**
+ * Fase 6C: `contentSnapshot` como fuente de verdad del contenido (Fase 6B,
+ * hallazgo #1) — `templateId` sigue usándose para confirmar identidad y
+ * `status === "approved"`, pero `name`/`language`/`body` del PAYLOAD y el
+ * `renderedText` deben salir del snapshot cuando se pasa, ignorando el
+ * `template.body` vivo del mock (que aquí se deja deliberadamente distinto
+ * del snapshot, para que cualquier fuga del body vivo haga fallar el test).
+ */
+describe("enviarTemplateAlProveedor: contentSnapshot como fuente de contenido (Fase 6C)", () => {
+  beforeEach(() => {
+    graphRequest.mockReset();
+    ycloudSendTemplateMock.mockReset();
+    isYcloudEnabled.mockReset();
+    getCredentialsByOrg.mockReset();
+    selectQueue.length = 0;
+    getCredentialsByOrg.mockResolvedValue(credsYcloud);
+  });
+
+  it("A — snapshot CON {{1}} + template vivo SIN {{1}}: sigue exigiendo/usando la variable del snapshot", async () => {
+    const templateVivoSinVariable = { ...template, body: "Hola, ya no hay variable" };
+    selectQueue.push([templateVivoSinVariable], [conversationRow]);
+    ycloudSendTemplateMock.mockResolvedValue("wamid.a");
+    const { enviarTemplateAlProveedor } = await import("@/server/whatsapp/templates");
+
+    const resultado = await enviarTemplateAlProveedor({
+      ...input(),
+      contentSnapshot: { name: "seguimiento", language: "es", body: "Hola {{1}}, snapshot" },
+    });
+    expect(resultado).toEqual({
+      kind: "SUCCESS",
+      waMessageId: "wamid.a",
+      renderedText: "Hola María, snapshot",
+    });
+    expect(ycloudSendTemplateMock.mock.calls[0]![0]).toMatchObject({ bodyParams: ["María"] });
+  });
+
+  it("B — snapshot SIN {{1}} + template vivo CON {{1}}: no exige ni manda variable adicional", async () => {
+    const templateVivoConVariable = { ...template, body: "Hola {{1}}, vivo" };
+    selectQueue.push([templateVivoConVariable], [conversationRow]);
+    ycloudSendTemplateMock.mockResolvedValue("wamid.b");
+    const { enviarTemplateAlProveedor } = await import("@/server/whatsapp/templates");
+
+    const resultado = await enviarTemplateAlProveedor({
+      organizationId: "org_1",
+      conversationId: "cv_1",
+      templateId: "tpl_1",
+      // Sin `variable`: si el cálculo mirara el body vivo (con {{1}}), esto
+      // lanzaría "La plantilla requiere el valor de {{1}}".
+      contentSnapshot: { name: "seguimiento", language: "es", body: "Hola, sin variable" },
+    });
+    expect(resultado).toEqual({
+      kind: "SUCCESS",
+      waMessageId: "wamid.b",
+      renderedText: "Hola, sin variable",
+    });
+    expect(ycloudSendTemplateMock.mock.calls[0]![0]).toMatchObject({ bodyParams: [] });
+  });
+
+  it("C — el body del snapshot se usa tal cual, sin importar cuál sea el body vivo del template", async () => {
+    const templateVivoDistinto = { ...template, body: "Contenido completamente distinto {{1}}" };
+    selectQueue.push([templateVivoDistinto], [conversationRow]);
+    ycloudSendTemplateMock.mockResolvedValue("wamid.c");
+    const { enviarTemplateAlProveedor } = await import("@/server/whatsapp/templates");
+
+    const resultado = await enviarTemplateAlProveedor({
+      ...input(),
+      contentSnapshot: { name: "seguimiento", language: "es", body: "Snapshot congelado {{1}}" },
+    });
+    expect((resultado as { renderedText: string }).renderedText).toBe("Snapshot congelado María");
+  });
+
+  it("sin contentSnapshot (uso conversacional normal): sigue leyendo name/language/body del template vivo — sin cambios", async () => {
+    selectQueue.push([template], [conversationRow]);
+    ycloudSendTemplateMock.mockResolvedValue("wamid.d");
+    const { enviarTemplateAlProveedor } = await import("@/server/whatsapp/templates");
+
+    const resultado = await enviarTemplateAlProveedor(input());
+    expect(resultado).toEqual({ kind: "SUCCESS", waMessageId: "wamid.d", renderedText: "Hola María" });
+    expect(ycloudSendTemplateMock.mock.calls[0]![0]).toMatchObject({
+      name: template.name,
+      language: template.language,
+    });
+  });
+
+  it("templateId apunta a un template pending (revocado tras congelar el snapshot): sigue bloqueando el envío", async () => {
+    selectQueue.push([{ ...template, status: "pending" }]);
+    const { enviarTemplateAlProveedor } = await import("@/server/whatsapp/templates");
+
+    await expect(
+      enviarTemplateAlProveedor({
+        ...input(),
+        contentSnapshot: { name: "seguimiento", language: "es", body: "Hola {{1}}, snapshot" },
+      })
+    ).rejects.toMatchObject({ code: "invalid" });
+    // Nunca llega a llamar al proveedor: la validación de identidad/estado
+    // vive por fuera del contenido, y sigue aplicando aunque haya snapshot.
+    expect(ycloudSendTemplateMock).not.toHaveBeenCalled();
+  });
+});

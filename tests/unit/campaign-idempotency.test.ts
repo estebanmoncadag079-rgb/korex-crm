@@ -247,7 +247,7 @@ describe("registrarFalloEnvioDeCampana: solo para errores EXPLÍCITOS del provee
     txMock.execute.mockResolvedValue([]);
   });
 
-  it("agotados los intentos, marca failed definitivo — sin reintento", async () => {
+  it("agotados los intentos (retryable=true), marca failed definitivo — sin reintento", async () => {
     const { registrarFalloEnvioDeCampana, MAX_INTENTOS_CAMPANA } = await import(
       "@/server/campaigns/cola"
     );
@@ -257,6 +257,7 @@ describe("registrarFalloEnvioDeCampana: solo para errores EXPLÍCITOS del provee
       organizationId: "org_a",
       errorProveedor: "número inválido",
       attempts: MAX_INTENTOS_CAMPANA,
+      retryable: true,
     });
     expect(resultado).toEqual({ reintenta: false });
     // Un solo update de recipient (a failed) y un execute (job → fallido).
@@ -264,7 +265,7 @@ describe("registrarFalloEnvioDeCampana: solo para errores EXPLÍCITOS del provee
     expect(txMock.execute).toHaveBeenCalledTimes(1);
   });
 
-  it("con intentos restantes, reprograma: recipient vuelve a pending, job a pendiente", async () => {
+  it("con intentos restantes y retryable=true, reprograma: recipient vuelve a pending, job a pendiente", async () => {
     const { registrarFalloEnvioDeCampana } = await import("@/server/campaigns/cola");
     const resultado = await registrarFalloEnvioDeCampana({
       jobId: "cmpj_1",
@@ -272,10 +273,34 @@ describe("registrarFalloEnvioDeCampana: solo para errores EXPLÍCITOS del provee
       organizationId: "org_a",
       errorProveedor: "timeout de red explícito",
       attempts: 1,
+      retryable: true,
     });
     expect(resultado).toEqual({ reintenta: true });
     // Dos updates de recipient (failed, luego pending) y un execute (reprogramar el job).
     expect(txMock.update).toHaveBeenCalledTimes(2);
+    expect(txMock.execute).toHaveBeenCalledTimes(1);
+  });
+
+  // Fase 6C, hallazgo #4 de la Fase 6B: antes esta función ignoraba
+  // `retryable` por completo y solo miraba `attempts` — un 400 se
+  // reintentaba igual que un 429 hasta agotar MAX_INTENTOS_CAMPANA.
+  it("retryable=false: falla definitivo AUNQUE queden intentos — nunca vuelve a pending", async () => {
+    const { registrarFalloEnvioDeCampana, MAX_INTENTOS_CAMPANA } = await import(
+      "@/server/campaigns/cola"
+    );
+    const resultado = await registrarFalloEnvioDeCampana({
+      jobId: "cmpj_1",
+      recipientId: "cmpr_1",
+      organizationId: "org_a",
+      errorProveedor: "número inválido (400)",
+      attempts: 1, // muy por debajo de MAX_INTENTOS_CAMPANA
+      retryable: false,
+    });
+    expect(MAX_INTENTOS_CAMPANA).toBeGreaterThan(1); // la premisa del test: sí quedaban intentos
+    expect(resultado).toEqual({ reintenta: false });
+    // Un solo update de recipient (a failed, NUNCA un segundo update a pending)
+    // y un execute (job → fallido, no reprogramado).
+    expect(txMock.update).toHaveBeenCalledTimes(1);
     expect(txMock.execute).toHaveBeenCalledTimes(1);
   });
 
@@ -290,6 +315,7 @@ describe("registrarFalloEnvioDeCampana: solo para errores EXPLÍCITOS del provee
         organizationId: "org_a",
         errorProveedor: "número inválido",
         attempts: 1,
+        retryable: true,
       })
     ).rejects.toThrow(/ya no admite pasar a "failed"/);
 

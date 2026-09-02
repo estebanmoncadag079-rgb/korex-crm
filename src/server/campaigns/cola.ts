@@ -290,6 +290,17 @@ export async function registrarEnvioExitosoDeCampana(input: {
  * `indeterminado` — nunca a `failed` automáticamente, porque `failed`
  * afirma con certeza que el proveedor rechazó el envío, algo que un
  * timeout no permite afirmar.
+ *
+ * Fase 6C — única fuente de verdad de la política de reintento: antes esta
+ * función solo miraba `attempts` vs `MAX_INTENTOS_CAMPANA`, ignorando por
+ * completo si el propio proveedor certificó que reintentar no tiene
+ * sentido (`retryable: false` — p. ej. YCloud 400/401/403, Graph
+ * `meta_error`). Un 400 se reintentaba igual que un 429, desperdiciando un
+ * ciclo de espera en un error que ya se sabía que iba a repetirse. Ahora
+ * `retryable: false` cierra definitivo sin importar cuántos intentos
+ * queden; `retryable: true` sigue la política de intentos de siempre. El
+ * worker nunca decide esto por su cuenta — solo reenvía lo que el
+ * adaptador clasificó.
  */
 export async function registrarFalloEnvioDeCampana(input: {
   jobId: string;
@@ -297,6 +308,7 @@ export async function registrarFalloEnvioDeCampana(input: {
   organizationId: string;
   errorProveedor: string;
   attempts: number;
+  retryable: boolean;
 }): Promise<{ reintenta: boolean }> {
   const db = getDb();
   const recorte = input.errorProveedor.slice(0, 2000);
@@ -350,7 +362,9 @@ export async function registrarFalloEnvioDeCampana(input: {
         )
       );
 
-    if (input.attempts >= MAX_INTENTOS_CAMPANA) {
+    // No reintentable (el proveedor certificó que no tiene caso) o intentos
+    // agotados: mismo destino final, `failed` definitivo.
+    if (!input.retryable || input.attempts >= MAX_INTENTOS_CAMPANA) {
       await tx.execute(sql`
         UPDATE campaign_send_job
            SET status = 'fallido',

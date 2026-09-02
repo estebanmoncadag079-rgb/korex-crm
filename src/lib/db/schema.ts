@@ -1358,8 +1358,19 @@ export const campaign = pgTable(
     templateId: text("template_id").references(() => template.id, {
       onDelete: "set null",
     }),
-    /** Copia congelada de `template` (name/body/category) al pasar a `ready`. */
-    templateSnapshot: jsonb("template_snapshot"),
+    /**
+     * Copia congelada de `template` (name/language/category/body) al pasar
+     * a `ready` — fuente de verdad del CONTENIDO enviado (Fase 6C);
+     * `templateId` sigue siendo la identidad/estado ante el proveedor. Solo
+     * anotación de tipo: la columna ya existía como jsonb sin tipar, esto
+     * no requiere migración.
+     */
+    templateSnapshot: jsonb("template_snapshot").$type<{
+      name: string;
+      language: string;
+      category: string;
+      body: string;
+    }>(),
     /** Imagen promocional — fuera del MVP, `sendTemplate()` aún no la soporta. */
     mediaAssetId: text("media_asset_id").references(() => mediaAsset.id, {
       onDelete: "set null",

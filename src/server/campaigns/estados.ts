@@ -35,7 +35,14 @@ const TRANSICIONES_RECIPIENT: Record<
   readonly CampaignRecipientStatus[]
 > = {
   pending: ["sending", "skipped"],
-  sending: ["sent", "failed", "pending", "indeterminado"],
+  /**
+   * `sending → skipped` (Fase 6A): el worker sigue el orden pedido —
+   * reclamar primero (evidencia de intento, sending), revalidar opt-out
+   * DESPUÉS — así que el recipient ya puede estar en `sending` cuando se
+   * descubre que hay que omitirlo. No se revalida opt-out antes del claim
+   * a propósito: el orden lo fija el diseño del worker, no esta función.
+   */
+  sending: ["sent", "failed", "pending", "indeterminado", "skipped"],
   sent: [],
   failed: ["pending"],
   skipped: [],
@@ -70,6 +77,7 @@ const TRANSICIONES_AUTOMATICAS_PERMITIDAS: readonly [
   ["sending", "failed"],
   ["sending", "pending"],
   ["sending", "indeterminado"],
+  ["sending", "skipped"],
   ["failed", "pending"],
 ];
 
@@ -80,4 +88,40 @@ export function transicionAutomaticaPermitida(
   return TRANSICIONES_AUTOMATICAS_PERMITIDAS.some(
     ([d, h]) => d === desde && h === hacia
   );
+}
+
+/**
+ * Máquina de estados de `campaign` (Fase 6A) — mismo espíritu que la de
+ * `campaign_recipient`: nada de transiciones arbitrarias, nada de estados
+ * inventados. Los 8 valores ya existen en el schema desde la Fase 3C.
+ */
+export type CampaignStatus =
+  | "draft"
+  | "ready"
+  | "scheduled"
+  | "processing"
+  | "paused"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+const TRANSICIONES_CAMPAIGN: Record<CampaignStatus, readonly CampaignStatus[]> = {
+  draft: ["ready", "cancelled"],
+  ready: ["scheduled", "processing", "cancelled"],
+  scheduled: ["processing", "cancelled"],
+  // `paused` (401/reconexión, Fase 6A punto 14) y `failed` (error
+  // estructural, no destinatarios individuales) son los dos únicos destinos
+  // de una campaña que ya está corriendo, además del cierre normal.
+  processing: ["paused", "completed", "failed"],
+  paused: ["processing", "cancelled"],
+  completed: [],
+  cancelled: [],
+  failed: [],
+};
+
+export function transicionCampanaValida(
+  desde: CampaignStatus,
+  hacia: CampaignStatus
+): boolean {
+  return TRANSICIONES_CAMPAIGN[desde].includes(hacia);
 }

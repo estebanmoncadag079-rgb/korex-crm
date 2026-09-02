@@ -401,6 +401,16 @@ export async function enviarTemplateAlProveedor(input: {
   variable?: string;
   retry?: boolean;
   timeoutMs?: number;
+  /**
+   * Contenido a usar en vez del `template` vivo (Fase 6C, fuente de verdad
+   * híbrida): cuando se pasa, `name`/`language`/`body` de este snapshot
+   * gobiernan el payload al proveedor y el `renderedText` — `templateId`
+   * solo se usa para confirmar que la plantilla sigue existiendo y
+   * `approved` (identidad/estado ante Meta, nunca contenido). Sin este
+   * campo (uso conversacional normal vía `sendTemplate()`), se sigue
+   * leyendo todo del `template` vivo — comportamiento histórico intacto.
+   */
+  contentSnapshot?: { name: string; language: string; body: string };
 }): Promise<ResultadoProveedor> {
   const db = getDb();
 
@@ -420,7 +430,16 @@ export async function enviarTemplateAlProveedor(input: {
   if (template.status !== "approved") {
     throw new TemplateError("invalid", "Solo se pueden enviar plantillas aprobadas");
   }
-  const needsVariable = countVariables(template.body) === 1;
+
+  // "contenido" = snapshot (si se pasó) | template vivo (comportamiento
+  // histórico) — "identidad/estado Meta" = SIEMPRE el template vivo, arriba.
+  const contenido = input.contentSnapshot ?? {
+    name: template.name,
+    language: template.language,
+    body: template.body,
+  };
+
+  const needsVariable = countVariables(contenido.body) === 1;
   if (needsVariable && !input.variable?.trim()) {
     throw new TemplateError("invalid", "La plantilla requiere el valor de {{1}}");
   }
@@ -470,15 +489,15 @@ export async function enviarTemplateAlProveedor(input: {
    */
   const clientApiKey = ycloudApiKeyOf(creds);
   const bodyParams = needsVariable ? [input.variable!.trim()] : [];
-  const renderedText = renderBody(template.body, input.variable?.trim());
+  const renderedText = renderBody(contenido.body, input.variable?.trim());
 
   if (clientApiKey || isYcloudEnabled()) {
     try {
       const waMessageId = await ycloudSendTemplate({
         from: creds.displayPhoneNumber ?? "",
         to,
-        name: template.name,
-        language: template.language,
+        name: contenido.name,
+        language: contenido.language,
         bodyParams,
         apiKey: clientApiKey,
         retry: input.retry,
@@ -496,8 +515,8 @@ export async function enviarTemplateAlProveedor(input: {
       to: to.value,
       type: "template",
       template: {
-        name: template.name,
-        language: { code: template.language },
+        name: contenido.name,
+        language: { code: contenido.language },
         ...(needsVariable
           ? {
               components: [

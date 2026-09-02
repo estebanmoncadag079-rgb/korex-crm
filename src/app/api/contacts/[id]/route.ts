@@ -36,6 +36,14 @@ const patchSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   notes: z.string().max(4000).nullable().optional(),
   archived: z.boolean().optional(),
+  /**
+   * Baja de campañas de marketing (Fase 3D, 1-sep-2026). Mismo patrón que
+   * `archived`: un booleano de entrada, dos columnas de salida — el
+   * timestamp lo pone el servidor, nunca el cliente, para que
+   * `marketingOptOutAt` sea siempre "cuándo se activó de verdad" y no un
+   * valor que alguien pueda falsear desde el body.
+   */
+  marketingOptOut: z.boolean().optional(),
 });
 
 export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
@@ -48,6 +56,10 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
   if (body.data.notes !== undefined) set.notes = body.data.notes;
   if (body.data.archived !== undefined) {
     set.archivedAt = body.data.archived ? new Date() : null;
+  }
+  if (body.data.marketingOptOut !== undefined) {
+    set.marketingOptOut = body.data.marketingOptOut;
+    set.marketingOptOutAt = body.data.marketingOptOut ? new Date() : null;
   }
 
   const db = getDb();

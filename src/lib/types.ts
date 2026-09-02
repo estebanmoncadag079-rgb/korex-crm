@@ -52,6 +52,8 @@ export type ContactDto = {
   phone: string;
   notes: string | null;
   archivedAt: string | null;
+  marketingOptOut: boolean;
+  marketingOptOutAt: string | null;
 };
 
 /**

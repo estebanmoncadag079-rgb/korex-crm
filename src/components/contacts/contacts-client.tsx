@@ -97,6 +97,11 @@ export function ContactsClient() {
                         Archivado
                       </Badge>
                     )}
+                    {c.marketingOptOut && (
+                      <Badge className="shrink-0" variant="secondary">
+                        Sin promociones
+                      </Badge>
+                    )}
                   </div>
                   <p className="truncate text-xs text-muted-foreground">
                     {formatPhone(c.phone)}
@@ -156,10 +161,17 @@ function EditDialog({
 }: {
   contact: ContactDto;
   onClose: () => void;
-  onSave: (patch: { name: string; notes: string }) => Promise<void>;
+  onSave: (patch: {
+    name: string;
+    notes: string;
+    marketingOptOut: boolean;
+  }) => Promise<void>;
 }) {
   const [name, setName] = useState(contact.name);
   const [notes, setNotes] = useState(contact.notes ?? "");
+  const [marketingOptOut, setMarketingOptOut] = useState(
+    contact.marketingOptOut
+  );
 
   return (
     /*
@@ -199,6 +211,22 @@ function EditDialog({
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-primary"
+              checked={marketingOptOut}
+              onChange={(e) => setMarketingOptOut(e.target.checked)}
+            />
+            <span>
+              No recibir promociones ni comunicaciones de marketing
+              <span className="block text-xs text-muted-foreground">
+                {marketingOptOut
+                  ? "Este contacto no recibirá futuras campañas."
+                  : "Este contacto puede recibir futuras campañas."}
+              </span>
+            </span>
+          </label>
         </div>
         <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="ghost" onClick={onClose}>
@@ -206,7 +234,9 @@ function EditDialog({
           </Button>
           <Button
             disabled={!name.trim()}
-            onClick={() => void onSave({ name: name.trim(), notes })}
+            onClick={() =>
+              void onSave({ name: name.trim(), notes, marketingOptOut })
+            }
           >
             Guardar
           </Button>

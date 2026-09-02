@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
 import type { Requisito } from "@/server/ai/generador/ficha";
@@ -10,7 +10,64 @@ export function serializeContact(c: typeof schema.contact.$inferSelect) {
     phone: c.phone,
     notes: c.notes,
     archivedAt: c.archivedAt?.toISOString() ?? null,
+    marketingOptOut: c.marketingOptOut,
+    marketingOptOutAt: c.marketingOptOutAt?.toISOString() ?? null,
   };
+}
+
+/* ============================================================
+ * Opt-out de marketing (auditoría de campañas, Fase 3D, 1-sep-2026)
+ * ============================================================
+ *
+ * Ninguna campaña existe todavía (Fase 3G) — esto es solo la barrera. La
+ * regla de dos capas diseñada en la Fase 3B: (A) nunca incluir en la
+ * audiencia a quien tenga opt-out (`contactosElegiblesParaMarketing`), y
+ * (B) volver a comprobarlo justo antes de enviar, porque la campaña puede
+ * esperar en cola horas o días y el contacto pudo darse de baja mientras
+ * tanto (`tieneOptOutDeMarketing`, para cuando exista el motor de envío).
+ */
+
+/** Regla pura de elegibilidad — sin acceso a base de datos, fácil de testear. */
+export function esElegibleParaMarketing(c: {
+  archivedAt: Date | null;
+  marketingOptOut: boolean;
+}): boolean {
+  return !c.archivedAt && !c.marketingOptOut;
+}
+
+/**
+ * Los únicos contactos que una futura campaña podría incluir: de esta
+ * organización, no archivados, sin opt-out. Única función/repository para
+ * esto — nadie debe reconstruir esta lista recorriendo `contact` a mano.
+ */
+export async function contactosElegiblesParaMarketing(organizationId: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.contact)
+    .where(
+      scoped(
+        schema.contact.organizationId,
+        organizationId,
+        isNull(schema.contact.archivedAt),
+        eq(schema.contact.marketingOptOut, false)
+      )
+    );
+  return rows;
+}
+
+/**
+ * Segunda barrera: relee el opt-out ACTUAL de un contacto, por si cambió
+ * después de construida la audiencia. Sin consumidor todavía (el motor de
+ * envío es la Fase 3G) — existe ya para que ese motor no tenga que
+ * reinventar esta consulta.
+ */
+export async function tieneOptOutDeMarketing(
+  organizationId: string,
+  contactId: string
+): Promise<boolean> {
+  const contact = await getContactById(organizationId, contactId);
+  return contact?.marketingOptOut ?? true;
 }
 
 export async function getContactById(

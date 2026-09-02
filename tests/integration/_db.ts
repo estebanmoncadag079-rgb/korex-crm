@@ -34,6 +34,7 @@ export async function cargarConBaseDePruebas() {
   const campaignWorker = await import("@/server/campaigns/worker");
   const campaignPruebaControlada = await import("@/server/campaigns/prueba-controlada");
   const campaignEjecutarPrimerEnvio = await import("@/server/campaigns/ejecutar-primer-envio");
+  const templates = await import("@/server/whatsapp/templates");
   const rateLimit = await import("@/lib/rate-limit");
   const leads = await import("@/server/inbox/lead-activity");
   const provisioning = await import("@/server/auth/provisioning");
@@ -54,6 +55,7 @@ export async function cargarConBaseDePruebas() {
     campaignWorker,
     campaignPruebaControlada,
     campaignEjecutarPrimerEnvio,
+    templates,
     rateLimit,
     leads,
     provisioning,

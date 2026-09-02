@@ -49,6 +49,73 @@ export type TrabajoDeCampanaTomado = {
   attempts: number;
 };
 
+type FilaJobReclamado = {
+  id: string;
+  organization_id: string;
+  campaign_id: string;
+  recipient_id: string;
+  attempts: number;
+};
+
+/**
+ * Segunda mitad, compartida, de cualquier claim de campaña: valida la
+ * integridad referencial del job contra su recipient (multi-tenant nunca
+ * implícito, Fase 4C punto 13) y ejecuta la transición a `sending` —
+ * exactamente igual sea cual sea el `UPDATE ... RETURNING` que produjo el
+ * job (global o acotado a una campaña, Fase 7B). Nunca se duplica esta
+ * lógica entre `reclamarTrabajoDeCampana` y `reclamarTrabajoDeCampanaPorId`.
+ */
+async function validarYMarcarSending(
+  tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
+  job: FilaJobReclamado
+): Promise<TrabajoDeCampanaTomado> {
+  const recipientRows = await tx
+    .select({ status: schema.campaignRecipient.status })
+    .from(schema.campaignRecipient)
+    .where(
+      scoped(
+        schema.campaignRecipient.organizationId,
+        job.organization_id,
+        eq(schema.campaignRecipient.id, job.recipient_id),
+        eq(schema.campaignRecipient.campaignId, job.campaign_id)
+      )
+    )
+    .limit(1);
+  const recipient = recipientRows[0];
+  if (!recipient) {
+    throw new Error(
+      `reclamarTrabajoDeCampana: job ${job.id} no encuentra un recipient ` +
+        `${job.recipient_id} coherente con organización ${job.organization_id} ` +
+        `y campaña ${job.campaign_id} — dato corrupto, aborta la transacción`
+    );
+  }
+  if (!transicionAutomaticaPermitida(recipient.status as CampaignRecipientStatus, "sending")) {
+    throw new Error(
+      `reclamarTrabajoDeCampana: recipient ${job.recipient_id} en estado ` +
+        `"${recipient.status}" no admite pasar a "sending" — job ${job.id}`
+    );
+  }
+
+  await tx
+    .update(schema.campaignRecipient)
+    .set({ status: "sending", lastAttemptAt: new Date(), updatedAt: new Date() })
+    .where(
+      scoped(
+        schema.campaignRecipient.organizationId,
+        job.organization_id,
+        eq(schema.campaignRecipient.id, job.recipient_id)
+      )
+    );
+
+  return {
+    jobId: job.id,
+    recipientId: job.recipient_id,
+    campaignId: job.campaign_id,
+    organizationId: job.organization_id,
+    attempts: Number(job.attempts),
+  };
+}
+
 /**
  * Reclama el siguiente envío de campaña pendiente y, en la MISMA
  * transacción, deja evidencia persistente de que el worker alcanzó el
@@ -99,65 +166,68 @@ export async function reclamarTrabajoDeCampana(
                 campaign_send_job.campaign_id,
                 campaign_send_job.recipient_id,
                 campaign_send_job.attempts
-    `)) as unknown as Array<{
-      id: string;
-      organization_id: string;
-      campaign_id: string;
-      recipient_id: string;
-      attempts: number;
-    }>;
+    `)) as unknown as FilaJobReclamado[];
 
     const job = filas[0];
     if (!job) return null;
+    return validarYMarcarSending(tx, job);
+  });
+}
 
-    // Multi-tenant explícito (punto 13): el job no trae organizationId de
-    // ningún cliente, pero se revalida igual contra el propio recipient —
-    // belt-and-suspenders sobre la FK, nunca confiar solo en la referencia.
-    const recipientRows = await tx
-      .select({ status: schema.campaignRecipient.status })
-      .from(schema.campaignRecipient)
-      .where(
-        scoped(
-          schema.campaignRecipient.organizationId,
-          job.organization_id,
-          eq(schema.campaignRecipient.id, job.recipient_id),
-          eq(schema.campaignRecipient.campaignId, job.campaign_id)
-        )
-      )
-      .limit(1);
-    const recipient = recipientRows[0];
-    if (!recipient) {
-      throw new Error(
-        `reclamarTrabajoDeCampana: job ${job.id} no encuentra un recipient ` +
-          `${job.recipient_id} coherente con organización ${job.organization_id} ` +
-          `y campaña ${job.campaign_id} — dato corrupto, aborta la transacción`
-      );
-    }
-    if (!transicionAutomaticaPermitida(recipient.status as CampaignRecipientStatus, "sending")) {
-      throw new Error(
-        `reclamarTrabajoDeCampana: recipient ${job.recipient_id} en estado ` +
-          `"${recipient.status}" no admite pasar a "sending" — job ${job.id}`
-      );
-    }
+/**
+ * Variante ACOTADA del claim (Fase 7B, hallazgo de la Fase 7A): idéntica a
+ * `reclamarTrabajoDeCampana` salvo por un filtro adicional en el subquery —
+ * `campaign_id = ... AND organization_id = ...` — de modo que SOLO puede
+ * reclamar un job que pertenezca exactamente a esa campaña de esa
+ * organización, nunca "cualquier job global listo". Existe porque el claim
+ * genérico, correcto para el worker de producción (que sí debe vaciar la
+ * cola completa de todas las campañas), es exactamente lo que NO se quiere
+ * para un primer envío controlado de un único destinatario: ahí hace falta
+ * la garantía de que ninguna otra campaña pueda "colarse" en el mismo
+ * proceso. Reutiliza `validarYMarcarSending` — la mitad de integridad
+ * referencial y transición a `sending` es IDÉNTICA a la del claim global,
+ * nunca se duplica.
+ */
+export async function reclamarTrabajoDeCampanaPorId(input: {
+  organizationId: string;
+  campaignId: string;
+}): Promise<TrabajoDeCampanaTomado | null> {
+  const db = getDb();
 
-    await tx
-      .update(schema.campaignRecipient)
-      .set({ status: "sending", lastAttemptAt: new Date(), updatedAt: new Date() })
-      .where(
-        scoped(
-          schema.campaignRecipient.organizationId,
-          job.organization_id,
-          eq(schema.campaignRecipient.id, job.recipient_id)
-        )
-      );
+  return db.transaction(async (tx) => {
+    const filas = (await tx.execute(sql`
+      UPDATE campaign_send_job
+         SET status = 'corriendo',
+             locked_at = now(),
+             locked_by = ${"prueba-controlada"},
+             attempts = campaign_send_job.attempts + 1,
+             updated_at = now()
+       WHERE campaign_send_job.id = (
+         SELECT c.id
+           FROM campaign_send_job c
+          WHERE c.status = 'pendiente'
+            AND c.run_at <= now()
+            AND c.organization_id = ${input.organizationId}
+            AND c.campaign_id = ${input.campaignId}
+            AND (
+                  SELECT count(*) FROM campaign_send_job o
+                   WHERE o.organization_id = c.organization_id
+                     AND o.status = 'corriendo'
+                ) < ${CONCURRENCIA_CAMPANA_POR_ORG}
+          ORDER BY c.run_at
+            FOR UPDATE SKIP LOCKED
+          LIMIT 1
+       )
+      RETURNING campaign_send_job.id,
+                campaign_send_job.organization_id,
+                campaign_send_job.campaign_id,
+                campaign_send_job.recipient_id,
+                campaign_send_job.attempts
+    `)) as unknown as FilaJobReclamado[];
 
-    return {
-      jobId: job.id,
-      recipientId: job.recipient_id,
-      campaignId: job.campaign_id,
-      organizationId: job.organization_id,
-      attempts: Number(job.attempts),
-    };
+    const job = filas[0];
+    if (!job) return null;
+    return validarYMarcarSending(tx, job);
   });
 }
 

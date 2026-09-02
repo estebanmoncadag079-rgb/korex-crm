@@ -10,6 +10,7 @@ import {
   reclamarTrabajoDeCampana,
   registrarEnvioExitosoDeCampana,
   registrarFalloEnvioDeCampana,
+  type TrabajoDeCampanaTomado,
 } from "@/server/campaigns/cola";
 import { intentarCompletarCampana, pausarCampana } from "@/server/campaigns/motor";
 
@@ -66,6 +67,9 @@ export type ResultadoDelWorker =
  * llamar). `sending → pending` ya es una transición automática permitida
  * (`estados.ts`); nunca se usa esto tras una llamada real al proveedor.
  *
+ * Exportada (Fase 7B): el flujo de prueba controlada (`prueba-controlada.ts`)
+ * la reutiliza tal cual para su propio caso de aborto — nunca se duplica.
+ *
  * `postponeMs` (Fase 6C, hallazgo del rate limit en la Fase 6B, punto 10):
  * sin esto, el job vuelve disponible de inmediato — un rate limit
  * persistente podía producir un ciclo apretado de reclamar→bloquear→
@@ -73,7 +77,7 @@ export type ResultadoDelWorker =
  * ventana configurada por el llamador (`opts.rateLimit.windowMs`) como
  * espera — nada inventado, ningún límite nuevo de YCloud.
  */
-async function revertirAPending(input: {
+export async function revertirAPending(input: {
   organizationId: string;
   recipientId: string;
   jobId: string;
@@ -155,36 +159,36 @@ function esErrorDeReconexion(err: unknown): boolean {
 }
 
 /**
- * Procesa EXACTAMENTE un envío de campaña, de punta a punta:
+ * Todo lo que ocurre DESPUÉS de tener un trabajo ya reclamado (evidencia de
+ * intento ya persistida en `sending`) — validar campaña, opt-out,
+ * conversación, rate limit, llamar al proveedor y persistir el resultado.
  *
- * claim (evidencia de intento) → campaña activa → opt-out → conversación →
- * rate limit → proveedor (inyectado) → persistencia del resultado.
- *
- * Nunca llama al proveedor más de una vez por ejecución, y `retry: false`
- * siempre — la única fuente de reintento es esta misma función, llamada de
- * nuevo más tarde por quien la invoque en bucle (fuera de alcance aquí).
+ * Extraída de `procesarUnEnvioDeCampana` (Fase 7B) para que el flujo de
+ * prueba controlada (`prueba-controlada.ts`) reutilice EXACTAMENTE esta
+ * misma lógica de negocio, cambiando únicamente CÓMO se obtiene `tomado`
+ * (claim global vs. claim acotado a una campaña) — nunca duplicándola.
+ * `procesarUnEnvioDeCampana` es un wrapper delgado sobre esta función; su
+ * comportamiento no cambió por este refactor.
  */
-export async function procesarUnEnvioDeCampana(opts: {
-  worker: string;
-  proveedor: ProveedorDeEnvio;
-  /** Sin valor por defecto: fijar un límite real es decisión de quien despliegue el worker, no de esta función (Fase 6A, punto 11). */
-  rateLimit?: { windowMs: number; max: number };
-  timeoutMs?: number;
-}): Promise<ResultadoDelWorker> {
-  const tomado = await reclamarTrabajoDeCampana(opts.worker);
-  if (!tomado) return { outcome: "sin_trabajo" };
-
+export async function resolverTrabajoTomado(
+  tomado: TrabajoDeCampanaTomado,
+  opts: {
+    proveedor: ProveedorDeEnvio;
+    /** Sin valor por defecto: fijar un límite real es decisión de quien despliegue el worker, no de esta función (Fase 6A, punto 11). */
+    rateLimit?: { windowMs: number; max: number };
+    timeoutMs?: number;
+  }
+): Promise<ResultadoDelWorker> {
   const db = getDb();
 
   /**
-   * Validación de campaña (Fase 6A, punto 14): el claim de
-   * `reclamarTrabajoDeCampana` ya deja evidencia de intento (`sending`)
-   * atómicamente junto con la toma del job — separar "tomar job" de
-   * "transición a sending" en dos pasos, con esta validación en medio,
-   * rompería la garantía de idempotencia ya validada en Fase 4D/4F. Se
-   * valida aquí, INMEDIATAMENTE después, y si la campaña ya no está
-   * `processing` (pausada por un 401 anterior, cancelada, etc.) se revierte
-   * sin haber llamado a ningún proveedor todavía.
+   * Validación de campaña (Fase 6A, punto 14): el claim ya deja evidencia
+   * de intento (`sending`) atómicamente junto con la toma del job —
+   * separar "tomar job" de "transición a sending" en dos pasos, con esta
+   * validación en medio, rompería la garantía de idempotencia ya validada
+   * en Fase 4D/4F. Se valida aquí, INMEDIATAMENTE después, y si la campaña
+   * ya no está `processing` (pausada por un 401 anterior, cancelada, etc.)
+   * se revierte sin haber llamado a ningún proveedor todavía.
    */
   const campanas = await db
     .select()
@@ -338,4 +342,25 @@ export async function procesarUnEnvioDeCampana(opts: {
   // `rescatarHuerfanosDeCampana()` (ya implementada, sin modificar) es
   // quien, tras el timeout, lo pasa a `indeterminado`.
   return { outcome: "ambiguo" };
+}
+
+/**
+ * Procesa EXACTAMENTE un envío de campaña, de punta a punta:
+ *
+ * claim (evidencia de intento) → campaña activa → opt-out → conversación →
+ * rate limit → proveedor (inyectado) → persistencia del resultado.
+ *
+ * Nunca llama al proveedor más de una vez por ejecución, y `retry: false`
+ * siempre — la única fuente de reintento es esta misma función, llamada de
+ * nuevo más tarde por quien la invoque en bucle (fuera de alcance aquí).
+ */
+export async function procesarUnEnvioDeCampana(opts: {
+  worker: string;
+  proveedor: ProveedorDeEnvio;
+  rateLimit?: { windowMs: number; max: number };
+  timeoutMs?: number;
+}): Promise<ResultadoDelWorker> {
+  const tomado = await reclamarTrabajoDeCampana(opts.worker);
+  if (!tomado) return { outcome: "sin_trabajo" };
+  return resolverTrabajoTomado(tomado, opts);
 }

@@ -135,6 +135,19 @@ export const contact = pgTable(
     name: text("name").notNull(),
     notes: text("notes"),
     archivedAt: timestamp("archived_at"),
+    /**
+     * Baja de campañas de marketing (auditoría de campañas, 1-sep-2026,
+     * Fase 3C). `false` por defecto: nadie queda excluido solo por existir
+     * la columna — el opt-out es un acto explícito, nunca implícito.
+     *
+     * Se lee en DOS momentos, nunca solo uno (ver Fase 3D): al construir la
+     * audiencia de una campaña (para no crear el envío) y otra vez justo
+     * antes de enviar (por si cambió mientras la campaña esperaba en cola).
+     * `marketingOptOutAt` existe solo para poder responder "¿cuándo se dio
+     * de baja?" — sin él, el booleano no dice nada del historial.
+     */
+    marketingOptOut: boolean("marketing_opt_out").notNull().default(false),
+    marketingOptOutAt: timestamp("marketing_opt_out_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1282,3 +1295,201 @@ export const conversationState = pgTable("conversation_state", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+/* ============================================================
+ * Campañas de marketing — Fase 3C (1-sep-2026)
+ *
+ * Solo el modelo de datos. Nada aquí envía un mensaje: no hay worker, no hay
+ * llamada a WhatsApp. Diseñado en la auditoría de Fase 3B (arquitectura de
+ * campañas) clonando el patrón ya probado de `agentJob`/`cola.ts` en vez de
+ * inventar uno nuevo — ver esa auditoría para la justificación campo a
+ * campo.
+ * ============================================================ */
+
+/**
+ * Una campaña de marketing: una plantilla de WhatsApp ya aprobada por Meta,
+ * enviada a una audiencia de contactos de la organización.
+ *
+ * `templateId` es la referencia viva (para navegar desde la UI); una vez la
+ * campaña pasa de `draft` a `ready`, el servicio congela una copia del
+ * contenido en `templateSnapshot` — así una campaña de septiembre sigue
+ * mostrando exactamente qué se intentó enviar aunque la plantilla cambie o
+ * se borre después. `templateId`/`templateSnapshot` son nullable a
+ * propósito: un borrador puede existir antes de elegir la plantilla, igual
+ * que una ficha a medio llenar (ver `ficha.ts`) — la validación de qué falta
+ * para pasar a `ready` la hace el servicio, no un NOT NULL de la base.
+ *
+ * Los contadores (enviados/fallidos/omitidos) se DERIVAN con un COUNT sobre
+ * `campaign_recipient` agrupado por status — no se persisten aquí. Al
+ * volumen inicial (decenas o cientos de destinatarios) no compensa el
+ * riesgo de un contador denormalizado que se desincronice; revisar si el
+ * volumen algún día lo justifica.
+ */
+export const campaign = pgTable(
+  "campaign",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /**
+     * Máquina de estados (ver la auditoría de Fase 3B, sección 4):
+     * draft → ready → scheduled? → processing → completed
+     *                            ↘ paused ↗
+     * cualquiera antes de completed → cancelled
+     * processing → failed (solo error estructural, nunca por destinatarios
+     * individuales fallidos — eso lo refleja el status de cada recipient).
+     */
+    status: text("status", {
+      enum: [
+        "draft",
+        "ready",
+        "scheduled",
+        "processing",
+        "paused",
+        "completed",
+        "cancelled",
+        "failed",
+      ],
+    })
+      .notNull()
+      .default("draft"),
+    templateId: text("template_id").references(() => template.id, {
+      onDelete: "set null",
+    }),
+    /** Copia congelada de `template` (name/body/category) al pasar a `ready`. */
+    templateSnapshot: jsonb("template_snapshot"),
+    /** Imagen promocional — fuera del MVP, `sendTemplate()` aún no la soporta. */
+    mediaAssetId: text("media_asset_id").references(() => mediaAsset.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Único valor hoy: "todos los contactos activos sin opt-out". El campo
+     * existe para no romper el schema cuando llegue segmentación real —
+     * fuera del alcance del MVP (auditoría Fase 3B, sección 10).
+     */
+    audienceType: text("audience_type", { enum: ["todos_los_contactos"] })
+      .notNull()
+      .default("todos_los_contactos"),
+    scheduledAt: timestamp("scheduled_at"),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    /** Quién la creó, formato `user:<id>` — mismo patrón que el actor de `conRegistro`. */
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("campaign_org_idx").on(t.organizationId, t.createdAt),
+    index("campaign_org_status_idx").on(t.organizationId, t.status),
+  ]
+);
+
+/**
+ * Un destinatario de una campaña. A diferencia de `agent_job`, esta fila
+ * NUNCA se borra al terminar: es el historial real de a quién se le envió
+ * qué y con qué resultado — no un job de cola descartable.
+ *
+ * `UNIQUE(campaignId, contactId)` es obligatorio: garantiza que un contacto
+ * nunca queda dado de alta dos veces en la misma campaña (protege contra un
+ * doble clic al construir la audiencia, no contra un reintento de envío —
+ * eso lo gobierna `status`).
+ */
+export const campaignRecipient = pgTable(
+  "campaign_recipient",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaign.id, { onDelete: "cascade" }),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contact.id, { onDelete: "cascade" }),
+    /** Se resuelve o se crea al momento del envío — nula mientras espera en cola. */
+    conversationId: text("conversation_id").references(() => conversation.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * pending → processing → sent
+     *                       ↘ failed (definitivo, agotó los intentos)
+     * pending → skipped (opt-out detectado antes de intentar)
+     * pending|processing → cancelled (la campaña se pausó o canceló)
+     */
+    status: text("status", {
+      enum: ["pending", "processing", "sent", "failed", "skipped", "cancelled"],
+    })
+      .notNull()
+      .default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at"),
+    sentAt: timestamp("sent_at"),
+    failedAt: timestamp("failed_at"),
+    error: text("error"),
+    /** El mensaje real creado por `sendTemplate()` tras un envío exitoso. */
+    messageId: text("message_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("campaign_recipient_campaign_contact_uq").on(
+      t.campaignId,
+      t.contactId
+    ),
+    index("campaign_recipient_campaign_status_idx").on(
+      t.campaignId,
+      t.status
+    ),
+    index("campaign_recipient_org_idx").on(t.organizationId),
+  ]
+);
+
+/**
+ * Cola de envío de campañas — mismo patrón que `agentJob`/`cola.ts`
+ * (`FOR UPDATE SKIP LOCKED`, backoff, rescate de huérfanos), en una tabla
+ * separada a propósito: la concurrencia de turnos de IA y la de envío
+ * masivo nunca deben cruzarse ni competir por el mismo cupo.
+ *
+ * A diferencia de `agent_job`, `UNIQUE(recipientId)` no lleva condición
+ * `WHERE`: un destinatario tiene como mucho un job en toda su vida (un solo
+ * intento de campaña, no turnos que se repiten), así que no hace falta
+ * permitir "uno corriendo + uno pendiente" a la vez.
+ *
+ * Igual que `agent_job`, esta fila puede borrarse al completar con éxito —
+ * el historial permanente no vive aquí, vive en `campaign_recipient`.
+ */
+export const campaignSendJob = pgTable(
+  "campaign_send_job",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaign.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id")
+      .notNull()
+      .references(() => campaignRecipient.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pendiente", "corriendo", "fallido"] })
+      .notNull()
+      .default("pendiente"),
+    runAt: timestamp("run_at").notNull().defaultNow(),
+    attempts: integer("attempts").notNull().default(0),
+    lockedAt: timestamp("locked_at"),
+    lockedBy: text("locked_by"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("campaign_send_job_recipient_uq").on(t.recipientId),
+    index("campaign_send_job_listos_idx").on(t.status, t.runAt),
+    index("campaign_send_job_org_idx").on(t.organizationId),
+  ]
+);

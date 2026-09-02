@@ -218,6 +218,13 @@
       "when": 1787793600000,
       "tag": "0030_consultas_verificadas_por_organizacion",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788383600000,
+      "tag": "0031_campanas_de_marketing",
+      "breakpoints": true
     }
   ]
 }

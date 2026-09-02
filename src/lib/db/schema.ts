@@ -1414,13 +1414,25 @@ export const campaignRecipient = pgTable(
       onDelete: "set null",
     }),
     /**
-     * pending → processing → sent
-     *                       ↘ failed (definitivo, agotó los intentos)
-     * pending → skipped (opt-out detectado antes de intentar)
-     * pending|processing → cancelled (la campaña se pausó o canceló)
+     * Máquina de estados diseñada en la auditoría de idempotencia (Fase 4A,
+     * 2-sep-2026) e implementada en Fase 4C — ver `src/server/campaigns/estados.ts`
+     * para las transiciones válidas exactas.
+     *
+     * pending → sending → sent
+     *                    ↘ failed     (error EXPLÍCITO del proveedor, no ambiguo)
+     *                    ↘ indeterminado (el proceso murió sin respuesta clara:
+     *                        NUNCA se sabe si el proveedor llegó a procesarlo —
+     *                        por eso nunca vuelve solo a `pending`, solo por
+     *                        acción humana explícita)
+     * pending → skipped   (opt-out detectado antes de intentar)
+     *
+     * `sending` reemplaza al antiguo `processing`: se persiste ANTES de llamar
+     * al proveedor, como evidencia de intento (outbox local) — es la pieza
+     * central de la estrategia de idempotencia. `cancelled` se retiró: no
+     * estaba en uso (tabla vacía) y no forma parte del diseño final.
      */
     status: text("status", {
-      enum: ["pending", "processing", "sent", "failed", "skipped", "cancelled"],
+      enum: ["pending", "sending", "sent", "failed", "skipped", "indeterminado"],
     })
       .notNull()
       .default("pending"),

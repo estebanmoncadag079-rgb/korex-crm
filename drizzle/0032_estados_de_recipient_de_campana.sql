@@ -1,0 +1,30 @@
+-- Fase 4C — máquina de estados e idempotencia local de campañas (auditoría
+-- 2-sep-2026, Fase 4A/4C). Reemplaza el enum de `campaign_recipient.status`:
+--
+--   pending, processing, sent, failed, skipped, cancelled
+--
+-- por:
+--
+--   pending, sending, sent, failed, skipped, indeterminado
+--
+-- `processing` → `sending` (misma idea, nombre más preciso: persiste ANTES de
+-- llamar al proveedor, como evidencia de intento). `cancelled` se retira: no
+-- estaba en uso. `indeterminado` es nuevo: a dónde va un recipient cuando el
+-- proceso murió sin respuesta clara del proveedor — nunca se reintenta solo.
+--
+-- SIN ALTER real: el enum de Drizzle (`text(..., {enum:[...]})`) no genera
+-- `CHECK CONSTRAINT` en Postgres — igual que `agent_job.status`,
+-- `conversation.handoff_reason` o `message.status`, ya sin esa validación a
+-- nivel de base desde que se crearon esas tablas. La columna sigue siendo
+-- `text` sin restricción; el enum solo se aplica en la capa de TypeScript.
+-- El único cambio real es documentar los valores válidos para quien mire la
+-- tabla directamente con `psql`.
+--
+-- Rollback: no aplica — no hay DDL que revertir. Si el enum de TypeScript
+-- vuelve atrás, basta con quitar este comentario (opcional).
+--
+-- Las 3 tablas de campañas siguen vacías en producción al momento de escribir
+-- esto (confirmado en la prueba de la Fase 3G) — no hay ninguna fila con un
+-- valor del enum viejo que migrar.
+
+COMMENT ON COLUMN "campaign_recipient"."status" IS 'pending | sending | sent | failed | skipped | indeterminado — ver src/server/campaigns/estados.ts';

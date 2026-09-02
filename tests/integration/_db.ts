@@ -28,6 +28,8 @@ export async function cargarConBaseDePruebas() {
 
   const db = await import("@/lib/db");
   const cola = await import("@/server/ai/cola");
+  const campaignCola = await import("@/server/campaigns/cola");
+  const campaignRecovery = await import("@/server/campaigns/recovery");
   const rateLimit = await import("@/lib/rate-limit");
   const leads = await import("@/server/inbox/lead-activity");
   const provisioning = await import("@/server/auth/provisioning");
@@ -42,6 +44,8 @@ export async function cargarConBaseDePruebas() {
   return {
     ...db,
     cola,
+    campaignCola,
+    campaignRecovery,
     rateLimit,
     leads,
     provisioning,

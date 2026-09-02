@@ -241,6 +241,28 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     motivos: "negocio",
     detalle: "negocio",
   },
+  /*
+   * Un destinatario de campaña de marketing (Fase 4C, 2-sep-2026). Todo
+   * técnico a propósito: el nombre/teléfono de la persona viven en
+   * `contact`, no aquí — esta tabla solo lleva el estado del ENVÍO
+   * (referencias, máquina de estados, mensajes de error del sistema).
+   */
+  campaign_recipient: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    campaignId: "tecnico",
+    contactId: "tecnico",
+    conversationId: "tecnico",
+    status: "tecnico",
+    attemptCount: "tecnico",
+    lastAttemptAt: "tecnico",
+    sentAt: "tecnico",
+    failedAt: "tecnico",
+    error: "tecnico",
+    messageId: "tecnico",
+    createdAt: "tecnico",
+    updatedAt: "tecnico",
+  },
 };
 
 /** Qué es este campo, o `null` si nadie lo ha clasificado todavía. */

@@ -225,6 +225,13 @@
       "when": 1788383600000,
       "tag": "0031_campanas_de_marketing",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788470000000,
+      "tag": "0032_estados_de_recipient_de_campana",
+      "breakpoints": true
     }
   ]
 }

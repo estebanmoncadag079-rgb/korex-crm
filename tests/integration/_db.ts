@@ -33,6 +33,7 @@ export async function cargarConBaseDePruebas() {
   const campaignMotor = await import("@/server/campaigns/motor");
   const campaignWorker = await import("@/server/campaigns/worker");
   const campaignPruebaControlada = await import("@/server/campaigns/prueba-controlada");
+  const campaignEjecutarPrimerEnvio = await import("@/server/campaigns/ejecutar-primer-envio");
   const rateLimit = await import("@/lib/rate-limit");
   const leads = await import("@/server/inbox/lead-activity");
   const provisioning = await import("@/server/auth/provisioning");
@@ -52,6 +53,7 @@ export async function cargarConBaseDePruebas() {
     campaignMotor,
     campaignWorker,
     campaignPruebaControlada,
+    campaignEjecutarPrimerEnvio,
     rateLimit,
     leads,
     provisioning,

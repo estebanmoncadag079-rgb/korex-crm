@@ -803,4 +803,138 @@ describe.skipIf(!hayBase)("motor y worker de campañas (Postgres real)", () => {
     )) as unknown as Array<{ id: string }>;
     expect(recipientsCreados).toHaveLength(0);
   });
+
+  /**
+   * Fase 8A: el EJECUTOR — deja un recipient en READY_TO_SEND exactamente
+   * como lo dejaría `scripts/primer-envio-controlado.ts --confirmar-unico-envio`,
+   * usando el mismo camino de preparación (`prueba-controlada.ts`, sin tocar).
+   */
+  async function prepararReadyToSend(ct: string, phone: string, name: string) {
+    await db.execute(sql`
+      INSERT INTO contact (id, organization_id, phone, name, created_at, updated_at)
+      VALUES (${ct}, ${ORG_A}, ${phone}, ${name}, now(), now())
+    `);
+    const campaignId = await crearCampanaLista();
+    const { recipientId } = await m.campaignPruebaControlada.materializarAudienciaUnica({
+      organizationId: ORG_A,
+      campaignId,
+      contactId: ct,
+    });
+    await m.campaignPruebaControlada.encolarJobUnicoDeCampana({
+      organizationId: ORG_A,
+      campaignId,
+      recipientId,
+    });
+    await m.campaignPruebaControlada.activarCampanaParaPruebaControlada(ORG_A, campaignId);
+    return { campaignId, recipientId };
+  }
+
+  it("U — Fase 8A, test OBLIGATORIO 'exactamente un POST': ejecución completa, 1 llamada, 1 message, job cerrado, campaña completa", async () => {
+    const { campaignId, recipientId } = await prepararReadyToSend("ct_a_u1", "570000050028", "Cliente U1");
+
+    let llamadas = 0;
+    const proveedor = async () => {
+      llamadas++;
+      return { kind: "SUCCESS", waMessageId: "wamid.u1", renderedText: "Hola Cliente U1" } as never;
+    };
+
+    const ejecucion = await m.campaignEjecutarPrimerEnvio.ejecutarPrimerEnvioControlado({
+      organizationId: ORG_A,
+      campaignId,
+      recipientId,
+      proveedor,
+    });
+    expect(ejecucion.resultado.outcome).toBe("enviado");
+    expect(llamadas).toBe(1); // exactamente un POST — no dos, no cero
+
+    const [recipient] = (await db.execute(
+      sql`SELECT status, message_id FROM campaign_recipient WHERE id = ${recipientId}`
+    )) as unknown as Array<{ status: string; message_id: string | null }>;
+    expect(recipient!.status).toBe("sent");
+    expect(recipient!.message_id).not.toBeNull();
+
+    const messages = (await db.execute(
+      sql`SELECT wa_message_id FROM message WHERE id = ${recipient!.message_id}`
+    )) as unknown as Array<{ wa_message_id: string }>;
+    expect(messages).toHaveLength(1); // un único message
+    expect(messages[0]!.wa_message_id).toBe("wamid.u1");
+
+    const jobs = (await db.execute(
+      sql`SELECT id FROM campaign_send_job WHERE campaign_id = ${campaignId}`
+    )) as unknown as Array<{ id: string }>;
+    expect(jobs).toHaveLength(0); // job cerrado, sin segundo intento interno posible
+
+    const [campana] = (await db.execute(
+      sql`SELECT status FROM campaign WHERE id = ${campaignId}`
+    )) as unknown as Array<{ status: string }>;
+    expect(campana!.status).toBe("completed"); // era el único recipient
+  });
+
+  it("V — Fase 8A, doble ejecución: la segunda NUNCA genera una segunda llamada al proveedor", async () => {
+    const { campaignId, recipientId } = await prepararReadyToSend("ct_a_v1", "570000050029", "Cliente V1");
+
+    let llamadas = 0;
+    const proveedor = async () => {
+      llamadas++;
+      return { kind: "SUCCESS", waMessageId: "wamid.v1", renderedText: "x" } as never;
+    };
+
+    const primera = await m.campaignEjecutarPrimerEnvio.ejecutarPrimerEnvioControlado({
+      organizationId: ORG_A,
+      campaignId,
+      recipientId,
+      proveedor,
+    });
+    expect(primera.resultado.outcome).toBe("enviado");
+    expect(llamadas).toBe(1);
+
+    // Segunda ejecución del MISMO recipient — el precheck debe rechazarla
+    // ANTES de siquiera intentar el claim. Como era el ÚNICO recipient de
+    // la campaña, el éxito de la primera ejecución ya disparó
+    // `intentarCompletarCampana` (Fase 6C) y dejó `campaign.status =
+    // "completed"` — el precheck valida `campaign.status` ANTES que
+    // `recipient.status`, así que el rechazo real es "invalid_transition"
+    // (campaña ya no "processing"), no "already_processed" — ambos códigos
+    // significan lo mismo en la práctica ("esto ya se resolvió, no
+    // reintentar"), pero el orden de las validaciones hace que este sea el
+    // que efectivamente dispara primero en este escenario concreto.
+    const err = await m.campaignEjecutarPrimerEnvio
+      .ejecutarPrimerEnvioControlado({ organizationId: ORG_A, campaignId, recipientId, proveedor })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(m.campaignEjecutarPrimerEnvio.EjecucionControladaError);
+    expect((err as { code: string }).code).toBe("invalid_transition");
+    expect(llamadas).toBe(1); // sigue en 1 — nunca llega a 2
+
+    const [recipient] = (await db.execute(
+      sql`SELECT status FROM campaign_recipient WHERE id = ${recipientId}`
+    )) as unknown as Array<{ status: string }>;
+    expect(recipient!.status).toBe("sent"); // intacto, no se tocó de nuevo
+  });
+
+  it("W — Fase 8A, multi-tenant: organización B no puede ejecutar ni precheckear un recipient de la organización A", async () => {
+    const { campaignId, recipientId } = await prepararReadyToSend("ct_a_w1", "570000050030", "Cliente W1");
+
+    let llamadas = 0;
+    const proveedor = async () => {
+      llamadas++;
+      return { kind: "SUCCESS", waMessageId: "no_deberia_pasar", renderedText: "x" } as never;
+    };
+
+    const errPrecheck = await m.campaignEjecutarPrimerEnvio
+      .precheckPrimerEnvioControlado({ organizationId: ORG_B, campaignId, recipientId })
+      .catch((e: unknown) => e);
+    expect(errPrecheck).toBeInstanceOf(m.campaignEjecutarPrimerEnvio.EjecucionControladaError);
+    expect((errPrecheck as { code: string }).code).toBe("not_found");
+
+    const errEjecucion = await m.campaignEjecutarPrimerEnvio
+      .ejecutarPrimerEnvioControlado({ organizationId: ORG_B, campaignId, recipientId, proveedor })
+      .catch((e: unknown) => e);
+    expect(errEjecucion).toBeInstanceOf(m.campaignEjecutarPrimerEnvio.EjecucionControladaError);
+    expect(llamadas).toBe(0);
+
+    const [recipient] = (await db.execute(
+      sql`SELECT status FROM campaign_recipient WHERE id = ${recipientId}`
+    )) as unknown as Array<{ status: string }>;
+    expect(recipient!.status).toBe("pending"); // intacto
+  });
 });

@@ -7,7 +7,7 @@ import { publish } from "@/server/events/bus";
 import { getCredentialsByOrg, getCredentialsByWabaId } from "@/server/whatsapp/credentials";
 import { translateMetaError } from "@/server/whatsapp/meta-errors";
 import { callGraphSend, SendError, ycloudApiKeyOf } from "@/server/inbox/send";
-import { isYcloudEnabled, ycloudSendTemplate } from "@/lib/ycloud/client";
+import { isYcloudEnabled, YcloudHttpError, ycloudSendTemplate } from "@/lib/ycloud/client";
 import { serializeMessage } from "@/server/inbox/ingest";
 import type { WebhookValue } from "@/server/inbox/webhook";
 
@@ -296,13 +296,112 @@ export async function applyTemplateStatusEvent(
     );
 }
 
-/** Envía una plantilla APROBADA a una conversación (ventana cerrada, FR-051). */
-export async function sendTemplate(input: {
+/**
+ * El resultado de UN intento de envío al proveedor — nunca lanzado, solo
+ * devuelto (Fase 5C, auditoría de idempotencia de campañas).
+ *
+ * Los errores de PRECONDICIÓN (plantilla inexistente/no aprobada, variable
+ * faltante, conversación inexistente, sandbox, credenciales no conectadas o
+ * que requieren reconexión, contacto sin teléfono) siguen siendo excepciones
+ * (`TemplateError`/`SendError`) — nunca se convierten en un
+ * `ResultadoProveedor`, porque no describen "qué contestó el proveedor",
+ * describen "esto no llegó a intentarse". Solo el resultado de la llamada
+ * HTTP real, una vez que todas las precondiciones ya pasaron, se tipa aquí.
+ *
+ * `causa` conserva el error original (o `null` en éxito) — lo usa
+ * `sendTemplate()` para reconstruir su comportamiento histórico exacto
+ * (ver más abajo); el futuro motor de campañas puede ignorarlo, solo le
+ * hace falta `kind`/`error`/`retryable`.
+ */
+export type ResultadoProveedor =
+  | { kind: "SUCCESS"; waMessageId: string; renderedText: string }
+  | { kind: "EXPLICIT_FAILURE"; error: string; retryable: boolean; causa: unknown }
+  | { kind: "AMBIGUOUS_FAILURE"; error: string; causa: unknown };
+
+/**
+ * Clasifica un fallo de YCloud con la evidencia real auditada en Fase 5A/5B:
+ *
+ * - 429            → EXPLICIT_FAILURE, retryable=true (el servidor SÍ
+ *                     respondió, con certeza de que no procesó nada — no es
+ *                     lo mismo que el silencio de un timeout).
+ * - >=500          → AMBIGUOUS_FAILURE (pudo empezar a procesar antes de
+ *                     fallar).
+ * - Cualquier otro 4xx (400/401/403/…) → EXPLICIT_FAILURE, retryable=false.
+ *   YCloud no expone hoy ninguna señal de "esto fue un error de auth"
+ *   distinta de un rechazo cualquiera — no se inventa esa distinción.
+ * - Lo que no sea `YcloudHttpError` (el `fetch` nunca tuvo respuesta: red,
+ *   DNS, timeout/AbortError) → AMBIGUOUS_FAILURE, siempre. Nunca se sabe si
+ *   YCloud llegó a procesar la petición.
+ */
+function clasificarErrorYCloud(err: unknown): ResultadoProveedor {
+  if (err instanceof YcloudHttpError) {
+    if (err.status === 429) {
+      return { kind: "EXPLICIT_FAILURE", error: err.message, retryable: true, causa: err };
+    }
+    if (err.status >= 500) {
+      return { kind: "AMBIGUOUS_FAILURE", error: err.message, causa: err };
+    }
+    return { kind: "EXPLICIT_FAILURE", error: err.message, retryable: false, causa: err };
+  }
+  return {
+    kind: "AMBIGUOUS_FAILURE",
+    error: err instanceof Error ? err.message : String(err),
+    causa: err,
+  };
+}
+
+/**
+ * Clasifica un fallo de Graph directo — camino actual sin tocar
+ * (`callGraphSend` ya traduce cualquier `MetaApiError` a `SendError` vía
+ * `translateMetaError`).
+ *
+ * `reconnect_required`/`sandbox_violation`/`not_connected`/`window_closed`
+ * son señales de PRECONDICIÓN/configuración, no del intento de envío en sí
+ * — se relanzan tal cual (nunca se convirtieron en un resultado antes de
+ * esta fase, y siguen sin hacerlo).
+ *
+ * Límite real, no inventado: `translateMetaError` no distingue un 429 de
+ * cualquier otro 4xx — ambos caen en `meta_error`. Sin esa evidencia, se
+ * clasifica conservadoramente como no reintentable, a diferencia de YCloud
+ * (que sí expone el status real). Asimetría documentada, no resuelta aquí.
+ */
+function clasificarErrorGraph(err: unknown): ResultadoProveedor {
+  if (err instanceof SendError) {
+    if (err.code === "meta_unavailable") {
+      return { kind: "AMBIGUOUS_FAILURE", error: err.message, causa: err };
+    }
+    if (err.code === "meta_error") {
+      return { kind: "EXPLICIT_FAILURE", error: err.message, retryable: false, causa: err };
+    }
+    throw err;
+  }
+  return {
+    kind: "AMBIGUOUS_FAILURE",
+    error: err instanceof Error ? err.message : String(err),
+    causa: err,
+  };
+}
+
+/**
+ * Hace TODO lo que `sendTemplate()` hacía antes de tocar al proveedor, y
+ * luego llama al proveedor — pero NO inserta `message`, NO publica, NO
+ * actualiza `conversation`. Es la pieza que el futuro worker de campañas
+ * necesita para reutilizar exactamente la misma lógica de "qué proveedor,
+ * cómo arma el payload, cómo clasifica el resultado" sin duplicarla (Fase
+ * 5A/5B/5C).
+ *
+ * `retry`/`timeoutMs` solo tienen efecto observable en la rama YCloud —
+ * Graph nunca tuvo reintento interno, un solo intento siempre (ver
+ * auditoría Fase 5A/5B). El contrato se mantiene uniforme igual.
+ */
+export async function enviarTemplateAlProveedor(input: {
   organizationId: string;
   conversationId: string;
   templateId: string;
   variable?: string;
-}): Promise<{ messageId: string }> {
+  retry?: boolean;
+  timeoutMs?: number;
+}): Promise<ResultadoProveedor> {
   const db = getDb();
 
   const templates = await db
@@ -371,25 +470,28 @@ export async function sendTemplate(input: {
    */
   const clientApiKey = ycloudApiKeyOf(creds);
   const bodyParams = needsVariable ? [input.variable!.trim()] : [];
-  let waMessageId: string;
+  const renderedText = renderBody(template.body, input.variable?.trim());
+
   if (clientApiKey || isYcloudEnabled()) {
     try {
-      waMessageId = await ycloudSendTemplate({
+      const waMessageId = await ycloudSendTemplate({
         from: creds.displayPhoneNumber ?? "",
         to,
         name: template.name,
         language: template.language,
         bodyParams,
         apiKey: clientApiKey,
+        retry: input.retry,
+        timeoutMs: input.timeoutMs,
       });
+      return { kind: "SUCCESS", waMessageId, renderedText };
     } catch (err) {
-      throw new TemplateError(
-        "meta_error",
-        err instanceof Error ? err.message : "Error enviando por YCloud"
-      );
+      return clasificarErrorYCloud(err);
     }
-  } else {
-    waMessageId = await callGraphSend(creds, {
+  }
+
+  try {
+    const waMessageId = await callGraphSend(creds, {
       messaging_product: "whatsapp",
       to: to.value,
       type: "template",
@@ -405,18 +507,46 @@ export async function sendTemplate(input: {
           : {}),
       },
     });
+    return { kind: "SUCCESS", waMessageId, renderedText };
+  } catch (err) {
+    return clasificarErrorGraph(err);
+  }
+}
+
+/**
+ * Envía una plantilla APROBADA a una conversación (ventana cerrada, FR-051).
+ *
+ * Wrapper delgado (Fase 5C) sobre `enviarTemplateAlProveedor`: misma firma
+ * pública, mismo `INSERT` de `message`, mismo `publish`, y el mismo
+ * comportamiento de errores observable de siempre — incluida la asimetría
+ * histórica entre proveedores (YCloud: cualquier fallo se envuelve en
+ * `TemplateError("meta_error", …)`; Graph: el `SendError` original se deja
+ * propagar tal cual). `retry` no se pasa explícitamente → conserva el
+ * reintento interno de siempre para el envío conversacional.
+ */
+export async function sendTemplate(input: {
+  organizationId: string;
+  conversationId: string;
+  templateId: string;
+  variable?: string;
+}): Promise<{ messageId: string }> {
+  const resultado = await enviarTemplateAlProveedor(input);
+  if (resultado.kind !== "SUCCESS") {
+    if (resultado.causa instanceof SendError) throw resultado.causa;
+    throw new TemplateError("meta_error", resultado.error);
   }
 
+  const db = getDb();
   const inserted = await db
     .insert(schema.message)
     .values({
       id: newId("message"),
       organizationId: input.organizationId,
       conversationId: input.conversationId,
-      waMessageId,
+      waMessageId: resultado.waMessageId,
       direction: "out",
       type: "template",
-      text: renderBody(template.body, input.variable?.trim()),
+      text: resultado.renderedText,
       status: "pending",
     })
     .returning();

@@ -31,6 +31,15 @@ export function isYcloudEnabled(): boolean {
  * Envía una PLANTILLA aprobada por WhatsApp. Es la única forma de escribirle a
  * alguien que no ha hablado con el negocio en las últimas 24 h — el caso del
  * equipo que recibe los avisos de pedido.
+ *
+ * `retry`/`timeoutMs` (Fase 5C, auditoría de idempotencia de campañas):
+ * ninguno de los dos cambia el comportamiento para quien no los pase —
+ * `retry` por defecto sigue reintentando exactamente como antes, y sin
+ * `timeoutMs` el `fetch` sigue sin límite propio, igual que hasta ahora.
+ * Existen para que el futuro motor de campañas pueda pedir `retry: false`
+ * (una ejecución del worker = una sola llamada HTTP real, nunca las hasta
+ * tres ocultas de `sendDirectly`) y un `timeoutMs` explícito — ver
+ * `enviarTemplateAlProveedor` en `@/server/whatsapp/templates`.
  */
 export async function ycloudSendTemplate(input: {
   from: string;
@@ -39,6 +48,8 @@ export async function ycloudSendTemplate(input: {
   language: string;
   bodyParams: string[];
   apiKey?: string | null;
+  retry?: boolean;
+  timeoutMs?: number;
 }): Promise<string> {
   const key = resolveApiKey(input.apiKey);
   if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
@@ -64,7 +75,8 @@ export async function ycloudSendTemplate(input: {
           : [],
       },
     },
-    key
+    key,
+    { retry: input.retry, timeoutMs: input.timeoutMs }
   );
 }
 
@@ -244,10 +256,17 @@ const REINTENTOS_MS = [300, 1200];
  */
 function esPasajero(err: unknown): boolean {
   if (err instanceof YcloudHttpError) return err.status === 429 || err.status >= 500;
-  return true; // fetch lanzó: no hubo respuesta (red, DNS, timeout)
+  return true; // fetch lanzó: no hubo respuesta (red, DNS, timeout, AbortError por timeoutMs)
 }
 
-class YcloudHttpError extends Error {
+/**
+ * Exportada (Fase 5C) para que `enviarTemplateAlProveedor`
+ * (`@/server/whatsapp/templates`) pueda clasificar el `status` real en
+ * `ResultadoProveedor` sin duplicar aquí el conocimiento de esa capa —
+ * `ycloud/client.ts` solo expone el dato crudo, nunca decide qué significa
+ * para campañas.
+ */
+export class YcloudHttpError extends Error {
   constructor(
     readonly status: number,
     message: string
@@ -271,15 +290,27 @@ class YcloudHttpError extends Error {
  * perdió en el camino, el reintento lo duplica. Se prefiere un mensaje
  * repetido a un cliente sin respuesta, y por eso los reintentos son pocos y
  * seguidos.
+ *
+ * `opts.retry === false` (Fase 5C) apaga esto por completo: exactamente UN
+ * POST, sin importar qué tan pasajero parezca el fallo — es lo que pide el
+ * motor de campañas, que tiene su PROPIA máquina de reintento (más lenta,
+ * auditable, con un estado `indeterminado` para lo ambiguo) y no puede
+ * permitirse que esta función dispare hasta tres llamadas reales por cada
+ * intento que el worker cree que hizo solo una. `opts.retry` ausente o
+ * `true` preserva EXACTAMENTE el comportamiento anterior a esta fase, para
+ * todo el envío conversacional que ya dependía de él.
  */
 async function sendDirectly(
   payload: Record<string, unknown>,
-  apiKey: string
+  apiKey: string,
+  opts?: { retry?: boolean; timeoutMs?: number }
 ): Promise<string> {
+  const retryHabilitado = opts?.retry ?? true;
+  const intentosDeReintento = retryHabilitado ? REINTENTOS_MS.length : 0;
   let ultimo: unknown;
-  for (let intento = 0; intento <= REINTENTOS_MS.length; intento++) {
+  for (let intento = 0; intento <= intentosDeReintento; intento++) {
     try {
-      const wamid = await postSendDirectly(payload, apiKey);
+      const wamid = await postSendDirectly(payload, apiKey, opts?.timeoutMs);
       /*
        * Diagnóstico aditivo (patrón F,F/F,F,T de saludos duplicados,
        * auditoría de Lashes Valen): si esto se registra con `intento > 0`,
@@ -291,13 +322,14 @@ async function sendDirectly(
       if (intento > 0) {
         console.warn(
           `[ycloud] envío tuvo éxito TRAS reintento (intento ${intento + 1} de ` +
-            `${REINTENTOS_MS.length + 1}) — wamid=${wamid}. Si el intento anterior ` +
+            `${intentosDeReintento + 1}) — wamid=${wamid}. Si el intento anterior ` +
             `también llegó a WhatsApp, el cliente puede haber recibido el mensaje dos veces.`
         );
       }
       return wamid;
     } catch (err) {
       ultimo = err;
+      if (!retryHabilitado) break;
       const espera = REINTENTOS_MS[intento];
       if (espera === undefined || !esPasajero(err)) break;
       console.warn(
@@ -310,23 +342,45 @@ async function sendDirectly(
   throw ultimo;
 }
 
-/** Un solo POST, sin reintentos. */
+/**
+ * Un solo POST, sin reintentos.
+ *
+ * `timeoutMs` (Fase 5C) es opcional y sin valor por defecto propio: quien
+ * no lo pasa conserva el comportamiento de siempre (`fetch` sin límite). Un
+ * `AbortError` por vencimiento se propaga tal cual — no es un
+ * `YcloudHttpError`, así que `esPasajero` ya lo trata como pasajero (mismo
+ * camino que cualquier fallo de red), y en la clasificación de más alto
+ * nivel (`enviarTemplateAlProveedor`) cae como `AMBIGUOUS_FAILURE`: nunca
+ * se sabe si YCloud llegó a procesar la petición antes del corte.
+ */
 async function postSendDirectly(
   payload: Record<string, unknown>,
-  apiKey: string
+  apiKey: string,
+  timeoutMs?: number
 ): Promise<string> {
   const env = getEnv();
-  const res = await fetch(
-    `${env.YCLOUD_BASE_URL}/v2/whatsapp/messages/sendDirectly`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": apiKey,
-      },
-      body: JSON.stringify(payload),
-    }
-  );
+  const controller = timeoutMs !== undefined ? new AbortController() : undefined;
+  const timer =
+    controller && timeoutMs !== undefined
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : undefined;
+  let res: Response;
+  try {
+    res = await fetch(
+      `${env.YCLOUD_BASE_URL}/v2/whatsapp/messages/sendDirectly`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": apiKey,
+        },
+        body: JSON.stringify(payload),
+        ...(controller ? { signal: controller.signal } : {}),
+      }
+    );
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 
   const json = (await res.json().catch(() => null)) as {
     wamid?: string;

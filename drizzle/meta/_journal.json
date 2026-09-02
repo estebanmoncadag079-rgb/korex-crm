@@ -232,6 +232,13 @@
       "when": 1788470000000,
       "tag": "0032_estados_de_recipient_de_campana",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788556400000,
+      "tag": "0033_administracion_plantillas_korex",
+      "breakpoints": true
     }
   ]
 }

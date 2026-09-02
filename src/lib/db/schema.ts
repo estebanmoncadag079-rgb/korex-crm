@@ -921,6 +921,29 @@ export const template = pgTable(
       .default("draft"),
     rejectionReason: text("rejection_reason"),
     waTemplateId: text("wa_template_id"),
+    /**
+     * Fase 9B — administración centralizada de plantillas desde Korex.
+     * Nunca escritos por `createTemplate()`/el flujo legacy (que sigue
+     * intacto, sin usar estas columnas): solo los usa el nuevo camino de
+     * borrador (`crearBorradorDePlantilla`) y, en una fase posterior
+     * autorizada aparte, el envío real a aprobación.
+     *
+     * `provider`: con qué mecanismo se gestiona esta plantilla ante el
+     * proveedor real — "ycloud" | "graph" (Fase 9A, sección 2). NULL
+     * mientras sigue siendo un borrador local, nunca enviado.
+     */
+    provider: text("provider"),
+    /**
+     * El estado CRUDO que devuelve el proveedor (ej. YCloud expone PENDING/
+     * APPROVED/REJECTED/PAUSED/DISABLED/ARCHIVED/IN_APPEAL/DELETED — más
+     * granular que el enum local de 4 valores). Deliberadamente
+     * INDEPENDIENTE de `status`: `status` gobierna qué puede hacer el
+     * superadmin en el panel (Fase 9A, sección 4); `providerStatus` es solo
+     * el dato crudo de auditoría/diagnóstico.
+     */
+    providerStatus: text("provider_status"),
+    /** Última vez que se sincronizó el estado real contra el proveedor. */
+    providerLastSyncAt: timestamp("provider_last_sync_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -10,6 +10,16 @@ import { callGraphSend, SendError, ycloudApiKeyOf } from "@/server/inbox/send";
 import { isYcloudEnabled, YcloudHttpError, ycloudSendTemplate } from "@/lib/ycloud/client";
 import { serializeMessage } from "@/server/inbox/ingest";
 import type { WebhookValue } from "@/server/inbox/webhook";
+import { VARIABLE_REGEX, countVariables, validateBodyVariables } from "@/server/whatsapp/template-validation";
+import {
+  crearTemplateYCloud,
+  obtenerTemplateYCloud,
+  type ResultadoCreacionTemplateYCloud,
+} from "@/server/whatsapp/ycloud-templates";
+import { getYcloudApiKey } from "@/server/whatsapp/credentials";
+
+/** Re-exportado tal cual desde el módulo puro (Fase 9F) — mismo import path histórico para quien ya las use desde aquí. */
+export { countVariables, validateBodyVariables };
 
 /** Errores tipados del servicio de plantillas → HTTP en la capa de API. */
 export class TemplateError extends Error {
@@ -19,7 +29,20 @@ export class TemplateError extends Error {
     | "invalid"
     | "not_found"
     | "meta_error"
-    | "meta_unavailable";
+    | "meta_unavailable"
+    // Fase 9B: el envío real de un borrador a aprobación (YCloud/Graph) es
+    // una fase posterior, no autorizada todavía — nunca se finge éxito.
+    // Fase 9H: sigue usándose solo para provider="graph" (sin adaptador
+    // todavía, sección 2 de esa fase) — para YCloud ya hay integración real.
+    | "not_implemented"
+    // Fase 9H: la plantilla ya tiene un intento de envío sin resolver
+    // (AMBIGUOUS) — reconciliar con `reconciliarCreacionTemplateYCloud()`
+    // antes de volver a intentar un envío nuevo.
+    | "reconciliation_required"
+    // Fase 9H: el proveedor confirmó la creación (tenemos providerTemplateId
+    // real) pero el UPDATE local falló — nunca se repite el POST; el estado
+    // se reconcilia después con `obtenerTemplateYCloud`/`reconciliarCreacionTemplateYCloud`.
+    | "local_write_failed";
 
   constructor(code: TemplateError["code"], message: string) {
     super(message);
@@ -35,6 +58,9 @@ const TEMPLATE_ERROR_STATUS: Record<TemplateError["code"], number> = {
   not_found: 404,
   meta_error: 422,
   meta_unavailable: 503,
+  not_implemented: 501,
+  reconciliation_required: 409,
+  local_write_failed: 500,
 };
 
 export function templateErrorStatus(err: TemplateError): number {
@@ -65,25 +91,6 @@ export function resolveWabaId(creds: { wabaId: string; metaWabaId: string | null
       "que se dio de alta. Si el problema persiste, revisa la tabla " +
       "meta_credentials (columna meta_waba_id) para confirmar que se pobló."
   );
-}
-
-const VARIABLE_REGEX = /\{\{\s*(\d+)\s*\}\}/g;
-
-/** Cuenta variables {{n}} y valida el acotamiento v1: máximo UNA y debe ser {{1}}. */
-export function countVariables(body: string): number {
-  const matches = [...body.matchAll(VARIABLE_REGEX)];
-  return matches.length;
-}
-
-export function validateBodyVariables(body: string): string | null {
-  const matches = [...body.matchAll(VARIABLE_REGEX)];
-  if (matches.length > 1) {
-    return "v1 admite una sola variable {{1}} en el cuerpo";
-  }
-  if (matches.length === 1 && matches[0]![1] !== "1") {
-    return "La variable debe ser {{1}}";
-  }
-  return null;
 }
 
 export function renderBody(body: string, variable?: string): string {
@@ -194,6 +201,382 @@ export async function createTemplate(
     })
     .returning();
   return inserted[0]!;
+}
+
+/**
+ * Fase 9B — el camino de BORRADOR, deliberadamente separado de
+ * `createTemplate()` (que sigue intacta arriba, sin cambios, y sigue
+ * siendo lo único que usa `POST /api/templates` hoy — Fase 9B, punto 9:
+ * nunca romper en silencio a quien ya depende de que crear = enviar de
+ * inmediato).
+ *
+ * Reutiliza SOLO las dos piezas de `createTemplate()` que son puras (sin
+ * red): `validateBodyVariables()` y la normalización del nombre. Nunca
+ * toca credenciales, nunca resuelve un WABA, nunca llama a
+ * `graphRequest`/YCloud — un borrador es contenido 100% local hasta que
+ * alguien lo envíe a aprobación explícitamente (`enviarPlantillaAAprobacion`,
+ * abajo, todavía sin integración real).
+ *
+ * A diferencia de `createTemplate()` (que usa `onConflictDoUpdate` porque
+ * ahí SÍ tiene sentido "reenviar una plantilla editada"), aquí un choque
+ * contra `UNIQUE(organizationId, name, language)` es un error claro: crear
+ * un borrador nunca debe sobrescribir en silencio una fila ya existente
+ * (que podría estar `approved`).
+ */
+export async function crearBorradorDePlantilla(
+  organizationId: string,
+  input: { name: string; language: string; category: string; body: string }
+): Promise<TemplateRow> {
+  const variableError = validateBodyVariables(input.body);
+  if (variableError) throw new TemplateError("invalid", variableError);
+
+  const name = input.name
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
+  if (!name) throw new TemplateError("invalid", "Nombre de plantilla inválido");
+
+  const db = getDb();
+  const inserted = await db
+    .insert(schema.template)
+    .values({
+      id: newId("template"),
+      organizationId,
+      name,
+      language: input.language,
+      category: input.category,
+      body: input.body,
+      status: "draft",
+      waTemplateId: null,
+      provider: null,
+      providerStatus: null,
+      providerLastSyncAt: null,
+    })
+    .onConflictDoNothing({
+      target: [schema.template.organizationId, schema.template.name, schema.template.language],
+    })
+    .returning();
+  const fila = inserted[0];
+  if (!fila) {
+    throw new TemplateError(
+      "invalid",
+      `Ya existe una plantilla "${name}" en el idioma "${input.language}" para esta organización`
+    );
+  }
+  return fila;
+}
+
+/**
+ * Fase 9H — clasifica en qué punto está el ÚLTIMO intento de envío a
+ * aprobación de un borrador, usando SOLO columnas ya existentes del schema
+ * (sin ningún valor sintético en `providerStatus`, que el propio schema
+ * documenta como "el dato crudo que devuelve el proveedor" — inventar algo
+ * ahí sería mentirle a esa columna):
+ *
+ * - `"nunca_sometido"`: `provider`/`providerLastSyncAt` siguen NULL — nunca
+ *   se intentó un envío.
+ * - `"pendiente_reconciliar"`: hubo un intento (`provider`+`providerLastSyncAt`
+ *   seteados) cuyo resultado fue AMBIGUOUS — `rejectionReason` sigue NULL
+ *   porque no hay ningún rechazo real que reportar, solo incertidumbre.
+ * - `"fallo_explicito"`: el proveedor respondió con un rechazo determinado
+ *   (`rejectionReason` tiene el motivo) — seguro reintentar un envío nuevo.
+ * - `"creado"`: `waTemplateId` ya existe — el proveedor confirmó la
+ *   creación, nunca se debe volver a hacer POST.
+ */
+type EstadoSubmitYCloud = "nunca_sometido" | "pendiente_reconciliar" | "fallo_explicito" | "creado";
+
+function estadoSubmitYCloud(t: {
+  waTemplateId: string | null;
+  provider: string | null;
+  providerLastSyncAt: Date | null;
+  rejectionReason: string | null;
+}): EstadoSubmitYCloud {
+  if (t.waTemplateId) return "creado";
+  if (!t.provider || !t.providerLastSyncAt) return "nunca_sometido";
+  return t.rejectionReason ? "fallo_explicito" : "pendiente_reconciliar";
+}
+
+/**
+ * Traduce el `providerStatus` CRUDO de YCloud al `status` interno de Korex.
+ * Cualquier valor fuera de PENDING/APPROVED/REJECTED (PAUSED/DISABLED/
+ * ARCHIVED/IN_APPEAL/DELETED, o algo no documentado) es un caso que no
+ * debería ocurrir justo después de crear — se trata como `"pending"`
+ * (conservador: nunca afirma "approved"/"rejected" sin certeza) y el valor
+ * crudo sigue disponible sin traducir en `providerStatus` para diagnóstico.
+ */
+function mapProviderStatusToTemplateStatus(providerStatus: string): "pending" | "approved" | "rejected" {
+  if (providerStatus === "APPROVED") return "approved";
+  if (providerStatus === "REJECTED") return "rejected";
+  return "pending";
+}
+
+/** Credenciales + WABA ID + API key de YCloud ya resueltos, listos para llamar al adaptador. Lanza si falta algo — nunca llega a HTTP sin esto completo. */
+async function resolverContextoYCloud(
+  organizationId: string
+): Promise<{ apiKey: string; wabaId: string }> {
+  const creds = await getCredentialsByOrg(organizationId);
+  if (!creds) {
+    throw new TemplateError("not_connected", "Conecta tu número de WhatsApp primero");
+  }
+  if (creds.status === "reconnect_required") {
+    throw new TemplateError("reconnect_required", "Reconecta tu número antes de gestionar plantillas");
+  }
+  const apiKey = await getYcloudApiKey(organizationId);
+  if (!apiKey) {
+    throw new TemplateError(
+      "not_connected",
+      "No hay una API key de YCloud configurada (ni propia del cliente ni de la agencia)"
+    );
+  }
+  // Lanza TemplateError("not_connected", ...) si es cuenta propia de YCloud
+  // sin metaWabaId capturado aún — se detiene aquí, antes de cualquier POST.
+  const wabaId = resolveWabaId(creds);
+  return { apiKey, wabaId };
+}
+
+/** Carga un template scoped por organización; lanza not_found si no existe o pertenece a otra. */
+async function cargarTemplateScoped(organizationId: string, templateId: string): Promise<TemplateRow> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.template)
+    .where(scoped(schema.template.organizationId, organizationId, eq(schema.template.id, templateId)))
+    .limit(1);
+  const template = rows[0];
+  if (!template) throw new TemplateError("not_found", "Plantilla no encontrada en esta organización");
+  return template;
+}
+
+/** Aplica el resultado de `crearTemplateYCloud()`/`obtenerTemplateYCloud()` sobre la fila local — el único punto que escribe `provider`/`providerStatus`/`waTemplateId`/`rejectionReason` para el camino YCloud. */
+async function aplicarResultadoYCloud(
+  organizationId: string,
+  templateId: string,
+  resultado: ResultadoCreacionTemplateYCloud
+): Promise<TemplateRow> {
+  const db = getDb();
+  const where = scoped(schema.template.organizationId, organizationId, eq(schema.template.id, templateId));
+
+  if (resultado.kind === "SUCCESS") {
+    const nuevoStatus = mapProviderStatusToTemplateStatus(resultado.providerStatus);
+    let updated: TemplateRow[];
+    try {
+      updated = await db
+        .update(schema.template)
+        .set({
+          waTemplateId: resultado.providerTemplateId,
+          provider: "ycloud",
+          providerStatus: resultado.providerStatus,
+          providerLastSyncAt: new Date(),
+          status: nuevoStatus,
+          rejectionReason: nuevoStatus === "rejected" ? "Rechazada por YCloud/Meta" : null,
+          updatedAt: new Date(),
+        })
+        .where(where)
+        .returning();
+    } catch {
+      // Sección 16 (Fase 9H): YCloud YA confirmó la creación (tenemos
+      // providerTemplateId real) — el UPDATE local falló, pero NUNCA se
+      // repite el POST. El estado queda recuperable: una reconciliación
+      // posterior (obtenerTemplateYCloud/reconciliarCreacionTemplateYCloud)
+      // encontrará la plantilla real en YCloud y podrá completar el UPDATE.
+      throw new TemplateError(
+        "local_write_failed",
+        `YCloud creó la plantilla (id ${resultado.providerTemplateId}) pero no se pudo guardar localmente. ` +
+          "No se repite la creación — reconciliar antes de cualquier otro intento."
+      );
+    }
+    return updated[0]!;
+  }
+
+  if (resultado.kind === "EXPLICIT_FAILURE") {
+    await db
+      .update(schema.template)
+      .set({
+        provider: "ycloud",
+        providerLastSyncAt: new Date(),
+        rejectionReason: resultado.error,
+        updatedAt: new Date(),
+      })
+      .where(where);
+    throw new TemplateError("invalid", `YCloud rechazó el envío a aprobación (${resultado.code}): ${resultado.error}`);
+  }
+
+  // AMBIGUOUS — sección 10 (Fase 9H): nunca approved/rejected, nunca se
+  // asume que no se creó. `rejectionReason` se deja NULL a propósito: no
+  // hay ningún rechazo real que reportar, solo incertidumbre.
+  await db
+    .update(schema.template)
+    .set({
+      provider: "ycloud",
+      providerLastSyncAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(where);
+  throw new TemplateError(
+    "meta_unavailable",
+    `YCloud no confirmó el resultado de la creación (${resultado.error}). ` +
+      "Requiere reconciliación — usa reconciliarCreacionTemplateYCloud() antes de reintentar."
+  );
+}
+
+/**
+ * Fase 9H — envía un BORRADOR a aprobación ante el proveedor real
+ * (`provider="ycloud"` por ahora; `"graph"` sigue sin adaptador, sección 2
+ * del prompt de esta fase). Nunca reutiliza `createTemplate()` — usa
+ * explícitamente `crearTemplateYCloud()`.
+ *
+ * `input.provider` solo hace falta la PRIMERA vez (se persiste en
+ * `template.provider`, la columna que 9B dejó preparada para esto); en
+ * llamadas posteriores se lee de la fila. Sin proveedor (ni en el input ni
+ * ya guardado) → rechazo claro, nunca se infiere de las credenciales.
+ */
+export async function enviarPlantillaAAprobacion(
+  organizationId: string,
+  templateId: string,
+  input?: { provider?: "ycloud" | "graph"; variableExample?: string }
+): Promise<TemplateRow> {
+  const template = await cargarTemplateScoped(organizationId, templateId);
+
+  if (template.status !== "draft") {
+    throw new TemplateError(
+      "invalid",
+      `Solo se pueden enviar a aprobación plantillas en "draft" (estado actual: "${template.status}")`
+    );
+  }
+
+  const provider = input?.provider ?? template.provider;
+  if (!provider) {
+    throw new TemplateError(
+      "invalid",
+      "La plantilla no tiene un proveedor de aprobación asignado — indica provider: \"ycloud\" (\"graph\" aún no soportado)"
+    );
+  }
+  if (provider === "graph") {
+    // Sección 2 del prompt 9H: no construir una ruta nueva si no hace
+    // falta — Graph directo sigue sin adaptador de GESTIÓN de plantillas
+    // (solo existe el legacy `createTemplate()`, que crea Y envía en un
+    // solo paso, incompatible con el flujo borrador→submit).
+    throw new TemplateError(
+      "not_implemented",
+      "Envío a aprobación vía Graph directo todavía no implementado para el flujo de borradores."
+    );
+  }
+  if (provider !== "ycloud") {
+    throw new TemplateError("invalid", `Proveedor de aprobación desconocido: "${provider}"`);
+  }
+
+  const estado = estadoSubmitYCloud(template);
+  if (estado === "creado") {
+    throw new TemplateError("invalid", "Esta plantilla ya fue enviada al proveedor (tiene un ID confirmado)");
+  }
+  if (estado === "pendiente_reconciliar") {
+    throw new TemplateError(
+      "reconciliation_required",
+      "Ya existe un envío anterior sin confirmar (resultado ambiguo) — reconcilia con " +
+        "reconciliarCreacionTemplateYCloud() antes de volver a intentar"
+    );
+  }
+  // estado === "nunca_sometido" | "fallo_explicito" → seguro continuar.
+
+  const { apiKey, wabaId } = await resolverContextoYCloud(organizationId);
+
+  const resultado = await crearTemplateYCloud({
+    apiKey,
+    wabaId,
+    name: template.name,
+    language: template.language,
+    category: template.category,
+    body: template.body,
+    variableExample: input?.variableExample,
+  });
+
+  return aplicarResultadoYCloud(organizationId, templateId, resultado);
+}
+
+export type ResultadoReconciliacionTemplate =
+  | { status: "confirmado"; template: TemplateRow }
+  | { status: "no_encontrado_reintentable"; template: TemplateRow }
+  | { status: "pendiente"; template: TemplateRow };
+
+/**
+ * Fase 9H, sección 11 — reconcilia un envío que quedó AMBIGUOUS,
+ * consultando el estado real en YCloud. NUNCA hace un nuevo POST — solo
+ * GET (`obtenerTemplateYCloud`). Solo permite considerar "seguro
+ * reintentar" cuando YCloud responde NOT_FOUND con certeza (sección 12):
+ * un AMBIGUOUS o un EXPLICIT_FAILURE de la propia consulta NUNCA se tratan
+ * como NOT_FOUND.
+ */
+export async function reconciliarCreacionTemplateYCloud(
+  organizationId: string,
+  templateId: string
+): Promise<ResultadoReconciliacionTemplate> {
+  const template = await cargarTemplateScoped(organizationId, templateId);
+
+  if (template.provider !== "ycloud") {
+    throw new TemplateError("invalid", `Reconciliación solo soportada para provider="ycloud" (actual: "${template.provider}")`);
+  }
+  const estado = estadoSubmitYCloud(template);
+  if (estado === "creado") {
+    throw new TemplateError("invalid", "Esta plantilla ya tiene un ID confirmado — no hace falta reconciliar");
+  }
+  if (estado === "nunca_sometido") {
+    throw new TemplateError("invalid", "Esta plantilla nunca fue enviada a aprobación — no hay nada que reconciliar");
+  }
+
+  const { apiKey, wabaId } = await resolverContextoYCloud(organizationId);
+  const consulta = await obtenerTemplateYCloud({
+    apiKey,
+    wabaId,
+    name: template.name,
+    language: template.language,
+  });
+
+  const db = getDb();
+  const where = scoped(schema.template.organizationId, organizationId, eq(schema.template.id, templateId));
+
+  if (consulta.kind === "SUCCESS") {
+    const nuevoStatus = mapProviderStatusToTemplateStatus(consulta.template.providerStatus);
+    const updated = await db
+      .update(schema.template)
+      .set({
+        waTemplateId: consulta.template.providerTemplateId,
+        provider: "ycloud",
+        providerStatus: consulta.template.providerStatus,
+        providerLastSyncAt: new Date(),
+        status: nuevoStatus,
+        rejectionReason: nuevoStatus === "rejected" ? "Rechazada por YCloud/Meta" : null,
+        updatedAt: new Date(),
+      })
+      .where(where)
+      .returning();
+    return { status: "confirmado", template: updated[0]! };
+  }
+
+  if (consulta.kind === "NOT_FOUND") {
+    // Sección 12: NOT_FOUND con certeza — recién aquí es seguro habilitar
+    // un futuro reintento. Se guarda en `rejectionReason` (mueve el estado
+    // a "fallo_explicito" en `estadoSubmitYCloud`, que ya permite reenviar)
+    // — nunca se reintenta automáticamente desde esta función.
+    const updated = await db
+      .update(schema.template)
+      .set({
+        providerLastSyncAt: new Date(),
+        rejectionReason: `Reconciliación (${new Date().toISOString()}): YCloud no tiene esta plantilla — se puede reintentar el envío.`,
+        updatedAt: new Date(),
+      })
+      .where(where)
+      .returning();
+    return { status: "no_encontrado_reintentable", template: updated[0]! };
+  }
+
+  // AMBIGUOUS o EXPLICIT_FAILURE de la propia CONSULTA: sigue sin poder
+  // afirmarse nada — nunca se trata como NOT_FOUND (sección 12).
+  const updated = await db
+    .update(schema.template)
+    .set({ providerLastSyncAt: new Date(), updatedAt: new Date() })
+    .where(where)
+    .returning();
+  return { status: "pendiente", template: updated[0]! };
 }
 
 function mapMetaStatus(

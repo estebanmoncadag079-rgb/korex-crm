@@ -661,4 +661,146 @@ describe.skipIf(!hayBase)("motor y worker de campañas (Postgres real)", () => {
     )) as unknown as Array<{ id: string }>;
     expect(jobsRestantes).toHaveLength(0);
   });
+
+  it("R — Fase 7B, test OBLIGATORIO 'solo uno': procesarUnEnvioControladoDeCampana con 3 recipients reales procesa EXACTAMENTE 1, nunca los otros 2", async () => {
+    const ct1 = "ct_a_r1";
+    const ct2 = "ct_a_r2";
+    const ct3 = "ct_a_r3";
+    for (const [ct, phone, name] of [
+      [ct1, "570000050023", "Cliente R1"],
+      [ct2, "570000050024", "Cliente R2"],
+      [ct3, "570000050025", "Cliente R3"],
+    ] as const) {
+      await db.execute(sql`
+        INSERT INTO contact (id, organization_id, phone, name, created_at, updated_at)
+        VALUES (${ct}, ${ORG_A}, ${phone}, ${name}, now(), now())
+      `);
+    }
+    const campaignId = await crearCampanaLista();
+    // Camino NORMAL (no el controlado): materializa los 3 contactos elegibles
+    // de la organización, a propósito, para probar la garantía sobre una
+    // campaña con más de un destinatario real.
+    await m.campaignMotor.iniciarCampana(ORG_A, campaignId);
+
+    const recipientsAntes = (await db.execute(
+      sql`SELECT id FROM campaign_recipient WHERE campaign_id = ${campaignId}`
+    )) as unknown as Array<{ id: string }>;
+    expect(recipientsAntes).toHaveLength(3);
+
+    // Los 3 jobs se crearon en la misma transacción, con el mismo `run_at`
+    // (Postgres resuelve `now()` una sola vez por transacción) — el claim
+    // real (`ORDER BY run_at`, sin desempate) no tiene un orden determinista
+    // entre ellos. Se escalona explícitamente para poder predecir CUÁL será
+    // el primero, y así probar la garantía real: que el resto NUNCA se toque.
+    await db.execute(sql`
+      WITH numerados AS (
+        SELECT id, row_number() OVER (ORDER BY id) AS n
+          FROM campaign_send_job WHERE campaign_id = ${campaignId}
+      )
+      UPDATE campaign_send_job j
+         SET run_at = now() - ((4 - numerados.n) || ' seconds')::interval
+        FROM numerados
+       WHERE j.id = numerados.id
+    `);
+
+    const [primerJob] = (await db.execute(
+      sql`SELECT recipient_id FROM campaign_send_job WHERE campaign_id = ${campaignId} ORDER BY run_at LIMIT 1`
+    )) as unknown as Array<{ recipient_id: string }>;
+    const recipientEsperado = primerJob!.recipient_id;
+
+    let llamadas = 0;
+    const proveedor = async () => {
+      llamadas++;
+      return { kind: "SUCCESS", waMessageId: "wamid.r", renderedText: "x" } as never;
+    };
+
+    const resultado = await m.campaignPruebaControlada.procesarUnEnvioControladoDeCampana({
+      organizationId: ORG_A,
+      campaignId,
+      recipientId: recipientEsperado,
+      proveedor,
+    });
+    expect(resultado.outcome).toBe("enviado");
+    expect(llamadas).toBe(1);
+
+    const recipientsDespues = (await db.execute(
+      sql`SELECT id, status FROM campaign_recipient WHERE campaign_id = ${campaignId}`
+    )) as unknown as Array<{ id: string; status: string }>;
+    expect(recipientsDespues.filter((r) => r.status === "sent")).toHaveLength(1);
+    expect(recipientsDespues.filter((r) => r.status === "pending")).toHaveLength(2);
+    expect(recipientsDespues.find((r) => r.id === recipientEsperado)!.status).toBe("sent");
+
+    const jobsDespues = (await db.execute(
+      sql`SELECT recipient_id, status, locked_at FROM campaign_send_job WHERE campaign_id = ${campaignId}`
+    )) as unknown as Array<{ recipient_id: string; status: string; locked_at: string | null }>;
+    // El job del recipient enviado se cerró (borrado); los otros dos ni
+    // siquiera se reclamaron — nunca tocados.
+    expect(jobsDespues).toHaveLength(2);
+    for (const job of jobsDespues) {
+      expect(job.recipient_id).not.toBe(recipientEsperado);
+      expect(job.status).toBe("pendiente");
+      expect(job.locked_at).toBeNull();
+    }
+  });
+
+  it("S — Fase 7B, multi-tenant: organización B no puede procesar ni preparar nada de una campaña de la organización A", async () => {
+    const ctA = "ct_a_s1";
+    await db.execute(sql`
+      INSERT INTO contact (id, organization_id, phone, name, created_at, updated_at)
+      VALUES (${ctA}, ${ORG_A}, '570000050026', 'Cliente S1', now(), now())
+    `);
+    const campaignId = await crearCampanaLista();
+    await m.campaignMotor.iniciarCampana(ORG_A, campaignId);
+
+    const [recipientA] = (await db.execute(
+      sql`SELECT id FROM campaign_recipient WHERE campaign_id = ${campaignId}`
+    )) as unknown as Array<{ id: string }>;
+
+    let llamado = false;
+    const proveedor = async () => {
+      llamado = true;
+      return { kind: "SUCCESS", waMessageId: "no_deberia_pasar", renderedText: "x" } as never;
+    };
+
+    // organizationId = B, pero campaignId/recipientId son de A.
+    const resultado = await m.campaignPruebaControlada.procesarUnEnvioControladoDeCampana({
+      organizationId: ORG_B,
+      campaignId,
+      recipientId: recipientA!.id,
+      proveedor,
+    });
+    // El claim acotado (organizationId+campaignId) de B nunca encuentra el
+    // job real de A — aborta ANTES de escribir o llamar a nada.
+    expect(resultado.outcome).toBe("sin_trabajo");
+    expect(llamado).toBe(false);
+
+    const [recipientDespues] = (await db.execute(
+      sql`SELECT status FROM campaign_recipient WHERE id = ${recipientA!.id}`
+    )) as unknown as Array<{ status: string }>;
+    expect(recipientDespues!.status).toBe("pending");
+    const [jobDespues] = (await db.execute(
+      sql`SELECT status, locked_at FROM campaign_send_job WHERE campaign_id = ${campaignId}`
+    )) as unknown as Array<{ status: string; locked_at: string | null }>;
+    expect(jobDespues!.status).toBe("pendiente");
+    expect(jobDespues!.locked_at).toBeNull();
+
+    // El camino de PREPARACIÓN también debe rechazar cross-tenant: una
+    // campaña nueva de A, pero materializada con organizationId de B.
+    const campaignId2 = await crearCampanaLista();
+    const ctPrueba = "ct_a_s2";
+    await db.execute(sql`
+      INSERT INTO contact (id, organization_id, phone, name, created_at, updated_at)
+      VALUES (${ctPrueba}, ${ORG_A}, '570000050027', 'Cliente S2', now(), now())
+    `);
+    const err = await m.campaignPruebaControlada
+      .materializarAudienciaUnica({ organizationId: ORG_B, campaignId: campaignId2, contactId: ctPrueba })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(m.campaignPruebaControlada.PruebaControladaError);
+    expect((err as { code: string }).code).toBe("not_found");
+
+    const recipientsCreados = (await db.execute(
+      sql`SELECT id FROM campaign_recipient WHERE campaign_id = ${campaignId2}`
+    )) as unknown as Array<{ id: string }>;
+    expect(recipientsCreados).toHaveLength(0);
+  });
 });

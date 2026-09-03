@@ -112,12 +112,46 @@ describe("contactosElegiblesParaMarketing: construye el filtro correcto", () => 
     await expect(contactosElegiblesParaMarketing("")).rejects.toThrow(/sin tenant/);
   });
 
-  it("devuelve exactamente las filas que la base entrega", async () => {
-    const fila = { id: "ct_1", organizationId: "org_a", marketingOptOut: false };
+  it("devuelve exactamente las filas que la base entrega, si tienen un canal real", async () => {
+    const fila = { id: "ct_1", organizationId: "org_a", marketingOptOut: false, phone: "573001112233", waUserId: null };
     rowsToReturn.mockReturnValue([fila]);
     const { contactosElegiblesParaMarketing } = await import("@/server/contacts");
     const resultado = await contactosElegiblesParaMarketing("org_a");
     expect(resultado).toEqual([fila]);
+  });
+
+  /**
+   * Fase 10E — sin esto, un contacto sin ningún canal real pasaba la
+   * elegibilidad y `resolveRecipient()` fallaba recién en el worker de
+   * campañas, que revierte el job a `pending` SIN marcarlo `failed` (esa
+   * rama es solo para precondiciones, no para respuestas del proveedor) —
+   * el mismo recipient se reclamaba una y otra vez sin poder cerrarse
+   * nunca. El filtro aquí, antes de crear el `campaign_recipient`, es lo
+   * que lo cierra de raíz.
+   */
+  it("un contacto SIN teléfono ni waUserId (sin canal real) queda excluido, aunque la base lo devuelva", async () => {
+    const sinCanal = { id: "ct_sin_canal", organizationId: "org_a", marketingOptOut: false, phone: null, waUserId: null };
+    const conTelefono = { id: "ct_1", organizationId: "org_a", marketingOptOut: false, phone: "573001112233", waUserId: null };
+    const conWaUserId = { id: "ct_2", organizationId: "org_a", marketingOptOut: false, phone: null, waUserId: "CO.abc123" };
+    rowsToReturn.mockReturnValue([sinCanal, conTelefono, conWaUserId]);
+    const { contactosElegiblesParaMarketing } = await import("@/server/contacts");
+    const resultado = await contactosElegiblesParaMarketing("org_a");
+    expect(resultado.map((r) => (r as { id: string }).id).sort()).toEqual(["ct_1", "ct_2"]);
+  });
+});
+
+describe("tieneCanalUtilizable: regla pura", () => {
+  it("teléfono solo, waUserId solo, o ambos → true", async () => {
+    const { tieneCanalUtilizable } = await import("@/server/contacts");
+    expect(tieneCanalUtilizable({ phone: "573001112233", waUserId: null })).toBe(true);
+    expect(tieneCanalUtilizable({ phone: null, waUserId: "CO.abc" })).toBe(true);
+    expect(tieneCanalUtilizable({ phone: "573001112233", waUserId: "CO.abc" })).toBe(true);
+  });
+
+  it("ninguno de los dos, o solo espacios en blanco → false", async () => {
+    const { tieneCanalUtilizable } = await import("@/server/contacts");
+    expect(tieneCanalUtilizable({ phone: null, waUserId: null })).toBe(false);
+    expect(tieneCanalUtilizable({ phone: "   ", waUserId: "" })).toBe(false);
   });
 });
 

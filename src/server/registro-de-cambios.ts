@@ -263,6 +263,36 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     createdAt: "tecnico",
     updatedAt: "tecnico",
   },
+  /**
+   * La campaña de marketing en sí (Fase 10I, flujo de aprobación
+   * cliente→superadmin). `requestedBy`/`approvedBy` son IDs de actor
+   * (`user:<id>`), no datos personales de un tercero — mismo criterio que
+   * `createdBy`. `rejectionReason` es el motivo operativo que escribe el
+   * superadmin, describe la campaña, no a ningún cliente.
+   */
+  campaign: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    name: "negocio",
+    status: "tecnico",
+    templateId: "tecnico",
+    mediaAssetId: "tecnico",
+    audienceType: "tecnico",
+    scheduledAt: "tecnico",
+    startedAt: "tecnico",
+    finishedAt: "tecnico",
+    createdBy: "tecnico",
+    requestedBy: "tecnico",
+    requestedAt: "tecnico",
+    approvedBy: "tecnico",
+    approvedAt: "tecnico",
+    rejectionReason: "negocio",
+    estimatedRecipients: "negocio",
+    estimatedCostUsd: "negocio",
+    currency: "tecnico",
+    createdAt: "tecnico",
+    updatedAt: "tecnico",
+  },
 };
 
 /** Qué es este campo, o `null` si nadie lo ha clasificado todavía. */

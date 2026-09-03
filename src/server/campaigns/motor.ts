@@ -2,11 +2,14 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
-import { contactosElegiblesParaMarketing } from "@/server/contacts";
 import {
   transicionCampanaValida,
   type CampaignStatus,
 } from "@/server/campaigns/estados";
+import { resolverAudiencia, estimarCampana, type AudienceFilter } from "@/server/campaigns/audiencia";
+import { categoriaDeTarifaDesdeTemplate } from "@/server/pricing/rates";
+import { proveedorRealDeOrganizacion } from "@/server/whatsapp/credentials";
+import { conRegistro, type Actor } from "@/server/registro-de-cambios";
 
 /**
  * El dominio de campañas por fuera del claim/envío — crear, congelar la
@@ -21,6 +24,16 @@ export class CampanaError extends Error {
     this.name = "CampanaError";
     this.code = code;
   }
+}
+
+const CAMPANA_ERROR_STATUS: Record<CampanaError["code"], number> = {
+  not_found: 404,
+  invalid: 422,
+  invalid_transition: 409,
+};
+
+export function campanaErrorStatus(err: CampanaError): number {
+  return CAMPANA_ERROR_STATUS[err.code];
 }
 
 type CampaignRow = typeof schema.campaign.$inferSelect;
@@ -168,6 +181,10 @@ export async function congelarTemplateSnapshot(
         language: plantilla.language,
         category: plantilla.category,
         body: plantilla.body,
+        // Fase 9P, sección 11 — congela header/footer vigentes al momento
+        // de pasar a `ready`; una campaña ya congelada nunca se entera si
+        // el template vivo cambia su header después.
+        components: plantilla.components ?? undefined,
       },
       updatedAt: new Date(),
     })
@@ -180,7 +197,18 @@ export async function congelarTemplateSnapshot(
     );
 }
 
-/** `draft → ready`: valida, congela el snapshot, y transiciona — en ese orden. */
+/**
+ * `draft → ready`: valida, congela el snapshot, congela la estimación
+ * financiera, y transiciona — en ese orden.
+ *
+ * Fase 10J (autoauditoría) — hallazgo real: hasta esta corrección, solo
+ * `solicitarAprobacionCampana()` llamaba a `congelarEstimacion()`. Una
+ * campaña preparada por el camino DIRECTO (sin flujo de aprobación — el
+ * superadmin la arma él mismo) quedaba con `estimatedRecipients`/
+ * `estimatedCostUsd`/`rateSnapshot` en NULL para siempre, contradiciendo el
+ * objetivo declarado de "control financiero" para TODA campaña, no solo
+ * las que piden aprobación.
+ */
 export async function prepararCampana(
   organizationId: string,
   campaignId: string
@@ -190,6 +218,7 @@ export async function prepararCampana(
     throw new CampanaError("invalid", `Campaña no lista para "ready": ${errores.join("; ")}`);
   }
   await congelarTemplateSnapshot(organizationId, campaignId);
+  await congelarEstimacion(organizationId, campaignId);
   return transicionar(organizationId, campaignId, "ready");
 }
 
@@ -208,16 +237,23 @@ export async function materializarAudienciaDeCampana(
   organizationId: string,
   campaignId: string
 ): Promise<{ creados: number }> {
-  await leerCampana(organizationId, campaignId); // valida existencia/organización
-  const elegibles = await contactosElegiblesParaMarketing(organizationId);
-  if (elegibles.length === 0) return { creados: 0 };
+  const campana = await leerCampana(organizationId, campaignId); // valida existencia/organización
+  const providerEnvio = await proveedorRealDeOrganizacion(organizationId);
+  const { contactIds } = await resolverAudiencia({
+    organizationId,
+    audienceType: campana.audienceType,
+    audienceFilter: (campana.audienceFilter as AudienceFilter) ?? null,
+    category: categoriaDeTarifaDesdeTemplate(campana.templateSnapshot?.category),
+    provider: providerEnvio === "ycloud" ? "ycloud" : "meta",
+  });
+  if (contactIds.length === 0) return { creados: 0 };
 
   const db = getDb();
-  const filas = elegibles.map((c) => ({
+  const filas = contactIds.map((contactId) => ({
     id: newId("campaignRecipient"),
     organizationId,
     campaignId,
-    contactId: c.id,
+    contactId,
     status: "pending" as const,
   }));
   const insertados = await db
@@ -433,4 +469,164 @@ export async function fallarCampana(
   campaignId: string
 ): Promise<CampaignRow> {
   return transicionar(organizationId, campaignId, "failed", { finishedAt: new Date() });
+}
+
+/**
+ * Fase 10F — calcula la estimación (elegibles/costo) SIN transicionar ni
+ * escribir nada todavía; separado de `congelarEstimacion` para que la UI
+ * pueda mostrar el número antes de que el usuario confirme nada (sección
+ * "Paso 5: Estimación" del diseño pedido).
+ */
+export async function estimarCampanaActual(
+  organizationId: string,
+  campaignId: string
+): Promise<ReturnType<typeof estimarCampana>> {
+  const campana = await leerCampana(organizationId, campaignId);
+  if (!campana.templateId) {
+    throw new CampanaError("invalid", "La campaña no tiene una plantilla asignada");
+  }
+  const db = getDb();
+  const plantillas = await db
+    .select({ category: schema.template.category })
+    .from(schema.template)
+    .where(scoped(schema.template.organizationId, organizationId, eq(schema.template.id, campana.templateId)))
+    .limit(1);
+  const plantilla = plantillas[0];
+  if (!plantilla) throw new CampanaError("not_found", "Plantilla no encontrada");
+  const providerEnvio = await proveedorRealDeOrganizacion(organizationId);
+  return estimarCampana({
+    organizationId,
+    audienceType: campana.audienceType,
+    audienceFilter: (campana.audienceFilter as AudienceFilter) ?? null,
+    category: categoriaDeTarifaDesdeTemplate(plantilla.category),
+    provider: providerEnvio === "ycloud" ? "ycloud" : "meta",
+  });
+}
+
+/**
+ * Congela la estimación (`estimatedRecipients`/`estimatedCostUsd`/
+ * `rateSnapshot`) en la propia campaña — "snapshot de tarifa" pedido
+ * explícitamente (Fase 10I, "CONTROL FINANCIERO"): un cambio posterior de
+ * `pricing_rate` nunca reescribe una estimación ya hecha y mostrada al
+ * cliente/superadmin.
+ */
+async function congelarEstimacion(organizationId: string, campaignId: string): Promise<void> {
+  const estimacion = await estimarCampanaActual(organizationId, campaignId);
+  const db = getDb();
+  await db
+    .update(schema.campaign)
+    .set({
+      estimatedRecipients: estimacion.seleccionados,
+      estimatedCostUsd: estimacion.costoEstimadoUsd.toFixed(4),
+      currency: estimacion.moneda,
+      rateSnapshot: { ratesUsadas: estimacion.ratesUsadas, calculadoAt: new Date().toISOString() },
+      updatedAt: new Date(),
+    })
+    .where(scoped(schema.campaign.organizationId, organizationId, eq(schema.campaign.id, campaignId)));
+}
+
+/**
+ * Fase 10I — el CLIENTE arma el borrador (nombre, plantilla, audiencia) y
+ * pide aprobación: `draft → pending_approval`. Congela snapshot de
+ * plantilla Y estimación de costo AQUÍ (no al aprobar): el superadmin debe
+ * revisar exactamente lo que se pidió, no una versión que pudo cambiar
+ * mientras esperaba en la bandeja de aprobación.
+ */
+export async function solicitarAprobacionCampana(
+  organizationId: string,
+  campaignId: string,
+  actor: Actor
+): Promise<CampaignRow> {
+  const { valida, errores } = await validarCampana(organizationId, campaignId);
+  if (!valida) {
+    throw new CampanaError("invalid", `Campaña no lista para solicitar aprobación: ${errores.join("; ")}`);
+  }
+  await congelarTemplateSnapshot(organizationId, campaignId);
+  await congelarEstimacion(organizationId, campaignId);
+  return conRegistro(
+    {
+      tabla: "campaign",
+      registro: campaignId,
+      leerFila: async () => {
+        const db = getDb();
+        const rows = await db.select().from(schema.campaign).where(eq(schema.campaign.id, campaignId));
+        return (rows[0] as unknown as Record<string, unknown>) ?? null;
+      },
+      declarados: ["status", "requestedBy", "requestedAt"],
+      proceso: "solicitarAprobacionCampana",
+      actor,
+    },
+    () => transicionar(organizationId, campaignId, "pending_approval", { requestedBy: actor, requestedAt: new Date() })
+  );
+}
+
+/**
+ * Fase 10I — el SUPERADMIN aprueba: `pending_approval → ready`, y SOLO
+ * desde `pending_approval` — deliberadamente más estrecho que
+ * `transicionCampanaValida` por sí sola (que también permite `draft →
+ * ready` directo, la ruta de `prepararCampana()` sin aprobación). Mismo
+ * criterio que `reanudarCampana()`: "aprobar" nunca debe poder confundirse
+ * con "esto ni siquiera pasó por el flujo de aprobación".
+ */
+export async function aprobarCampana(
+  organizationId: string,
+  campaignId: string,
+  actor: Actor
+): Promise<CampaignRow> {
+  const actual = await leerCampana(organizationId, campaignId);
+  if (actual.status !== "pending_approval") {
+    throw new CampanaError(
+      "invalid_transition",
+      `Campaña ${campaignId}: aprobarCampana() solo aplica desde "pending_approval" (estado actual: "${actual.status}")`
+    );
+  }
+  return conRegistro(
+    {
+      tabla: "campaign",
+      registro: campaignId,
+      leerFila: async () => {
+        const db = getDb();
+        const rows = await db.select().from(schema.campaign).where(eq(schema.campaign.id, campaignId));
+        return (rows[0] as unknown as Record<string, unknown>) ?? null;
+      },
+      declarados: ["status", "approvedBy", "approvedAt"],
+      proceso: "aprobarCampana",
+      actor,
+    },
+    () => transicionar(organizationId, campaignId, "ready", { approvedBy: actor, approvedAt: new Date() })
+  );
+}
+
+/** Fase 10I — el SUPERADMIN rechaza: `pending_approval → rejected`, con motivo obligatorio. El cliente puede volver a `draft` para ajustar y reintentar. */
+export async function rechazarCampana(
+  organizationId: string,
+  campaignId: string,
+  actor: Actor,
+  motivo: string
+): Promise<CampaignRow> {
+  const razon = motivo.trim();
+  if (!razon) throw new CampanaError("invalid", "El motivo de rechazo no puede estar vacío");
+  return conRegistro(
+    {
+      tabla: "campaign",
+      registro: campaignId,
+      leerFila: async () => {
+        const db = getDb();
+        const rows = await db.select().from(schema.campaign).where(eq(schema.campaign.id, campaignId));
+        return (rows[0] as unknown as Record<string, unknown>) ?? null;
+      },
+      declarados: ["status", "rejectionReason"],
+      proceso: "rechazarCampana",
+      actor,
+    },
+    () => transicionar(organizationId, campaignId, "rejected", { rejectionReason: razon })
+  );
+}
+
+/** Reabre una campaña rechazada para ajustarla: `rejected → draft`. Nunca automático. */
+export async function reabrirCampanaRechazada(
+  organizationId: string,
+  campaignId: string
+): Promise<CampaignRow> {
+  return transicionar(organizationId, campaignId, "draft");
 }

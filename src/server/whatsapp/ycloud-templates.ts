@@ -85,6 +85,10 @@ export type TemplateYCloudMapeado = {
   category: string;
   /** El estado CRUDO tal como lo devuelve YCloud (PENDING/APPROVED/...) — nunca traducido aquí. */
   providerStatus: string;
+  /** Fase 10D — solo presentes si YCloud los devolvió en `components`. */
+  body?: string;
+  header?: HeaderYCloudResuelto;
+  footer?: string;
 };
 
 export type ResultadoConsultaTemplateYCloud =
@@ -99,14 +103,33 @@ export type ResultadoListadoTemplatesYCloud =
   | { kind: "AMBIGUOUS"; error: string; causa: unknown };
 
 /**
- * Korex → payload YCloud (Fase 9D, sección 5). Formato confirmado contra
- * la documentación oficial (`whatsapp-template-creation-examples`): un
- * componente `BODY` obligatorio, `example.body_text` como array de arrays
- * SOLO cuando el body tiene una variable — mismo esquema que ya usa
- * `createTemplate()` legacy para Meta Graph directo (BSPs replican el
- * esquema estándar de Meta). Reutiliza `countVariables()` de
- * `template-validation.ts` (módulo puro, sin imports) para no duplicar la
- * regla de "0 o 1 variable {{1}}" en dos sitios.
+ * Fase 9P — header/footer YA RESUELTOS (URL/text reales, nunca un
+ * `mediaAssetId`): resolver la referencia contra `media_asset` es
+ * responsabilidad de la capa de dominio (`templates.ts`, que sí toca DB) —
+ * este adaptador se mantiene un cliente HTTP puro, sin ninguna dependencia
+ * nueva (Fase 9F/9G: la independencia de `ycloud-templates.ts` respecto a
+ * `@/lib/db` y clientes de envío es deliberada y auditada, no se reintroduce
+ * aquí).
+ */
+export type HeaderYCloudResuelto =
+  | { type: "IMAGE"; url: string }
+  | { type: "TEXT"; text: string };
+
+/**
+ * Korex → payload YCloud (Fase 9D, sección 5; extendido en Fase 9P para
+ * HEADER/FOOTER). Formato confirmado contra la documentación oficial
+ * (`whatsapp-template-creation-examples`): un componente `BODY` obligatorio,
+ * `example.body_text` como array de arrays SOLO cuando el body tiene una
+ * variable — mismo esquema que ya usa `createTemplate()` legacy para Meta
+ * Graph directo (BSPs replican el esquema estándar de Meta). Reutiliza
+ * `countVariables()` de `template-validation.ts` (módulo puro, sin
+ * imports) para no duplicar la regla de "0 o 1 variable {{1}}" en dos
+ * sitios.
+ *
+ * `header`/`footer` son opcionales — el orden HEADER→BODY→FOOTER coincide
+ * con el ejemplo oficial de YCloud (Fase 9O, WebFetch). `header.type==="IMAGE"`
+ * arma `example.header_url` como array de un elemento (formato confirmado);
+ * `header.type==="TEXT"` arma `example.header_text`.
  */
 export function mapTemplateToYCloudPayload(input: {
   wabaId: string;
@@ -116,14 +139,25 @@ export function mapTemplateToYCloudPayload(input: {
   body: string;
   /** Valor de ejemplo para {{1}} — YCloud lo exige cuando el body tiene variable. */
   variableExample?: string;
+  header?: HeaderYCloudResuelto;
+  footer?: string;
 }): Record<string, unknown> {
   const needsVariable = countVariables(input.body) === 1;
+  const headerComponent =
+    input.header?.type === "IMAGE"
+      ? { type: "HEADER", format: "IMAGE", example: { header_url: [input.header.url] } }
+      : input.header?.type === "TEXT"
+        ? { type: "HEADER", format: "TEXT", text: input.header.text }
+        : null;
+  const footerComponent = input.footer ? { type: "FOOTER", text: input.footer } : null;
+
   return {
     wabaId: input.wabaId,
     name: input.name,
     language: input.language,
     category: input.category,
     components: [
+      ...(headerComponent ? [headerComponent] : []),
       {
         type: "BODY",
         text: input.body,
@@ -131,8 +165,51 @@ export function mapTemplateToYCloudPayload(input: {
           ? { example: { body_text: [[(input.variableExample ?? "").trim() || "ejemplo"]] } }
           : {}),
       },
+      ...(footerComponent ? [footerComponent] : []),
     ],
   };
+}
+
+/**
+ * Fase 10D — extrae header/body/footer del array `components` crudo que
+ * devuelve YCloud (mismo esquema estándar de Meta que ya usa
+ * `mapTemplateToYCloudPayload` para CREAR — HEADER/BODY/FOOTER con
+ * mayúsculas). Pura, defensiva: cualquier forma inesperada (no es array,
+ * falta un campo) simplemente omite esa pieza en vez de lanzar — una
+ * plantilla sincronizada con menos detalle sigue siendo mejor que ninguna.
+ */
+function extraerComponentesDelTemplateYCloud(
+  raw: unknown
+): { body?: string; header?: HeaderYCloudResuelto; footer?: string } {
+  const componentes = (raw as { components?: unknown })?.components;
+  if (!Array.isArray(componentes)) return {};
+
+  let body: string | undefined;
+  let header: HeaderYCloudResuelto | undefined;
+  let footer: string | undefined;
+
+  for (const c of componentes) {
+    const comp = c as {
+      type?: string;
+      format?: string;
+      text?: string;
+      example?: { header_url?: unknown[] };
+    };
+    const tipo = (comp.type ?? "").toUpperCase();
+    if (tipo === "BODY" && typeof comp.text === "string") {
+      body = comp.text;
+    } else if (tipo === "HEADER") {
+      if (comp.format === "IMAGE") {
+        const url = comp.example?.header_url?.[0];
+        if (typeof url === "string" && url) header = { type: "IMAGE", url };
+      } else if (comp.format === "TEXT" && typeof comp.text === "string") {
+        header = { type: "TEXT", text: comp.text };
+      }
+    } else if (tipo === "FOOTER" && typeof comp.text === "string") {
+      footer = comp.text;
+    }
+  }
+  return { body, header, footer };
 }
 
 /**
@@ -155,6 +232,7 @@ export function mapYCloudTemplateToKorex(raw: unknown): TemplateYCloudMapeado {
     language: r.language ?? "",
     category: r.category ?? "",
     providerStatus: r.status ?? "",
+    ...extraerComponentesDelTemplateYCloud(raw),
   };
 }
 
@@ -224,6 +302,9 @@ export async function crearTemplateYCloud(input: {
   body: string;
   variableExample?: string;
   timeoutMs?: number;
+  /** Fase 9P — ya resueltos (URL/texto reales), nunca un `mediaAssetId`. */
+  header?: HeaderYCloudResuelto;
+  footer?: string;
 }): Promise<ResultadoCreacionTemplateYCloud> {
   // Fase 9F: rechazo local (cero HTTP) de cualquier cantidad de variables
   // no soportada por el motor — antes solo se rechazaba "{{1}} sin

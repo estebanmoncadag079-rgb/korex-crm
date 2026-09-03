@@ -14,6 +14,14 @@ vi.mock("@/server/contacts", () => ({
     contactosElegiblesParaMarketing(...args),
 }));
 
+// Fase 10J: `congelarEstimacion` (ahora parte de `prepararCampana`) resuelve
+// el proveedor real vía credenciales — sin mockear esto, tocaría cifrado/env
+// real. Mismo mock que `campaign-aprobacion.test.ts`.
+const proveedorRealDeOrganizacion = vi.fn();
+vi.mock("@/server/whatsapp/credentials", () => ({
+  proveedorRealDeOrganizacion: (...args: unknown[]) => proveedorRealDeOrganizacion(...args),
+}));
+
 vi.mock("@/lib/db/tenant", () => ({
   scoped: (...conds: unknown[]) => conds,
 }));
@@ -94,7 +102,12 @@ beforeEach(() => {
   selectQueue.length = 0;
   insertReturningQueue.length = 0;
   updateReturningQueue.length = 0;
-  contactosElegiblesParaMarketing.mockReset();
+  // Fase 10J: `congelarEstimacion` (ahora parte de `prepararCampana`) llama
+  // a `estimarCampana`, que necesita una audiencia resuelta — sin default
+  // aquí, cualquier test que no la sobreescriba explícitamente recibiría
+  // `undefined` y `elegiblesOrdenadosPorAntiguedad` fallaría al iterarla.
+  contactosElegiblesParaMarketing.mockReset().mockResolvedValue([]);
+  proveedorRealDeOrganizacion.mockReset().mockResolvedValue("graph");
 });
 
 describe("congelarTemplateSnapshot / prepararCampana", () => {
@@ -103,8 +116,15 @@ describe("congelarTemplateSnapshot / prepararCampana", () => {
     selectQueue.push([plantillaAprobada]); // leerCampana → template (validarCampana)
     selectQueue.push([campanaBase]); // leerCampana (congelarTemplateSnapshot)
     selectQueue.push([plantillaAprobada]); // template (congelarTemplateSnapshot)
+    // Fase 10J: `prepararCampana` también congela la estimación financiera
+    // (`congelarEstimacion` → `estimarCampanaActual`). Sin contactos elegibles
+    // (default del mock, ver beforeEach), la audiencia queda vacía y
+    // `resolverCostosPorLote` no consulta ninguna tarifa.
+    selectQueue.push([campanaBase]); // leerCampana (estimarCampanaActual)
+    selectQueue.push([{ category: "MARKETING" }]); // template.category (estimarCampanaActual)
     selectQueue.push([{ ...campanaBase, status: "draft" }]); // leerCampana (transicionar)
     updateReturningQueue.push([{}]); // update snapshot
+    updateReturningQueue.push([{}]); // update estimación (congelarEstimacion)
     updateReturningQueue.push([{ ...campanaBase, status: "ready" }]); // update transición
 
     const { prepararCampana } = await import("@/server/campaigns/motor");
@@ -125,7 +145,11 @@ describe("congelarTemplateSnapshot / prepararCampana", () => {
     selectQueue.push([plantillaAprobada]);
     selectQueue.push([{ ...campanaBase, status: "ready" }]); // leerCampana en congelarTemplateSnapshot
     selectQueue.push([plantillaAprobada]);
+    selectQueue.push([{ ...campanaBase, status: "ready" }]); // leerCampana (estimarCampanaActual)
+    selectQueue.push([{ category: "MARKETING" }]); // template.category (estimarCampanaActual)
     selectQueue.push([{ ...campanaBase, status: "ready" }]); // transicionar: ya está en ready
+    updateReturningQueue.push([{}]); // update snapshot
+    updateReturningQueue.push([{}]); // update estimación (congelarEstimacion)
 
     const { prepararCampana, CampanaError } = await import("@/server/campaigns/motor");
     await expect(prepararCampana("org_1", "cmp_1")).rejects.toBeInstanceOf(CampanaError);

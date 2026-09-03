@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionOrNull } from "@/lib/auth/session";
 import { AdminClients } from "@/components/admin/admin-clients";
@@ -20,6 +21,15 @@ export default async function AdminPage() {
           Cada cliente es una cuenta aislada: sus conversaciones, contactos y
           agente solo los ve él.
         </p>
+        <nav className="mt-3 flex gap-1 text-sm">
+          <span className="rounded-md bg-muted px-3 py-1.5 font-medium">Clientes</span>
+          <Link
+            href="/admin/templates"
+            className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-muted"
+          >
+            Plantillas
+          </Link>
+        </nav>
       </header>
       <div className="min-w-0 flex-1 space-y-6 overflow-y-auto p-4 md:p-6">
         {/* Los clientes van primero: es a lo que se entra al abrir el panel.

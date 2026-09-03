@@ -1,17 +1,17 @@
 import { desc } from "drizzle-orm";
-import { z } from "zod";
-import { apiError, parseBody, withAuth } from "@/lib/api";
+import { withAuth } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { scoped } from "@/lib/db/tenant";
-import {
-  createTemplate,
-  serializeTemplate,
-  TemplateError,
-  templateErrorStatus,
-} from "@/server/whatsapp/templates";
+import { serializeTemplate } from "@/server/whatsapp/templates";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Solo lectura para el cliente — la vista `/settings/templates` la filtra a
+ * `status === "approved"` (Fase 9M, sección 20). Devuelve todas las de su
+ * organización tal como siempre: el filtro es de UI, no de este endpoint,
+ * para no romper el contrato existente (Fase 9M, sección 21).
+ */
 export const GET = withAuth(async (session) => {
   const db = getDb();
   const templates = await db
@@ -22,27 +22,11 @@ export const GET = withAuth(async (session) => {
   return Response.json({ templates: templates.map(serializeTemplate) });
 });
 
-const createSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  language: z.string().trim().min(2).max(10),
-  category: z.enum(["UTILITY", "MARKETING"]),
-  body: z.string().trim().min(1).max(1024),
-});
-
-export const POST = withAuth(async (session, req: Request) => {
-  const body = await parseBody(req, createSchema);
-  if (!body.ok) return body.response;
-
-  try {
-    const template = await createTemplate(session.organizationId, body.data);
-    return Response.json(
-      { template: serializeTemplate(template) },
-      { status: 201 }
-    );
-  } catch (err) {
-    if (err instanceof TemplateError) {
-      return apiError(templateErrorStatus(err), err.code, err.message);
-    }
-    throw err;
-  }
-});
+/**
+ * Fase 9M, sección 21 — la creación por members/clientes queda cerrada: el
+ * único call site (`CreateForm` en `templates-client.tsx`) se retiró en la
+ * misma fase. Crear/editar/enviar plantillas ahora vive exclusivamente en
+ * `/api/admin/templates` (superadmin, `withPlatformAdmin`). Sin `export
+ * const POST` aquí, Next.js responde 405 de forma nativa — no queda ningún
+ * camino de creación abierto para member/owner.
+ */

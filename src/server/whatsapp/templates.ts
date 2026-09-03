@@ -101,7 +101,7 @@ export function renderBody(body: string, variable?: string): string {
   return body.replace(VARIABLE_REGEX, () => value);
 }
 
-type TemplateRow = typeof schema.template.$inferSelect;
+export type TemplateRow = typeof schema.template.$inferSelect;
 
 export function serializeTemplate(t: TemplateRow) {
   return {
@@ -112,6 +112,32 @@ export function serializeTemplate(t: TemplateRow) {
     body: t.body,
     status: t.status,
     rejectionReason: t.rejectionReason,
+  };
+}
+
+/**
+ * Fase 9M — serialización para el panel de superadmin: incluye
+ * `organizationId`/`provider`/`providerStatus`/`providerLastSyncAt`/
+ * `waTemplateId` (todo lo que `serializeTemplate` omite a propósito para la
+ * vista de cliente). Ninguno de estos campos es sensible — la tabla
+ * `template` no tiene ninguna columna de credenciales.
+ */
+export function serializeAdminTemplate(t: TemplateRow) {
+  return {
+    id: t.id,
+    organizationId: t.organizationId,
+    name: t.name,
+    language: t.language,
+    category: t.category,
+    body: t.body,
+    status: t.status,
+    provider: t.provider,
+    providerStatus: t.providerStatus,
+    providerLastSyncAt: t.providerLastSyncAt ? t.providerLastSyncAt.toISOString() : null,
+    rejectionReason: t.rejectionReason,
+    waTemplateId: t.waTemplateId,
+    createdAt: t.createdAt.toISOString(),
+    updatedAt: t.updatedAt.toISOString(),
   };
 }
 
@@ -225,7 +251,20 @@ export async function createTemplate(
  */
 export async function crearBorradorDePlantilla(
   organizationId: string,
-  input: { name: string; language: string; category: string; body: string }
+  input: {
+    name: string;
+    language: string;
+    category: string;
+    body: string;
+    /**
+     * Fase 9M — con qué proveedor se gestionará esta plantilla, resuelto
+     * SIEMPRE por la capa superior (server-side, a partir de las
+     * credenciales de la organización) — nunca por el cliente. `undefined`/
+     * `null` conserva el comportamiento histórico de 9B (borrador sin
+     * proveedor asignado todavía).
+     */
+    provider?: string | null;
+  }
 ): Promise<TemplateRow> {
   const variableError = validateBodyVariables(input.body);
   if (variableError) throw new TemplateError("invalid", variableError);
@@ -248,7 +287,7 @@ export async function crearBorradorDePlantilla(
       body: input.body,
       status: "draft",
       waTemplateId: null,
-      provider: null,
+      provider: input.provider ?? null,
       providerStatus: null,
       providerLastSyncAt: null,
     })
@@ -264,6 +303,61 @@ export async function crearBorradorDePlantilla(
     );
   }
   return fila;
+}
+
+/**
+ * Fase 9M — edita un borrador (nunca toca `provider`/estado del proveedor).
+ * Solo permite editar mientras `status === "draft"`: una vez enviada a
+ * aprobación, el contenido ya viaja o viajó a YCloud/Meta, así que editarlo
+ * localmente sin un nuevo envío dejaría el CRM desincronizado del proveedor.
+ */
+export async function editarBorradorDePlantilla(
+  organizationId: string,
+  templateId: string,
+  input: { name?: string; language?: string; category?: string; body?: string }
+): Promise<TemplateRow> {
+  const template = await cargarTemplateScoped(organizationId, templateId);
+  if (template.status !== "draft") {
+    throw new TemplateError(
+      "invalid",
+      `Solo se pueden editar plantillas en "draft" (estado actual: "${template.status}")`
+    );
+  }
+
+  const body = input.body ?? template.body;
+  const variableError = validateBodyVariables(body);
+  if (variableError) throw new TemplateError("invalid", variableError);
+
+  const name = input.name
+    ? input.name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "")
+    : template.name;
+  if (!name) throw new TemplateError("invalid", "Nombre de plantilla inválido");
+
+  const db = getDb();
+  try {
+    const updated = await db
+      .update(schema.template)
+      .set({
+        name,
+        language: input.language ?? template.language,
+        category: input.category ?? template.category,
+        body,
+        updatedAt: new Date(),
+      })
+      .where(scoped(schema.template.organizationId, organizationId, eq(schema.template.id, templateId)))
+      .returning();
+    return updated[0]!;
+  } catch (err) {
+    // El mismo UNIQUE(organizationId, name, language) de crearBorradorDePlantilla:
+    // renombrar un borrador al name+language de otra plantilla existente choca aquí.
+    if (err instanceof Error && /unique|duplicate/i.test(err.message)) {
+      throw new TemplateError(
+        "invalid",
+        `Ya existe una plantilla "${name}" en el idioma "${input.language ?? template.language}" para esta organización`
+      );
+    }
+    throw err;
+  }
 }
 
 /**

@@ -2,6 +2,7 @@ import {
   parseYcloudEcho,
   parseYcloudHistory,
   parseYcloudInbound,
+  parseYcloudMessageStatus,
   type YcloudEvent,
 } from "@/server/inbox/ycloud-webhook";
 import { resolveInboundRoute, resolveRoute } from "@/server/inbox/ycloud-routing";
@@ -10,6 +11,7 @@ import {
   ingestInboundMessage,
   ingestOutboundEcho,
 } from "@/server/inbox/ingest";
+import { applyStatusUpdate, organizationIdDeMensaje } from "@/server/inbox/status";
 import { notifyTeam } from "@/server/ai/notify-team";
 import { eventoParaLog, resumirTexto } from "@/server/registro-de-cambios";
 import { captureMetaWabaId } from "@/server/whatsapp/credentials";
@@ -38,6 +40,16 @@ export async function handleYcloudEvent(
    */
   if (event.type === "whatsapp.smb.history") {
     return handleHistory(event, opts);
+  }
+  /**
+   * Fase 10H — delivery status de un mensaje SALIENTE (sent/delivered/read/
+   * failed). Hasta esta fase caía en el "evento ignorado" de abajo — la
+   * escritura (`applyStatusUpdate`, orden monotónico, ya probada) existía
+   * desde antes pero solo estaba conectada al webhook LEGACY de Meta
+   * directo, nunca al de YCloud (auditoría 153).
+   */
+  if (event.type === "whatsapp.message.updated") {
+    return handleMessageStatusUpdate(event, opts);
   }
   /*
    * Todo descarte deja rastro, y esto no es celo de registro: el 31-jul-2026
@@ -251,6 +263,39 @@ async function handleEcho(
     mimeType: echo.mimeType,
   });
   return { organizationId: route.organizationId };
+}
+
+/**
+ * Fase 10H — delivery status de un mensaje saliente. A diferencia de los
+ * demás handlers, resuelve la organización por el propio MENSAJE
+ * (`organizationIdDeMensaje`, `waMessageId` es `UNIQUE` en toda la tabla),
+ * no por `wabaId`/número de negocio — más robusto: no depende de que este
+ * tipo de evento en particular traiga esos campos de forma confiable (no
+ * confirmado contra un ejemplo completo de la documentación).
+ */
+async function handleMessageStatusUpdate(
+  event: YcloudEvent,
+  opts?: { expectOrganizationId?: string }
+): Promise<{ organizationId: string | null }> {
+  const status = parseYcloudMessageStatus(event);
+  if (!status) {
+    console.warn("[ycloud webhook] STATUS DESCARTADO: el evento no trae los datos mínimos (wamid/status)");
+    return { organizationId: null };
+  }
+
+  const organizationId = await organizationIdDeMensaje(status.id);
+  if (!organizationId) {
+    // No es un error: puede ser el status de un mensaje que Korex nunca
+    // insertó (enviado por fuera, o de antes de que existiera el tracking).
+    console.info(`[ycloud webhook] status de un mensaje no reconocido (wamid=${status.id})`);
+    return { organizationId: null };
+  }
+  if (!belongsTo(organizationId, opts)) {
+    return { organizationId };
+  }
+
+  await applyStatusUpdate(organizationId, status);
+  return { organizationId };
 }
 
 /**

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { WebhookStatus } from "@/server/inbox/webhook";
 
 /**
  * Webhook de YCloud (proveedor oficial WhatsApp Business API).
@@ -89,6 +90,17 @@ export type YcloudEvent = {
     document?: YcloudMedia;
     video?: YcloudMedia;
     audio?: YcloudMedia;
+    /**
+     * Fase 10H — presentes SOLO en `type: "whatsapp.message.updated"`
+     * (delivery status de un mensaje SALIENTE): confirmado contra
+     * `docs.ycloud.com/reference/whatsapp-message-updated-webhook-examples`.
+     * "sent"/"delivered"/"read"/"failed" — mismo vocabulario que
+     * `message.status` (Korex ya lo espera así, `applyStatusUpdate`).
+     */
+    status?: "sent" | "delivered" | "read" | "failed";
+    errorCode?: string;
+    errorMessage?: string;
+    whatsappApiError?: { message?: string; type?: string; code?: string };
   };
   whatsappInboundMessage?: {
     id?: string;
@@ -223,6 +235,40 @@ export function parseYcloudEcho(event: YcloudEvent): ParsedEcho | null {
     mediaUrl: media?.link ?? null,
     mediaId: media?.id ?? null,
     mimeType: media?.mime_type ?? media?.mimeType ?? null,
+  };
+}
+
+/**
+ * Fase 10H — delivery status de un mensaje SALIENTE (`type:
+ * "whatsapp.message.updated"`). Reutiliza el tipo `WebhookStatus` que ya
+ * consume `applyStatusUpdate()` (webhook LEGACY de Meta directo) para no
+ * duplicar esa forma — el vocabulario de status (`sent/delivered/read/
+ * failed`) es idéntico en ambos proveedores.
+ *
+ * Confirmado contra `docs.ycloud.com/reference/whatsapp-message-updated-webhook-examples`
+ * (Fase 10A/10H, "no asumir payloads"): el identificador real de WhatsApp
+ * es `wamid` (NO `id`, que es un ID interno de YCloud); el error viene en
+ * `whatsappApiError.message`/`errorMessage`, nunca los dos combinados.
+ */
+export function parseYcloudMessageStatus(event: YcloudEvent): WebhookStatus | null {
+  const m = event.whatsappMessage;
+  if (!m?.wamid || !m.status) return null;
+  const iso = m.sendTime ?? m.createTime;
+  const ms = iso ? Date.parse(iso) : Date.now();
+  return {
+    id: m.wamid,
+    status: m.status,
+    timestamp: String(Math.floor((Number.isFinite(ms) ? ms : Date.now()) / 1000)),
+    errors:
+      m.status === "failed"
+        ? [
+            {
+              code: m.errorCode ? Number(m.errorCode) : 0,
+              title: m.whatsappApiError?.type,
+              message: m.whatsappApiError?.message ?? m.errorMessage,
+            },
+          ]
+        : undefined,
   };
 }
 

@@ -12,6 +12,7 @@ import {
   Kanban,
   ListTree,
   LogOut,
+  Megaphone,
   Menu,
   Scissors,
   Settings,
@@ -35,6 +36,7 @@ const NAV_BASE = [
   { href: "/inbox", label: "Bandeja", icon: Inbox, badge: true },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
+  { href: "/campaigns", label: "Campañas", icon: Megaphone },
 ] as const;
 
 /** Solo para clientes con el vertical de citas (peluquería, estética…) encendido. */

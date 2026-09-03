@@ -12,7 +12,7 @@ import {
 import { textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { publish } from "@/server/events/bus";
-import { registrarUsoWhatsapp } from "@/server/usage";
+import { registrarEnvioWhatsappConCosto } from "@/server/pricing/rates";
 import { getCredentialsByOrg, type Credentials } from "@/server/whatsapp/credentials";
 import { translateMetaError } from "@/server/whatsapp/meta-errors";
 import { isWindowOpen } from "@/server/inbox/window";
@@ -176,11 +176,20 @@ export async function sendText(input: {
    * no cobra las respuestas. Contarlos desde ahora es lo que permitirá saber
    * qué factura traerá octubre —cuando empiece a cobrarlos todos— con el
    * tráfico real de cada cliente en vez de con una suposición.
+   *
+   * Fase 10C — costo REAL: un mensaje de texto libre es "service" (mismo
+   * criterio que Meta usa desde el 1-oct-2026, `docs/korexia/153`). Sin
+   * tarifa cargada en `pricing_rate` para ese país/proveedor, el costo se
+   * anota en 0 — nunca se inventa un número.
    */
-  await registrarUsoWhatsapp({
+  const providerEnvio: "ycloud" | "graph" = clientApiKey || isYcloudEnabled() ? "ycloud" : "graph";
+  await registrarEnvioWhatsappConCosto({
     organizationId: input.organizationId,
     tipo: "text",
     ref: waMessageId,
+    provider: providerEnvio,
+    category: "service",
+    phone: to.kind === "phone" ? to.value : row.contact.phone,
   });
 
   await db
@@ -327,6 +336,8 @@ async function registrarEnvioDeMedia(input: {
   text: string;
   mediaUrl: string;
   aiGenerated?: boolean;
+  /** Fase 10C — para resolver el costo real (`calcularCostoWhatsapp`). Media solo se envía por YCloud (ver `prepararEnvioDeMedia`). */
+  phone: string | null;
 }): Promise<SendResult> {
   const db = getDb();
   const inserted = await db
@@ -346,10 +357,13 @@ async function registrarEnvioDeMedia(input: {
     .returning();
   const message = inserted[0]!;
 
-  await registrarUsoWhatsapp({
+  await registrarEnvioWhatsappConCosto({
     organizationId: input.organizationId,
     tipo: input.type,
     ref: input.waMessageId,
+    provider: "ycloud",
+    category: "service",
+    phone: input.phone,
   });
 
   await db
@@ -376,7 +390,7 @@ export async function sendImage(input: {
   caption?: string;
   aiGenerated?: boolean;
 }): Promise<SendResult> {
-  const { to, credentials, clientApiKey } = await prepararEnvioDeMedia(
+  const { to, contact, credentials, clientApiKey } = await prepararEnvioDeMedia(
     input.conversationId,
     input.organizationId,
     "fotos"
@@ -408,6 +422,7 @@ export async function sendImage(input: {
     text: input.caption ?? "[foto]",
     mediaUrl: input.link,
     aiGenerated: input.aiGenerated,
+    phone: contact.phone,
   });
 }
 
@@ -423,7 +438,7 @@ export async function sendInteractiveMenu(input: {
   menu: MenuInteractivo;
   aiGenerated?: boolean;
 }): Promise<SendResult> {
-  const { to, credentials, clientApiKey } = await prepararEnvioDeMedia(
+  const { to, contact, credentials, clientApiKey } = await prepararEnvioDeMedia(
     input.conversationId,
     input.organizationId,
     "menús interactivos"
@@ -461,10 +476,13 @@ export async function sendInteractiveMenu(input: {
     .returning();
   const message = inserted[0]!;
 
-  await registrarUsoWhatsapp({
+  await registrarEnvioWhatsappConCosto({
     organizationId: input.organizationId,
     tipo: "interactive",
     ref: waMessageId,
+    provider: "ycloud",
+    category: "service",
+    phone: contact.phone,
   });
 
   await db
@@ -499,7 +517,7 @@ export async function sendDocument(input: {
   caption?: string;
   aiGenerated?: boolean;
 }): Promise<SendResult> {
-  const { to, credentials, clientApiKey } = await prepararEnvioDeMedia(
+  const { to, contact, credentials, clientApiKey } = await prepararEnvioDeMedia(
     input.conversationId,
     input.organizationId,
     "documentos"
@@ -530,5 +548,6 @@ export async function sendDocument(input: {
     text: input.caption ?? `[documento: ${input.filename}]`,
     mediaUrl: input.link,
     aiGenerated: input.aiGenerated,
+    phone: contact.phone,
   });
 }

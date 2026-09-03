@@ -10,13 +10,21 @@ import { callGraphSend, SendError, ycloudApiKeyOf } from "@/server/inbox/send";
 import { isYcloudEnabled, YcloudHttpError, ycloudSendTemplate } from "@/lib/ycloud/client";
 import { serializeMessage } from "@/server/inbox/ingest";
 import type { WebhookValue } from "@/server/inbox/webhook";
-import { VARIABLE_REGEX, countVariables, validateBodyVariables } from "@/server/whatsapp/template-validation";
+import {
+  VARIABLE_REGEX,
+  countVariables,
+  validateBodyVariables,
+  validateComponents,
+  type TemplateComponents,
+} from "@/server/whatsapp/template-validation";
 import {
   crearTemplateYCloud,
   obtenerTemplateYCloud,
   type ResultadoCreacionTemplateYCloud,
 } from "@/server/whatsapp/ycloud-templates";
-import { getYcloudApiKey } from "@/server/whatsapp/credentials";
+import { getYcloudApiKey, proveedorRealDeOrganizacion } from "@/server/whatsapp/credentials";
+import { urlPublicaDeFoto } from "@/server/ai/fotos";
+import { registrarEnvioWhatsappConCosto, categoriaDeTarifaDesdeTemplate } from "@/server/pricing/rates";
 
 /** Re-exportado tal cual desde el módulo puro (Fase 9F) — mismo import path histórico para quien ya las use desde aquí. */
 export { countVariables, validateBodyVariables };
@@ -136,6 +144,7 @@ export function serializeAdminTemplate(t: TemplateRow) {
     providerLastSyncAt: t.providerLastSyncAt ? t.providerLastSyncAt.toISOString() : null,
     rejectionReason: t.rejectionReason,
     waTemplateId: t.waTemplateId,
+    components: t.components ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   };
@@ -264,10 +273,23 @@ export async function crearBorradorDePlantilla(
      * proveedor asignado todavía).
      */
     provider?: string | null;
+    /** Fase 9P — header/footer opcionales. `undefined`/`null` = sin componentes, comportamiento histórico. */
+    components?: TemplateComponents | null;
   }
 ): Promise<TemplateRow> {
   const variableError = validateBodyVariables(input.body);
   if (variableError) throw new TemplateError("invalid", variableError);
+  const componentsError = validateComponents(input.components);
+  if (componentsError) throw new TemplateError("invalid", componentsError);
+  if (input.components?.header.type === "IMAGE") {
+    const resuelto = await resolverAssetDeHeaderImagen(organizationId, input.components.header.mediaAssetId);
+    if (!resuelto.ok) throw new TemplateError("invalid", resuelto.error);
+  }
+  // Fase 10D — `IMAGE_URL` solo lo produce `sincronizarTemplatesYCloud()`;
+  // creado a mano dejaría un header sin ningún control de mime/tamaño real.
+  if (input.components?.header.type === "IMAGE_URL") {
+    throw new TemplateError("invalid", "El header de imagen sincronizada no se puede crear manualmente");
+  }
 
   const name = input.name
     .toLowerCase()
@@ -290,6 +312,7 @@ export async function crearBorradorDePlantilla(
       provider: input.provider ?? null,
       providerStatus: null,
       providerLastSyncAt: null,
+      components: input.components ?? null,
     })
     .onConflictDoNothing({
       target: [schema.template.organizationId, schema.template.name, schema.template.language],
@@ -314,7 +337,14 @@ export async function crearBorradorDePlantilla(
 export async function editarBorradorDePlantilla(
   organizationId: string,
   templateId: string,
-  input: { name?: string; language?: string; category?: string; body?: string }
+  input: {
+    name?: string;
+    language?: string;
+    category?: string;
+    body?: string;
+    /** Fase 9P — `undefined` conserva el header/footer actual; `null` explícito lo quita. */
+    components?: TemplateComponents | null;
+  }
 ): Promise<TemplateRow> {
   const template = await cargarTemplateScoped(organizationId, templateId);
   if (template.status !== "draft") {
@@ -327,6 +357,21 @@ export async function editarBorradorDePlantilla(
   const body = input.body ?? template.body;
   const variableError = validateBodyVariables(body);
   if (variableError) throw new TemplateError("invalid", variableError);
+
+  const components = input.components !== undefined ? input.components : (template.components ?? null);
+  const componentsError = validateComponents(components);
+  if (componentsError) throw new TemplateError("invalid", componentsError);
+  if (components?.header.type === "IMAGE") {
+    const resuelto = await resolverAssetDeHeaderImagen(organizationId, components.header.mediaAssetId);
+    if (!resuelto.ok) throw new TemplateError("invalid", resuelto.error);
+  }
+  // Fase 10D — mismo guard que crearBorradorDePlantilla, pero solo cuando
+  // el CALLER intenta establecer un IMAGE_URL nuevo explícitamente: una
+  // plantilla sincronizada que ya lo tenía (conservado por no pasar
+  // `components`) no debe rechazarse al editar otro campo cualquiera.
+  if (input.components !== undefined && input.components?.header.type === "IMAGE_URL") {
+    throw new TemplateError("invalid", "El header de imagen sincronizada no se puede crear manualmente");
+  }
 
   const name = input.name
     ? input.name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "")
@@ -342,6 +387,7 @@ export async function editarBorradorDePlantilla(
         language: input.language ?? template.language,
         category: input.category ?? template.category,
         body,
+        components,
         updatedAt: new Date(),
       })
       .where(scoped(schema.template.organizationId, organizationId, eq(schema.template.id, templateId)))
@@ -398,14 +444,14 @@ function estadoSubmitYCloud(t: {
  * (conservador: nunca afirma "approved"/"rejected" sin certeza) y el valor
  * crudo sigue disponible sin traducir en `providerStatus` para diagnóstico.
  */
-function mapProviderStatusToTemplateStatus(providerStatus: string): "pending" | "approved" | "rejected" {
+export function mapProviderStatusToTemplateStatus(providerStatus: string): "pending" | "approved" | "rejected" {
   if (providerStatus === "APPROVED") return "approved";
   if (providerStatus === "REJECTED") return "rejected";
   return "pending";
 }
 
 /** Credenciales + WABA ID + API key de YCloud ya resueltos, listos para llamar al adaptador. Lanza si falta algo — nunca llega a HTTP sin esto completo. */
-async function resolverContextoYCloud(
+export async function resolverContextoYCloud(
   organizationId: string
 ): Promise<{ apiKey: string; wabaId: string }> {
   const creds = await getCredentialsByOrg(organizationId);
@@ -439,6 +485,87 @@ async function cargarTemplateScoped(organizationId: string, templateId: string):
   const template = rows[0];
   if (!template) throw new TemplateError("not_found", "Plantilla no encontrada en esta organización");
   return template;
+}
+
+/** JPG/PNG únicamente para HEADER IMAGE — YCloud/Meta rechazan webp/pdf ahí, aunque `media_asset` los admita para otros usos (Fase 9O). */
+const MIME_IMAGENES_HEADER = ["image/jpeg", "image/png"];
+/** Límite documentado de YCloud/Meta para HEADER IMAGE (Fase 9O, WebFetch contra docs.ycloud.com). */
+const MAX_BYTES_HEADER_IMAGE = 5_000_000;
+
+/**
+ * Fase 9P, secciones 6/7/16 — valida y resuelve el asset usado como HEADER
+ * IMAGE: debe pertenecer a la MISMA organización (`scoped`, nunca confiado
+ * del body), tener mime jpg/png, pesar ≤5MB, y tener una URL pública
+ * resoluble. Nunca hace HTTP externo — solo confirma que
+ * `urlPublicaDeFoto()` no devuelva `null` antes de construir cualquier
+ * payload al proveedor.
+ */
+async function resolverAssetDeHeaderImagen(
+  organizationId: string,
+  mediaAssetId: string
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const db = getDb();
+  const rows = await db
+    .select({ mimeType: schema.mediaAsset.mimeType, tamano: schema.mediaAsset.tamano })
+    .from(schema.mediaAsset)
+    .where(
+      scoped(schema.mediaAsset.organizationId, organizationId, eq(schema.mediaAsset.id, mediaAssetId))
+    )
+    .limit(1);
+  const asset = rows[0];
+  if (!asset) {
+    return { ok: false, error: "El asset de header no existe en esta organización" };
+  }
+  if (!asset.mimeType || !MIME_IMAGENES_HEADER.includes(asset.mimeType)) {
+    return { ok: false, error: "El header de imagen solo admite JPG o PNG" };
+  }
+  if (asset.tamano != null && asset.tamano > MAX_BYTES_HEADER_IMAGE) {
+    return { ok: false, error: "El header de imagen no puede superar 5 MB" };
+  }
+  const url = urlPublicaDeFoto(mediaAssetId);
+  if (!url) {
+    return {
+      ok: false,
+      error: "No hay una URL pública disponible para este asset (falta configurar PUBLIC_MEDIA_BASE_URL)",
+    };
+  }
+  return { ok: true, url };
+}
+
+/**
+ * Fase 9P, sección 17 — traduce `TemplateComponents` (referencias) a la
+ * forma YA RESUELTA que el adaptador/cliente de envío necesitan (URL real,
+ * nunca `mediaAssetId`). Reutilizado tanto por `enviarPlantillaAAprobacion`
+ * (imagen de EJEMPLO para la aprobación) como por `enviarTemplateAlProveedor`
+ * (imagen real de CADA envío) — la sección 17 documenta explícitamente que
+ * ambas pueden diferir en el futuro (snapshot por campaña); hoy resuelven
+ * el mismo `mediaAssetId` con la misma función, sin forzar que deban
+ * coincidir siempre.
+ */
+async function resolverHeaderYFooterParaProveedor(
+  organizationId: string,
+  components: TemplateComponents | null | undefined
+): Promise<{
+  header?: { type: "IMAGE"; url: string } | { type: "TEXT"; text: string };
+  footer?: string;
+}> {
+  if (!components) return {};
+  const componentsError = validateComponents(components);
+  if (componentsError) throw new TemplateError("invalid", componentsError);
+
+  let header: { type: "IMAGE"; url: string } | { type: "TEXT"; text: string } | undefined;
+  if (components.header.type === "IMAGE") {
+    const resuelto = await resolverAssetDeHeaderImagen(organizationId, components.header.mediaAssetId);
+    if (!resuelto.ok) throw new TemplateError("invalid", resuelto.error);
+    header = { type: "IMAGE", url: resuelto.url };
+  } else if (components.header.type === "IMAGE_URL") {
+    // Fase 10D — plantilla sincronizada desde YCloud: la URL ya es real y
+    // pública (Meta la aprobó tal cual), nunca pasa por `media_asset`.
+    header = { type: "IMAGE", url: components.header.url };
+  } else if (components.header.type === "TEXT") {
+    header = { type: "TEXT", text: components.header.text };
+  }
+  return { header, footer: components.footer?.text };
 }
 
 /** Aplica el resultado de `crearTemplateYCloud()`/`obtenerTemplateYCloud()` sobre la fila local — el único punto que escribe `provider`/`providerStatus`/`waTemplateId`/`rejectionReason` para el camino YCloud. */
@@ -574,6 +701,12 @@ export async function enviarPlantillaAAprobacion(
 
   const { apiKey, wabaId } = await resolverContextoYCloud(organizationId);
 
+  // Fase 9P — imagen/texto de EJEMPLO para la aprobación (distinta,
+  // conceptualmente, de la imagen real que se usará en cada envío una vez
+  // aprobada — sección 17). Se resuelve ANTES de tocar YCloud: un asset
+  // inválido o cross-tenant rechaza aquí, sin ningún HTTP externo.
+  const { header, footer } = await resolverHeaderYFooterParaProveedor(organizationId, template.components);
+
   const resultado = await crearTemplateYCloud({
     apiKey,
     wabaId,
@@ -582,6 +715,8 @@ export async function enviarPlantillaAAprobacion(
     category: template.category,
     body: template.body,
     variableExample: input?.variableExample,
+    header,
+    footer,
   });
 
   return aplicarResultadoYCloud(organizationId, templateId, resultado);
@@ -887,7 +1022,7 @@ export async function enviarTemplateAlProveedor(input: {
    * campo (uso conversacional normal vía `sendTemplate()`), se sigue
    * leyendo todo del `template` vivo — comportamiento histórico intacto.
    */
-  contentSnapshot?: { name: string; language: string; body: string };
+  contentSnapshot?: { name: string; language: string; body: string; components?: TemplateComponents };
 }): Promise<ResultadoProveedor> {
   const db = getDb();
 
@@ -910,10 +1045,15 @@ export async function enviarTemplateAlProveedor(input: {
 
   // "contenido" = snapshot (si se pasó) | template vivo (comportamiento
   // histórico) — "identidad/estado Meta" = SIEMPRE el template vivo, arriba.
+  // Fase 9P, sección 15: `components` sigue el mismo criterio — si hay
+  // snapshot de campaña, sus `components` mandan (nunca se vuelve a mirar
+  // el template vivo para decidir qué imagen enviar); sin snapshot (envío
+  // conversacional normal vía `sendTemplate()`), se usa el vivo.
   const contenido = input.contentSnapshot ?? {
     name: template.name,
     language: template.language,
     body: template.body,
+    components: template.components ?? undefined,
   };
 
   const needsVariable = countVariables(contenido.body) === 1;
@@ -968,6 +1108,14 @@ export async function enviarTemplateAlProveedor(input: {
   const bodyParams = needsVariable ? [input.variable!.trim()] : [];
   const renderedText = renderBody(contenido.body, input.variable?.trim());
 
+  // Fase 9P, sección 16 — el asset de header debe pertenecer a la MISMA
+  // organización que la conversación/campaña (`input.organizationId`, ya
+  // validado por `scoped()` arriba), nunca al `templateId` a ciegas.
+  // Resuelto ANTES de cualquier HTTP: un asset cross-tenant o inválido
+  // aborta aquí, sin gastar la llamada real.
+  const { header } = await resolverHeaderYFooterParaProveedor(input.organizationId, contenido.components ?? null);
+  const headerImageUrl = header?.type === "IMAGE" ? header.url : undefined;
+
   if (clientApiKey || isYcloudEnabled()) {
     try {
       const waMessageId = await ycloudSendTemplate({
@@ -976,6 +1124,7 @@ export async function enviarTemplateAlProveedor(input: {
         name: contenido.name,
         language: contenido.language,
         bodyParams,
+        headerImageUrl,
         apiKey: clientApiKey,
         retry: input.retry,
         timeoutMs: input.timeoutMs,
@@ -986,6 +1135,18 @@ export async function enviarTemplateAlProveedor(input: {
     }
   }
 
+  // Fase 9P, sección 14 — mismo esquema estándar de Meta que YCloud ya
+  // replica para envío (`{type:"header", parameters:[{type:"image",
+  // image:{link:url}}]}`, confirmado en Fase 9P sección 13): un adapter
+  // Graph separado no hace falta, el payload de mensaje de Meta Cloud API
+  // es el mismo que YCloud expone como BSP.
+  const graphComponents = [
+    ...(headerImageUrl
+      ? [{ type: "header", parameters: [{ type: "image", image: { link: headerImageUrl } }] }]
+      : []),
+    ...(needsVariable ? [{ type: "body", parameters: [{ type: "text", text: bodyParams[0]! }] }] : []),
+  ];
+
   try {
     const waMessageId = await callGraphSend(creds, {
       messaging_product: "whatsapp",
@@ -994,13 +1155,7 @@ export async function enviarTemplateAlProveedor(input: {
       template: {
         name: contenido.name,
         language: { code: contenido.language },
-        ...(needsVariable
-          ? {
-              components: [
-                { type: "body", parameters: [{ type: "text", text: bodyParams[0]! }] },
-              ],
-            }
-          : {}),
+        ...(graphComponents.length ? { components: graphComponents } : {}),
       },
     });
     return { kind: "SUCCESS", waMessageId, renderedText };
@@ -1047,6 +1202,28 @@ export async function sendTemplate(input: {
     })
     .returning();
   const message = inserted[0]!;
+
+  // Fase 10C — costo REAL de una plantilla enviada de forma conversacional
+  // (fuera de campaña): categoría = la del propio template (UTILITY/MARKETING),
+  // proveedor y país resueltos igual que en el resto de envíos. Sin tarifa
+  // cargada para ese país/proveedor, el costo se anota en 0 — nunca inventado.
+  const [contexto] = await db
+    .select({ category: schema.template.category, phone: schema.contact.phone })
+    .from(schema.template)
+    .innerJoin(schema.conversation, eq(schema.conversation.id, input.conversationId))
+    .innerJoin(schema.contact, eq(schema.conversation.contactId, schema.contact.id))
+    .where(eq(schema.template.id, input.templateId))
+    .limit(1);
+  if (contexto) {
+    await registrarEnvioWhatsappConCosto({
+      organizationId: input.organizationId,
+      tipo: "template",
+      ref: resultado.waMessageId,
+      provider: await proveedorRealDeOrganizacion(input.organizationId),
+      category: categoriaDeTarifaDesdeTemplate(contexto.category),
+      phone: contexto.phone,
+    });
+  }
 
   await db
     .update(schema.conversation)

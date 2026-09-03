@@ -53,6 +53,15 @@ export async function registrarUsoWhatsapp(input: {
   tipo: string;
   costUsd?: number;
   ref?: string | null;
+  /** Fase 10C — trazabilidad hasta la campaña/destinatario/tarifa exactos, cuando aplica. */
+  campaignId?: string | null;
+  recipientId?: string | null;
+  provider?: string | null;
+  category?: string | null;
+  country?: string | null;
+  korexPriceUsd?: number | null;
+  marginUsd?: number | null;
+  pricingRateId?: string | null;
 }): Promise<void> {
   try {
     await getDb()
@@ -64,10 +73,55 @@ export async function registrarUsoWhatsapp(input: {
         detail: input.tipo,
         costUsd: (input.costUsd ?? 0).toFixed(10),
         ref: input.ref ?? null,
+        campaignId: input.campaignId ?? null,
+        recipientId: input.recipientId ?? null,
+        provider: input.provider ?? null,
+        category: input.category ?? null,
+        country: input.country ?? null,
+        korexPriceUsd: input.korexPriceUsd != null ? input.korexPriceUsd.toFixed(10) : null,
+        marginUsd: input.marginUsd != null ? input.marginUsd.toFixed(10) : null,
+        pricingRateId: input.pricingRateId ?? null,
       });
   } catch (err) {
     console.warn("[uso] no se pudo anotar el mensaje enviado:", err);
   }
+}
+
+/** Fase 10C — costo/ingreso/margen real de UNA campaña, derivado de `usage_event` (nunca denormalizado). */
+export type ResumenCostoCampana = {
+  campaignId: string;
+  mensajes: number;
+  costoProveedorUsd: number;
+  precioKorexUsd: number;
+  margenUsd: number;
+};
+
+export async function resumenCostoDeCampana(
+  organizationId: string,
+  campaignId: string
+): Promise<ResumenCostoCampana> {
+  const filas = await getDb()
+    .select({
+      mensajes: sql<number>`count(*)`,
+      costoProveedor: sql<string>`coalesce(sum(${schema.usageEvent.costUsd}), 0)`,
+      precioKorex: sql<string>`coalesce(sum(${schema.usageEvent.korexPriceUsd}), 0)`,
+      margen: sql<string>`coalesce(sum(${schema.usageEvent.marginUsd}), 0)`,
+    })
+    .from(schema.usageEvent)
+    .where(
+      and(
+        eq(schema.usageEvent.organizationId, organizationId),
+        eq(schema.usageEvent.campaignId, campaignId)
+      )
+    );
+  const f = filas[0];
+  return {
+    campaignId,
+    mensajes: Number(f?.mensajes ?? 0),
+    costoProveedorUsd: Number(f?.costoProveedor ?? 0),
+    precioKorexUsd: Number(f?.precioKorex ?? 0),
+    margenUsd: Number(f?.margen ?? 0),
+  };
 }
 
 export type ResumenUso = {

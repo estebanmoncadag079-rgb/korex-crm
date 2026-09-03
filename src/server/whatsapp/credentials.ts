@@ -3,6 +3,7 @@ import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { scoped } from "@/lib/db/tenant";
+import { isYcloudEnabled } from "@/lib/ycloud/client";
 
 export type Credentials = {
   id: string;
@@ -254,6 +255,21 @@ export async function markReconnectRequired(
 /** Últimos 4 caracteres del token para mostrar en UI (jamás el token). */
 export function tokenLast4(token: string): string {
   return token.slice(-4);
+}
+
+/**
+ * Fase 10C/10E — mismo criterio que ya usan `sendText`/`sendTemplate`/el
+ * worker de campañas para decidir el canal real de envío: YCloud si la
+ * organización trae su propia API key, o si la de la agencia está
+ * habilitada; si no, Graph directo. Centralizado aquí para no repetir la
+ * misma lógica de tres formas ligeramente distintas en `send.ts`,
+ * `templates.ts`, `campaigns/worker.ts` y `campaigns/motor.ts`.
+ */
+export async function proveedorRealDeOrganizacion(organizationId: string): Promise<"ycloud" | "graph"> {
+  const creds = await getCredentialsByOrg(organizationId);
+  if (!creds) return "graph";
+  const propiaKey = creds.phoneNumberId.startsWith("ycloud:") ? creds.token.trim() : "";
+  return propiaKey || isYcloudEnabled() ? "ycloud" : "graph";
 }
 
 /**

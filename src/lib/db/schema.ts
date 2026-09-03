@@ -944,6 +944,25 @@ export const template = pgTable(
     providerStatus: text("provider_status"),
     /** Última vez que se sincronizó el estado real contra el proveedor. */
     providerLastSyncAt: timestamp("provider_last_sync_at"),
+    /**
+     * Fase 9P — header/footer opcionales (HEADER IMAGE/TEXT, FOOTER). NULL
+     * = sin componentes especiales — comportamiento histórico intacto,
+     * solo BODY (todas las plantillas creadas antes de esta fase, incluida
+     * `korex_prueba_template_001` de la prueba de producción 9Q, quedan
+     * exactamente igual). El tipo real y su validación viven en
+     * `@/server/whatsapp/template-validation` (`TemplateComponents`) — aquí
+     * se repite la forma solo como anotación, mismo patrón ya usado en
+     * `campaign.templateSnapshot` (más abajo), para no acoplar el schema de
+     * DB a la capa de dominio.
+     */
+    components: jsonb("components").$type<{
+      header:
+        | { type: "NONE" }
+        | { type: "TEXT"; text: string }
+        | { type: "IMAGE"; mediaAssetId: string }
+        | { type: "IMAGE_URL"; url: string };
+      footer: { text: string } | null;
+    }>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1044,9 +1063,76 @@ export const usageEvent = pgTable(
       .default("0"),
     /** De dónde salió: el wamid del mensaje o de qué proceso viene. */
     ref: text("ref"),
+    /**
+     * Fase 10C — trazabilidad completa de un mensaje de WhatsApp que generó
+     * costo real (`kind = "whatsapp"`). Todas nullable: un evento de `kind
+     * = "ia"`, o un mensaje de WhatsApp fuera de una campaña, no las usa.
+     * `korexPriceUsd`/`marginUsd` se congelan en el momento — igual que
+     * `campaign.rateSnapshot`, nunca se recalculan con una tarifa futura.
+     */
+    campaignId: text("campaign_id").references(() => campaign.id, {
+      onDelete: "set null",
+    }),
+    recipientId: text("recipient_id").references(() => campaignRecipient.id, {
+      onDelete: "set null",
+    }),
+    /** "ycloud" | "graph". */
+    provider: text("provider"),
+    /** "marketing" | "utility" | "authentication" | "authentication_international" | "service". */
+    category: text("category"),
+    /** País del destinatario (ISO 3166-1 alpha-2), para el que se resolvió la tarifa. */
+    country: text("country"),
+    korexPriceUsd: numeric("korex_price_usd", { precision: 14, scale: 10 }),
+    marginUsd: numeric("margin_usd", { precision: 14, scale: 10 }),
+    pricingRateId: text("pricing_rate_id").references(() => pricingRate.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
-  (t) => [index("usage_org_fecha_idx").on(t.organizationId, t.createdAt)]
+  (t) => [
+    index("usage_org_fecha_idx").on(t.organizationId, t.createdAt),
+    index("usage_event_campaign_idx").on(t.campaignId),
+  ]
+);
+
+/**
+ * Fase 10C — tarifa de WhatsApp versionada por país/categoría/proveedor.
+ * Fuente ÚNICA de verdad de costos, en vez de las constantes de
+ * `src/lib/cotizador.ts` (que el propio código ya marca como provisionales
+ * — "reverificar cuando Meta publique la definitiva"). Tabla GLOBAL, sin
+ * `organizationId`: la tarifa de Meta no depende del cliente de Korex.
+ *
+ * `effectiveTo = NULL` significa "vigente hasta que se publique la
+ * siguiente" — nunca se borra ni se sobreescribe una tarifa vieja: se cierra
+ * su vigencia (`effectiveTo`) y se inserta una fila nueva, para que un
+ * costo histórico siga siendo reconstruible con la tarifa que de verdad
+ * aplicaba ese día (ver `campaign.rateSnapshot`/`usageEvent.pricingRateId`).
+ */
+export const pricingRate = pgTable(
+  "pricing_rate",
+  {
+    id: text("id").primaryKey(),
+    /** ISO 3166-1 alpha-2 (ej. "CO"), o "default" para el resto del mundo. */
+    country: text("country").notNull(),
+    /** ISO 4217 (ej. "USD"). */
+    currency: text("currency").notNull(),
+    category: text("category", {
+      enum: ["marketing", "utility", "authentication", "authentication_international", "service"],
+    }).notNull(),
+    provider: text("provider", { enum: ["meta", "ycloud"] }).notNull(),
+    unitCostUsd: numeric("unit_cost_usd", { precision: 14, scale: 10 }).notNull(),
+    effectiveFrom: timestamp("effective_from").notNull(),
+    effectiveTo: timestamp("effective_to"),
+    /** "meta_official" | "ycloud_official" | "estimate" | "manual" — nunca "inventado sin marcar". */
+    source: text("source").notNull(),
+    sourceUrl: text("source_url"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("pricing_rate_lookup_idx").on(t.country, t.category, t.provider, t.effectiveFrom),
+  ]
 );
 
 /**
@@ -1357,22 +1443,33 @@ export const campaign = pgTable(
       .references(() => organization.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     /**
-     * Máquina de estados (ver la auditoría de Fase 3B, sección 4):
-     * draft → ready → scheduled? → processing → completed
-     *                            ↘ paused ↗
-     * cualquiera antes de completed → cancelled
-     * processing → failed (solo error estructural, nunca por destinatarios
-     * individuales fallidos — eso lo refleja el status de cada recipient).
+     * Máquina de estados (Fase 3B, ampliada en Fase 10I con el flujo de
+     * aprobación cliente→superadmin):
+     *
+     *   draft → pending_approval → ready → scheduled? → processing → completed
+     *                    ↓                            ↘ paused ↗
+     *                 rejected      cualquiera antes de completed → cancelled
+     *                                processing → failed (solo error
+     *                                estructural, nunca por destinatarios
+     *                                individuales — eso lo refleja el status
+     *                                de cada recipient).
+     *
+     * `pending_approval`/`rejected` son aditivos: una organización que no
+     * usa el flujo de aprobación (crea y prepara la campaña ella misma, como
+     * hasta ahora) nunca pasa por ahí — `draft → ready` sigue siendo válido
+     * directamente (ver `estados.ts`).
      */
     status: text("status", {
       enum: [
         "draft",
+        "pending_approval",
         "ready",
         "scheduled",
         "processing",
         "paused",
         "completed",
         "cancelled",
+        "rejected",
         "failed",
       ],
     })
@@ -1387,25 +1484,86 @@ export const campaign = pgTable(
      * `templateId` sigue siendo la identidad/estado ante el proveedor. Solo
      * anotación de tipo: la columna ya existía como jsonb sin tipar, esto
      * no requiere migración.
+     *
+     * Fase 9P — `components` es aditivo y opcional: congela el
+     * `mediaAssetId` de referencia (no una URL resuelta — la URL pública se
+     * resuelve en cada envío, sección 15/17), para que una campaña vieja
+     * sin header siga funcionando exactamente igual (campo ausente en su
+     * snapshot ya guardado).
      */
     templateSnapshot: jsonb("template_snapshot").$type<{
       name: string;
       language: string;
       category: string;
       body: string;
+      components?: {
+        header:
+          | { type: "NONE" }
+          | { type: "TEXT"; text: string }
+          | { type: "IMAGE"; mediaAssetId: string }
+          | { type: "IMAGE_URL"; url: string };
+        footer: { text: string } | null;
+      };
     }>(),
     /** Imagen promocional — fuera del MVP, `sendTemplate()` aún no la soporta. */
     mediaAssetId: text("media_asset_id").references(() => mediaAsset.id, {
       onDelete: "set null",
     }),
     /**
-     * Único valor hoy: "todos los contactos activos sin opt-out". El campo
-     * existe para no romper el schema cuando llegue segmentación real —
-     * fuera del alcance del MVP (auditoría Fase 3B, sección 10).
+     * Fase 10E — quién recibe la campaña. `todos_los_contactos` sigue siendo
+     * el valor por defecto y el único que existía antes de esta fase; los
+     * cuatro nuevos se combinan con `audienceFilter` para decidir la
+     * audiencia exacta. Ver `materializarAudienciaDeCampana()` en `motor.ts`
+     * para cómo se interpreta cada uno.
      */
-    audienceType: text("audience_type", { enum: ["todos_los_contactos"] })
+    audienceType: text("audience_type", {
+      enum: [
+        "todos_los_contactos",
+        "pipeline_stage",
+        "selected_contacts",
+        "fixed_count",
+        "budget",
+      ],
+    })
       .notNull()
       .default("todos_los_contactos"),
+    /**
+     * Fase 10E — parámetros del modo elegido. Solo se lee cuando
+     * `audienceType !== "todos_los_contactos"`. Forma exacta en
+     * `@/server/campaigns/audiencia.ts` (`AudienceFilter`) — aquí solo la
+     * anotación de tipo, mismo patrón que `templateSnapshot`.
+     */
+    audienceFilter: jsonb("audience_filter").$type<
+      | { type: "pipeline_stage"; stageIds: string[] }
+      | { type: "selected_contacts"; contactIds: string[] }
+      | { type: "fixed_count"; limit: number; selectionStrategy: "oldest_first" }
+      | { type: "budget"; budgetUsd: number }
+      | null
+    >(),
+    /**
+     * Fase 10C/10F — estimación de costo, calculada antes de iniciar y
+     * congelada (`rateSnapshot` guarda la tarifa exacta usada): un cambio
+     * posterior de `pricing_rate` nunca reescribe una estimación ya hecha.
+     */
+    estimatedRecipients: integer("estimated_recipients"),
+    estimatedCostUsd: numeric("estimated_cost_usd", { precision: 14, scale: 4 }),
+    currency: text("currency").notNull().default("USD"),
+    rateSnapshot: jsonb("rate_snapshot").$type<{
+      ratesUsadas: Array<{ pricingRateId: string; category: string; country: string; unitCostUsd: string }>;
+      calculadoAt: string;
+    }>(),
+    /**
+     * Fase 10I — aprobación cliente→superadmin. `requestedBy`/`requestedAt`
+     * se completan al pasar `draft → pending_approval`; `approvedBy`/
+     * `approvedAt` o `rejectionReason` al resolverla. Todas nullable: una
+     * campaña que nunca pasó por aprobación (el superadmin la preparó él
+     * mismo) las deja vacías sin problema.
+     */
+    requestedBy: text("requested_by"),
+    requestedAt: timestamp("requested_at"),
+    approvedBy: text("approved_by"),
+    approvedAt: timestamp("approved_at"),
+    rejectionReason: text("rejection_reason"),
     scheduledAt: timestamp("scheduled_at"),
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
@@ -1479,6 +1637,16 @@ export const campaignRecipient = pgTable(
     messageId: text("message_id").references(() => message.id, {
       onDelete: "set null",
     }),
+    /**
+     * Fase 10H — delivery status de YCloud. Deliberadamente NO son parte de
+     * la máquina de estados de `status` (ver `estados.ts`): `status="sent"`
+     * sigue significando únicamente "el proveedor aceptó el envío", y estos
+     * dos timestamps anotan CUÁNDO (si acaso) se confirmó la entrega/lectura
+     * — igual que `message.status` ya trackea lo mismo a nivel de mensaje
+     * (`applyStatusUpdate`, orden monotónico). NULL = todavía no se supo.
+     */
+    deliveredAt: timestamp("delivered_at"),
+    readAt: timestamp("read_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -35,6 +35,7 @@ const prefixes = {
   campaign: "cmp",
   campaignRecipient: "cmpr",
   campaignSendJob: "cmpj",
+  pricingRate: "prate",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

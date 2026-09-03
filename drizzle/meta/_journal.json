@@ -239,6 +239,20 @@
       "when": 1788556400000,
       "tag": "0033_administracion_plantillas_korex",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788700000000,
+      "tag": "0034_header_imagen_en_plantillas",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788800000000,
+      "tag": "0035_costos_reales_segmentacion_aprobacion",
+      "breakpoints": true
     }
   ]
 }

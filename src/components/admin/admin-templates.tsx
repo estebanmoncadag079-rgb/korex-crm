@@ -17,6 +17,17 @@ import { Textarea } from "@/components/ui/textarea";
 
 type TemplateStatus = "draft" | "pending" | "approved" | "rejected";
 
+/** Fase 9P — header/footer opcionales, espejo de `TemplateComponents` (server, `template-validation.ts`). */
+type HeaderComponent =
+  | { type: "NONE" }
+  | { type: "TEXT"; text: string }
+  | { type: "IMAGE"; mediaAssetId: string };
+
+type TemplateComponents = {
+  header: HeaderComponent;
+  footer: { text: string } | null;
+};
+
 type AdminTemplate = {
   id: string;
   organizationId: string;
@@ -31,11 +42,14 @@ type AdminTemplate = {
   providerLastSyncAt: string | null;
   rejectionReason: string | null;
   waTemplateId: string | null;
+  components: TemplateComponents | null;
   createdAt: string;
   updatedAt: string;
 };
 
 type Organizacion = { id: string; name: string };
+
+type MediaAssetOption = { id: string; etiqueta: string; mimeType: string | null; tamano: number | null };
 
 const STATUS_BADGE: Record<
   TemplateStatus,
@@ -421,20 +435,55 @@ function TemplateForm({
   );
   const [body, setBody] = useState(template?.body ?? "");
   const [variableExample, setVariableExample] = useState("");
+  // Fase 9P — header/footer opcionales.
+  const [headerTipo, setHeaderTipo] = useState<"NONE" | "IMAGE">(
+    template?.components?.header.type === "IMAGE" ? "IMAGE" : "NONE"
+  );
+  const [headerMediaAssetId, setHeaderMediaAssetId] = useState(
+    template?.components?.header.type === "IMAGE" ? template.components.header.mediaAssetId : ""
+  );
+  const [footerText, setFooterText] = useState(template?.components?.footer?.text ?? "");
+  const [assets, setAssets] = useState<MediaAssetOption[]>([]);
+  const [loadingAssets, setLoadingAssets] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const tieneVariable = contarVariables(body) === 1;
 
+  useEffect(() => {
+    if (headerTipo !== "IMAGE" || !organizationId) {
+      setAssets([]);
+      return;
+    }
+    setLoadingAssets(true);
+    fetch(`/api/admin/media?organizationId=${encodeURIComponent(organizationId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { fotos: MediaAssetOption[] } | null) => setAssets(data?.fotos ?? []))
+      .catch(() => setAssets([]))
+      .finally(() => setLoadingAssets(false));
+  }, [headerTipo, organizationId]);
+
+  function construirComponents(): TemplateComponents | null {
+    if (headerTipo === "NONE" && !footerText.trim()) return null;
+    return {
+      header:
+        headerTipo === "IMAGE" && headerMediaAssetId
+          ? { type: "IMAGE", mediaAssetId: headerMediaAssetId }
+          : { type: "NONE" },
+      footer: footerText.trim() ? { text: footerText.trim() } : null,
+    };
+  }
+
   async function submit() {
     setSaving(true);
     setError(null);
+    const components = construirComponents();
     const res =
       mode === "create"
         ? await fetch("/api/admin/templates", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ organizationId, name, language, category, body }),
+            body: JSON.stringify({ organizationId, name, language, category, body, components }),
           }).catch(() => null)
         : await fetch(`/api/admin/templates/${template!.id}`, {
             method: "PATCH",
@@ -445,6 +494,7 @@ function TemplateForm({
               language,
               category,
               body,
+              components,
             }),
           }).catch(() => null);
     setSaving(false);
@@ -549,15 +599,80 @@ function TemplateForm({
             />
           </div>
         )}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="tf-header">Encabezado</Label>
+            <select
+              id="tf-header"
+              value={headerTipo}
+              onChange={(e) => {
+                setHeaderTipo(e.target.value as "NONE" | "IMAGE");
+                setHeaderMediaAssetId("");
+              }}
+              disabled={!organizationId}
+              className={selectClass}
+            >
+              <option value="NONE">Sin encabezado</option>
+              <option value="IMAGE">Imagen</option>
+            </select>
+          </div>
+          {headerTipo === "IMAGE" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="tf-header-asset">Imagen (de la organización elegida)</Label>
+              <select
+                id="tf-header-asset"
+                value={headerMediaAssetId}
+                onChange={(e) => setHeaderMediaAssetId(e.target.value)}
+                className={selectClass}
+              >
+                <option value="">
+                  {loadingAssets ? "Cargando imágenes…" : "Selecciona una imagen"}
+                </option>
+                {assets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.etiqueta}
+                  </option>
+                ))}
+              </select>
+              {!loadingAssets && organizationId && assets.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Esta organización no tiene fotos guardadas todavía.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="tf-footer">Pie de página (opcional)</Label>
+          <Input
+            id="tf-footer"
+            placeholder="Korex.IA"
+            maxLength={60}
+            value={footerText}
+            onChange={(e) => setFooterText(e.target.value)}
+          />
+        </div>
         <div className="rounded-md border bg-muted/30 p-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Vista previa
           </p>
+          {headerTipo === "IMAGE" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              [IMAGEN
+              {headerMediaAssetId
+                ? `: ${assets.find((a) => a.id === headerMediaAssetId)?.etiqueta ?? headerMediaAssetId}`
+                : ""}
+              ]
+            </p>
+          )}
           <p className="mt-1 text-sm">
             {body.trim()
               ? renderizarPreview(body, variableExample)
               : "Escribe el contenido para ver la vista previa"}
           </p>
+          {footerText.trim() && (
+            <p className="mt-1 text-xs text-muted-foreground">{footerText.trim()}</p>
+          )}
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
@@ -688,9 +803,20 @@ function TemplateDetailModal({
             <p>
               <span className="text-muted-foreground">Idioma:</span> {template.language}
             </p>
-            <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3">
-              {template.body}
-            </p>
+            <div className="rounded-md border bg-muted/30 p-3">
+              {template.components?.header.type === "IMAGE" && (
+                <p className="text-xs text-muted-foreground">[IMAGEN]</p>
+              )}
+              {template.components?.header.type === "TEXT" && (
+                <p className="text-xs font-medium">{template.components.header.text}</p>
+              )}
+              <p className="whitespace-pre-wrap">{template.body}</p>
+              {template.components?.footer && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {template.components.footer.text}
+                </p>
+              )}
+            </div>
           </div>
 
           {template.status === "rejected" && (

@@ -47,12 +47,42 @@ export async function ycloudSendTemplate(input: {
   name: string;
   language: string;
   bodyParams: string[];
+  /**
+   * Fase 9P — URL pública de la imagen del HEADER, ya resuelta (nunca un
+   * `mediaAssetId`: la resolución/validación de ownership vive en
+   * `enviarTemplateAlProveedor`). Formato confirmado contra la
+   * documentación oficial de envío de YCloud (`whatsapp-messaging-examples`,
+   * Fase 9P sección 13): `{type:"header", parameters:[{type:"image",
+   * image:{link:url}}]}`, como componente ADICIONAL al de `body` — nunca
+   * lo reemplaza.
+   */
+  headerImageUrl?: string;
   apiKey?: string | null;
   retry?: boolean;
   timeoutMs?: number;
 }): Promise<string> {
   const key = resolveApiKey(input.apiKey);
   if (!input.from) throw new Error("Falta el número de origen (from) para YCloud");
+
+  const headerComponent = input.headerImageUrl
+    ? [
+        {
+          type: "header",
+          parameters: [{ type: "image", image: { link: input.headerImageUrl } }],
+        },
+      ]
+    : [];
+  const bodyComponent = input.bodyParams.length
+    ? [
+        {
+          type: "body",
+          parameters: input.bodyParams.map((text) => ({
+            type: "text",
+            text,
+          })),
+        },
+      ]
+    : [];
 
   return sendDirectly(
     {
@@ -62,17 +92,7 @@ export async function ycloudSendTemplate(input: {
       template: {
         name: input.name,
         language: { code: input.language },
-        components: input.bodyParams.length
-          ? [
-              {
-                type: "body",
-                parameters: input.bodyParams.map((text) => ({
-                  type: "text",
-                  text,
-                })),
-              },
-            ]
-          : [],
+        components: [...headerComponent, ...bodyComponent],
       },
     },
     key,

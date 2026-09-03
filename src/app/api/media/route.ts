@@ -1,9 +1,12 @@
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { apiError, parseBody, withAuth } from "@/lib/api";
-import { getDb } from "@/lib/db";
-import * as schema from "@/lib/db/schema";
-import { newId } from "@/lib/db/ids";
+import {
+  MAX_BASE64,
+  MediaAssetError,
+  eliminarMediaAsset,
+  guardarMediaAsset,
+  listMediaAssets,
+} from "@/server/media/assets";
 
 export const dynamic = "force-dynamic";
 
@@ -14,25 +17,11 @@ export const dynamic = "force-dynamic";
  *
  * La organización sale SIEMPRE de la sesión, nunca del cuerpo: un cliente solo
  * puede tocar sus propias fotos aunque manipule la petición.
+ *
+ * Fase 9P: la lógica de validación/persistencia se extrajo a
+ * `@/server/media/assets` (comportamiento idéntico) para que
+ * `/api/admin/media` (superadmin, cross-org) la reutilice sin duplicarla.
  */
-
-/**
- * 8 MB ya en base64 (unos 6 MB de archivo). Antes eran 4 MB, pensados solo
- * para una foto de producto; un catálogo en PDF (varias páginas de diseños)
- * no cabe comprimido a mano por el navegador como sí se comprime una foto
- * (`FotosDeProductos`), así que necesita más margen. Sigue poniendo un
- * techo: sin límite, un PDF sin comprimir engordaría el respaldo de cada 6 h
- * — un catálogo de 10 páginas bien comprimido pesa ~1,5 MB.
- */
-const MAX_BASE64 = 8_000_000;
-
-/**
- * Fotos (para la vista previa rápida de un producto) y documentos (un
- * catálogo en PDF, cuando "mándame una foto" no alcanza porque son varios
- * diseños). El mismo mecanismo de envío decide cuál es cuál por el
- * `mimeType` guardado — quien sube el archivo no declara la diferencia.
- */
-const TIPOS = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
 const cuerpo = z
   .object({
@@ -77,17 +66,7 @@ const cuerpo = z
   });
 
 export const GET = withAuth(async (session) => {
-  const db = getDb();
-  const fotos = await db
-    .select({
-      id: schema.mediaAsset.id,
-      etiqueta: schema.mediaAsset.etiqueta,
-      kind: schema.mediaAsset.kind,
-      tamano: schema.mediaAsset.tamano,
-      createdAt: schema.mediaAsset.createdAt,
-    })
-    .from(schema.mediaAsset)
-    .where(eq(schema.mediaAsset.organizationId, session.organizationId));
+  const fotos = await listMediaAssets(session.organizationId);
   return Response.json({ fotos });
 });
 
@@ -95,81 +74,21 @@ export const POST = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, cuerpo);
   if (!body.ok) return body.response;
 
-  // Un recurso que solo es enlace no trae archivo: no hay tipo que validar.
-  const mime = body.data.base64
-    ? (body.data.mimeType?.split(";")[0]?.trim().toLowerCase() ?? "")
-    : null;
-  if (mime !== null && !TIPOS.includes(mime)) {
-    return apiError(
-      415,
-      "tipo_no_soportado",
-      "El archivo debe ser JPG, PNG, WEBP o PDF."
-    );
+  try {
+    const resultado = await guardarMediaAsset(session.organizationId, body.data);
+    return Response.json(resultado);
+  } catch (err) {
+    if (err instanceof MediaAssetError) {
+      return apiError(415, err.code, err.message);
+    }
+    throw err;
   }
-
-  const db = getDb();
-  const etiqueta = body.data.etiqueta.trim();
-  const tamano = body.data.base64
-    ? Math.floor((body.data.base64.length * 3) / 4)
-    : null;
-  // Lo que NO corresponde a esta forma de entrega se guarda en null, no se
-  // deja lo que hubiera antes: un recurso que pasa a ser solo enlace no debe
-  // arrastrar el archivo viejo, ni al revés.
-  const valores = {
-    kind: body.data.kind,
-    entrega: body.data.entrega,
-    mimeType: mime,
-    datos: body.data.base64 ?? null,
-    tamano,
-    url: body.data.url ?? null,
-  };
-
-  // Subir otra foto con la misma etiqueta REEMPLAZA: si el negocio cambia la
-  // foto de un producto, no debe quedar la vieja compitiendo con la nueva —
-  // el agente no sabría cuál mandar.
-  const existente = await db
-    .select({ id: schema.mediaAsset.id })
-    .from(schema.mediaAsset)
-    .where(
-      and(
-        eq(schema.mediaAsset.organizationId, session.organizationId),
-        eq(schema.mediaAsset.etiqueta, etiqueta)
-      )
-    )
-    .limit(1);
-
-  if (existente[0]) {
-    await db
-      .update(schema.mediaAsset)
-      .set(valores)
-      .where(eq(schema.mediaAsset.id, existente[0].id));
-    return Response.json({ id: existente[0].id, etiqueta, reemplazada: true });
-  }
-
-  const id = newId("mediaAsset");
-  await db.insert(schema.mediaAsset).values({
-    id,
-    organizationId: session.organizationId,
-    etiqueta,
-    ...valores,
-  });
-  return Response.json({ id, etiqueta, reemplazada: false });
 });
 
 export const DELETE = withAuth(async (session, req: Request) => {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return apiError(400, "falta_id", "Falta el id de la foto");
 
-  const db = getDb();
-  // El `and` con la organización no es decorativo: sin él, un id ajeno
-  // borraría la foto de otro negocio.
-  await db
-    .delete(schema.mediaAsset)
-    .where(
-      and(
-        eq(schema.mediaAsset.id, id),
-        eq(schema.mediaAsset.organizationId, session.organizationId)
-      )
-    );
+  await eliminarMediaAsset(session.organizationId, id);
   return Response.json({ borrada: true });
 });

@@ -6,6 +6,9 @@ import { getOrCreateConversation } from "@/server/inbox/ingest";
 import { tieneOptOutDeMarketing } from "@/server/contacts";
 import { SendError } from "@/server/inbox/send";
 import { TemplateError, type ResultadoProveedor } from "@/server/whatsapp/templates";
+import type { TemplateComponents } from "@/server/whatsapp/template-validation";
+import { registrarEnvioWhatsappConCosto, categoriaDeTarifaDesdeTemplate } from "@/server/pricing/rates";
+import { proveedorRealDeOrganizacion } from "@/server/whatsapp/credentials";
 import {
   reclamarTrabajoDeCampana,
   registrarEnvioExitosoDeCampana,
@@ -33,7 +36,7 @@ export type ProveedorDeEnvio = (input: {
   variable?: string;
   retry?: boolean;
   timeoutMs?: number;
-  contentSnapshot: { name: string; language: string; body: string };
+  contentSnapshot: { name: string; language: string; body: string; components?: TemplateComponents };
 }) => Promise<ResultadoProveedor>;
 
 /**
@@ -212,7 +215,11 @@ export async function resolverTrabajoTomado(
   }
 
   const recipientes = await db
-    .select({ contactId: schema.campaignRecipient.contactId, contactName: schema.contact.name })
+    .select({
+      contactId: schema.campaignRecipient.contactId,
+      contactName: schema.contact.name,
+      contactPhone: schema.contact.phone,
+    })
     .from(schema.campaignRecipient)
     .innerJoin(schema.contact, eq(schema.campaignRecipient.contactId, schema.contact.id))
     .where(
@@ -279,6 +286,9 @@ export async function resolverTrabajoTomado(
         name: campana.templateSnapshot.name,
         language: campana.templateSnapshot.language,
         body: campana.templateSnapshot.body,
+        // Fase 9P, sección 15: SIEMPRE el snapshot congelado, nunca se
+        // vuelve a consultar el template vivo para decidir qué imagen enviar.
+        components: campana.templateSnapshot.components,
       },
     });
   } catch (err) {
@@ -289,6 +299,34 @@ export async function resolverTrabajoTomado(
       await pausarCampana(tomado.organizationId, tomado.campaignId);
       await revertirAPending(tomado);
       return { outcome: "reconexion_requerida" };
+    }
+    if (err instanceof TemplateError && err.code === "invalid") {
+      // Fase 10J (auditoría) — hallazgo real: un contacto sin nombre y una
+      // plantilla que exige {{1}} (u otro problema de VALIDACIÓN de datos
+      // del propio contacto/campaña, nunca de red) lanzaba `TemplateError
+      // ("invalid", ...)` ANTES de llamar al proveedor. El catch genérico de
+      // abajo lo revertía a `pending` sin marcar `failed` — y como
+      // `revertirAPending` no pasa por `registrarFalloEnvioDeCampana` (la
+      // única que aplica `MAX_INTENTOS_CAMPANA`), el mismo recipient se
+      // reclamaba, fallaba y se revertía en cada ciclo de sondeo para
+      // siempre, acaparando el único cupo de concurrencia de la
+      // organización. A diferencia de una excepción de red/reconexión, un
+      // `TemplateError("invalid", ...)` es un rechazo de VALIDACIÓN — el
+      // mismo criterio que ya usa `registrarFalloEnvioDeCampana` para un
+      // `EXPLICIT_FAILURE` no reintentable del proveedor (Fase 6C): nunca
+      // se va a resolver solo reintentando, así que cierra definitivo.
+      const { reintenta } = await registrarFalloEnvioDeCampana({
+        jobId: tomado.jobId,
+        recipientId: tomado.recipientId,
+        organizationId: tomado.organizationId,
+        errorProveedor: err.message,
+        attempts: tomado.attempts,
+        retryable: false,
+      });
+      if (!reintenta) {
+        await intentarCompletarSilencioso(tomado.organizationId, tomado.campaignId);
+      }
+      return { outcome: "fallido", retryable: false };
     }
     // Cualquier otra excepción de precondición (plantilla/conversación ya
     // no existen, etc.): problema de datos/configuración, no del
@@ -311,6 +349,28 @@ export async function resolverTrabajoTomado(
       waMessageId: resultado.waMessageId,
       text: resultado.renderedText,
     });
+    // Fase 10C — costo REAL de este envío de campaña, trazable hasta la
+    // campaña/destinatario/tarifa exactos (usage_event.campaignId/
+    // recipientId/pricingRateId). Sin tarifa cargada, costo 0 — nunca
+    // inventado. Nunca puede tumbar el resultado ya cerrado del envío: si
+    // esto falla, el mensaje YA salió y ya está registrado como enviado.
+    try {
+      await registrarEnvioWhatsappConCosto({
+        organizationId: tomado.organizationId,
+        tipo: "template",
+        ref: resultado.waMessageId,
+        campaignId: tomado.campaignId,
+        recipientId: tomado.recipientId,
+        provider: await proveedorRealDeOrganizacion(tomado.organizationId),
+        category: categoriaDeTarifaDesdeTemplate(campana.templateSnapshot.category),
+        phone: recipiente.contactPhone,
+      });
+    } catch (err) {
+      console.error(
+        `[campaign-worker] no se pudo registrar el costo del envío ${tomado.recipientId}:`,
+        err
+      );
+    }
     // El job de este recipient cerró para siempre (SENT) — puede ser el
     // último trabajo activo de la campaña (Fase 6C, punto 8).
     await intentarCompletarSilencioso(tomado.organizationId, tomado.campaignId);

@@ -36,9 +36,24 @@ export function esElegibleParaMarketing(c: {
 }
 
 /**
+ * Fase 10E — ¿tiene este contacto un canal REAL por el que WhatsApp pueda
+ * entregarle algo? Sin esto, un contacto sin `phone` NI `waUserId` (dato
+ * corrupto, o uno creado a mano sin ninguno de los dos) pasaba la
+ * elegibilidad, y `resolveRecipient()` fallaba recién en el worker — que
+ * revierte el job a `pending` sin marcarlo `failed` (esa rama es para
+ * errores de precondición, no del proveedor), así que el mismo recipient
+ * se reclamaba una y otra vez sin poder cerrarse nunca. Filtrar aquí, antes
+ * de crear el `campaign_recipient`, es lo que lo cierra de raíz.
+ */
+export function tieneCanalUtilizable(c: { phone: string | null; waUserId: string | null }): boolean {
+  return Boolean(c.phone?.trim() || c.waUserId?.trim());
+}
+
+/**
  * Los únicos contactos que una futura campaña podría incluir: de esta
- * organización, no archivados, sin opt-out. Única función/repository para
- * esto — nadie debe reconstruir esta lista recorriendo `contact` a mano.
+ * organización, no archivados, sin opt-out, con un canal real por el que
+ * WhatsApp pueda entregar algo. Única función/repository para esto — nadie
+ * debe reconstruir esta lista recorriendo `contact` a mano.
  */
 export async function contactosElegiblesParaMarketing(organizationId: string) {
   const db = getDb();
@@ -53,7 +68,7 @@ export async function contactosElegiblesParaMarketing(organizationId: string) {
         eq(schema.contact.marketingOptOut, false)
       )
     );
-  return rows;
+  return rows.filter(tieneCanalUtilizable);
 }
 
 /**

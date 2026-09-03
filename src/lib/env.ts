@@ -79,6 +79,23 @@ const envSchema = z.object({
    */
   LAB_RUNS_PER_MONTH: z.coerce.number().int().min(0).default(5),
   WA_MOCK_ENABLED: z.string().optional(),
+  /**
+   * Fase 10B — si este proceso vacía la cola de envíos de campañas
+   * (`campaign_send_job`). Apagado por defecto a propósito, a diferencia de
+   * `AGENT_WORKER_ENABLED`: un envío masivo real solo debe arrancar cuando
+   * alguien lo enciende explícitamente, nunca "porque el proceso arrancó".
+   */
+  CAMPAIGN_WORKER_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === "1" || v?.toLowerCase() === "true"),
+  /** Cuántos envíos de campaña puede tener EN VUELO este proceso a la vez (todas las organizaciones juntas). Valor operativo inicial, sin dato real de producción todavía — ajustable sin desplegar código. */
+  CAMPAIGN_WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(2),
+  /** Cada cuánto se sondea la cola de campañas. */
+  CAMPAIGN_WORKER_POLL_MS: z.coerce.number().int().min(200).default(2_000),
+  /** Cuántos envíos de campaña puede hacer UNA organización dentro de la ventana de abajo. Valor operativo inicial — el límite REAL de YCloud/Meta puede ser mayor o menor; esto es el techo de seguridad de Korex, no el del proveedor. */
+  CAMPAIGN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
+  CAMPAIGN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
   // --- YCloud (proveedor oficial de WhatsApp Business API) ---
   YCLOUD_API_KEY: z.string().optional(),
   YCLOUD_BASE_URL: z.string().url().default("https://api.ycloud.com"),

@@ -9,5 +9,10 @@ export async function register(): Promise<void> {
     await cleanupOrphanRuns();
     const { arrancarWorker } = await import("./server/ai/worker");
     arrancarWorker();
+    // Fase 10B — apagado por defecto (`CAMPAIGN_WORKER_ENABLED`), a
+    // diferencia del worker de IA: un envío masivo real solo debe
+    // arrancar cuando alguien lo enciende explícitamente.
+    const { arrancarWorkerDeCampanas } = await import("./server/campaigns/worker-daemon");
+    arrancarWorkerDeCampanas();
   }
 }

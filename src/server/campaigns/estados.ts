@@ -91,22 +91,31 @@ export function transicionAutomaticaPermitida(
 }
 
 /**
- * Máquina de estados de `campaign` (Fase 6A) — mismo espíritu que la de
+ * Máquina de estados de `campaign` (Fase 6A, ampliada en Fase 10I con el
+ * flujo de aprobación cliente→superadmin) — mismo espíritu que la de
  * `campaign_recipient`: nada de transiciones arbitrarias, nada de estados
- * inventados. Los 8 valores ya existen en el schema desde la Fase 3C.
+ * inventados.
+ *
+ * `pending_approval`/`rejected` son ADITIVOS: `draft → ready` directo
+ * sigue siendo válido (`prepararCampana()`, sin cambios) para quien no usa
+ * el flujo de aprobación — una organización donde el superadmin arma y
+ * lanza la campaña él mismo, como hasta ahora.
  */
 export type CampaignStatus =
   | "draft"
+  | "pending_approval"
   | "ready"
   | "scheduled"
   | "processing"
   | "paused"
   | "completed"
   | "cancelled"
+  | "rejected"
   | "failed";
 
 const TRANSICIONES_CAMPAIGN: Record<CampaignStatus, readonly CampaignStatus[]> = {
-  draft: ["ready", "cancelled"],
+  draft: ["ready", "pending_approval", "cancelled"],
+  pending_approval: ["ready", "rejected", "cancelled"],
   ready: ["scheduled", "processing", "cancelled"],
   scheduled: ["processing", "cancelled"],
   // `paused` (401/reconexión, Fase 6A punto 14) y `failed` (error
@@ -116,6 +125,9 @@ const TRANSICIONES_CAMPAIGN: Record<CampaignStatus, readonly CampaignStatus[]> =
   paused: ["processing", "cancelled"],
   completed: [],
   cancelled: [],
+  // Una campaña rechazada puede volver a draft para ajustarla y volver a
+  // solicitar aprobación — nunca se reintenta sola, siempre acción manual.
+  rejected: ["draft"],
   failed: [],
 };
 

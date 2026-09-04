@@ -260,6 +260,13 @@
       "when": 1788900000000,
       "tag": "0036_idempotencia_notify_order",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1789000000000,
+      "tag": "0037_zonas_de_domicilio",
+      "breakpoints": true
     }
   ]
 }

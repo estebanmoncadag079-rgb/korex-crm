@@ -471,6 +471,24 @@ export const agentProfile = pgTable(
      */
     paymentSource: text("payment_source").notNull().default("prompt"),
     /**
+     * De dónde sale la tarifa de domicilio de un negocio de PEDIDOS:
+     * `'prompt'` (el texto de siempre, dentro de `instructions`/la ficha) o
+     * `'tabla'` (las filas de `delivery_zone`, resueltas y verificadas en
+     * cada turno vía `consultar_domicilio`).
+     *
+     * Mismo interruptor que `catalogSource`/`paymentSource`, mismo motivo:
+     * nace en `'prompt'` (apagado, sin tocar a nadie) y se enciende cliente
+     * por cliente, solo después de que alguien cargue las zonas reales de
+     * ese negocio en `delivery_zone`. El rollback es un UPDATE de una fila.
+     *
+     * Fase 10N-J — el incidente de Kachipay (el cliente escuchó "$12.000",
+     * el pedido cerró con "$8.000") es la razón de ser de este campo: sin
+     * datos estructurados, no hay contra qué verificar lo que dice el
+     * modelo, y dos generaciones de texto libre en dos turnos distintos no
+     * tienen ningún motivo para coincidir entre sí.
+     */
+    deliverySource: text("delivery_source").notNull().default("prompt"),
+    /**
      * FASE 2. `'prompt'` = el estado del pedido lo sostiene el modelo dentro de
      * la conversación, como hasta hoy. `'backend'` = lo mantiene el servidor en
      * `conversation_state`, validado y con el total recalculado.
@@ -614,6 +632,40 @@ export const product = pgTable(
     // podría colgar de un producto de OTRA organización.
     uniqueIndex("product_org_id_uq").on(t.organizationId, t.id),
   ]
+);
+
+/**
+ * Fase 10N-J (4-sep-2026) — fuente ÚNICA de verdad para la tarifa de
+ * domicilio por zona. Nace del incidente real de Kachipay: al cliente le
+ * dijeron "$12.000" y el resumen del pedido cerró con "$8.000" — no había
+ * NINGÚN dato estructurado de domicilio en todo el sistema (confirmado por
+ * auditoría exhaustiva), así que cada vez que el modelo necesitaba esa
+ * cifra la volvía a generar/interpretar de la prosa de la ficha, sin
+ * ningún ancla compartida entre un turno y otro.
+ *
+ * `feeCents` es NOT NULL a propósito, al revés que `product.priceCents`:
+ * una fila de zona existe precisamente porque alguien YA sabe cuánto vale
+ * el domicilio ahí — a diferencia de un producto sin precio todavía
+ * (`docs/korexia/58`), aquí no hay un estado intermedio de "zona sin
+ * precio" que tenga sentido. Domicilio gratis se declara con `0`, nunca
+ * con ausencia del dato.
+ */
+export const deliveryZone = pgTable(
+  "delivery_zone",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    feeCents: integer("fee_cents").notNull(),
+    active: boolean("active").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [index("delivery_zone_org_idx").on(t.organizationId, t.active)]
 );
 
 /** "Salsa", "Tamaño", "Adiciones": lo que el cliente elige de un producto. */

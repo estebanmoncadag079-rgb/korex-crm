@@ -83,6 +83,12 @@ import {
   type TrazaDelTurno,
 } from "@/server/ai/traza";
 import { resolverMetodoDePago } from "@/server/pagos/metodo";
+import {
+  resolverZonaDeEntrega,
+  zonasDeEntregaQuery,
+  textoDeResultadoDomicilio,
+  type ZonaDeEntrega,
+} from "@/server/delivery/zonas";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
@@ -136,6 +142,10 @@ import {
   resumenMalArmado,
   TIENE_TOTAL,
   MENSAJE_RETIRADO,
+  dijoOtroValorDeDomicilio,
+  CORRECCION_DE_DOMICILIO_CONTRADICHO,
+  inconsistenciaFinancieraDePedido,
+  correccionDeInconsistenciaFinanciera,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
 import { encolarTurno } from "@/server/ai/cola";
@@ -994,6 +1004,19 @@ export async function runAgentTurn(
       ? (fichaDelNegocio as FichaDelNegocio).pago
       : undefined;
 
+  /**
+   * Zonas de domicilio (Fase 10N-J, incidente real de Kachipay) — apagado
+   * por defecto (`delivery_source = 'prompt'`, como nace todo cliente). Con
+   * la bandera en 'tabla', el precio de domicilio deja de depender de que
+   * el modelo lo recuerde o lo infiera bien de la ficha en prosa: se
+   * resuelve contra `delivery_zone`, verificado, igual que ya hace el
+   * catálogo de productos.
+   */
+  const zonasDeEntrega: ZonaDeEntrega[] =
+    !contrataCitas(vertical) && profile.deliverySource === "tabla"
+      ? await zonasDeEntregaQuery(organizationId)
+      : [];
+
   if (estadoEstructurado) {
     const productos = await catalogoDe(organizationId, vertical);
     if (productos.length === 0) {
@@ -1053,6 +1076,7 @@ export async function runAgentTurn(
         requisitos: requisitosPendientesDe(estadoGuardado, requisitos),
         pagoDeCitas,
         pagoDePedidos,
+        tieneZonasDeEntrega: zonasDeEntrega.length > 0,
       }),
     },
     ...toChatHistory(history, estado),
@@ -1177,6 +1201,8 @@ export async function runAgentTurn(
    * existe con `payment_source='ficha'`; sin eso no hay contra qué
    * verificar.
    */
+  /** La última zona de domicilio verificada EN ESTE TURNO (Fase 10N-J) — nunca sobrevive a otro turno, ver el comentario del guardarraíl financiero. */
+  let resultadoZona: ReturnType<typeof resolverZonaDeEntrega> | null = null;
   let resultadoPago: ReturnType<typeof resolverMetodoDePago> | null = null;
   if (
     profile.consultasVerificadasEnabled &&
@@ -1625,6 +1651,164 @@ export async function runAgentTurn(
       traza.accionFinal = "handoff";
       registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * `consultar_domicilio`: mismo principio, para la tarifa de domicilio
+   * (Fase 10N-J, incidente real de Kachipay: "$12.000" al preguntar,
+   * "$8.000" en el resumen del mismo pedido). `zonasDeEntrega` solo existe
+   * con `delivery_source='tabla'`; sin eso `resolverZonaDeEntrega` recibe
+   * una lista vacía y devuelve `not_found` para cualquier consulta, que es
+   * el comportamiento seguro (nunca inventa una tarifa).
+   */
+  const MAX_CONSULTAS_DOMICILIO = 2;
+  let consultasDomicilio = 0;
+  while (
+    action.action === "consultar_domicilio" &&
+    consultasDomicilio < MAX_CONSULTAS_DOMICILIO
+  ) {
+    consultasDomicilio++;
+    resultadoZona = resolverZonaDeEntrega(zonasDeEntrega, action.zona);
+    console.warn(
+      `[domicilio] ${organizationId}: zona="${action.zona}" status=${resultadoZona.status}`
+    );
+    agregarHecho(traza, {
+      tipo: "domicilio",
+      consulta: action.zona,
+      resultado: resultadoZona.status,
+      origen: "backend",
+    });
+    const infoZona = textoDeResultadoDomicilio(action.zona, resultadoZona);
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+    messages.push({ role: "user", content: infoZona });
+    const siguiente = await chatJson(AgentAction, messages, {
+      jsonSchema: formatoDeRespuestaDeAccion(),
+    });
+    await registrarUsoIa(
+      organizationId,
+      siguiente.usage,
+      `conv:${conversationId}/domicilio`
+    );
+    if (!siguiente.ok) {
+      if (siguiente.error === "not_configured") return null;
+      console.error(
+        `[agente] fallo del proveedor tras consultar domicilio: ${siguiente.detail}`
+      );
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "backend_error");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
+    action = siguiente.data;
+  }
+  if (action.action === "consultar_domicilio") {
+    await derivarAUnaPersona(conversation);
+    registrarHandoff(traza, "model_output_recovery_failed");
+    traza.accionFinal = "handoff";
+    registrarTrazaDelTurno(traza);
+    return { action: "handoff", reason: "error" };
+  }
+
+  /** Mismo criterio que el guardarraíl de producto, para la tarifa de domicilio. */
+  if (
+    resultadoZona?.status === "found" &&
+    action.action === "reply" &&
+    dijoOtroValorDeDomicilio(action.text, resultadoZona.zona.feeCents)
+  ) {
+    console.warn("[domicilio] contradijo la tarifa verificada; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_DOMICILIO_CONTRADICHO },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/domicilio-contradicho`
+    );
+    if (
+      reintento.ok &&
+      !(
+        reintento.data.action === "reply" &&
+        dijoOtroValorDeDomicilio(reintento.data.text, resultadoZona.zona.feeCents)
+      )
+    ) {
+      action = reintento.data;
+      agregarGuardarrail(traza, "domicilio_contradicho", true);
+    } else {
+      console.error(
+        "[domicilio] sigue contradiciendo la tarifa verificada; lo toma una persona"
+      );
+      agregarGuardarrail(traza, "domicilio_contradicho", false);
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Consistencia financiera del cierre (Fase 10N-J): si el modelo aporta
+   * los campos estructurados de `notify_order` (`subtotalCents`/
+   * `deliveryFeeCents`/`totalCents`), se verifican ANTES de aceptar la
+   * acción — nunca se calcula el total leyendo el `summary` en prosa. Es
+   * la corrección directa del incidente de Kachipay: `deliveryFeeCents`
+   * debe ser exactamente la tarifa que `consultar_domicilio` verificó EN
+   * ESTE TURNO (no en uno anterior — esa verificación es efímera, solo
+   * vive en `messages` de este turno, nunca se persiste), y `totalCents`
+   * debe cuadrar aritméticamente.
+   */
+  if (action.action === "notify_order") {
+    const fallo = inconsistenciaFinancieraDePedido({
+      summary: action.summary,
+      subtotalCents: action.subtotalCents,
+      deliveryFeeCents: action.deliveryFeeCents,
+      totalCents: action.totalCents,
+      zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
+    });
+    if (fallo) {
+      console.warn(`[pedido] inconsistencia financiera (${fallo}); rehaciendo el turno`);
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: correccionDeInconsistenciaFinanciera(fallo) },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/inconsistencia-financiera`
+      );
+      const reintentoFallo =
+        reintento.ok && reintento.data.action === "notify_order"
+          ? inconsistenciaFinancieraDePedido({
+              summary: reintento.data.summary,
+              subtotalCents: reintento.data.subtotalCents,
+              deliveryFeeCents: reintento.data.deliveryFeeCents,
+              totalCents: reintento.data.totalCents,
+              zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
+            })
+          : "total-no-cuadra";
+      if (reintento.ok && reintento.data.action === "notify_order" && !reintentoFallo) {
+        action = reintento.data;
+        agregarGuardarrail(traza, "inconsistencia_financiera", true);
+      } else {
+        console.error(
+          `[pedido] sigue inconsistente (${fallo}) tras la corrección; lo toma una persona`
+        );
+        agregarGuardarrail(traza, "inconsistencia_financiera", false);
+        await derivarAUnaPersona(conversation, {
+          reason: "modelo",
+          teamSummary:
+            "El asistente intentó cerrar un pedido con el domicilio o el total inconsistentes (no coincide con la tarifa verificada, o la suma no cuadra). Revisa la conversación antes de confirmar nada con el cliente.",
+        });
+        registrarHandoff(traza, "model_output_recovery_failed");
+        traza.accionFinal = "handoff";
+        registrarTrazaDelTurno(traza);
+        return { action: "handoff", reason: "error" };
+      }
     }
   }
 

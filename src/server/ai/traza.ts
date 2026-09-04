@@ -52,7 +52,7 @@ export type CategoriaDeTraza =
 export type OrigenDelHecho = "backend" | "crm" | "llm";
 
 export type HechoConsultado = {
-  tipo: "producto" | "medio_pago" | "disponibilidad";
+  tipo: "producto" | "medio_pago" | "disponibilidad" | "domicilio";
   /** La consulta tal cual se le pidió al backend — nombre de producto o método, nunca datos del cliente. */
   consulta: string;
   resultado: string;

@@ -499,6 +499,19 @@ export const CONTRATO_DE_CONSULTA_DE_PAGO = [
 ].join("\n");
 
 /**
+ * Adenda SOLO para negocios de PEDIDOS con zonas de domicilio estructuradas
+ * (`delivery_source='tabla'`) — mismo principio, para el incidente real de
+ * Kachipay (4-sep-2026): al cliente le dijeron "$12.000" al preguntar el
+ * domicilio, y el resumen del mismo pedido cerró con "$8.000". A propósito
+ * NO hay ningún listado de zonas/tarifas en este prompt — la única forma
+ * de saber cuánto cuesta un domicilio es preguntándole al servidor.
+ */
+export const CONTRATO_DE_CONSULTA_DE_DOMICILIO = [
+  '- {"action":"consultar_domicilio","zona":"la zona/dirección que dio el cliente"} — SIEMPRE que el cliente pregunte cuánto cuesta el domicilio a algún lugar, o que necesites saber la tarifa para armar el resumen del pedido. NUNCA digas ni "recuerdes" una cifra de domicilio sin haber consultado esta acción en el mismo turno o el inmediato anterior — ni siquiera si la dijiste antes en la conversación: vuelve a consultarla. Acción interna, mismo funcionamiento que consultar_producto.',
+  '- Al cerrar el pedido con notify_order, si el pedido incluye domicilio, incluye también los campos subtotalCents (suma de los productos, en centavos — $18.000 = 1800000), deliveryFeeCents (la tarifa EXACTA que consultar_domicilio confirmó, en centavos) y totalCents (subtotalCents + deliveryFeeCents, exacto). Si el pedido es solo recogida en el local, deliveryFeeCents es null y totalCents = subtotalCents.',
+].join("\n");
+
+/**
  * Adenda del contrato SOLO para organizaciones con vertical de citas
  * (agent_profile.appointmentsEnabled). Aparte de CONTRATO_DE_ACCIONES para no
  * inflar el prompt de los clientes de pedidos (La Churra, Lis) con acciones
@@ -775,6 +788,17 @@ export function buildAgentSystemPrompt(input: {
    * como todos los interruptores de fase de este proyecto (ver `pipeline.ts`).
    */
   pagoDePedidos?: { formas: string; datosDeCuenta?: string };
+  /**
+   * Fase 10N-J. `true` solo cuando `agent_profile.delivery_source = 'tabla'`
+   * Y ese negocio ya tiene al menos una zona cargada en `delivery_zone`.
+   * Deliberadamente NO se inyecta el listado de zonas/tarifas como prosa
+   * aquí (a diferencia de `catalogoDePedidos`): el incidente de Kachipay
+   * fue exactamente un precio de domicilio leído/recordado de texto libre.
+   * Con esta bandera en `true`, el CONTRATO_DE_CONSULTA_DE_DOMICILIO le
+   * exige al modelo usar SIEMPRE `consultar_domicilio` para cualquier
+   * cifra — nunca puede "recordarla" de este prompt porque nunca está acá.
+   */
+  tieneZonasDeEntrega?: boolean;
 }): string {
   const { profile } = input;
   const stageNames = input.stages.map((s) => s.name).join(" | ");
@@ -817,6 +841,7 @@ export function buildAgentSystemPrompt(input: {
     CONTRATO_DE_ACCIONES,
     input.catalogoDePedidos ? CONTRATO_DE_CONSULTA_DE_PRODUCTO : null,
     input.pagoDePedidos ? CONTRATO_DE_CONSULTA_DE_PAGO : null,
+    input.tieneZonasDeEntrega ? CONTRATO_DE_CONSULTA_DE_DOMICILIO : null,
     input.appointments ? CONTRATO_DE_ACCIONES_CITAS : null,
     // El estado se repite al final, y no por descuido.
     //

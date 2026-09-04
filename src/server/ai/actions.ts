@@ -52,11 +52,27 @@ export const AgentAction = z.discriminatedUnion("action", [
   /**
    * Pedido cerrado: se registra en el lead, se avisa por WhatsApp al equipo
    * del negocio y la conversación pasa a manos humanas (el agente calla).
+   *
+   * Fase 10N-J — campos estructurados opcionales (incidente real de
+   * Kachipay: al cliente le dijeron "$12.000" de domicilio y el resumen
+   * cerró con "$8.000", sin que nada lo detectara). `summary` sigue siendo
+   * el texto que ve el EQUIPO por WhatsApp — eso no cambia — pero cuando el
+   * negocio tiene `delivery_source='tabla'`, el pipeline EXIGE que estos
+   * tres números también vengan aparte, y los verifica antes de aceptar la
+   * acción (ver `pipeline.ts`, guardarraíl de consistencia financiera):
+   * `totalCents` debe ser exactamente `subtotalCents + (deliveryFeeCents ?? 0)`,
+   * y `deliveryFeeCents` debe coincidir con la última zona verificada por
+   * `consultar_domicilio` en esta conversación. Opcionales en el schema
+   * (no en todos los verticales hay `delivery_zone`) — la obligatoriedad
+   * real la impone el guardarraíl, no este tipo.
    */
   z.object({
     action: z.literal("notify_order"),
     summary: z.string().min(1),
     farewell: z.string().optional(),
+    subtotalCents: z.number().int().nonnegative().optional(),
+    deliveryFeeCents: z.number().int().nonnegative().nullable().optional(),
+    totalCents: z.number().int().nonnegative().optional(),
   }),
   /**
    * Mandar una foto que el negocio tiene cargada: la de un producto, su carta,
@@ -146,6 +162,18 @@ export const AgentAction = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("consultar_medio_pago"),
     metodo: z.string().min(1),
+  }),
+  /**
+   * Mismo principio para la tarifa de domicilio (Fase 10N-J, incidente real
+   * de Kachipay): en vez de que el modelo diga un precio de memoria o lo
+   * infiera de la ficha en prosa, el servidor lo resuelve contra
+   * `delivery_zone` (ver `server/delivery/zonas.ts`). Solo aparece cuando
+   * `delivery_source='tabla'` — sin zonas reales cargadas no hay contra qué
+   * verificar.
+   */
+  z.object({
+    action: z.literal("consultar_domicilio"),
+    zona: z.string().min(1),
   }),
   /**
    * Vertical de citas (solo orgs con agent_profile.appointmentsEnabled).
@@ -274,7 +302,7 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
     enum: [
       "none", "reply", "update_lead", "provide_requirement", "move_stage",
       "handoff", "notify_order", "send_image", "send_menu",
-      "consultar_producto", "consultar_medio_pago",
+      "consultar_producto", "consultar_medio_pago", "consultar_domicilio",
       "consult_availability", "book_appointment", "reschedule_appointment",
       "cancel_appointment",
     ],
@@ -292,6 +320,10 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
   categoria: { type: ["string", "null"] },
   consulta: { type: ["string", "null"] },
   metodo: { type: ["string", "null"] },
+  zona: { type: ["string", "null"] },
+  subtotalCents: { type: ["number", "null"] },
+  deliveryFeeCents: { type: ["number", "null"] },
+  totalCents: { type: ["number", "null"] },
   requisitoId: { type: ["string", "null"] },
   valor: { type: ["string", "null"] },
   servicio: { type: ["string", "null"] },

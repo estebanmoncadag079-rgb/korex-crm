@@ -463,6 +463,153 @@ export function confirmoPeroNoSeCerro(input: {
 export const CORRECCION_DE_CONFIRMACION_NO_CERRADA =
   "ALTO. El cliente YA confirmó el pedido y le estás volviendo a preguntar lo mismo. NO repitas el resumen ni la pregunta de confirmación. El cliente dijo que sí: usa la acción notify_order ahora mismo, con el resumen completo del pedido en el campo summary. Responde ÚNICAMENTE el objeto JSON.";
 
+/* ============================================================
+ * Domicilio: un valor dicho, otro usado (Fase 10N-J, 4-sep-2026)
+ * ============================================================ */
+
+/**
+ * Incidente real: al cliente le dijeron "$12.000" al preguntar el
+ * domicilio a Kachipay, y el resumen del pedido cerró con "$8.000" — dos
+ * generaciones de texto libre, en dos turnos distintos, sin ningún ancla
+ * numérica compartida. `consultar_domicilio` (ver `server/delivery/zonas.ts`)
+ * resuelve la tarifa real UNA vez por conversación; este detector comprueba
+ * que la RESPUESTA del modelo, cuando menciona "domicilio"/"envío" con una
+ * cifra, use esa misma tarifa — no una nueva inventada o mal recordada.
+ */
+
+const MENCIONA_DOMICILIO = /domicilio|env[íi]o|transporte/gi;
+
+function pesosTextoACents(cifraTexto: string): number {
+  return Number(cifraTexto.replace(/[.,]/g, "")) * 100;
+}
+
+/** "Domicilio gratis", "envío sin costo" — un $0 explícito sin necesidad de escribir "$0". */
+const GRATIS_CERCA = /\b(gratis|sin costo|no cobra|no tiene costo)\b/i;
+
+const VENTANA = 25;
+
+/**
+ * Las cifras en pesos ($X) que aparecen cerca de una mención de
+ * domicilio/envío/transporte, convertidas a centavos.
+ *
+ * Prioriza la cifra que viene DESPUÉS de la palabra ("Domicilio: $12.000",
+ * "Domicilio a Kachipay: $12.000" — la redacción real, con la zona en
+ * medio) y solo mira ANTES si no encuentra nada después ("$8.000 de
+ * domicilio"). Una ventana ancha y sin priorizar dirección terminaba
+ * agarrando un número de OTRA frase que por casualidad caía cerca (el
+ * subtotal o el total, en un resumen con varias cifras seguidas) — este
+ * detector es una red de texto, no la fuente de verdad (esa es
+ * `deliveryFeeCents`, el campo estructurado), así que prioriza no
+ * disparar de más sobre precisión perfecta de NLP.
+ */
+function figurasDeDomicilioEnCents(texto: string): number[] {
+  const resultado: number[] = [];
+  const re = new RegExp(MENCIONA_DOMICILIO);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto))) {
+    const finKeyword = m.index + m[0].length;
+    const cercaInmediata = texto.slice(Math.max(0, m.index - 15), finKeyword + 15);
+    if (GRATIS_CERCA.test(cercaInmediata)) {
+      resultado.push(0);
+      continue;
+    }
+    const despues = texto.slice(finKeyword, finKeyword + VENTANA);
+    const antes = texto.slice(Math.max(0, m.index - VENTANA), m.index);
+    const cifra = despues.match(/\$\s*([\d][\d.,]*)/) ?? antes.match(/\$\s*([\d][\d.,]*)/);
+    if (cifra) resultado.push(pesosTextoACents(cifra[1]!));
+  }
+  return resultado;
+}
+
+/**
+ * `true` si el texto menciona una cifra de domicilio/envío DISTINTA de la
+ * que `consultar_domicilio` verificó contra `delivery_zone` en este mismo
+ * turno. No exige que el texto mencione domicilio — si no lo menciona,
+ * nunca hay contradicción que detectar.
+ */
+export function dijoOtroValorDeDomicilio(
+  texto: string | null | undefined,
+  feeCentsVerificado: number
+): boolean {
+  if (!texto) return false;
+  return figurasDeDomicilioEnCents(texto).some((c) => c !== feeCentsVerificado);
+}
+
+export const CORRECCION_DE_DOMICILIO_CONTRADICHO =
+  "ALTO. Ya se verificó la tarifa REAL de domicilio para esta zona (consultar_domicilio) y tu respuesta menciona una cifra DISTINTA. Usa exactamente la tarifa verificada, no la cambies ni la redondees ni la inventes de nuevo. Responde ÚNICAMENTE el objeto JSON.";
+
+/**
+ * Consistencia financiera del cierre del pedido (`notify_order`, Fase
+ * 10N-J). "El dinero viaja como números, no se recalcula leyendo el
+ * `summary` en prosa" — estos chequeos son la aplicación literal de esa
+ * regla, sobre las DOS superficies donde el incidente de Kachipay podía
+ * (y de hecho pasó) esconderse:
+ *
+ * - `total-no-cuadra`: cuando el modelo aporta los campos estructurados
+ *   (`subtotalCents`/`deliveryFeeCents`/`totalCents`), `totalCents` debe
+ *   ser exactamente `subtotalCents + (deliveryFeeCents ?? 0)`.
+ * - `domicilio-no-verificado`: `deliveryFeeCents` (el campo ESTRUCTURADO)
+ *   no coincide con la última zona que `consultar_domicilio` verificó en
+ *   esta conversación.
+ * - `resumen-contradice-tarifa`: el `summary` — el texto que de verdad le
+ *   llega al EQUIPO por WhatsApp, ver `notify-team.ts` — menciona una
+ *   cifra de domicilio distinta de la verificada. Sin este chequeo, el
+ *   incidente real seguiría siendo posible: los campos estructurados
+ *   podrían estar perfectos y el texto que de verdad se lee seguir
+ *   diciendo un número distinto.
+ */
+export type InconsistenciaFinanciera =
+  | "total-no-cuadra"
+  | "domicilio-no-verificado"
+  | "resumen-contradice-tarifa"
+  | null;
+
+export function inconsistenciaFinancieraDePedido(input: {
+  summary: string;
+  subtotalCents?: number;
+  deliveryFeeCents?: number | null;
+  totalCents?: number;
+  zonaVerificada: { feeCents: number } | null;
+}): InconsistenciaFinanciera {
+  const { summary, subtotalCents, deliveryFeeCents, totalCents, zonaVerificada } = input;
+
+  if (subtotalCents !== undefined && totalCents !== undefined) {
+    const esperado = subtotalCents + (deliveryFeeCents ?? 0);
+    if (totalCents !== esperado) return "total-no-cuadra";
+  }
+
+  // Un deliveryFeeCents no-nulo SIEMPRE debe venir respaldado por una
+  // verificación de ESTE turno — no basta con que se haya verificado en un
+  // turno anterior de la misma conversación (esa verificación, ephemera,
+  // no sobrevive entre turnos: ver el comentario del bucle en pipeline.ts).
+  // Forzar a reverificar justo antes de cerrar es barato y es exactamente
+  // lo que ya hace el guardarraíl gemelo "notify_order sin resumen previo".
+  if (deliveryFeeCents !== undefined && deliveryFeeCents !== null) {
+    if (!zonaVerificada || deliveryFeeCents !== zonaVerificada.feeCents) {
+      return "domicilio-no-verificado";
+    }
+  }
+
+  // El campo estructurado puede estar perfecto y el TEXTO que de verdad
+  // lee el equipo decir otra cosa — se comprueba aparte, siempre que haya
+  // una zona verificada este turno, exista o no el campo estructurado.
+  if (zonaVerificada && dijoOtroValorDeDomicilio(summary, zonaVerificada.feeCents)) {
+    return "resumen-contradice-tarifa";
+  }
+
+  return null;
+}
+
+export function correccionDeInconsistenciaFinanciera(fallo: InconsistenciaFinanciera): string {
+  if (fallo === "total-no-cuadra") {
+    return "ALTO. En notify_order, totalCents no coincide con subtotalCents + deliveryFeeCents (0 si no hay domicilio). Revisa la suma exacta, no redondees ni ajustes a mano. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "resumen-contradice-tarifa") {
+    return "ALTO. El texto de \"summary\" en notify_order menciona una cifra de domicilio DISTINTA de la que consultar_domicilio verificó. Corrige el summary para que use exactamente la tarifa verificada. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  return "ALTO. En notify_order, deliveryFeeCents NO es la tarifa que confirmó consultar_domicilio en esta conversación. Usa exactamente esa cifra verificada. Responde ÚNICAMENTE el objeto JSON.";
+}
+
 /** "¿cuánto es el total?" en las formas en que la gente lo pregunta de verdad. */
 const PIDE_EL_TOTAL =
   /(cu[aá]nto (es|ser[ií]a|me sale|sale|vale|queda|cuesta)( el| en)? (total|todo)|cu[aá]l (es|ser[ií]a) el total|el total\s*\?|cu[aá]nto es en total|cu[aá]nto te debo)/i;

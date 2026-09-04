@@ -60,6 +60,22 @@ export const PUT = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, putSchema);
   if (!body.ok) return body.response;
 
+  /**
+   * Encender/apagar el agente apaga la IA para TODO el negocio a la vez —
+   * a diferencia de pasar una conversación puntual a una persona (eso
+   * sigue abierto a cualquiera del equipo). Un empleado del negocio
+   * apagándolo sin querer deja a todos sus clientes sin respuesta hasta
+   * que alguien se dé cuenta; solo la agencia (superadmin de plataforma)
+   * puede tocar este interruptor.
+   */
+  if (body.data.enabled !== undefined && session.platformRole !== "superadmin") {
+    return apiError(
+      403,
+      "forbidden",
+      "Solo el administrador de la plataforma puede encender o apagar el agente"
+    );
+  }
+
   const db = getDb();
   const leerFila = async () => {
     const [f] = await db

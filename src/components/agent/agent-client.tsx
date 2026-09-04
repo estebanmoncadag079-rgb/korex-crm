@@ -93,7 +93,12 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
             aria-label={
               profile.enabled ? "Apagar el agente" : "Encender el agente"
             }
-            disabled={!aiConfigured}
+            disabled={!aiConfigured || !esAgencia}
+            title={
+              esAgencia
+                ? undefined
+                : "Solo el administrador de la plataforma puede encender o apagar el agente"
+            }
             onClick={() => void saveProfile({ enabled: !profile.enabled })}
             className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
               profile.enabled ? "bg-primary" : "bg-secondary"

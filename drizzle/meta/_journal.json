@@ -253,6 +253,13 @@
       "when": 1788800000000,
       "tag": "0035_costos_reales_segmentacion_aprobacion",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788900000000,
+      "tag": "0036_idempotencia_notify_order",
+      "breakpoints": true
     }
   ]
 }

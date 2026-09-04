@@ -31,6 +31,7 @@ import {
 } from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
+import { registrarConfirmacionDePedido } from "@/server/ai/confirmacion-de-pedido";
 import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
 import {
@@ -111,6 +112,8 @@ import {
   anunciaCitaAgendada,
   CORRECCION_DE_CIERRE_FALSO,
   CORRECCION_DE_CITA_FANTASMA,
+  CORRECCION_DE_CONFIRMACION_NO_CERRADA,
+  confirmoPeroNoSeCerro,
   CORRECCION_DE_DISPONIBILIDAD_SIN_VERIFICAR,
   CORRECCION_DE_PAGO_SIN_VERIFICAR,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
@@ -2179,6 +2182,68 @@ export async function runAgentTurn(
   }
 
   /**
+   * Octavo guardarraíl: el cliente confirmó y no se cerró (3-sep-2026).
+   *
+   * Distinto de "resumen mal armado" (arriba): ahí el mensaje nuevo del
+   * agente está roto por sí solo. Aquí está bien formado — el fallo es que
+   * NO DEBIÓ mandarse, porque el cliente ya había dicho que sí en su
+   * mensaje anterior. Incidente real documentado dos veces (Natalia,
+   * 13-ago; y el reportado el 3-sep): el cliente confirma, el agente repite
+   * el mismo resumen pidiendo confirmar, hasta que una persona interviene a
+   * mano. Ver `anuncio-de-cierre.ts` para el detalle completo.
+   *
+   * Solo en pedidos, igual que el resumen: en citas el cierre no depende de
+   * `notify_order` ni de un resumen con total.
+   *
+   * Excluido explícitamente cuando `falloDeResumen` ya disparó: el caso de
+   * Natalia junta las dos fallas (pide confirmar Y se despide en el mismo
+   * mensaje, justo después de que la clienta ya dijo que sí) — sin esta
+   * exclusión, ambos guardarraíles reintentaban el turno por separado sobre
+   * la MISMA respuesta rota, gastando una llamada de más al modelo sin
+   * arreglar nada que el primero no estuviera ya intentando arreglar.
+   */
+  const confirmoSinCierre =
+    action.action === "notify_order" || contrataCitas(vertical) || falloDeResumen
+      ? false
+      : confirmoPeroNoSeCerro({
+          ultimaRespuestaPrevia,
+          mensajesDelCliente: pendientesDelCliente,
+          accionNueva: action.action,
+          textoDeLaAccionNueva: textosAlCliente(action).join(" "),
+        });
+  if (confirmoSinCierre) {
+    console.warn(
+      `[agente] cliente confirmó y no se cerró el pedido en ${conversationId}; rehaciendo el turno`
+    );
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_CONFIRMACION_NO_CERRADA },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/confirmo-sin-cierre`
+    );
+    if (reintento.ok && reintento.data.action === "notify_order") {
+      action = reintento.data;
+    } else {
+      // Si insiste, es exactamente el patrón que ya le costó una intervención
+      // manual a Natalia (13-ago) tres veces seguidas: mejor derivar de una
+      // vez que dejar al cliente confirmando en bucle.
+      console.error(
+        `[agente] insiste en no cerrar tras confirmar en ${conversationId}; lo toma una persona`
+      );
+      await derivarAUnaPersona(conversation, {
+        reason: "modelo",
+        teamSummary:
+          "El cliente confirmó el pedido y el asistente volvió a pedirle que confirmara en vez de cerrarlo. Revisa la conversación: puede que el cliente ya haya dicho que sí más de una vez.",
+      });
+      return { action: "handoff", reason: "confirmo sin cierre" };
+    }
+  }
+
+  /**
    * Séptimo guardarraíl: contenido obligatorio del CRM que no llegó al
    * cliente (24-ago-2026).
    *
@@ -2423,21 +2488,50 @@ export async function runAgentTurn(
       return action;
     }
     case "notify_order": {
-      // Orden deliberado: primero el registro (fuente de verdad), después el
-      // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
-      // despedida — así un pedido nunca se pierde por un fallo de envío.
-      const phone = await contactPhoneOf(organizationId, conversation.contactId);
-      const result = await notifyTeam({
+      /**
+       * Fase 10N-A — idempotencia real (Postgres, no memoria) antes de
+       * cualquier efecto: el `INSERT` con `UNIQUE(conversation_id,
+       * idempotency_key)` es quien decide, no una variable en este
+       * proceso. Cubre la ventana de carrera real de `rescatarHuerfanos`
+       * (cola.ts) — si dos ejecuciones de este turno corrieran en
+       * paralelo para la misma conversación, solo una gana el `INSERT` y
+       * solo esa manda el WhatsApp al equipo / anota el pedido. La otra
+       * sigue su camino (cierre de lead, despedida, handoff) sin repetir
+       * el aviso — deliberadamente acotado a esto: suprimir también la
+       * despedida duplicada en ese escenario de dos turnos en paralelo es
+       * un problema más grande y preexistente de `cola.ts`, fuera del
+       * alcance de este fix.
+       */
+      const { primeraVez } = await registrarConfirmacionDePedido({
         organizationId,
-        summary: action.summary,
-        customerPhone: phone,
-        isTest: conversation.isTest,
+        conversationId,
+        // IDs de los mensajes del cliente que disparan este cierre — no el
+        // `summary` del modelo (ver el comentario de confirmacion-de-pedido.ts:
+        // el texto libre no es estable entre dos ejecuciones paralelas del
+        // mismo turno, estos IDs de fila SÍ lo son).
+        messageIds: pendientes.map((m) => m.id),
       });
-      await appendLeadNote(
-        organizationId,
-        conversation.contactId,
-        `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
-      );
+      if (!primeraVez) {
+        console.warn(
+          `[agente] notify_order duplicado (mismo pedido, misma conversación) en ${conversationId}; no se repite el aviso`
+        );
+      } else {
+        // Orden deliberado: primero el registro (fuente de verdad), después el
+        // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
+        // despedida — así un pedido nunca se pierde por un fallo de envío.
+        const phone = await contactPhoneOf(organizationId, conversation.contactId);
+        const result = await notifyTeam({
+          organizationId,
+          summary: action.summary,
+          customerPhone: phone,
+          isTest: conversation.isTest,
+        });
+        await appendLeadNote(
+          organizationId,
+          conversation.contactId,
+          `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
+        );
+      }
       // El embudo se cierra solo: un pedido confirmado es la única señal
       // inequívoca de venta que tiene el sistema, y sin esto el lead se quedaba
       // en "Nuevo" para siempre aunque el equipo ya estuviera despachándolo.

@@ -247,6 +247,43 @@ export const conversation = pgTable(
   ]
 );
 
+/**
+ * Fase 10N-A (3-sep-2026) — idempotencia REAL de `notify_order`, a nivel de
+ * Postgres, no en memoria. `notifyTeam()`/`appendLeadNote()` (el aviso de
+ * WhatsApp al equipo y la nota del pedido) no tenían ninguna protección
+ * contra ejecutarse dos veces para el mismo pedido — en el caso normal
+ * queda cubierto porque `agent_job` serializa un turno a la vez por
+ * conversación, pero `rescatarHuerfanos` (cola.ts) puede reasignar un job
+ * "corriendo" a otro worker si el turno tarda más de `HUERFANO_TRAS_MS`
+ * estando el proceso original todavía vivo — ahí sí podrían correr dos
+ * turnos en paralelo para la misma conversación, cada uno llamando
+ * `notify_order`, sin ningún candado que lo evite.
+ *
+ * `UNIQUE(conversation_id, idempotency_key)`: la clave es un hash del
+ * `summary` del pedido (normalizado) — el MISMO pedido confirmado dos veces
+ * en la misma conversación no vuelve a avisar; un pedido genuinamente
+ * DISTINTO en la misma conversación (otro día, otro contenido) sí avisa,
+ * porque su hash es distinto. Genérico para cualquier tenant: sin lógica
+ * específica de ningún cliente.
+ */
+export const orderConfirmation = pgTable(
+  "order_confirmation",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_confirmation_uq").on(t.conversationId, t.idempotencyKey),
+  ]
+);
+
 export const message = pgTable(
   "message",
   {

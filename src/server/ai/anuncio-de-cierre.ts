@@ -298,10 +298,22 @@ export const CORRECCION_DE_PRODUCTO_OLVIDADO =
  * registra y sale como está. Sacar a un humano en cada pedido sería peor.
  */
 
-/** Marcas de que el mensaje está pidiendo confirmar el pedido. */
+/**
+ * Marcas de que el mensaje está pidiendo confirmar el pedido.
+ *
+ * Ampliado el 3-sep-2026: la frase real observada en producción —"¿Me
+ * confirmas si todo está correcto para dejar tu pedido en firme?"— NO
+ * matcheaba ninguna de las dos marcas originales (el patrón exigía
+ * "correcto" pegado al signo de interrogación). Cualquier pregunta que
+ * mencione "correcto" es, en este dominio, casi siempre una petición de
+ * confirmar el pedido; "en firme" es un modismo específico de este negocio
+ * para lo mismo, con o sin signo de interrogación.
+ */
 const PIDE_CONFIRMAR: RegExp[] = [
   /confirma\s+tu\s+pedido/i,
   /¿\s*est[áa]\s+todo\s+correcto\s*\?/i,
+  /¿[^?]*\bcorrecto\b[^?]*\?/i,
+  /\ben\s+firme\b/i,
 ];
 
 /** Marcas de que anuncia un resumen. */
@@ -380,6 +392,76 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
   }
   return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Responde ÚNICAMENTE el objeto JSON.";
 }
+
+/* ============================================================
+ * Confirmó y no se cerró (3-sep-2026)
+ * ============================================================ */
+
+/**
+ * El cliente confirma el pedido ("Correcto", "Sí", "Dale"...) justo después
+ * de que el agente le mostró el resumen y preguntó, y en vez de cerrarlo con
+ * `notify_order` el modelo vuelve a mandar el MISMO resumen pidiendo
+ * confirmar otra vez — como si no hubiera leído la respuesta.
+ *
+ * Incidente real documentado dos veces en el propio código: Natalia
+ * (13-ago-2026, arriba, tres repeticiones hasta que una persona intervino a
+ * mano) y uno reportado el 3-sep-2026 (dos repeticiones, mismo patrón).
+ *
+ * A diferencia de `resumenMalArmado`, aquí el mensaje nuevo del agente está
+ * bien formado por sí solo (tiene total, no se despide de más) — el fallo es
+ * que NO DEBIÓ mandarse: el cliente ya había dicho que sí. Por eso hace
+ * falta mirar el TURNO ANTERIOR del agente y lo que contestó el cliente, no
+ * solo el mensaje nuevo.
+ *
+ * `notify_order` NO tiene ninguna acción de servidor que lo dispare de forma
+ * determinista — depende enteramente de que el modelo, leyendo texto libre,
+ * decida invocarla. El prompt ya se lo indica (`conducta.ts`, "MOMENTO 2");
+ * este guardarraíl es la red para cuando no obedece, igual que las otras
+ * siete de este archivo.
+ */
+
+/**
+ * Afirmación corta e inequívoca: el cliente contesta SOLO esto, no una frase
+ * más larga que de casualidad contenga la palabra de paso (p. ej. "sí, pero
+ * cámbiame el color" NO cuenta — ahí "sí" no es un cierre, es el inicio de
+ * una corrección).
+ */
+const CONFIRMACION_CORTA =
+  /^\s*(?:correcto|s[ií]|dale|listo|confirmo|vale|ok(?:ay)?|de\s+acuerdo|est[áa]\s+bien|perfecto)\s*[.!¡¿?]*\s*$/i;
+
+export function esConfirmacionCorta(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  return CONFIRMACION_CORTA.test(texto);
+}
+
+/** `true` si el texto pide confirmar el pedido — misma detección que usa `resumenMalArmado`, reutilizada, no duplicada. */
+export function pideConfirmarPedido(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  return PIDE_CONFIRMAR.some((re) => re.test(texto));
+}
+
+/**
+ * Se evalúa SOLO cuando las tres condiciones se dan juntas: el cliente
+ * mandó EXACTAMENTE un mensaje este turno (no varios mezclados) y es una
+ * confirmación corta; el último mensaje del agente ANTES de este turno ya
+ * pedía confirmar el pedido; y la acción nueva del modelo, en vez de
+ * `notify_order`, vuelve a pedir confirmar.
+ */
+export function confirmoPeroNoSeCerro(input: {
+  ultimaRespuestaPrevia: string | null | undefined;
+  mensajesDelCliente: string[];
+  accionNueva: string;
+  textoDeLaAccionNueva: string;
+}): boolean {
+  if (input.accionNueva === "notify_order") return false;
+  if (input.mensajesDelCliente.length !== 1) return false;
+  if (!esConfirmacionCorta(input.mensajesDelCliente[0])) return false;
+  if (!pideConfirmarPedido(input.ultimaRespuestaPrevia)) return false;
+  return pideConfirmarPedido(input.textoDeLaAccionNueva);
+}
+
+export const CORRECCION_DE_CONFIRMACION_NO_CERRADA =
+  "ALTO. El cliente YA confirmó el pedido y le estás volviendo a preguntar lo mismo. NO repitas el resumen ni la pregunta de confirmación. El cliente dijo que sí: usa la acción notify_order ahora mismo, con el resumen completo del pedido en el campo summary. Responde ÚNICAMENTE el objeto JSON.";
 
 /** "¿cuánto es el total?" en las formas en que la gente lo pregunta de verdad. */
 const PIDE_EL_TOTAL =

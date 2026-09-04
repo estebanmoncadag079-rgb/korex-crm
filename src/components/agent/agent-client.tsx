@@ -84,32 +84,38 @@ export function AgentClient({ esAgencia = false }: { esAgencia?: boolean }) {
         <h2 className="truncate font-semibold">Agente de IA</h2>
         <div className="flex shrink-0 items-center gap-2 md:gap-3">
           {saved && <span className="text-xs text-primary">Guardado ✓</span>}
-          <span className="text-sm text-muted-foreground">
-            {profile.enabled ? "Encendido" : "Apagado"}
-          </span>
-          <button
-            role="switch"
-            aria-checked={profile.enabled}
-            aria-label={
-              profile.enabled ? "Apagar el agente" : "Encender el agente"
-            }
-            disabled={!aiConfigured || !esAgencia}
-            title={
-              esAgencia
-                ? undefined
-                : "Solo el administrador de la plataforma puede encender o apagar el agente"
-            }
-            onClick={() => void saveProfile({ enabled: !profile.enabled })}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
-              profile.enabled ? "bg-primary" : "bg-secondary"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                profile.enabled ? "translate-x-5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+          {/*
+            El interruptor global (apaga la IA para TODO el negocio a la
+            vez) es exclusivo de la agencia — un cliente no debe ni verlo,
+            no solo no poder tocarlo. El servidor ya lo protege aparte
+            (PUT /api/agent/profile rechaza `enabled` sin superadmin);
+            esto es además, no en vez de.
+          */}
+          {esAgencia && (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {profile.enabled ? "Encendido" : "Apagado"}
+              </span>
+              <button
+                role="switch"
+                aria-checked={profile.enabled}
+                aria-label={
+                  profile.enabled ? "Apagar el agente" : "Encender el agente"
+                }
+                disabled={!aiConfigured}
+                onClick={() => void saveProfile({ enabled: !profile.enabled })}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
+                  profile.enabled ? "bg-primary" : "bg-secondary"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                    profile.enabled ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </>
+          )}
         </div>
       </header>
 

@@ -26,6 +26,13 @@ RUN pnpm exec esbuild scripts/seed/demo.ts --bundle --platform=node \
 
 FROM node:22-alpine AS runner
 WORKDIR /app
+# Fase 10N-A — commit horneado en la imagen en build time, expuesto por
+# /api/health. Nunca se lee de git en runtime (el contenedor no tiene
+# `.git`, ni falta que le hace). Sin --build-arg (ej. un build manual
+# disparado desde el botón de EasyPanel sin pasar por scripts/deploy.sh),
+# queda "unknown" — visible y honesto, en vez de fingir una versión.
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=${GIT_COMMIT}
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup -S vocero && adduser -S vocero -G vocero

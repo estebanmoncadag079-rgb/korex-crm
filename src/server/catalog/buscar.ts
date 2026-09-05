@@ -1,4 +1,4 @@
-import type { ProductoDelCatalogo } from "./queries";
+import type { OpcionDeProducto, ProductoDelCatalogo } from "./queries";
 
 /**
  * Búsqueda difusa de un producto por nombre — el mismo algoritmo que ya
@@ -102,4 +102,127 @@ export function buscarProductos(
   if (candidatos.length === 0) return { status: "not_found" };
   if (candidatos.length === 1) return { status: "found", producto: candidatos[0]! };
   return { status: "multiple_matches", productos: candidatos };
+}
+
+/**
+ * Fase urgente (4-sep-2026) — incidente real de La Churra: "¿tienen
+ * chocolate blanco?" es una pregunta factual como cualquier otra, pero
+ * "chocolate blanco" es una SALSA (una opción dentro de cada producto,
+ * `producto.grupos[].opciones[]`), no un producto en sí. `buscarProductos`
+ * solo compara contra NOMBRES DE PRODUCTO — nunca contra las opciones — así
+ * que devolvía `not_found`, y ese "no encontrado entre los productos" se
+ * convertía en "[SISTEMA] no lo tienen", una afirmación falsa sobre algo
+ * que sí estaba en el catálogo real, un nivel más abajo.
+ *
+ * "No encontrado en una fuente" nunca puede leerse como "no existe" sin
+ * haber consultado también esta fuente — `buscarOpciones` es exactamente
+ * eso: el mismo algoritmo (exacto → substring único → tokens con
+ * tolerancia), aplicado a las opciones en vez de a los productos.
+ *
+ * Se agrupa por NOMBRE de opción, no por fila: la misma salsa suele existir
+ * como una fila de `product_option` distinta por cada producto que la
+ * ofrece (la Churrita y el Mega Box tienen cada uno su propio "chocolate
+ * blanco"), y preguntar "¿tienen X?" es una pregunta sobre la salsa en
+ * general — el resultado junta esas filas y dice para QUÉ productos aplica
+ * cada una, nunca asume que una opción sirve para todo el catálogo si la
+ * relación real dice lo contrario.
+ *
+ * Solo ve opciones ya filtradas a `available=true` por `catalogoDePedidos`
+ * (mismo criterio que ya aplica a productos: una opción desactivada no
+ * aparece aquí, y por tanto se resuelve como "no encontrada" — igual que un
+ * producto desactivado hoy).
+ */
+export type OpcionEncontrada = {
+  opcion: OpcionDeProducto;
+  /** Los productos del catálogo que de verdad ofrecen esta opción con este nombre. */
+  productos: { id: string; nombre: string }[];
+};
+
+export type ResultadoBusquedaOpcion =
+  | { status: "found"; encontrada: OpcionEncontrada }
+  | { status: "multiple_matches"; encontradas: OpcionEncontrada[] }
+  | { status: "not_found" };
+
+type FilaOpcion = { opcion: OpcionDeProducto; producto: { id: string; nombre: string } };
+
+function agruparOpcionesPorNombre(filas: FilaOpcion[]): OpcionEncontrada[] {
+  const porNombre = new Map<string, OpcionEncontrada>();
+  for (const f of filas) {
+    const clave = normalizar(f.opcion.nombre);
+    const existente = porNombre.get(clave);
+    if (existente) {
+      if (!existente.productos.some((pr) => pr.id === f.producto.id)) {
+        existente.productos.push(f.producto);
+      }
+    } else {
+      porNombre.set(clave, { opcion: f.opcion, productos: [f.producto] });
+    }
+  }
+  return [...porNombre.values()];
+}
+
+export function buscarOpciones(
+  catalogo: ProductoDelCatalogo[],
+  consulta: string
+): ResultadoBusquedaOpcion {
+  const q = normalizar(consulta);
+  if (!q) return { status: "not_found" };
+
+  const filas: FilaOpcion[] = [];
+  for (const p of catalogo) {
+    for (const g of p.grupos) {
+      for (const o of g.opciones) {
+        filas.push({ opcion: o, producto: { id: p.id, nombre: p.nombre } });
+      }
+    }
+  }
+  if (filas.length === 0) return { status: "not_found" };
+
+  const exacto = filas.filter((f) => normalizar(f.opcion.nombre) === q);
+  if (exacto.length > 0) {
+    const agrupadas = agruparOpcionesPorNombre(exacto);
+    if (agrupadas.length === 1) return { status: "found", encontrada: agrupadas[0]! };
+    return { status: "multiple_matches", encontradas: agrupadas };
+  }
+
+  const porSubstring = filas.filter(
+    (f) => normalizar(f.opcion.nombre).includes(q) || q.includes(normalizar(f.opcion.nombre))
+  );
+  if (porSubstring.length > 0) {
+    const agrupadas = agruparOpcionesPorNombre(porSubstring);
+    if (agrupadas.length === 1) return { status: "found", encontrada: agrupadas[0]! };
+    if (agrupadas.length > 1) {
+      // Varios NOMBRES de opción distintos calzan por substring (caso raro):
+      // se sigue a tokens, igual que buscarProductos, solo sobre este
+      // universo ya reducido.
+    }
+  }
+
+  const universo = porSubstring.length > 0 ? porSubstring : filas;
+  const qt = tokens(consulta);
+  if (!qt.length) return { status: "not_found" };
+
+  let mejorPuntaje = { overlap: 0, ratio: 0 };
+  let candidatas: FilaOpcion[] = [];
+  for (const f of universo) {
+    const ot = tokens(f.opcion.nombre);
+    if (!ot.length) continue;
+    const overlap = ot.filter((t) => qt.some((u) => coincide(t, u))).length;
+    if (!overlap) continue;
+    const ratio = overlap / ot.length;
+    if (
+      overlap > mejorPuntaje.overlap ||
+      (overlap === mejorPuntaje.overlap && ratio > mejorPuntaje.ratio)
+    ) {
+      mejorPuntaje = { overlap, ratio };
+      candidatas = [f];
+    } else if (overlap === mejorPuntaje.overlap && ratio === mejorPuntaje.ratio) {
+      candidatas.push(f);
+    }
+  }
+
+  if (candidatas.length === 0) return { status: "not_found" };
+  const agrupadas = agruparOpcionesPorNombre(candidatas);
+  if (agrupadas.length === 1) return { status: "found", encontrada: agrupadas[0]! };
+  return { status: "multiple_matches", encontradas: agrupadas };
 }

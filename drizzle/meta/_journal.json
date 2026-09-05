@@ -267,6 +267,13 @@
       "when": 1789000000000,
       "tag": "0037_zonas_de_domicilio",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789400000000,
+      "tag": "0041_entrega_confiable_de_avisos",
+      "breakpoints": true
     }
   ]
 }

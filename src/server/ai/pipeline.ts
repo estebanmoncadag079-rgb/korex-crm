@@ -31,7 +31,10 @@ import {
 } from "@/server/ai/actions";
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
-import { registrarConfirmacionDePedido } from "@/server/ai/confirmacion-de-pedido";
+import {
+  registrarConfirmacionDePedido,
+  intentarNotificarPedido,
+} from "@/server/ai/confirmacion-de-pedido";
 import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
 import {
@@ -66,7 +69,7 @@ import {
 } from "@/server/catalog/queries";
 import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
-import { buscarProductos } from "@/server/catalog/buscar";
+import { buscarProductos, buscarOpciones } from "@/server/catalog/buscar";
 import {
   detectarConsultaFactualDeProducto,
   detectarConsultaDeListadoDeProducto,
@@ -694,6 +697,38 @@ function textoDeResultadoProducto(
 }
 
 /**
+ * Fase urgente (5-sep-2026) — incidente real de La Churra. "No encontrado
+ * entre los productos" nunca puede convertirse en "[SISTEMA] no lo tienen"
+ * sin revisar TAMBIÉN las opciones (salsas, toppings, tamaños) — ver
+ * `buscarOpciones`. Esta función es el único punto donde se decide el
+ * texto final: si el producto se encontró (o hay varios candidatos), el
+ * comportamiento es EXACTAMENTE el de siempre (`textoDeResultadoProducto`);
+ * solo cuando el producto no aparece se consulta la segunda fuente antes
+ * de afirmar que no existe.
+ */
+function textoDeResultadoCatalogo(
+  consulta: string,
+  resultadoProducto: ReturnType<typeof buscarProductos>,
+  resultadoOpcion: ReturnType<typeof buscarOpciones> | null
+): string {
+  if (resultadoProducto.status !== "not_found" || !resultadoOpcion) {
+    return textoDeResultadoProducto(consulta, resultadoProducto);
+  }
+  if (resultadoOpcion.status === "found") {
+    const { opcion, productos } = resultadoOpcion.encontrada;
+    const nombresProductos = productos.map((p) => p.nombre).join(", ");
+    const extra = opcion.precioExtraCents > 0 ? ` (+${pesosPipeline(opcion.precioExtraCents)})` : "";
+    return `[SISTEMA] "${opcion.nombre}" no es un producto, es una opción real del catálogo${extra} — disponible para: ${nombresProductos}. SÍ la tienen: úsala tal cual, no digas que no existe ni que no la manejan.`;
+  }
+  if (resultadoOpcion.status === "multiple_matches") {
+    const lista = resultadoOpcion.encontradas.map((e) => `"${e.opcion.nombre}"`).join(", ");
+    return `[SISTEMA] Encontré varias opciones del catálogo que podrían ser lo que preguntan: ${lista}. Pregúntale al cliente cuál es, antes de confirmar que la tienen.`;
+  }
+  // Genuinamente no está ni entre los productos ni entre las opciones.
+  return textoDeResultadoProducto(consulta, resultadoProducto);
+}
+
+/**
  * Arma el mensaje `[SISTEMA]` para una consulta de LISTADO abierto ("¿qué
  * sabores tienen?"), a diferencia de `textoDeResultadoProducto` (un producto
  * puntual). Reutiliza `renderCatalogoDePedidos` tal cual — el mismo texto que
@@ -1175,8 +1210,10 @@ export async function runAgentTurn(
     const consultaFactual = detectarConsultaFactualDeProducto(lastInbound.text);
     if (consultaFactual) {
       resultadoProducto = buscarProductos(productosDelPedido, consultaFactual);
+      const resultadoOpcion =
+        resultadoProducto.status === "not_found" ? buscarOpciones(productosDelPedido, consultaFactual) : null;
       console.warn(
-        `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status} (verificado antes de llamar al modelo)`
+        `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status}${resultadoOpcion ? ` opcion=${resultadoOpcion.status}` : ""} (verificado antes de llamar al modelo)`
       );
       traza.deteccionFactual = consultaFactual;
       agregarHecho(traza, {
@@ -1187,7 +1224,7 @@ export async function runAgentTurn(
       });
       messages.push({
         role: "user",
-        content: `${textoDeResultadoProducto(consultaFactual, resultadoProducto)} (Esto ya está verificado: no hace falta que uses la acción consultar_producto para lo mismo.)`,
+        content: `${textoDeResultadoCatalogo(consultaFactual, resultadoProducto, resultadoOpcion)} (Esto ya está verificado: no hace falta que uses la acción consultar_producto para lo mismo.)`,
       });
     }
   }
@@ -1467,8 +1504,10 @@ export async function runAgentTurn(
     // Reutiliza el catálogo ya cargado arriba (una sola consulta a la base
     // de datos por turno, sin importar cuántas veces se llegue aquí).
     resultadoProducto = buscarProductos(productosDelPedido, action.consulta);
+    const resultadoOpcion =
+      resultadoProducto.status === "not_found" ? buscarOpciones(productosDelPedido, action.consulta) : null;
     console.warn(
-      `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}`
+      `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}${resultadoOpcion ? ` opcion=${resultadoOpcion.status}` : ""}`
     );
     agregarHecho(traza, {
       tipo: "producto",
@@ -1476,7 +1515,7 @@ export async function runAgentTurn(
       resultado: resultadoProducto.status,
       origen: "backend",
     });
-    const infoProducto = textoDeResultadoProducto(action.consulta, resultadoProducto);
+    const infoProducto = textoDeResultadoCatalogo(action.consulta, resultadoProducto, resultadoOpcion);
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoProducto });
     const siguiente = await chatJson(AgentAction, messages, {
@@ -2678,15 +2717,26 @@ export async function runAgentTurn(
        * idempotency_key)` es quien decide, no una variable en este
        * proceso. Cubre la ventana de carrera real de `rescatarHuerfanos`
        * (cola.ts) — si dos ejecuciones de este turno corrieran en
-       * paralelo para la misma conversación, solo una gana el `INSERT` y
-       * solo esa manda el WhatsApp al equipo / anota el pedido. La otra
-       * sigue su camino (cierre de lead, despedida, handoff) sin repetir
-       * el aviso — deliberadamente acotado a esto: suprimir también la
-       * despedida duplicada en ese escenario de dos turnos en paralelo es
-       * un problema más grande y preexistente de `cola.ts`, fuera del
-       * alcance de este fix.
+       * paralelo (o si el mismo turno se re-ejecuta por cualquier otro
+       * motivo) para la misma conversación, solo una gana el `INSERT` y
+       * solo esa manda el WhatsApp al equipo / anota el pedido.
+       *
+       * Fase urgente (5-sep-2026) — BUG REAL corregido: la despedida al
+       * CLIENTE (`action.farewell`, más abajo) vivía FUERA de este
+       * `if/else`, incondicional — así que una re-ejecución del mismo
+       * turno (`primeraVez: false`) correctamente no repetía el aviso al
+       * EQUIPO, pero SÍ le reenviaba al CLIENTE el mismo mensaje de
+       * confirmación, una vez por cada re-ejecución. Ahora vive DENTRO
+       * del `else` (solo `primeraVez`).
+       *
+       * Además, el aviso al equipo ahora pasa por `intentarNotificarPedido`
+       * (confirmacion-de-pedido.ts): el primer intento y cualquier
+       * reintento posterior (worker) comparten el MISMO claim atómico
+       * sobre `orderConfirmation.notify_status`, así que tampoco puede
+       * duplicarse por esa vía.
        */
-      const { primeraVez } = await registrarConfirmacionDePedido({
+      const phone = await contactPhoneOf(organizationId, conversation.contactId);
+      const { primeraVez, id: confirmationId } = await registrarConfirmacionDePedido({
         organizationId,
         conversationId,
         // IDs de los mensajes del cliente que disparan este cierre — no el
@@ -2694,6 +2744,8 @@ export async function runAgentTurn(
         // el texto libre no es estable entre dos ejecuciones paralelas del
         // mismo turno, estos IDs de fila SÍ lo son).
         messageIds: pendientes.map((m) => m.id),
+        summary: action.summary,
+        customerPhone: phone,
       });
       if (!primeraVez) {
         console.warn(
@@ -2703,18 +2755,27 @@ export async function runAgentTurn(
         // Orden deliberado: primero el registro (fuente de verdad), después el
         // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
         // despedida — así un pedido nunca se pierde por un fallo de envío.
-        const phone = await contactPhoneOf(organizationId, conversation.contactId);
-        const result = await notifyTeam({
-          organizationId,
-          summary: action.summary,
-          customerPhone: phone,
-          isTest: conversation.isTest,
-        });
+        const result = conversation.isTest
+          ? await notifyTeam({
+              organizationId,
+              summary: action.summary,
+              customerPhone: phone,
+              isTest: true,
+            })
+          : await intentarNotificarPedido({
+              id: confirmationId,
+              organizationId,
+              summary: action.summary,
+              customerPhone: phone,
+            });
         await appendLeadNote(
           organizationId,
           conversation.contactId,
           `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
         );
+        if (action.farewell) {
+          await deliverReply(conversation, action.farewell);
+        }
       }
       // El embudo se cierra solo: un pedido confirmado es la única señal
       // inequívoca de venta que tiene el sistema, y sin esto el lead se quedaba
@@ -2730,9 +2791,6 @@ export async function runAgentTurn(
         }
       } catch (err) {
         console.error("[embudo] no se pudo cerrar el lead:", err);
-      }
-      if (action.farewell) {
-        await deliverReply(conversation, action.farewell);
       }
       // Pedido cerrado = lo toma una persona (coordinar entrega y pago).
       await applyHandoff(conversationId, organizationId, "modelo");

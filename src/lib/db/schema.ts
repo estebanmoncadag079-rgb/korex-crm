@@ -277,10 +277,39 @@ export const orderConfirmation = pgTable(
       .notNull()
       .references(() => conversation.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
+    /**
+     * Fase 11-B — separa explícitamente "el pedido quedó registrado" (esta
+     * fila existe, cierto desde el `INSERT`) de "el aviso al equipo se
+     * entregó de verdad" (este campo). Ver `src/server/ai/confirmacion-de-pedido.ts`
+     * para las transiciones exactas y el porqué de cada estado:
+     *
+     * pendiente → enviando → enviado
+     *                      ↘ fallo_recuperable (un reintento posterior lo
+     *                        vuelve a intentar; nunca se inventa una
+     *                        entrega que no ocurrió)
+     */
+    notifyStatus: text("notify_status", {
+      enum: ["pendiente", "enviando", "enviado", "fallo_recuperable"],
+    })
+      .notNull()
+      .default("pendiente"),
+    notifyAttempts: integer("notify_attempts").notNull().default(0),
+    notifyDetail: text("notify_detail"),
+    /** `sent > 0` de `NotifyResult` — "aceptado por el proveedor", nunca "leído". */
+    notifiedAt: timestamp("notified_at"),
+    /**
+     * El contenido EXACTO que hay que avisarle al equipo, guardado en el
+     * momento del cierre — un reintento posterior manda esto tal cual,
+     * nunca algo recalculado ni vuelto a redactar por el modelo.
+     */
+    summary: text("summary"),
+    customerPhone: text("customer_phone"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("order_confirmation_uq").on(t.conversationId, t.idempotencyKey),
+    index("order_confirmation_retry_idx").on(t.notifyStatus, t.updatedAt),
   ]
 );
 

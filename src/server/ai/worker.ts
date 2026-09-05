@@ -9,6 +9,7 @@ import {
   type TrabajoTomado,
 } from "@/server/ai/cola";
 import { runAgentTurn } from "@/server/ai/pipeline";
+import { reintentarNotificacionesPendientes } from "@/server/ai/confirmacion-de-pedido";
 import { enfriarLeadsDeTodasLasOrganizaciones } from "@/server/inbox/lead-activity";
 import { reprocesarWebhooksFallidos } from "@/server/inbox/webhook-event-log";
 
@@ -172,6 +173,22 @@ async function mantenimiento(): Promise<void> {
     }
   } catch (err) {
     console.error("[worker] reproceso de webhooks falló:", err);
+  }
+
+  /**
+   * Fase 11-B — mismo criterio que `rescatarHuerfanos`: un aviso de pedido
+   * que quedó `pendiente`, `fallo_recuperable`, o `enviando` huérfano (el
+   * proceso murió a mitad del intento) se reintenta aquí, con el MISMO
+   * `summary`/teléfono que se decidió al cerrar el pedido — nunca se
+   * pierde solo porque el primer intento falló.
+   */
+  try {
+    const reintentados = await reintentarNotificacionesPendientes();
+    if (reintentados > 0) {
+      console.log(`[worker] ${reintentados} aviso(s) de pedido reintentado(s)`);
+    }
+  } catch (err) {
+    console.error("[worker] reintento de avisos de pedido falló:", err);
   }
 
   try {

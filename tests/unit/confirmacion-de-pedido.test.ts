@@ -23,8 +23,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * carrera de `rescatarHuerfanos`; los IDs de fila sí lo son).
  */
 
-const filasExistentes = new Set<string>();
+const filasExistentes = new Map<string, { id: string }>();
 
+/**
+ * Fase 11-B — `registrarConfirmacionDePedido` ahora hace un `select()` de
+ * respaldo cuando el `INSERT` choca (para devolver el `id` de la fila que
+ * ya existía, necesario para el rastreo del aviso): el mock necesita
+ * soportar ese segundo camino, no solo el `insert`.
+ */
 vi.mock("@/lib/db", () => ({
   getDb: () => ({
     insert: () => ({
@@ -33,8 +39,21 @@ vi.mock("@/lib/db", () => ({
           returning: () => {
             const clave = `${values.conversationId}::${values.idempotencyKey}`;
             if (filasExistentes.has(clave)) return Promise.resolve([]);
-            filasExistentes.add(clave);
+            filasExistentes.set(clave, { id: values.id as string });
             return Promise.resolve([values]);
+          },
+        }),
+      }),
+    }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => {
+            // El mock no modela el `WHERE` real: siempre queda UNA fila por
+            // conversación en `filasExistentes` en las pruebas de este
+            // archivo, así que devolver la última basta.
+            const ultima = [...filasExistentes.values()].at(-1);
+            return Promise.resolve(ultima ? [ultima] : []);
           },
         }),
       }),

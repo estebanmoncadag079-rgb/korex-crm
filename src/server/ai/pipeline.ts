@@ -34,6 +34,7 @@ import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import {
   registrarConfirmacionDePedido,
   intentarNotificarPedido,
+  ultimaConfirmacionDe,
 } from "@/server/ai/confirmacion-de-pedido";
 import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
@@ -179,6 +180,21 @@ import {
  * amnésico creyendo que califica al de producción.
  */
 export const HISTORY_LIMIT = 20;
+
+/**
+ * Corrección para el guardarraíl de "pedido ya confirmado" (incidente real,
+ * 5-sep-2026, Caso B: un mensaje del cliente DESPUÉS de un cierre exitoso
+ * reabría la confirmación). Mismo patrón que el resto de correcciones de
+ * este archivo: no se le dice "vas a rehacer el pedido", se le dice qué
+ * hecho verificado ignoró y qué debe hacer con el mensaje real del cliente.
+ */
+const CORRECCION_DE_PEDIDO_YA_CONFIRMADO =
+  "[SISTEMA] Este pedido YA fue confirmado y notificado al equipo anteriormente en esta " +
+  "misma conversación — no vuelvas a usar la acción notify_order para él, sin importar lo " +
+  "que diga el historial. Responde directamente a lo último que escribió el cliente (una " +
+  "pregunta, un comentario, lo que sea) como una conversación normal. Si de verdad está " +
+  "pidiendo algo NUEVO y distinto, trátalo como un pedido aparte: solo entonces puede volver " +
+  "a corresponder notify_order, con ese contenido nuevo.";
 
 /**
  * Punto de entrada con debounce (mensajes entrantes reales).
@@ -1847,6 +1863,89 @@ export async function runAgentTurn(
         traza.accionFinal = "handoff";
         registrarTrazaDelTurno(traza);
         return { action: "handoff", reason: "error" };
+      }
+    }
+  }
+
+  /**
+   * Incidente real (5-sep-2026), Caso B — corregido: `notify_order` es una
+   * acción IRREVERSIBLE (avisa al equipo por WhatsApp; no hay forma de
+   * "desavisar"). El único candado que existía hasta ahora
+   * (`registrarConfirmacionDePedido`, dentro del `case` de más abajo)
+   * protege que el MISMO lote de mensajes disparadores no confirme dos
+   * veces — pero un mensaje CUALQUIERA del cliente después de un cierre
+   * exitoso ("¿cuánto demora?", "gracias", lo que sea) trae su propio
+   * `pendientes`, con un `idempotencyKey` DISTINTO: el `UNIQUE` de Postgres
+   * no lo detecta, y si el modelo decide reabrir la confirmación —visto en
+   * producción tras el relevo automático de `handoff-policy.ts`
+   * (`HANDOFF_RESUME_HOURS`), que 2 horas después de cerrar el pedido
+   * reintroduce TODO el historial al agente sin que nadie lo pida— nada lo
+   * frenaba: doble aviso al equipo, doble "pedido confirmado" en el CRM.
+   *
+   * El backend, no el modelo, decide si esto es el MISMO pedido o uno
+   * genuinamente nuevo: si esta conversación ya tiene una confirmación
+   * previa, `notify_order` solo procede cuando ALGÚN mensaje del cliente
+   * DESPUÉS de esa confirmación nombra un producto real del catálogo
+   * —verificado con `buscarProductos`, el mismo matcher ya probado que usa
+   * `consultar_producto`, nunca comparando el `summary` en texto libre del
+   * modelo—. Sin eso, lo que se pide confirmar es, con altísima
+   * probabilidad, el pedido que ya se cerró: se rechaza sin ejecutar NINGÚN
+   * efecto (nada de `notifyTeam`, ninguna fila nueva en `order_confirmation`)
+   * y se le da al modelo una oportunidad de responder lo que el cliente
+   * realmente dijo. Un pedido genuinamente nuevo (el cliente vuelve a
+   * nombrar algo del catálogo) queda libre de inmediato — esto nunca
+   * bloquea la conversación, solo el cierre repetido de UN pedido ya
+   * cerrado.
+   *
+   * Acotado a `productosDelPedido.length > 0` (catálogo en tabla): sin un
+   * catálogo real contra qué verificar, no hay forma de reconocer "pedido
+   * nuevo" sin caer otra vez en comparar texto libre — hoy cubre a los tres
+   * negocios reales que toman pedidos (los tres tienen `catalog_source =
+   * 'tabla'`); el caso sin catálogo estructurado queda documentado como
+   * hallazgo, no resuelto aquí (fuera del alcance de este incidente).
+   */
+  if (action.action === "notify_order" && productosDelPedido.length > 0) {
+    const ultimaConfirmacion = await ultimaConfirmacionDe(conversationId);
+    if (ultimaConfirmacion) {
+      const huboPedidoNuevo = history.some(
+        (m) =>
+          m.direction === "in" &&
+          m.createdAt.getTime() > ultimaConfirmacion.createdAt.getTime() &&
+          Boolean(m.text) &&
+          buscarProductos(productosDelPedido, m.text!).status !== "not_found"
+      );
+      if (!huboPedidoNuevo) {
+        console.warn(
+          `[pedido] notify_order rechazado por el backend en ${conversationId}: ya existe una confirmación (${ultimaConfirmacion.id}) y ningún mensaje del cliente desde entonces nombra un producto del catálogo`
+        );
+        const reintento = await chatJson(AgentAction, [
+          ...messages,
+          { role: "assistant", content: result.raw },
+          { role: "user", content: CORRECCION_DE_PEDIDO_YA_CONFIRMADO },
+        ]);
+        await registrarUsoIa(
+          organizationId,
+          reintento.usage,
+          `conv:${conversationId}/pedido-ya-confirmado`
+        );
+        if (reintento.ok && reintento.data.action !== "notify_order") {
+          action = reintento.data;
+          agregarGuardarrail(traza, "pedido_ya_confirmado", true);
+        } else {
+          console.error(
+            `[pedido] insiste en confirmar un pedido ya cerrado en ${conversationId}; lo toma una persona`
+          );
+          agregarGuardarrail(traza, "pedido_ya_confirmado", false);
+          await derivarAUnaPersona(conversation, {
+            reason: "modelo",
+            teamSummary:
+              "El asistente intentó volver a confirmar un pedido que ya estaba cerrado y notificado. Revisa la conversación: puede ser un pedido nuevo mal interpretado, o el bot reabriendo el anterior por error.",
+          });
+          registrarHandoff(traza, "model_output_recovery_failed");
+          traza.accionFinal = "handoff";
+          registrarTrazaDelTurno(traza);
+          return { action: "handoff", reason: "error" };
+        }
       }
     }
   }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { notifyTeam } from "@/server/ai/notify-team";
@@ -112,6 +112,38 @@ export async function registrarConfirmacionDePedido(input: {
   // No puede faltar: si `onConflictDoNothing` disparó, la fila conflictiva
   // existe por definición. El `!` documenta esa garantía, no la esconde.
   return { primeraVez: false, id: existente!.id };
+}
+
+/**
+ * Incidente real (5-sep-2026) — corregido: `registrarConfirmacionDePedido`
+ * protege que el MISMO lote de mensajes disparadores no confirme dos veces
+ * (Caso A: dos ejecuciones del mismo turno). No protege el Caso B, mucho más
+ * dañino y confirmado en producción: un pedido YA confirmado y notificado, y
+ * el cliente escribe algo DESPUÉS (una pregunta, un "gracias", cualquier
+ * cosa) — ese mensaje nuevo genera un `pendientes`/`idempotencyKey`
+ * DISTINTO, así que el `UNIQUE` no lo detecta, y si el modelo (por la razón
+ * que sea: relevo automático por inactividad de `handoff-policy.ts` que
+ * reintroduce todo el historial, o cualquier otra confusión) decide llamar
+ * `notify_order` otra vez para ese mismo pedido, el backend lo dejaba pasar
+ * sin más: doble aviso al equipo, doble "pedido confirmado" en el CRM.
+ *
+ * `notify_order` debe ser TERMINAL por pedido. Esta función es la mitad de
+ * lectura de esa garantía (la otra mitad es el `if` en `pipeline.ts` que la
+ * usa): da la ÚLTIMA confirmación real de esta conversación, para que el
+ * backend —nunca el modelo— decida si lo que se le pide ahora es ese MISMO
+ * pedido (bloquear) o uno genuinamente nuevo (dejarlo pasar).
+ */
+export async function ultimaConfirmacionDe(
+  conversationId: string
+): Promise<{ id: string; createdAt: Date } | null> {
+  const db = getDb();
+  const [fila] = await db
+    .select({ id: schema.orderConfirmation.id, createdAt: schema.orderConfirmation.createdAt })
+    .from(schema.orderConfirmation)
+    .where(eq(schema.orderConfirmation.conversationId, conversationId))
+    .orderBy(desc(schema.orderConfirmation.createdAt))
+    .limit(1);
+  return fila ?? null;
 }
 
 /**

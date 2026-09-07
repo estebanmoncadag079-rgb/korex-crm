@@ -636,6 +636,33 @@ export function inconsistenciaFinancieraDePedido(input: {
   deliveryFeeCents?: number | null;
   totalCents?: number;
   zonaVerificada: { feeCents: number } | null;
+  /**
+   * Incidente real (7-sep-2026) — `true` solo cuando ESTE negocio tiene
+   * `delivery_source='tabla'`, es decir, cuando `consultar_domicilio`
+   * EXISTE en su contrato de acciones y hay `delivery_zone` real contra la
+   * que verificar (ver `tieneZonasDeEntrega` en `pipeline.ts`/`prompts.ts`).
+   *
+   * **Por qué hizo falta**: el chequeo de abajo exigía que `deliveryFeeCents`
+   * estuviera respaldado por `consultar_domicilio`. Pero esa acción solo se
+   * le ofrece al modelo cuando el negocio está en `'tabla'`, y los CUATRO
+   * negocios de pedidos reales están en `'prompt'` — el domicilio les vive
+   * en prosa por diseño. Resultado: se le exigía al modelo una prueba que el
+   * sistema nunca le dio cómo producir. Un contrato imposible: reintentaba,
+   * volvía a fallar, y el turno acababa derivado a una persona **después de
+   * que el cliente ya había confirmado su pedido**.
+   *
+   * Medido en producción: 6 disparos en ~5 horas, 4 de ellos terminados en
+   * derivación, en 5 conversaciones de MALIA — todas con el mismo motivo
+   * `domicilio-no-verificado`. El caso testigo es la conversación de
+   * "Zahenz" (7-sep, 19:30): resumen → "Si" → *"Dame un momentico 🙏 Te
+   * comunico con una persona"*, y la clienta preguntando después *"Si se
+   * hizo el pedido?"*.
+   *
+   * Un guardarraíl no puede exigir una evidencia que el propio sistema le
+   * impide producir: donde no hay infraestructura de verificación, este
+   * chequeo no protege nada — solo rompe cierres legítimos.
+   */
+  puedeVerificarDomicilio: boolean;
 }): InconsistenciaFinanciera {
   const { summary, subtotalCents, deliveryFeeCents, totalCents, zonaVerificada } = input;
 
@@ -650,7 +677,16 @@ export function inconsistenciaFinancieraDePedido(input: {
   // no sobrevive entre turnos: ver el comentario del bucle en pipeline.ts).
   // Forzar a reverificar justo antes de cerrar es barato y es exactamente
   // lo que ya hace el guardarraíl gemelo "notify_order sin resumen previo".
-  if (deliveryFeeCents !== undefined && deliveryFeeCents !== null) {
+  //
+  // …pero SOLO donde reverificar es posible (`puedeVerificarDomicilio`): en
+  // un negocio sin `delivery_zone` el modelo no tiene ninguna acción con la
+  // que producir esa prueba, y exigírsela solo produce derivaciones. Ver el
+  // comentario del campo, arriba.
+  if (
+    input.puedeVerificarDomicilio &&
+    deliveryFeeCents !== undefined &&
+    deliveryFeeCents !== null
+  ) {
     if (!zonaVerificada || deliveryFeeCents !== zonaVerificada.feeCents) {
       return "domicilio-no-verificado";
     }

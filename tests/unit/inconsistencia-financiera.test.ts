@@ -21,6 +21,15 @@ import {
  *   == valor guardado/verificado (zonaVerificada.feeCents)
  *   == valor usado para el total (subtotalCents + deliveryFeeCents == totalCents)
  *   == valor enviado a notify_order (deliveryFeeCents estructurado Y summary en prosa)
+ *
+ * **7-sep-2026**: todas las llamadas de este archivo declaran ahora
+ * `puedeVerificarDomicilio: true` — es el escenario que siempre probaron (un
+ * negocio con `delivery_source='tabla'`, el de Kachipay, donde
+ * `consultar_domicilio` EXISTE y hay `delivery_zone` real detrás). El
+ * incidente de MALIA demostró que el chequeo se estaba aplicando también a
+ * negocios en `'prompt'`, donde esa verificación es imposible de producir;
+ * ese caso vive en `tests/unit/cierre-domicilio-sin-tabla.test.ts`. Ninguna
+ * aserción de este archivo se eliminó ni se relajó.
  */
 
 describe("dijoOtroValorDeDomicilio", () => {
@@ -58,6 +67,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       deliveryFeeCents: 1200000,
       totalCents: 3000000,
       zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBeNull();
   });
@@ -69,6 +79,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       deliveryFeeCents: 1200000,
       totalCents: 2600000, // debería ser 3.000.000
       zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBe("total-no-cuadra");
   });
@@ -79,7 +90,8 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       subtotalCents: 1800000,
       deliveryFeeCents: 800000, // $8.000 — el número equivocado del incidente real
       totalCents: 2600000,
-      zonaVerificada: ZONA_KACHIPAY, // consultar_domicilio verificó $12.000
+      zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true, // consultar_domicilio verificó $12.000
     });
     expect(r).toBe("domicilio-no-verificado");
   });
@@ -91,6 +103,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       deliveryFeeCents: 1200000, // estructurado correcto
       totalCents: 3000000, // estructurado correcto
       zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBe("resumen-contradice-tarifa");
   });
@@ -101,7 +114,8 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       subtotalCents: 1800000,
       deliveryFeeCents: 1200000,
       totalCents: 3000000,
-      zonaVerificada: null, // nada verificado en ESTE turno
+      zonaVerificada: null,
+      puedeVerificarDomicilio: true, // nada verificado en ESTE turno
     });
     expect(r).toBe("domicilio-no-verificado");
   });
@@ -113,6 +127,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       deliveryFeeCents: null,
       totalCents: 1800000,
       zonaVerificada: null,
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBeNull();
   });
@@ -124,6 +139,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       deliveryFeeCents: 0,
       totalCents: 1800000,
       zonaVerificada: { feeCents: 0 },
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBeNull();
   });
@@ -132,6 +148,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
     const r = inconsistenciaFinancieraDePedido({
       summary: "Cualquier resumen de texto libre, como siempre",
       zonaVerificada: null,
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBeNull();
   });

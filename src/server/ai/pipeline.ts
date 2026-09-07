@@ -1823,6 +1823,7 @@ export async function runAgentTurn(
       deliveryFeeCents: action.deliveryFeeCents,
       totalCents: action.totalCents,
       zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
+      puedeVerificarDomicilio: zonasDeEntrega.length > 0,
     });
     if (fallo) {
       console.warn(`[pedido] inconsistencia financiera (${fallo}); rehaciendo el turno`);
@@ -1844,6 +1845,7 @@ export async function runAgentTurn(
               deliveryFeeCents: reintento.data.deliveryFeeCents,
               totalCents: reintento.data.totalCents,
               zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
+              puedeVerificarDomicilio: zonasDeEntrega.length > 0,
             })
           : "total-no-cuadra";
       if (reintento.ok && reintento.data.action === "notify_order" && !reintentoFallo) {

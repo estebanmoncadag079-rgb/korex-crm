@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 #
 # Fase 10N-A — despliegue reproducible a EasyPanel, para reemplazar el
-# proceso manual documentado en docs/korexia/02-INFRAESTRUCTURA.md
-# (git archive + scp + ssh + tar + docker build + docker service update,
-# hecho a mano). Este script hace exactamente esos mismos pasos, en el
-# mismo orden, con verificación real de versión al final — nunca inventa
-# un mecanismo de EasyPanel que no exista.
+# proceso manual documentado en docs/korexia/02-INFRAESTRUCTURA.md.
+# Verificación real de versión al final — nunca inventa un mecanismo de
+# EasyPanel que no exista.
+#
+# Fases 3A-3C (7-sep-2026, docs/korexia/159-162) — el "git archive + scp +
+# ssh + tar" original se reemplazó: este script YA NO copia código al
+# servidor. Solo pide, por SSH, que un usuario `deploy` sin acceso a Docker
+# invoque (vía sudo, un único binario root fijo) la construcción de un SHA
+# — ese binario verifica el SHA contra su PROPIO espejo de solo lectura de
+# GitHub (nunca contra nada que este script suba) antes de construir nada.
 #
 # Uso:
 #   scripts/deploy.sh <commit-sha> [opciones]
 #
 # Opciones:
-#   --server <user@host>       Por defecto: $DEPLOY_SERVER (ej. root@2.25.159.117)
+#   --server <user@host>       Por defecto: $DEPLOY_SERVER (ej. deploy@2.25.159.117 —
+#                              NUNCA root: ver Fase 3A, docs/korexia/160)
 #   --ssh-key <ruta>           Por defecto: $DEPLOY_SSH_KEY
 #   --remote-code-dir <ruta>   Por defecto: /etc/easypanel/projects/korex-crm/crm/code
 #   --service <nombre>         Por defecto: korex-crm_crm
@@ -163,24 +169,24 @@ fi
 SSH_OPTS=(-o StrictHostKeyChecking=accept-new)
 [ -n "$SSH_KEY" ] && SSH_OPTS+=(-i "$SSH_KEY")
 
-# 3. Sincronizar código — mismo mecanismo ya documentado y probado a mano
-#    (docs/korexia/02-INFRAESTRUCTURA.md): EasyPanel construye SOLO desde
-#    esta carpeta del servidor, nunca clona el repo ni se entera del push.
-TARBALL="/tmp/korex-crm-${COMMIT_FULL}.tar.gz"
-log "3/8 sincronizando código (git archive + scp + tar)"
-run git archive --format=tar.gz -o "$TARBALL" "$COMMIT_FULL"
-run scp "${SSH_OPTS[@]}" "$TARBALL" "${SERVER}:/tmp/"
-run ssh "${SSH_OPTS[@]}" "$SERVER" \
-  "mkdir -p '${REMOTE_CODE_DIR}' && tar -xzf '/tmp/$(basename "$TARBALL")' -C '${REMOTE_CODE_DIR}' && rm -f '/tmp/$(basename "$TARBALL")'"
-rm -f "$TARBALL"
+# 3. Subir el código — YA NO EXISTE COMO PASO. Fase 3C (docs/korexia/162):
+#    el Hallazgo B era que el wrapper confiaba en el CONTENIDO de un
+#    tarball que `deploy` subía por su cuenta — el SHA solo se validaba por
+#    formato, nunca contra un commit real. Ahora el servidor mantiene su
+#    PROPIO espejo de solo lectura del repositorio (una Deploy Key de
+#    GitHub, sin permiso de escritura, que solo root puede leer) y el
+#    wrapper del paso 6 hace su propio `git fetch` + verifica que el SHA es
+#    un ancestro real de `main` + extrae DIRECTO de esa copia verificada —
+#    nunca de nada que este script suba. `deploy` puede pedir "construye el
+#    commit X", nunca puede definir qué código se ejecuta.
+log "3/8 nada que subir — el wrapper root verifica y extrae directo de su propio espejo de GitHub (Fase 3C)"
 
-# 4. Preflight — confirma que el código que se sincronizó es el commit
-#    esperado, ANTES de construir nada. No hay `.git` en esa carpeta
-#    (docs/korexia/02-INFRAESTRUCTURA.md), así que se compara contra un
-#    archivo que el propio `git archive` no incluye por defecto: se
-#    escribe aparte.
-log "4/8 preflight: registrando el commit exacto sincronizado"
-run ssh "${SSH_OPTS[@]}" "$SERVER" "echo '${COMMIT_FULL}' > '${REMOTE_CODE_DIR}/.deployed-commit'"
+# 4. Preflight — el wrapper lo hace él mismo: verificar que el SHA existe Y
+#    es ancestro de `main` en SU espejo (no basta con que este script ya lo
+#    haya comprobado en el paso 2, contra SU checkout local — el servidor
+#    no debe confiar en esa comprobación ajena, debe repetirla con su
+#    propia fuente de verdad).
+log "4/8 preflight: el wrapper repite la verificación de ancestro con su propio espejo — sin paso propio aquí"
 
 # 5. Migraciones — NO es un paso aparte: `migrate.mjs` corre solo al
 #    arrancar el contenedor nuevo (ver Dockerfile, CMD). Este script no
@@ -189,12 +195,22 @@ run ssh "${SSH_OPTS[@]}" "$SERVER" "echo '${COMMIT_FULL}' > '${REMOTE_CODE_DIR}/
 #    eso está deliberadamente fuera de este script.
 log "5/8 migraciones: se aplican solas al arrancar el contenedor nuevo (migrate.mjs) — sin paso manual aparte"
 
-# 6. Deploy — build con el commit horneado + swarm update forzado, EXACTO
-#    al mecanismo de emergencia ya documentado y probado.
-log "6/8 build + deploy (docker build --build-arg GIT_COMMIT + service update --force)"
-run ssh "${SSH_OPTS[@]}" "$SERVER" \
-  "cd '${REMOTE_CODE_DIR}' && docker build --build-arg GIT_COMMIT='${COMMIT_FULL}' -t '${IMAGE_TAG}' ."
-run ssh "${SSH_OPTS[@]}" "$SERVER" "docker service update --force '${SERVICE_NAME}'"
+# 6. Deploy — verificar contra GitHub + extraer + build + swarm update.
+#
+# Fase 3A: $SERVER pasó de root a un usuario `deploy` sin acceso a Docker,
+# que solo puede invocar (vía `sudo` sin contraseña) un único binario root
+# fijo, con ruta/tag/servicio hardcodeados — no parametrizables desde aquí.
+# Fase 3B: ese binario dejó de confiar en una carpeta persistente que
+# `deploy` pudiera tocar — la reconstruye desde cero, como root, en cada
+# invocación.
+# Fase 3C (docs/korexia/162): ese binario dejó de confiar en el CONTENIDO
+# que `deploy` le entregara — ahora hace su propio `git fetch` contra
+# GitHub (con una Deploy Key de solo lectura que solo root puede leer),
+# confirma que el SHA es un ancestro real de `main`, y extrae el código
+# DIRECTO de esa copia verificada. El SHA nunca pasa por un shell remoto:
+# llega como `argv[1]` directo al intérprete del wrapper.
+log "6/8 verificar + build + deploy (via sudo /usr/local/bin/korex-deploy.sh — el servidor verifica el SHA contra su propio espejo de GitHub antes de construir)"
+run ssh "${SSH_OPTS[@]}" "$SERVER" "sudo -n /usr/local/bin/korex-deploy.sh '${COMMIT_FULL}'"
 
 if [ "$DRY_RUN" = true ]; then
   log "[dry-run] fin — no se esperó health check real ni se verificó versión"

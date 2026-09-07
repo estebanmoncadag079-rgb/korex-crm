@@ -331,8 +331,74 @@ const ANUNCIA_RESUMEN: RegExp[] = [
  *
  * Se exporta porque el pipeline lo usa para saber si el cliente llegó a VER un
  * resumen antes de que el agente cerrara el pedido (guardarraíl del 14-ago).
+ *
+ * **Incidente real (6-sep-2026, Lucero Vallejo / Lis Pastelería, y una
+ * segunda conversación de MALIA el mismo día)**: la versión anterior exigía
+ * que tras la palabra "total" viniera INMEDIATAMENTE la cifra
+ * (`total\s*:?\s*\*?\s*\$`). El prompt de Lis —escrito por el propio negocio
+ * desde el CRM— pide literalmente *"seria algo como TOTAL SIN DOMICILIO: X
+ * valor"*, así que su resumen real dice `*TOTAL SIN DOMICILIO:* $19.000`.
+ * Con dos palabras de por medio, esta expresión NO reconocía el total, el
+ * guardarraíl de `pipeline.ts` concluía "el cliente nunca vio un resumen" y
+ * **bloqueaba un cierre legítimo**: el modelo emitía `notify_order`
+ * correctamente tras el "Si esta bien" de la clienta, se le forzaba a
+ * rehacer el turno, y volvía a mandar el MISMO resumen. La clienta confirmó
+ * un pedido que nunca se registró (0 filas en `order_confirmation`), el
+ * equipo nunca recibió el aviso automático y tuvo que cerrarlo a mano —
+ * todo en silencio, sin handoff ni error en ningún log.
+ *
+ * Ahora se toleran palabras entre "total" y la cifra (`TOTAL SIN
+ * DOMICILIO:`, `TOTAL A PAGAR:`, `TOTAL CON DOMICILIO:`), acotado a la MISMA
+ * línea y sin cruzar otro `$`, para no convertirlo en un comodín que dé por
+ * bueno cualquier cifra suelta del mensaje.
  */
-export const TIENE_TOTAL = /total\s*:?\s*\*?\s*\$\s*[\d][\d.,]*/i;
+export const TIENE_TOTAL = /total\b[^\n$]{0,40}\$\s*[\d][\d.,]*/i;
+
+/**
+ * Las formas en que una cifra en centavos puede aparecer escrita en un
+ * mensaje real. `1900000` → `19.000` (es-CO, la que usa el propio agente),
+ * `19,000` y `19000`.
+ */
+function formasDeLaCifra(cents: number): string[] {
+  const pesos = Math.round(cents / 100);
+  const conPuntos = pesos.toLocaleString("es-CO", { minimumFractionDigits: 0 });
+  return [...new Set([conPuntos, conPuntos.replace(/\./g, ","), String(pesos)])];
+}
+
+/**
+ * ¿El cliente llegó a VER un total antes de que el agente cerrara el pedido?
+ *
+ * Dos señales, en orden de fuerza — la primera no depende de CÓMO redacte su
+ * resumen cada negocio, que es justo lo que falló el 6-sep-2026 (ver
+ * `TIENE_TOTAL`):
+ *
+ * 1. **El hecho, no el formato**: si el backend ya calculó el total de este
+ *    pedido contra el catálogo real (`conversation_state.estado.totalCents`,
+ *    Fase 2 — validado por `normalizarPedido`, nunca un número que diga el
+ *    modelo) y esa MISMA cifra aparece en algo que el agente ya le mostró al
+ *    cliente, entonces el cliente vio el total. Da igual si el mensaje decía
+ *    "TOTAL SIN DOMICILIO", "Total:" o "son 19.000 con todo".
+ * 2. **Respaldo por texto**: para los negocios sin estado estructurado
+ *    (`state_source='prompt'`, donde el backend no conoce ningún total), la
+ *    expresión `TIENE_TOTAL` de siempre, ahora tolerante al formato.
+ *
+ * Mantiene intacta la protección original (14-ago-2026, "pedidos vacíos"): un
+ * cierre donde el cliente no vio NINGUNA cifra —ni el backend calculó
+ * ninguna— sigue bloqueándose.
+ */
+export function elClienteVioUnTotal(
+  textosMostradosAlCliente: (string | null | undefined)[],
+  totalCentsVerificado?: number | null
+): boolean {
+  const textos = textosMostradosAlCliente.filter((t): t is string => Boolean(t));
+
+  if (typeof totalCentsVerificado === "number" && totalCentsVerificado > 0) {
+    const formas = formasDeLaCifra(totalCentsVerificado);
+    if (textos.some((t) => formas.some((f) => t.includes(f)))) return true;
+  }
+
+  return textos.some((t) => TIENE_TOTAL.test(t));
+}
 
 /**
  * Marcas INEQUÍVOCAS del mensaje de despedida (el que va DESPUÉS de confirmar).

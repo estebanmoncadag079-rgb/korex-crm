@@ -144,7 +144,7 @@ import {
   correccionDeResumen,
   niegaDisponibilidadSinVerificar,
   resumenMalArmado,
-  TIENE_TOTAL,
+  elClienteVioUnTotal,
   MENSAJE_RETIRADO,
   dijoOtroValorDeDomicilio,
   CORRECCION_DE_DOMICILIO_CONTRADICHO,
@@ -2385,8 +2385,20 @@ export async function runAgentTurn(
    * es lo que el cliente estaba esperando de todos modos.
    */
   if (action.action === "notify_order") {
-    const yaHuboResumen = history.some(
-      (m) => m.direction === "out" && m.text && TIENE_TOTAL.test(m.text)
+    /*
+     * Incidente real (6-sep-2026): esto comprobaba el FORMATO del texto
+     * (`TIENE_TOTAL`) y no el HECHO. El resumen de Lis dice "TOTAL SIN
+     * DOMICILIO: $19.000" —formato que el propio negocio pidió en su
+     * prompt— así que la comprobación fallaba, se bloqueaba un cierre
+     * legítimo y el bot repetía el resumen en bucle mientras la clienta ya
+     * había confirmado. Ahora se pregunta primero por el total que el
+     * BACKEND calculó contra el catálogo real (`estadoGuardado.totalCents`,
+     * Fase 2) y solo se cae al texto cuando ese dato no existe. Ver
+     * `elClienteVioUnTotal` en anuncio-de-cierre.ts.
+     */
+    const yaHuboResumen = elClienteVioUnTotal(
+      history.filter((m) => m.direction === "out").map((m) => m.text),
+      estadoGuardado?.totalCents
     );
     if (!yaHuboResumen) {
       console.warn(

@@ -329,6 +329,14 @@ Antes de escribir código, entrega siempre este informe:
 
 No se escribe código hasta terminar la auditoría.
 
+**Si la clasificación del Paso 2 fue "cambio arquitectónico" (Fase 4,
+8-sep-2026):** esta auditoría no se queda en un mensaje — se escribe como
+`specs/NNN-nombre/spec.md` (numeración siguiente disponible en `specs/`)
+**antes** de implementar, y se aprueba explícitamente antes de escribir
+código. Las demás categorías (configuración de cliente, capacidad de
+vertical, capacidad global) NO pasan por `specs/`: se documentan directo en
+`docs/korexia/`, como ya es la práctica.
+
 ---
 
 ## Cambios permitidos sin tocar la arquitectura

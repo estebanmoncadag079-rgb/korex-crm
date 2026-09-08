@@ -1,7 +1,23 @@
 # El flujo SDD (Spec-Driven Development)
 
-La regla de oro: **specs antes de código**. Ninguna feature se implementa sin una
-especificación previa que describa el **comportamiento observable**, no la implementación.
+## Cuándo se usa este flujo (Fase 4, 8-sep-2026)
+
+Korex heredó el aparataje de Spec Kit del template de Vocero, que lo usó para
+construir el producto base (`specs/001-vocero-core`, `specs/002-diseno-atlas-
+white-label`). Para el trabajo normal de korex.ia como instalación real —
+configuración de un cliente, capacidades de un vertical, capacidades
+globales del CRM, incidentes— **este flujo NO aplica**: se resuelve y
+documenta directo en `docs/korexia/`, siguiendo
+[75-COMO-SE-DOCUMENTA.md](korexia/75-COMO-SE-DOCUMENTA.md). Ver la jerarquía
+documental en [`CLAUDE.md`](../CLAUDE.md).
+
+El flujo completo de abajo (`specify → clarify → plan → tasks → analyze →
+implement`) se reserva para la categoría **"cambio arquitectónico"** de
+[`REGLAS-DE-ARQUITECTURA.md`](../REGLAS-DE-ARQUITECTURA.md) — cuando una
+solicitud obliga a modificar cómo funciona la plataforma, no solo su
+configuración. Ahí sí: **specs antes de código**, con una especificación
+previa que describa el **comportamiento observable**, no la implementación.
+Las capacidades de Spec Kit siguen intactas y disponibles para ese caso.
 
 ## El flujo Spec Kit
 

@@ -5,9 +5,11 @@
 > Este archivo describe el **repositorio**. Cómo funciona esta instalación **de
 > verdad en producción** está en [docs/korexia/](docs/korexia/), 120+ documentos.
 >
-> - **Al retomar**, lee [`docs/korexia/00-INDICE.md`](docs/korexia/00-INDICE.md)
->   y desde ahí el pendientes vigente
->   ([121](docs/korexia/121-PENDIENTES-20AGO.md) a 20-ago-2026).
+> - **Al retomar**, lee [`docs/korexia/00-INDICE.md`](docs/korexia/00-INDICE.md).
+>   El último [121](docs/korexia/121-PENDIENTES-20AGO.md) es del 20-ago-2026 —
+>   verifica si ya existe un "pendientes" más reciente antes de darlo por
+>   vigente; si no, el documento de mayor número en el índice es el estado más
+>   actual disponible.
 > - **Al cambiar algo**, actualízalo en el **mismo commit**: código + pruebas +
 >   documento + cómo revertir, o el cambio no está terminado
 >   ([75-COMO-SE-DOCUMENTA.md](docs/korexia/75-COMO-SE-DOCUMENTA.md)).
@@ -15,6 +17,20 @@
 >   [REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md).
 > - **Cuando este archivo y `docs/korexia/` se contradigan, manda
 >   `docs/korexia/`** — y arregla este archivo.
+
+## Jerarquía documental (Fase 4, 8-sep-2026)
+
+`specs/` (Spec Kit) llegó con el template de Vocero y sirvió para construir el
+producto base (`specs/001-vocero-core`, `specs/002-diseno-atlas-white-label`) —
+pero korex.ia, desde que existe como instalación real, se gobierna con otros
+documentos, y así se queda: no se retoma `specs/` para el trabajo normal.
+Jerarquía vigente, de mayor a menor autoridad:
+
+1. **Constitución** ([.specify/memory/constitution.md](.specify/memory/constitution.md)) — principios del producto, no negociables.
+2. **[REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md)** — filtro operativo: clasifica toda solicitud en configuración de cliente, capacidad de vertical, capacidad global o cambio arquitectónico.
+3. **`docs/korexia/`** — fuente de verdad del estado real de esta instalación (autoridad descriptiva: qué es cierto hoy y por qué).
+4. **`specs/`** — reservado para la categoría "cambio arquitectónico" de `REGLAS-DE-ARQUITECTURA.md` (ver su Paso 5): ahí sí se escribe un `spec.md` antes de implementar. El resto de solicitudes (configuración, capacidad de vertical, capacidad global, incidentes) NO pasa por `specs/` — se resuelve y documenta directo en `docs/korexia/`, como ya viene ocurriendo.
+5. **Este archivo** — índice que conecta los cuatro anteriores; si describe algo distinto a lo que el repo realmente hace, es este archivo el que está desactualizado.
 
 Vocero es un CRM de WhatsApp open source (MIT), self-hosted, con agente de IA y
 Laboratorio de auto-evaluación. **korex.ia** es la instalación de agencia que
@@ -259,8 +275,10 @@ Cuando el dueño da una META (no prompts paso a paso): Discover → Plan →
 Execute → Verify → Iterate, de forma autónoma, volviendo solo con el objetivo
 verificado en vivo o con un bloqueo real (decisión de producto, credenciales,
 acción irreversible/costosa). Agrupa TODAS las preguntas bloqueantes al inicio.
-El estado durable son los artefactos SDD en `specs/` (spec/plan/tasks) —
-manténlos al día. Invocable como `/loop-sdd <objetivo>`.
+El estado durable es `docs/korexia/` (ver "Jerarquía documental" arriba); los
+artefactos SDD en `specs/` (spec/plan/tasks) solo aplican cuando el objetivo es
+en sí mismo un cambio arquitectónico según `REGLAS-DE-ARQUITECTURA.md`.
+Invocable como `/loop-sdd <objetivo>`.
 
 ## Memoria persistente
 

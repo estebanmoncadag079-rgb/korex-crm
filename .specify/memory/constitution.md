@@ -28,6 +28,59 @@ Plantillas dependientes:
     implementación (tarea planificada de la feature 001).
 
 TODOs diferidos: ninguno.
+==================
+Versión: 1.2.0 → 2.0.0 (Fase 4B, 8-sep-2026)
+
+Contexto: la auditoría de Fase 4 (sesión del 8-sep-2026, sin documento propio
+en docs/korexia/ — reportada en conversación) encontró que el Principio VI,
+tal como estaba escrito, exigía spec previa para "ninguna feature" sin
+excepción real (solo typos/refactors) — en contradicción directa con 60 días
+de práctica real de korex.ia, donde configuración de cliente, capacidades de
+vertical/CRM e incidentes se resuelven y documentan en docs/korexia/ sin pasar
+por specs/, y con la jerarquía documental ya declarada en CLAUDE.md y
+REGLAS-DE-ARQUITECTURA.md (8-sep-2026, Fase 4A).
+
+Cambios:
+  - Principio VI "Specs Antes de Código" → REDEFINIDO: el requisito de
+    especificación previa (specify → plan → tasks → implement) se acota a
+    "cambio arquitectónico", definido AQUÍ MISMO en términos generales y
+    propios de la constitución (modifica comportamiento, contratos o modelo
+    de datos compartidos por el núcleo de la plataforma; no configuración,
+    catálogo o datos de un cliente, ni extender una capacidad ya genérica y
+    opcional). Un documento operativo (hoy, REGLAS-DE-ARQUITECTURA.md) puede
+    clasificar y ejemplificar ese criterio, pero NO lo define ni puede
+    ampliarlo/reducirlo por su cuenta — evita que un documento de menor
+    autoridad cambie indirectamente el alcance de un principio
+    constitucional. Configuración de cliente, capacidad de vertical,
+    capacidad global de CRM e incidentes/hotfixes que no cumplen el criterio
+    quedan fuera de este principio. Es una redefinición INCOMPATIBLE con el
+    texto anterior (antes exigía spec para prácticamente todo; ahora exige
+    spec solo para cambios arquitectónicos, con criterio propio).
+  - Sección "Flujo de Desarrollo y Puertas de Calidad" → el bullet "Orden del
+    flujo" ya remitía a "Principio VI" como autoridad (no a
+    REGLAS-DE-ARQUITECTURA.md); no requirió cambio adicional en esta
+    revisión.
+  - Principios I, II, III, IV, V, VII, VIII y IX: íntegros (sin cambio
+    semántico).
+  - Governance: Ratified 2026-07-09 / Last Amended = 2026-09-08.
+
+Bump: MAJOR (1.2.0 → 2.0.0) — redefinición incompatible de un principio
+existente, según la propia política de versionado de esta constitución
+("MAJOR: eliminación o redefinición incompatible de un principio").
+
+Plantillas dependientes:
+  - .specify/templates/plan-template.md — ✅ compatible (el Constitution Check
+    ya es genérico; para features normales de korex.ia simplemente no aplica,
+    porque no pasan por specs/).
+  - .specify/templates/spec-template.md — ✅ compatible (sin secciones
+    nuevas; sigue siendo el formato correcto para cuando SÍ se abre un spec de
+    cambio arquitectónico).
+  - .specify/templates/tasks-template.md — ✅ compatible, mismo motivo.
+  - CLAUDE.md / REGLAS-DE-ARQUITECTURA.md / docs/sdd-workflow.md — ✅ ya
+    actualizados en la Fase 4A (8-sep-2026) con la misma regla; esta enmienda
+    los alinea con la constitución en vez de crear una nueva contradicción.
+
+TODOs diferidos: ninguno.
 -->
 
 # Vocero CRM Constitution
@@ -124,19 +177,51 @@ Ninguna tarea se considera terminada sin pasar verificación.
 **Rationale**: La verificación automática es la única definición de "hecho" que no
 depende de optimismo.
 
-### VI. Specs Antes de Código
+### VI. Specs Antes de Código (para cambios arquitectónicos)
 
-Ninguna feature se implementa sin una especificación previa.
+Todo cambio arquitectónico requiere una especificación previa. Es "cambio
+arquitectónico", por definición de esta constitución, el que modifica el
+comportamiento, los contratos o el modelo de datos **compartidos por la
+plataforma misma** —su núcleo y sus reglas generales— en vez de limitarse a
+la configuración, el catálogo o los datos de un cliente, o a extender una
+capacidad ya prevista y opcional para cualquier negocio de un mismo tipo. Si
+el cambio solo toca configuración, catálogo o datos de un negocio concreto,
+o extiende algo ya diseñado como genérico y opcional, NO es cambio
+arquitectónico, sin importar cuán grande parezca; si obliga a modificar cómo
+funciona el núcleo, sus contratos o su modelo de datos para todos los
+negocios, SÍ lo es, sin importar cuán pequeño parezca el diff.
 
-- La especificación describe el comportamiento observable por el usuario, no la
-  implementación.
-- El orden del flujo es specify → plan → tasks → implement; el código de una feature
-  no comienza antes de existir su spec.
-- Correcciones triviales y cambios sin comportamiento observable nuevo (typos,
-  formato, refactors internos sin cambio de contrato) están exentos.
+- Para un cambio arquitectónico, la especificación describe el comportamiento
+  observable por el usuario, no la implementación, y se escribe ANTES de
+  empezar a codificar.
+- Para esa categoría, el orden del flujo es specify → plan → tasks → implement;
+  el código no comienza antes de existir su spec.
+- Configuración de un cliente, capacidades de un vertical, capacidades
+  globales del CRM e incidentes/hotfixes que no cumplen el criterio anterior
+  NO pasan por este principio: se implementan y documentan por su propio
+  camino operativo (código + pruebas + documentación + reversión, mismo
+  commit).
+- Un documento operativo (hoy, REGLAS-DE-ARQUITECTURA.md) puede
+  **clasificar y operacionalizar** este criterio con ejemplos y un
+  procedimiento de auditoría concretos, para hacerlo aplicable sin
+  ambigüedad caso a caso. Ese documento no define ni amplía ni reduce el
+  criterio de este principio — lo aplica. Si algún día ese documento
+  cambiara sus categorías sin que el criterio de este párrafo cambiara, el
+  criterio de este párrafo sigue siendo la prueba final (Governance: ante
+  cualquier conflicto, gana la constitución).
+- Dentro de un cambio arquitectónico, correcciones triviales y cambios sin
+  comportamiento observable nuevo (typos, formato, refactors internos sin
+  cambio de contrato) siguen exentos.
 
-**Rationale**: Especificar el comportamiento observable antes de codificar previene
-retrabajo y mantiene alineadas todas las fases del flujo.
+**Rationale**: Especificar el comportamiento observable antes de codificar un
+cambio que afecta a la plataforma entera previene retrabajo y desalineación
+entre verticales. Exigir el mismo ritual para un ajuste de catálogo o un
+incidente de producción no aporta ese beneficio y sí añade fricción: 60 días
+de operación real de korex.ia (docs/korexia/) muestran que ese tipo de cambio
+se gobierna mejor con documentación inmediata que con especificación previa.
+El criterio se define aquí, en la constitución, precisamente para que ningún
+documento de menor autoridad pueda ampliar o reducir por su cuenta cuándo
+aplica este principio.
 
 ### VII. Trazabilidad de Decisiones
 
@@ -227,8 +312,11 @@ Estas restricciones derivan de los Principios I y II y son verificables en revis
 
 ## Flujo de Desarrollo y Puertas de Calidad
 
-- **Orden del flujo**: specify → plan → tasks → implement. Cada fase consume el
-  artefacto de la anterior.
+- **Orden del flujo** (solo para cambios arquitectónicos, Principio VI):
+  specify → plan → tasks → implement. Cada fase consume el artefacto de la
+  anterior. Configuración, capacidad de vertical, capacidad global e
+  incidentes siguen su propio flujo (REGLAS-DE-ARQUITECTURA.md +
+  docs/korexia/75-COMO-SE-DOCUMENTA.md), sin estas cuatro fases.
 - **Puerta constitucional (Constitution Check)**: el plan de cada feature evalúa el
   cumplimiento de estos principios antes de la Fase 0 y se re-evalúa tras el diseño de
   la Fase 1. Las violaciones se registran y justifican en Complexity Tracking o se
@@ -260,4 +348,4 @@ práctica, convención o preferencia; ante un conflicto, gana la constitución.
 - **Propagación**: al enmendar la constitución se revisan y, si procede, se actualizan
   las plantillas dependientes (plan, spec, tasks).
 
-**Version**: 1.2.0 | **Ratified**: 2026-07-09 | **Last Amended**: 2026-07-09
+**Version**: 2.0.0 | **Ratified**: 2026-07-09 | **Last Amended**: 2026-09-08

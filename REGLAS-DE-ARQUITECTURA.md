@@ -167,7 +167,8 @@ funciona la plataforma, antes de implementarse se debe responder:
 * ¿Afecta la compatibilidad con otros verticales?
 
 Si la respuesta a "¿a quién sirve?" es **"solo le sirve a este cliente"**, el
-cambio no se implementa inmediatamente.
+cambio no se implementa inmediatamente. **Esta categoría es la única que
+requiere `specs/NNN-nombre/spec.md` antes de implementar — ver el Paso 5.**
 
 ### ¿Es un dato o una capacidad?
 

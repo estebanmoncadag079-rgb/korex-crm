@@ -97,7 +97,11 @@ implementarse**, en una de cuatro categorías:
 3. **Capacidad global del CRM** (cupones, sedes) → configurable y
    **opcional** para cualquier negocio.
 4. **Cambio arquitectónico** → se detiene y se audita antes de tocar nada; si
-   la respuesta es "solo le sirve a este cliente", no se implementa.
+   la respuesta es "solo le sirve a este cliente", no se implementa. Es la
+   única categoría que requiere `specs/NNN-nombre/spec.md` antes de
+   implementar (Principio VI de la constitución, Paso 5 de
+   REGLAS-DE-ARQUITECTURA.md) — las otras tres van directo a
+   `docs/korexia/`.
 
 El núcleo solo conoce: catálogo, selección, datos, estado, validación,
 confirmación, registro. Ni una salsa, ni un churro, ni una pestaña, ni un

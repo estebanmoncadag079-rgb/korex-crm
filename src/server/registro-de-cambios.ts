@@ -174,6 +174,23 @@ const CLASIFICACION: Record<string, Record<string, Clase>> = {
     available: "negocio",
     position: "negocio",
   },
+  /**
+   * Fase 8G — las zonas de domicilio, ahora editables desde el CRM. Todo es
+   * dato de NEGOCIO: el nombre de una zona es un barrio ("Ciudad Jardín"),
+   * nunca la dirección de un cliente concreto — esa vive en
+   * `conversation_state`/`contact`, ya clasificadas como personales.
+   */
+  delivery_zone: {
+    id: "tecnico",
+    organizationId: "tecnico",
+    archivedAt: "tecnico",
+    createdAt: "tecnico",
+    updatedAt: "tecnico",
+    name: "negocio",
+    feeCents: "negocio",
+    active: "negocio",
+    position: "negocio",
+  },
   /** Una opción dentro de un grupo (un topping, un tamaño). Mismo criterio. */
   product_option: {
     id: "tecnico",

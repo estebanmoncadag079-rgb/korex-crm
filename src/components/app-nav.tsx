@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Inbox,
   Kanban,
+  Bike,
   ListTree,
   LogOut,
   Megaphone,
@@ -52,6 +53,15 @@ const NAV_SERVICIOS = [{ href: "/services", label: "Servicios", icon: Scissors }
  */
 const NAV_CATALOGO = [{ href: "/catalogo", label: "Catálogo", icon: ListTree }] as const;
 
+/**
+ * Fase 8G — las zonas de domicilio y su tarifa. Se ofrece por vertical junto
+ * al Catálogo, con el mismo criterio: es la única puerta para cargar la
+ * primera zona, así que esconderla a quien todavía no tiene ninguna lo deja
+ * sin forma de entrar. Un negocio de pedidos que no haga domicilios
+ * simplemente la deja vacía.
+ */
+const NAV_DOMICILIOS = [{ href: "/domicilios", label: "Domicilios", icon: Bike }] as const;
+
 const NAV_AGENTE = [{ href: "/agent", label: "Agente", icon: Sparkles }] as const;
 /** Solo la agencia: cada corrida cuesta ~33 llamadas al modelo, que paga la agencia. */
 const NAV_LAB = [{ href: "/lab", label: "Laboratorio", icon: FlaskConical }] as const;
@@ -75,6 +85,7 @@ export function AppNav({
     ...NAV_AGENTE,
     ...(appointmentsEnabled ? NAV_SERVICIOS : []),
     ...(appointmentsEnabled ? [] : NAV_CATALOGO),
+    ...(appointmentsEnabled ? [] : NAV_DOMICILIOS),
     ...(isPlatformAdmin ? NAV_LAB : []),
   ];
   const pathname = usePathname();

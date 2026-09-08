@@ -70,52 +70,42 @@ después es añadir el dominio en EasyPanel y borrar el archivo.
 
 ## Cómo desplegar un cambio
 
-**El botón de Desplegar lo pulsa el dueño, en EasyPanel.** Así quedó acordado y
-así se hace: EasyPanel construye desde su propia carpeta y reinicia el servicio,
-sin que nadie tenga que acordarse de etiquetas ni de comandos.
+**Flujo oficial vigente** (automatizado en las Fases 3A-3H / 10N-A-G — el
+detalle completo de cada pieza está en
+[160](160-IDENTIDAD-DE-DEPLOY-MINIMO-PRIVILEGIO.md),
+[161](161-VULNERABILIDAD-ESCALADA-VIA-DUENO-DEL-BUILD-CONTEXT.md),
+[162](162-VERIFICACION-DE-PROCEDENCIA-DEL-SHA-DE-DEPLOY.md) y
+[165](165-FIX-PERMANENTE-DEL-ESPEJO-CONGELADO.md); no se repite aquí):
+
+```
+GitHub Actions (workflow_dispatch, manual)
+  → scripts/deploy.sh (gate local + SSH)
+    → usuario `deploy` en el servidor (sin Docker, sin sudo general)
+      → sudo /usr/local/bin/korex-deploy.sh <SHA>   (único comando permitido)
+        → verifica el SHA contra el espejo de solo lectura del propio servidor
+        → build + docker service update --force
+```
 
 El reparto de trabajo:
 
 | Quién | Qué |
 |---|---|
-| Asistente | 1. Gate en local · 2. Commit y push · 3. **Dejar el código en la carpeta de EasyPanel** |
-| Dueño | 4. **EasyPanel → proyecto `korex-crm` → servicio `crm` → Desplegar** |
-| Asistente | 5. Verificar que el cambio está dentro del contenedor |
+| Asistente | 1. Gate en local · 2. Commit y push a `main` |
+| Dueño | 3. **GitHub → Actions → "Deploy a producción" → Run workflow**, con el `commit_sha` exacto y escribiendo `CONFIRMAR` |
+| Asistente | 4. Verificar `/api/health` — el commit que reporta, no solo que esté `healthy` |
 
-```bash
-# 1. En local: que pase todo
-corepack pnpm typecheck && corepack pnpm lint && corepack pnpm vitest run
+`deploy` nunca sube código ni define qué se construye: el wrapper root
+verifica el SHA contra **su propio** espejo de GitHub (Deploy Key de solo
+lectura) antes de tocar nada. `scripts/deploy.sh` ya compara, al final, el
+commit que `/api/health` reporta contra el que se pidió desplegar, y falla
+si no coinciden.
 
-# 2. Guardar el cambio
-git add -A && git commit -m "..." && git push origin main
-
-# 3. Dejar el código donde EasyPanel lo va a buscar
-git archive --format=tar.gz -o /tmp/korex-crm.tar.gz HEAD
-scp -i ~/.ssh/churrabot_key /tmp/korex-crm.tar.gz root@2.25.159.117:/tmp/
-ssh ... 'tar -xzf /tmp/korex-crm.tar.gz -C /etc/easypanel/projects/korex-crm/crm/code'
-```
-
-> 🔴 **El paso 3 no es opcional ni cosmético.** Esa carpeta es la ÚNICA fuente
-> de la que construye EasyPanel: no clona el repositorio, **no tiene `.git`** y
-> no se entera de ningún push. Si se omite, el botón Desplegar reconstruye el
-> código viejo y **deshace lo que ya estuviera arriba**.
->
-> Pasó el 1-ago-2026: se desplegó a mano por SSH sin sincronizar la carpeta, y
-> quedó una bomba de relojería — el siguiente Desplegar habría revertido tres
-> funcionalidades. Se detectó a tiempo y se sincronizó (con copia previa en
-> `/root/code-respaldo-antes-sync-*`).
->
-> **Volvió a pasar el 5-ago-2026, por el otro extremo**: el asistente dejó
-> cuatro arreglos probados **sin commitear**, el dueño pulsó Desplegar dando
-> por hecho que estaban listos, y EasyPanel reconstruyó el código del 3-ago.
-> El servicio quedó sano y "desplegado" — pero sin ninguno de los arreglos.
-> Se detectó porque la verificación del paso 5 se hace **dentro del
-> contenedor**: `grep` de una cadena del código nuevo y `\d offered_slot` en
-> la base, las dos en NO. **Un contenedor recién creado y `healthy` no prueba
-> que lleve tu cambio.**
->
-> Regla que se saca de las dos veces: **el aviso de "ya desplegué" no cierra
-> nada**. Cierra el paso 5, y el paso 5 es evidencia dentro del contenedor.
+> 🔴 **"Healthy" no es evidencia de versión.** Dos incidentes reales bajo el
+> proceso manual anterior a esta automatización (1-ago y 5-ago-2026: una
+> carpeta sin sincronizar y, después, un despliegue de código sin commitear)
+> dejaron producción "sana" y sirviendo código incorrecto. Es la razón por la
+> que el flujo actual verifica la versión automáticamente en vez de confiar
+> en `healthy` + un 200.
 
 Detalles que importan:
 
@@ -124,7 +114,14 @@ Detalles que importan:
 - **Coste real**: el reinicio deja a los clientes sin agente unos **30
   segundos**. La construcción tarda 2–4 minutos.
 
-### Si hay que desplegar a mano (EasyPanel caído, urgencia)
+### Si hay que desplegar a mano — EXCEPCIÓN DE ÚLTIMA INSTANCIA
+
+⚠️ **Esto NO es un flujo equivalente al oficial.** Se salta el gate de CI, la
+verificación de procedencia del SHA contra el espejo, y el wrapper de mínimo
+privilegio de las Fases 3A-3C — solo `root` puede hacerlo, y hacerlo es
+asumir manualmente todas esas garantías. Úsalo únicamente cuando GitHub
+Actions no sea una opción (el runner no alcanza el servidor, GitHub caído) y
+la urgencia lo justifique de verdad — nunca como atajo de comodidad.
 
 ```bash
 cd /etc/easypanel/projects/korex-crm/crm/code
@@ -141,11 +138,8 @@ respondía 200 — mientras se construía una imagen **que no usa nadie**.
 docker service inspect korex-crm_crm --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'
 ```
 
-### Comprobar que se desplegó lo que se editó
-
-**`converged` y un 200 en la web no prueban nada**: los dos salen igual de bien
-reiniciando con la imagen vieja. Lo único que prueba algo es buscar el texto
-nuevo **dentro del contenedor que está corriendo**:
+Después de una excepción manual, la verificación automática de versión del
+flujo oficial (`deploy.sh` paso 8) no corrió — hay que repetirla a mano:
 
 ```bash
 docker exec <contenedor-app> sh -c "grep -rl 'un trozo del texto nuevo' /app/.next | head -3"
@@ -153,6 +147,8 @@ docker exec <contenedor-app> sh -c "grep -rl 'un trozo del texto nuevo' /app/.ne
 
 ⚠️ Buscar un fragmento **sin acentos ni emojis**: el `grep` dentro del
 contenedor falla con caracteres especiales y da un falso negativo.
+**`converged` y un 200 en la web no prueban nada** por sí solos — ambos salen
+igual reiniciando con la imagen vieja.
 
 Y comprobar que el arranque no tocó datos: contar `kb_entry`, `contact` y
 `pipeline_stage` por organización antes y después.

@@ -127,24 +127,35 @@ fábrica ya causó incidentes.
 
 | Tema | Lo que dice el repo | La realidad de korex.ia |
 |---|---|---|
-| **Despliegue** | Coolify / docker compose | **EasyPanel** en el VPS `2.25.159.117`. Lo pulsa **el dueño**; el asistente solo deja el código en la carpeta |
+| **Despliegue** | Coolify / docker compose | **GitHub Actions** (`workflow_dispatch` manual) → `scripts/deploy.sh` → wrapper root verificado en el VPS `2.25.159.117`. El dueño dispara el workflow con el SHA y `CONFIRMAR`; el asistente nunca lo hace (ver más abajo) |
 | **Canal WhatsApp** | Meta Cloud API directa (`src/lib/meta/`) | **YCloud** (`src/lib/ycloud/client.ts`), que envuelve a Meta. `src/lib/meta/` sigue existiendo debajo |
 | **Modelo LLM** | `anthropic/claude-sonnet-4.5` | **`google/gemini-2.5-flash`**, con Sonnet 4.5 como `OPENROUTER_FALLBACK_MODEL` |
 | **Instancia** | "una instancia = un negocio" (`README.md`) | Multi-cliente. Tres negocios vivos |
 
-### ⚠️ Desplegar tiene TRES pasos, y saltarse uno NO da error
+### ⚠️ Desplegar es por GitHub Actions — nunca a mano, salvo emergencia real
 
 1. Gate en local
-2. **`git commit` + `git push`**
-3. **`git archive` + `scp` + `tar`** dentro de
-   `/etc/easypanel/projects/korex-crm/crm/code` — **esa carpeta no tiene `.git`
-   y no se entera de ningún push**
-4. El dueño pulsa Desplegar en EasyPanel
-5. **Verificar DENTRO del contenedor**
+2. **`git commit` + `git push`** a `main`
+3. El **dueño** ejecuta el workflow: GitHub → Actions → "Deploy a
+   producción" → Run workflow, con el `commit_sha` exacto y escribiendo
+   `CONFIRMAR`. **El asistente nunca dispara este paso.**
+4. El workflow corre el gate en CI y, por SSH, pide al servidor construir
+   ese SHA — el servidor lo verifica contra su propio espejo de GitHub
+   antes de construir nada (detalle en
+   [docs/korexia/160](docs/korexia/160-IDENTIDAD-DE-DEPLOY-MINIMO-PRIVILEGIO.md)
+   a [162](docs/korexia/162-VERIFICACION-DE-PROCEDENCIA-DEL-SHA-DE-DEPLOY.md)).
+5. **Verificar `/api/health` reporta el commit correcto** — `scripts/deploy.sh`
+   ya lo hace al final y falla si no coincide, pero confírmalo tú también.
 
-Ha fallado dos veces. Un contenedor nuevo y `healthy` **no** prueba que lleve el
-cambio, y "converged" + un 200 tampoco. Receta exacta en
-[docs/korexia/02-INFRAESTRUCTURA.md](docs/korexia/02-INFRAESTRUCTURA.md).
+Antes de esta automatización (Fases 3A-3H) el proceso era manual —
+`git archive` + `scp` + `tar` a una carpeta que EasyPanel construía, con el
+dueño pulsando "Desplegar" ahí— y falló dos veces por desincronización. Ya
+no es el flujo vigente; queda solo como excepción de última instancia,
+documentada en
+[docs/korexia/02-INFRAESTRUCTURA.md](docs/korexia/02-INFRAESTRUCTURA.md). Un
+contenedor nuevo y `healthy` **no** prueba que lleve el cambio, y
+"converged" + un 200 tampoco — receta completa de verificación en ese mismo
+documento.
 
 > 🔍 **Al verificar dentro del contenedor, busca literales SIN tildes.** Los
 > nombres de función los renombra el minificador y el texto acentuado se

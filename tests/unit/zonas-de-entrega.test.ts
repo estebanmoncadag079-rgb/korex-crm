@@ -53,6 +53,51 @@ describe("resolverZonaDeEntrega", () => {
     expect(r).toEqual({ status: "not_found" });
   });
 
+  /**
+   * Fase 8H — caso real de MALIA (8-sep-2026): una clienta escribió
+   * "poblado ll" (con L minúsculas por "II"). El catálogo tiene "El Poblado"
+   * y "Poblado II", las dos reales. El desempate por `ratio` elegía "El
+   * Poblado" en silencio, solo porque su nombre tiene menos palabras. Con dos
+   * zonas de tarifa distinta, ese mismo camino cobra mal sin que nadie lo
+   * note.
+   */
+  it("BUG REAL: 'poblado ll' con dos zonas hermanas -> PREGUNTA cuál, no elige la de nombre más corto", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    const zonas = [
+      zona("dz_1", "El Poblado", 1000000),
+      zona("dz_2", "Poblado II", 1000000),
+      zona("dz_3", "Kachipay", 1200000),
+    ];
+    const r = resolverZonaDeEntrega(zonas, "poblado ll");
+    expect(r.status).toBe("multiple_matches");
+    if (r.status !== "multiple_matches") return;
+    expect(r.zonas.map((z) => z.nombre).sort()).toEqual(["El Poblado", "Poblado II"]);
+  });
+
+  it("con tarifas DISTINTAS entre hermanas, tampoco adivina: pregunta", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    const zonas = [zona("dz_1", "El Prado", 800000), zona("dz_2", "Prado Norte", 1200000)];
+    expect(resolverZonaDeEntrega(zonas, "prado alto").status).toBe("multiple_matches");
+  });
+
+  it("si algo de lo que coincidió SÍ distingue, resuelve normal (no pregunta de más)", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    const zonas = [
+      zona("dz_1", "Ciudad Jardín", 1000000),
+      zona("dz_2", "Ciudad Meléndez", 1000000),
+      zona("dz_3", "Cañasgordas", 1200000),
+    ];
+    // "jardin" distingue a esa zona de sus hermanas "Ciudad ...", aunque
+    // "barrio" quede sin explicar.
+    const r = resolverZonaDeEntrega(zonas, "barrio ciudad jardin");
+    expect(r).toEqual({ status: "found", zona: zonas[0] });
+    // Caso real: "cañas gorda" separado en dos palabras.
+    expect(resolverZonaDeEntrega(zonas, "cañas gorda")).toEqual({
+      status: "found",
+      zona: zonas[2],
+    });
+  });
+
   it("sin ninguna zona registrada -> not_found siempre", async () => {
     const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
     expect(resolverZonaDeEntrega([], "Kachipay")).toEqual({ status: "not_found" });

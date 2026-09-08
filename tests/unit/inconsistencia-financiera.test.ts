@@ -225,6 +225,18 @@ describe("correccionDeInconsistenciaFinanciera", () => {
     expect(b).toMatch(/JSON/);
     expect(c).toMatch(/JSON/);
   });
+
+  it("Fase 8D: los motivos de farewell dan mensajes distintos entre sí y de sus equivalentes de summary, y mencionan \"farewell\"", () => {
+    const a = correccionDeInconsistenciaFinanciera("despedida-contradice-tarifa");
+    const b = correccionDeInconsistenciaFinanciera("despedida-contradice-total-real");
+    const c = correccionDeInconsistenciaFinanciera("resumen-contradice-tarifa");
+    const d = correccionDeInconsistenciaFinanciera("resumen-contradice-total-real");
+    expect(new Set([a, b, c, d]).size).toBe(4);
+    expect(a).toMatch(/farewell/);
+    expect(b).toMatch(/farewell/);
+    expect(a).toMatch(/JSON/);
+    expect(b).toMatch(/JSON/);
+  });
 });
 
 /**
@@ -366,5 +378,125 @@ describe("inconsistenciaFinancieraDePedido — Fase 11-C: subtotal calculado por
       subtotalReal: 2000000,
     });
     expect(r).toBe("resumen-contradice-total-real");
+  });
+});
+
+/**
+ * Fase 8D — auditoría de Fase 8D: `summary` (lo que ve el EQUIPO) ya se
+ * verificaba; `farewell` (lo que de verdad lee el CLIENTE, ver
+ * `conducta.ts`: "dale los datos de pago tal cual están escritos") no
+ * pasaba por ningún chequeo — un `summary` perfecto no garantizaba que
+ * `farewell` dijera la misma cifra. Casos 1-6 del encargo de la Fase 8D.
+ */
+describe("inconsistenciaFinancieraDePedido — Fase 8D: fidelidad de farewell", () => {
+  const ZONA_KACHIPAY = { feeCents: 1200000 };
+
+  it("1: farewell correcto (misma tarifa y mismo total real) -> pasa", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Domicilio a Kachipay: $12.000. Total: $30.000",
+      farewell: "¡Gracias! Tu pedido con domicilio de $12.000, total $30.000, va en camino.",
+      subtotalCents: 1800000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3000000,
+      zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("2: summary correcto + farewell con el TOTAL incorrecto -> detecta (el ejemplo exacto de la auditoría de Fase 8D)", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Total: $18.000",
+      farewell: "¡Gracias, Juan! Tu pedido queda confirmado por un total de $450.000 🎉", // cifra inventada, no tiene relación con el pedido real
+      subtotalCents: 1800000,
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 1800000,
+    });
+    expect(r).toBe("despedida-contradice-total-real");
+  });
+
+  it("2b: summary correcto + farewell con la TARIFA DE DOMICILIO incorrecta -> detecta", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Domicilio a Kachipay: $12.000. Total: $30.000",
+      farewell: "¡Gracias! El domicilio son $8.000, en camino tu pedido.", // $8.000, no los $12.000 verificados
+      subtotalCents: 1800000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3000000,
+      zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
+    });
+    expect(r).toBe("despedida-contradice-tarifa");
+  });
+
+  it("3: farewell sin ninguna cifra -> pasa, sin falso positivo", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Total: $18.000",
+      farewell: "¡Gracias! Ya estamos preparando tu pedido con mucho cariño 💗",
+      subtotalCents: 1800000,
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 1800000,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("4: farewell undefined (el ejecutor solo lo entrega si viene, ver pipeline.ts) -> pasa, no se exige", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Total: $18.000",
+      // farewell ausente
+      subtotalCents: 1800000,
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 1800000,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("6: dos organizaciones con cifras reales DISTINTAS -> cada llamada se valida solo contra sus propios datos, sin mezclarse", () => {
+    // Organización A: total real $30.000; farewell correcto para A.
+    const rA = inconsistenciaFinancieraDePedido({
+      summary: "Pedido A. Domicilio: $12.000. Total: $30.000",
+      farewell: "¡Gracias! Domicilio $12.000, total $30.000.",
+      subtotalCents: 1800000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3000000,
+      zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
+    });
+    expect(rA).toBeNull();
+
+    // Organización B: cifras reales completamente distintas; farewell
+    // correcto para B (y coincide, por casualidad, con parte de lo que se
+    // usó en A — no debe importar, cada llamada es independiente).
+    const ZONA_B = { feeCents: 500000 };
+    const rB = inconsistenciaFinancieraDePedido({
+      summary: "Pedido B. Domicilio: $5.000. Total: $25.000",
+      farewell: "¡Gracias! Domicilio $5.000, total $25.000.",
+      subtotalCents: 2000000,
+      deliveryFeeCents: 500000,
+      totalCents: 2500000,
+      zonaVerificada: ZONA_B,
+      puedeVerificarDomicilio: true,
+    });
+    expect(rB).toBeNull();
+
+    // Si el farewell de B se validara por error contra la zona/tarifa de A
+    // (mezcla entre organizaciones), esto SÍ debería marcarse -- se prueba
+    // aparte para dejar la contaminación cruzada evidente si algún día
+    // ocurriera.
+    const rBConTarifaDeA = inconsistenciaFinancieraDePedido({
+      summary: "Pedido B. Domicilio: $5.000. Total: $25.000",
+      farewell: "¡Gracias! Domicilio $5.000, total $25.000.",
+      subtotalCents: 2000000,
+      deliveryFeeCents: 500000,
+      totalCents: 2500000,
+      zonaVerificada: ZONA_KACHIPAY, // la tarifa de A, por error
+      puedeVerificarDomicilio: true,
+    });
+    expect(rBConTarifaDeA).toBe("domicilio-no-verificado");
   });
 });

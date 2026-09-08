@@ -699,6 +699,18 @@ export type InconsistenciaFinanciera =
   | "subtotal-no-verificado"
   | "subtotal-no-coincide-con-el-carrito"
   | "resumen-contradice-total-real"
+  /**
+   * Fase 8D — auditoría de Fase 8D: `summary` es el texto que ve el EQUIPO
+   * y ya se verificaba; `farewell` es lo que de verdad lee el CLIENTE
+   * (`conducta.ts`: "dale los datos de pago tal cual están escritos") y no
+   * pasaba por ningún chequeo — un campo estructurado perfecto y un
+   * `summary` correcto no garantizaban que `farewell` dijera la misma
+   * cifra. Mismos códigos que sus equivalentes de `summary`, distintos
+   * para que la corrección le diga al modelo cuál de los dos campos tiene
+   * el problema.
+   */
+  | "despedida-contradice-tarifa"
+  | "despedida-contradice-total-real"
   | null;
 
 /**
@@ -740,6 +752,13 @@ export type InconsistenciaFinanciera =
  */
 export function inconsistenciaFinancieraDePedido(input: {
   summary: string;
+  /**
+   * Fase 8D — auditoría de Fase 8D: opcional a propósito. `handoff`/citas
+   * no tienen este campo, y el `notify_order` de un pedido puede omitirlo
+   * (el ejecutor solo lo entrega `if (action.farewell)`, `pipeline.ts`) —
+   * sin nada que decirle al cliente, no hay ninguna cifra que contradecir.
+   */
+  farewell?: string;
   subtotalCents?: number;
   deliveryFeeCents?: number | null;
   totalCents?: number;
@@ -801,7 +820,7 @@ export function inconsistenciaFinancieraDePedido(input: {
    */
   subtotalReal?: number;
 }): InconsistenciaFinanciera {
-  const { summary, subtotalCents, deliveryFeeCents, totalCents, zonaVerificada } = input;
+  const { summary, farewell, subtotalCents, deliveryFeeCents, totalCents, zonaVerificada } = input;
 
   /**
    * Fase 11-C — cuando el backend YA conoce el subtotal real (carrito
@@ -874,6 +893,15 @@ export function inconsistenciaFinancieraDePedido(input: {
   if (zonaEfectiva && dijoOtroValorDeDomicilio(summary, zonaEfectiva.feeCents)) {
     return "resumen-contradice-tarifa";
   }
+  /**
+   * Fase 8D — mismo chequeo, sobre lo que de verdad lee el CLIENTE. Un
+   * `summary` correcto (lo que ve el equipo) no garantiza que `farewell`
+   * (lo que ve el cliente) diga la misma tarifa — son dos textos libres
+   * independientes del mismo turno del modelo.
+   */
+  if (zonaEfectiva && farewell && dijoOtroValorDeDomicilio(farewell, zonaEfectiva.feeCents)) {
+    return "despedida-contradice-tarifa";
+  }
 
   /**
    * Fase 11-C — mismo criterio que arriba, para el TOTAL real: defensa de
@@ -886,6 +914,10 @@ export function inconsistenciaFinancieraDePedido(input: {
     const totalReal = input.subtotalReal + (zonaEfectiva?.feeCents ?? 0);
     if (figurasDeTotalEnCents(summary).some((c) => c !== totalReal)) {
       return "resumen-contradice-total-real";
+    }
+    // Fase 8D — mismo chequeo del total real, sobre `farewell`.
+    if (farewell && figurasDeTotalEnCents(farewell).some((c) => c !== totalReal)) {
+      return "despedida-contradice-total-real";
     }
   }
 
@@ -907,6 +939,12 @@ export function correccionDeInconsistenciaFinanciera(fallo: InconsistenciaFinanc
   }
   if (fallo === "resumen-contradice-total-real") {
     return "ALTO. El texto de \"summary\" en notify_order menciona un total DISTINTO del total real (subtotal del catálogo + domicilio verificado). Corrige el summary para que use exactamente ese total. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "despedida-contradice-tarifa") {
+    return "ALTO. El texto de \"farewell\" en notify_order (lo que lee el CLIENTE) menciona una cifra de domicilio DISTINTA de la que consultar_domicilio verificó. Corrige el farewell para que use exactamente la tarifa verificada — la misma que ya pusiste en summary. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "despedida-contradice-total-real") {
+    return "ALTO. El texto de \"farewell\" en notify_order (lo que lee el CLIENTE) menciona un total DISTINTO del total real (subtotal del catálogo + domicilio verificado). Corrige el farewell para que use exactamente ese total — el mismo que ya pusiste en summary. Responde ÚNICAMENTE el objeto JSON.";
   }
   return "ALTO. En notify_order, deliveryFeeCents NO es la tarifa que confirmó consultar_domicilio en esta conversación. Usa exactamente esa cifra verificada. Responde ÚNICAMENTE el objeto JSON.";
 }

@@ -2032,6 +2032,8 @@ export async function runAgentTurn(
   if (action.action === "notify_order") {
     const fallo = inconsistenciaFinancieraDePedido({
       summary: action.summary,
+      // Fase 8D — lo que de verdad lee el CLIENTE, no solo el equipo.
+      farewell: action.farewell,
       subtotalCents: action.subtotalCents,
       deliveryFeeCents: action.deliveryFeeCents,
       totalCents: action.totalCents,
@@ -2059,6 +2061,7 @@ export async function runAgentTurn(
         reintento.ok && reintento.data.action === "notify_order"
           ? inconsistenciaFinancieraDePedido({
               summary: reintento.data.summary,
+              farewell: reintento.data.farewell,
               subtotalCents: reintento.data.subtotalCents,
               deliveryFeeCents: reintento.data.deliveryFeeCents,
               totalCents: reintento.data.totalCents,

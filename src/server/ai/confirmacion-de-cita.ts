@@ -36,6 +36,16 @@ import { notifyTeam } from "@/server/ai/notify-team";
  * columnas que `orderConfirmation`, ver `schema.ts`) cierra esa misma
  * ventana aquí, con el mismo mecanismo de reintento
  * (`reintentarNotificacionesDeCitaPendientes`, corre desde `worker.ts`).
+ *
+ * Fase 8A (auditoría funcional transversal) — `reschedule_appointment` y
+ * `cancel_appointment` reutilizan exactamente este mismo mecanismo (mismo
+ * `UNIQUE(conversationId, idempotencyKey)`, mismo `notifyStatus`, mismo
+ * `intentarNotificarCita`/reintento) en vez de clonar una tabla nueva: antes
+ * de esta fase usaban `notifyTeam` directo en `pipeline.ts`, sin registro ni
+ * reintento — si fallaba, la cita quedaba reprogramada/cancelada de verdad,
+ * pero el equipo nunca se enteraba. `kind` (ver `schema.ts`) distingue de
+ * qué operación es cada fila; no participa en la clave de unicidad, que ya
+ * distingue cada lote de mensajes disparadores por sí solo.
  */
 
 /** IDs de mensaje, ordenados y unidos, para que el orden de llegada no cambie la clave. */
@@ -63,6 +73,8 @@ export async function registrarConfirmacionDeCita(input: {
   organizationId: string;
   conversationId: string;
   messageIds: string[];
+  /** Fase 8A — qué operación es. Default `"reserva"`: ningún llamador existente cambia de comportamiento. */
+  kind?: "reserva" | "reprogramacion" | "cancelacion";
   summary?: string;
   customerPhone?: string | null;
 }): Promise<{ primeraVez: boolean; id: string }> {
@@ -75,6 +87,7 @@ export async function registrarConfirmacionDeCita(input: {
       organizationId: input.organizationId,
       conversationId: input.conversationId,
       idempotencyKey,
+      kind: input.kind ?? "reserva",
       summary: input.summary ?? null,
       customerPhone: input.customerPhone ?? null,
     })

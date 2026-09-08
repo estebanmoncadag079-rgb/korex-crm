@@ -1,0 +1,18 @@
+-- Fase 8A (8-sep-2026) — distingue qué operación protege cada fila de
+-- appointment_booking_confirmation. La tabla nació (Programa de mejora
+-- integral, Prioridad 5) solo para `book_appointment`; esta fase extiende el
+-- mismo mecanismo de idempotencia + registro/aviso/reintento a
+-- `reschedule_appointment` y `cancel_appointment` (antes usaban notifyTeam
+-- directo, sin registro ni reintento — ver docs/korexia para el detalle).
+-- `kind` no participa en el UNIQUE(conversation_id, idempotency_key), que ya
+-- distingue cada lote de mensajes disparadores por sí solo: es solo para
+-- poder auditar/leer qué tipo de operación generó cada fila.
+--
+-- Puramente aditiva: columna nueva con DEFAULT — no rompe ninguna fila
+-- existente (todas las filas de book_appointment ya escritas quedan como
+-- 'reserva', que es exactamente lo que son) ni ningún lector viejo del
+-- esquema.
+--
+-- Rollback:
+--   ALTER TABLE "appointment_booking_confirmation" DROP COLUMN "kind";
+ALTER TABLE "appointment_booking_confirmation" ADD COLUMN "kind" text DEFAULT 'reserva' NOT NULL;

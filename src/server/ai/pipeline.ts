@@ -3342,6 +3342,7 @@ export async function runAgentTurn(
           organizationId,
           conversationId,
           messageIds: pendientes.map((m) => m.id),
+          kind: "reserva",
         });
       if (!primeraVezDeEsteLote) {
         console.warn(
@@ -3610,10 +3611,9 @@ export async function runAgentTurn(
       return action;
     }
     case "reschedule_appointment": {
-      // Fase 11-A — antes de tocar una cita real (`reprogramarCita`, más
-      // abajo, es un UPDATE sin protección de idempotencia propia — ver
-      // riesgos restantes del informe): sin ownership vigente, ni se
-      // intenta.
+      // Fase 11-A — antes de tocar una cita real: sin ownership vigente, ni
+      // se intenta. La idempotencia propia de `reprogramarCita` (Fase 8A)
+      // vive más abajo, después de resolver la cita y el servicio.
       await asegurarOwnershipVigente(conversation);
       const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
       const cita = encontrarCitaActiva(activas, action.servicio);
@@ -3637,31 +3637,70 @@ export async function runAgentTurn(
         return { action: "handoff", reason: "error" };
       }
       const nuevaFecha = normalizarFecha(action.nuevaFecha) ?? action.nuevaFecha;
-      const resultado = await reprogramarCita({
-        organizationId,
-        appointmentId: cita.id,
-        service: servicioRow,
-        staffId: cita.staffId,
-        nuevaFecha,
-        nuevaHora: action.nuevaHora,
-        hours,
-        now: opts?.now,
-      });
-      if (!resultado.ok) {
-        if (resultado.reason === "especialista_no_disponible") {
-          // Fase 10U — bug real: la especialista de la cita original ya no
-          // está activa (o ya no ofrece este servicio). No es "elige otra
-          // hora" (`sin_cupo`) — con ella ninguna hora sirve. Handoff real,
-          // mismo camino que "servicio ya no está en el catálogo" (Fase 10T).
-          await derivarAUnaPersona(conversation, { reason: "error" });
-          return { action: "handoff", reason: "error" };
+
+      /**
+       * Fase 8A — mismo mecanismo de idempotencia que `book_appointment`
+       * (auditoría Fase 8, hallazgo A2/B3): antes de reprogramar de verdad,
+       * registrar el lote de mensajes disparadores. Si un turno huérfano
+       * rescatado (`cola.ts`) sigue vivo y ejecuta este mismo case dos veces,
+       * la segunda ejecución no debe volver a mover la cita ni a duplicar el
+       * aviso al equipo.
+       */
+      const { primeraVez: primeraVezDeEsteLote, id: confirmacionDeCitaId } =
+        await registrarConfirmacionDeCita({
+          organizationId,
+          conversationId,
+          messageIds: pendientes.map((m) => m.id),
+          kind: "reprogramacion",
+        });
+
+      let yaAplicado = false;
+      if (!primeraVezDeEsteLote) {
+        // Repetición del mismo lote de mensajes — antes de reprogramar otra
+        // vez, comprobar con una lectura fresca si el cambio YA quedó
+        // aplicado (la primera ejecución pudo haber fallado, así que no se
+        // asume éxito a ciegas — mismo criterio que `buscarCitaYaCreada` en
+        // `book_appointment`).
+        const activasAhora = await citasActivasDeContacto(organizationId, conversation.contactId);
+        const citaAhora = activasAhora.find((c) => c.id === cita.id);
+        if (citaAhora) {
+          const actual = utcAFechaHoraBogota(citaAhora.startsAt);
+          yaAplicado = actual.fecha === nuevaFecha && actual.hora === action.nuevaHora;
         }
-        const msg =
-          resultado.reason === "fuera_de_horario"
-            ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
-            : `Ese horario ya no está disponible con ${cita.staffName}. ¿Qué otra hora prefieres?`;
-        await deliverReply(conversation, msg);
-        return action;
+        if (yaAplicado) {
+          console.warn(
+            `[citas] reschedule_appointment duplicado (mismos mensajes disparadores) en ${conversationId}; ya estaba aplicado, no se repite`
+          );
+        }
+      }
+
+      if (!yaAplicado) {
+        const resultado = await reprogramarCita({
+          organizationId,
+          appointmentId: cita.id,
+          service: servicioRow,
+          staffId: cita.staffId,
+          nuevaFecha,
+          nuevaHora: action.nuevaHora,
+          hours,
+          now: opts?.now,
+        });
+        if (!resultado.ok) {
+          if (resultado.reason === "especialista_no_disponible") {
+            // Fase 10U — bug real: la especialista de la cita original ya no
+            // está activa (o ya no ofrece este servicio). No es "elige otra
+            // hora" (`sin_cupo`) — con ella ninguna hora sirve. Handoff real,
+            // mismo camino que "servicio ya no está en el catálogo" (Fase 10T).
+            await derivarAUnaPersona(conversation, { reason: "error" });
+            return { action: "handoff", reason: "error" };
+          }
+          const msg =
+            resultado.reason === "fuera_de_horario"
+              ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
+              : `Ese horario ya no está disponible con ${cita.staffName}. ¿Qué otra hora prefieres?`;
+          await deliverReply(conversation, msg);
+          return action;
+        }
       }
       await avisarYConfirmar({
         conversation,
@@ -3670,6 +3709,7 @@ export async function runAgentTurn(
         nota: `Cita reprogramada: ${cita.serviceName} → ${nuevaFecha} ${action.nuevaHora}`,
         avisoEquipo: `🔁 Cita reprogramada: ${cita.serviceName} ahora el ${nuevaFecha} a las ${horaAAmPm(action.nuevaHora)} con ${cita.staffName}.`,
         farewell: action.farewell,
+        confirmationId: confirmacionDeCitaId,
       });
       return action;
     }
@@ -3685,7 +3725,31 @@ export async function runAgentTurn(
         );
         return action;
       }
-      await cancelarCita(organizationId, cita.id);
+
+      /**
+       * Fase 8A — mismo mecanismo que `book_appointment`/`reschedule_appointment`
+       * de arriba. A diferencia de reprogramar, cancelar es seguro de
+       * verificar sin una segunda lectura: `cita` salió de
+       * `citasActivasDeContacto` (solo citas activas) hace un instante, así
+       * que si esta ejecución perdió la carrera de idempotencia, la otra
+       * ejecución (que sí es `primeraVez`) es la única que debe llamar a
+       * `cancelarCita` — esta solo se une al aviso, ya idempotente por sí
+       * mismo vía `intentarNotificarCita`.
+       */
+      const { primeraVez: primeraVezDeEsteLote, id: confirmacionDeCitaId } =
+        await registrarConfirmacionDeCita({
+          organizationId,
+          conversationId,
+          messageIds: pendientes.map((m) => m.id),
+          kind: "cancelacion",
+        });
+      if (primeraVezDeEsteLote) {
+        await cancelarCita(organizationId, cita.id);
+      } else {
+        console.warn(
+          `[citas] cancel_appointment duplicado (mismos mensajes disparadores) en ${conversationId}; ya estaba cancelada, no se repite`
+        );
+      }
       const { fecha, hora } = utcAFechaHoraBogota(cita.startsAt);
       await avisarYConfirmar({
         conversation,
@@ -3694,6 +3758,7 @@ export async function runAgentTurn(
         nota: `Cita cancelada: ${cita.serviceName} · ${fecha} ${hora}`,
         avisoEquipo: `❌ Cita cancelada: ${cita.serviceName} del ${fecha} a las ${horaAAmPm(hora)} (${cita.staffName}).`,
         farewell: action.farewell,
+        confirmationId: confirmacionDeCitaId,
       });
       return action;
     }
@@ -4165,16 +4230,16 @@ async function avisarYConfirmar(params: {
   avisoEquipo: string;
   farewell?: string;
   /**
-   * Fase 6B — presente SOLO para `book_appointment` (la fila de
-   * `appointmentBookingConfirmation` que `registrarConfirmacionDeCita` ya
-   * creó). Cuando existe, el aviso pasa por `intentarNotificarCita`
+   * Fase 6B, extendido en Fase 8A — la fila de `appointmentBookingConfirmation`
+   * que `registrarConfirmacionDeCita` ya creó para esta operación
+   * (`book_appointment`, `reschedule_appointment` o `cancel_appointment`,
+   * ver `kind`). Cuando existe, el aviso pasa por `intentarNotificarCita`
    * (registro/aviso/reintento — mismo patrón que `notify_order`, Fase
    * 11-B) en vez de llamar `notifyTeam` directo: si el envío falla,
    * `reintentarNotificacionesDeCitaPendientes` (worker.ts) lo reintenta
-   * solo, en vez de perderse en silencio. `reschedule_appointment` y
-   * `cancel_appointment` no tienen una fila de idempotencia propia (riesgo
-   * residual ya documentado, fuera de este alcance) y siguen con el
-   * `notifyTeam` directo de siempre cuando este campo no se pasa.
+   * solo, en vez de perderse en silencio. Solo queda sin pasar para
+   * conversaciones de prueba (ver el `else` de abajo, gateado también por
+   * `isTest`) — nunca por tipo de operación.
    */
   confirmationId?: string;
 }): Promise<void> {
@@ -4205,12 +4270,13 @@ async function avisarYConfirmar(params: {
     }
   } else {
     /**
-     * Camino directo de siempre: `reschedule_appointment`/
-     * `cancel_appointment` (sin `confirmationId`, riesgo residual ya
-     * documentado, fuera de este alcance) y CUALQUIER conversación de
-     * prueba (Laboratorio) — `isTest: true` simula el aviso sin mandar nada
-     * real, y no debe generar una fila que
-     * `reintentarNotificacionesDeCitaPendientes` intente reenviar de verdad.
+     * Camino directo: CUALQUIER conversación de prueba (Laboratorio) —
+     * `isTest: true` simula el aviso sin mandar nada real, y no debe
+     * generar una fila que `reintentarNotificacionesDeCitaPendientes`
+     * intente reenviar de verdad. Desde la Fase 8A, `confirmationId` llega
+     * para las tres operaciones (`book_appointment`, `reschedule_appointment`,
+     * `cancel_appointment`) en conversaciones reales — este `else` ya no
+     * distingue por tipo de operación.
      */
     await notifyTeam({
       organizationId: params.organizationId,

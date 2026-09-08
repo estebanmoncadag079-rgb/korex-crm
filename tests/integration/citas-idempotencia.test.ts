@@ -94,4 +94,61 @@ d("registrarConfirmacionDeCita: atomicidad (Postgres real)", () => {
     });
     expect(r2.primeraVez).toBe(true);
   });
+
+  it("Fase 8A: 'kind' se guarda tal cual para reschedule/cancel, y NO participa en la clave de unicidad (mismo messageIds, distinto kind -> igual gana solo uno)", async () => {
+    const { eq } = await import("drizzle-orm");
+    const reprog = await mod.registrarConfirmacionDeCita({
+      organizationId: ORG,
+      conversationId: CONVERSACION,
+      messageIds: ["msg_reschedule"],
+      kind: "reprogramacion",
+    });
+    expect(reprog.primeraVez).toBe(true);
+    const [filaReprog] = await db
+      .select({ kind: schema.appointmentBookingConfirmation.kind })
+      .from(schema.appointmentBookingConfirmation)
+      .where(eq(schema.appointmentBookingConfirmation.id, reprog.id));
+    expect(filaReprog?.kind).toBe("reprogramacion");
+
+    const cancel = await mod.registrarConfirmacionDeCita({
+      organizationId: ORG,
+      conversationId: CONVERSACION,
+      messageIds: ["msg_cancel"],
+      kind: "cancelacion",
+    });
+    expect(cancel.primeraVez).toBe(true);
+    const [filaCancel] = await db
+      .select({ kind: schema.appointmentBookingConfirmation.kind })
+      .from(schema.appointmentBookingConfirmation)
+      .where(eq(schema.appointmentBookingConfirmation.id, cancel.id));
+    expect(filaCancel?.kind).toBe("cancelacion");
+
+    // Repetir el MISMO lote de mensajes de la reprogramación, esta vez
+    // pidiendo (por error o por una carrera real) kind:"cancelacion": el
+    // UNIQUE es (conversationId, idempotencyKey) — kind no participa, así
+    // que sigue ganando solo el primer registro, sin importar qué kind pida
+    // el segundo intento.
+    const repetido = await mod.registrarConfirmacionDeCita({
+      organizationId: ORG,
+      conversationId: CONVERSACION,
+      messageIds: ["msg_reschedule"],
+      kind: "cancelacion",
+    });
+    expect(repetido.primeraVez).toBe(false);
+    expect(repetido.id).toBe(reprog.id);
+  });
+
+  it("book_appointment sin pasar 'kind' explícito sigue quedando 'reserva' (compatibilidad, Fase 8A no cambia el comportamiento por defecto)", async () => {
+    const { eq } = await import("drizzle-orm");
+    const r = await mod.registrarConfirmacionDeCita({
+      organizationId: ORG,
+      conversationId: CONVERSACION,
+      messageIds: ["msg_sin_kind"],
+    });
+    const [f] = await db
+      .select({ kind: schema.appointmentBookingConfirmation.kind })
+      .from(schema.appointmentBookingConfirmation)
+      .where(eq(schema.appointmentBookingConfirmation.id, r.id));
+    expect(f?.kind).toBe("reserva");
+  });
 });

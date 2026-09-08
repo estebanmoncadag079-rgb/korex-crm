@@ -266,6 +266,33 @@ describe("reintentarNotificacionesDeCitaPendientes: el barrido periódico (worke
     expect(notifyTeam).not.toHaveBeenCalled();
   });
 
+  it("8 (Fase 8A): una notificación fallida de un RESCHEDULE/CANCEL (kind distinto de 'reserva') se reintenta igual y termina 'enviado' -> el mecanismo no depende del tipo de operación", async () => {
+    const reschedule = fila({
+      id: "apbc_reschedule",
+      notifyStatus: "fallo_recuperable",
+      notifyAttempts: 1,
+      summary: "Cita reprogramada: Corte de cabello → 11/08/2026 11:00",
+    });
+    const cancel = fila({
+      id: "apbc_cancel",
+      notifyStatus: "fallo_recuperable",
+      notifyAttempts: 1,
+      summary: "Cita cancelada: Manicure · 10/08/2026 10:00",
+    });
+    filas.set(reschedule.id, reschedule);
+    filas.set(cancel.id, cancel);
+    notifyTeam.mockResolvedValue({ sent: 1, failed: 0, detail: "ok" });
+
+    const { reintentarNotificacionesDeCitaPendientes } = await import(
+      "@/server/ai/confirmacion-de-cita"
+    );
+    const n = await reintentarNotificacionesDeCitaPendientes();
+
+    expect(n).toBe(2);
+    expect(filas.get(reschedule.id)!.notifyStatus).toBe("enviado");
+    expect(filas.get(cancel.id)!.notifyStatus).toBe("enviado");
+  });
+
   it("7: dos citas independientes pendientes -> el barrido las procesa a ambas, cada una con su propio contenido (sin mezclarlas)", async () => {
     const a = fila({ id: "apbc_a", summary: "Corte — Laura", customerPhone: "573000000001" });
     const b = fila({ id: "apbc_b", summary: "Manicure — Karen", customerPhone: "573000000002" });

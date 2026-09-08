@@ -331,6 +331,22 @@ export const appointmentBookingConfirmation = pgTable(
       .references(() => conversation.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
     /**
+     * Fase 8A — qué operación protege esta fila. La tabla nació (Programa de
+     * mejora integral, Prioridad 5) solo para `book_appointment`; el
+     * `UNIQUE(conversationId, idempotencyKey)` ya distinguía cada lote de
+     * mensajes disparadores por sí solo, así que `kind` no hace falta para la
+     * unicidad — es para poder distinguir/auditar qué tipo de operación
+     * generó cada fila al leerla (soporte, `reintentarNotificacionesDeCitaPendientes`,
+     * paneles futuros). Default `'reserva'` para que ninguna fila ya
+     * existente ni el llamador de `book_appointment` (que no pasa este
+     * campo) cambie de comportamiento.
+     */
+    kind: text("kind", {
+      enum: ["reserva", "reprogramacion", "cancelacion"],
+    })
+      .notNull()
+      .default("reserva"),
+    /**
      * Fase 6B — mismo patrón que `orderConfirmation.notifyStatus` (Fase
      * 11-B): separa "la cita quedó registrada" (esta fila existe, cierto
      * desde el `INSERT`) de "el aviso al equipo se entregó de verdad" (este

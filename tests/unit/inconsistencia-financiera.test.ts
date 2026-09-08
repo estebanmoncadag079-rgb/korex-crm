@@ -382,6 +382,105 @@ describe("inconsistenciaFinancieraDePedido — Fase 11-C: subtotal calculado por
 });
 
 /**
+ * Fase 8F — incidente REAL de producción (8-sep-2026, 14:44, MALIA,
+ * conversación cv_en2sl2o4mt1ebqbxrj9l). Configuración real de esa
+ * organización, verificada en la base: `state_source='backend'` (el backend
+ * SÍ conoce el subtotal del carrito) + `delivery_source='prompt'` con CERO
+ * filas en `delivery_zone` (el backend NO puede conocer la tarifa de
+ * domicilio: vive en prosa en la ficha, por diseño).
+ *
+ * El carrito real tenía 1 × Pavé Cremoso 16 oz = $18.000. El resumen decía
+ * "Total: $26.000" — correcto: $18.000 + $8.000 de domicilio. El chequeo
+ * comparaba contra `subtotalReal + (zonaEfectiva ?? 0)` = $18.000 y marcaba
+ * contradicción; el reintento repetía el total correcto (porque lo era) y
+ * el turno terminaba derivado a una persona con la clienta ya habiendo
+ * escrito "Correcto". Todo pedido a domicilio de un negocio en esa
+ * combinación fallaba igual.
+ */
+describe("inconsistenciaFinancieraDePedido — Fase 8F: total real con domicilio que el backend no puede conocer", () => {
+  it("BUG REAL: subtotal conocido + domicilio en prosa (sin zonas) -> el total del resumen NO se marca como contradicción", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary:
+        "1 × Pavé Cremoso 16 oz (Sabor: Fresas con crema) — $18.000. Domicilio: $8.000. Total: $26.000",
+      subtotalCents: 1800000,
+      totalCents: 2600000,
+      deliveryFeeCents: 800000,
+      zonaVerificada: null, // delivery_source='prompt': no hay zona que verificar
+      puedeVerificarDomicilio: false, // cero filas en delivery_zone
+      subtotalReal: 1800000, // state_source='backend': el subtotal SÍ se conoce
+    });
+    expect(r).toBeNull();
+  });
+
+  it("el subtotal estructurado se sigue verificando SIEMPRE, con domicilio o sin él", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 × Pavé Cremoso 16 oz — $25.000. Domicilio: $8.000. Total: $33.000",
+      subtotalCents: 2500000, // el modelo se inventó el subtotal
+      totalCents: 3300000,
+      deliveryFeeCents: 800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 1800000, // el carrito real dice $18.000
+    });
+    expect(r).toBe("subtotal-no-coincide-con-el-carrito");
+  });
+
+  it("sin domicilio en juego, el total del resumen se sigue comparando igual que antes", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 × Pavé Cremoso 16 oz — $18.000. Recoges en el local. Total: $99.000",
+      subtotalCents: 1800000,
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 1800000,
+    });
+    expect(r).toBe("resumen-contradice-total-real");
+  });
+
+  it("con zona VERIFICADA (delivery_source='tabla') el total sí se compara, incluyendo el domicilio", () => {
+    const ZONA = { feeCents: 800000 };
+    // Correcto: 18.000 + 8.000 = 26.000
+    expect(
+      inconsistenciaFinancieraDePedido({
+        summary: "Pavé — $18.000. Domicilio: $8.000. Total: $26.000",
+        subtotalCents: 1800000,
+        deliveryFeeCents: 800000,
+        totalCents: 2600000,
+        zonaVerificada: ZONA,
+        puedeVerificarDomicilio: true,
+        subtotalReal: 1800000,
+      })
+    ).toBeNull();
+    // Incorrecto: el resumen dice otro total del que sale de datos reales.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        summary: "Pavé — $18.000. Domicilio: $8.000. Total: $30.000",
+        subtotalCents: 1800000,
+        deliveryFeeCents: 800000,
+        totalCents: 2600000,
+        zonaVerificada: ZONA,
+        puedeVerificarDomicilio: true,
+        subtotalReal: 1800000,
+      })
+    ).toBe("resumen-contradice-total-real");
+  });
+
+  it("farewell (Fase 8D) hereda el mismo candado: con domicilio no verificable, no se marca", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "Pavé — $18.000. Domicilio: $8.000. Total: $26.000",
+      farewell: "¡Gracias! Tu pedido queda por un total de $26.000 💕",
+      subtotalCents: 1800000,
+      totalCents: 2600000,
+      deliveryFeeCents: 800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 1800000,
+    });
+    expect(r).toBeNull();
+  });
+});
+
+/**
  * Fase 8D — auditoría de Fase 8D: `summary` (lo que ve el EQUIPO) ya se
  * verificaba; `farewell` (lo que de verdad lee el CLIENTE, ver
  * `conducta.ts`: "dale los datos de pago tal cual están escritos") no

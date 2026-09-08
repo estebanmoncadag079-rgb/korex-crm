@@ -909,8 +909,36 @@ export function inconsistenciaFinancieraDePedido(input: {
    * el número estructurado). Solo aplica cuando hay un `subtotalReal`
    * conocido: sin él no hay ningún total "real" contra el cual comparar lo
    * que diga el resumen.
+   *
+   * Fase 8F — incidente real (8-sep-2026, MALIA, conv cv_en2sl2o4mt1ebqbxrj9l):
+   * el backend puede conocer el SUBTOTAL (`state_source='backend'`) y a la
+   * vez NO poder conocer la TARIFA DE DOMICILIO (`delivery_source='prompt'`,
+   * cero filas en `delivery_zone` — el domicilio vive en prosa en la ficha,
+   * por diseño). En esa combinación, `subtotalReal + (zonaEfectiva ?? 0)` NO
+   * es el total real del pedido: le falta, exactamente, el domicilio. El
+   * resumen decía "Total: $26.000" ($18.000 del carrito + $8.000 de
+   * domicilio, correcto) y esto lo comparaba contra $18.000 → contradicción
+   * → reintento → el modelo repetía el total correcto (porque lo era) →
+   * derivación a una persona, con la clienta ya habiendo confirmado. TODO
+   * pedido a domicilio de un negocio en esa combinación fallaba igual.
+   *
+   * Es el MISMO defecto estructural que el fix de Zahenz/MALIA (7-sep) cerró
+   * para la rama `domicilio-no-verificado` — un guardarraíl no puede exigir
+   * una prueba que el propio sistema le impide producir — y que esta rama,
+   * escrita aparte, nunca recibió. La comparación de total solo tiene sentido
+   * cuando el backend conoce el total COMPLETO: sin domicilio en juego, o con
+   * una tarifa efectiva verificada. El subtotal estructurado
+   * (`subtotalCents === subtotalReal`, arriba) sigue verificándose SIEMPRE:
+   * esa parte sí la conoce el backend, con domicilio o sin él.
    */
-  if (input.subtotalReal !== undefined) {
+  const hayDomicilioEnJuego =
+    zonaVerificada !== null ||
+    input.entregaPersistida?.tipo === "domicilio" ||
+    (deliveryFeeCents !== undefined && deliveryFeeCents !== null && deliveryFeeCents > 0) ||
+    figurasDeDomicilioEnCents(summary).length > 0;
+  const backendConoceElTotalCompleto = zonaEfectiva !== null || !hayDomicilioEnJuego;
+
+  if (input.subtotalReal !== undefined && backendConoceElTotalCompleto) {
     const totalReal = input.subtotalReal + (zonaEfectiva?.feeCents ?? 0);
     if (figurasDeTotalEnCents(summary).some((c) => c !== totalReal)) {
       return "resumen-contradice-total-real";

@@ -1493,5 +1493,26 @@ export function contradiceDatosDeCuenta(
   });
 }
 
+/**
+ * Fase 8J — el backend rechazó el carrito propuesto y hay algo concreto que
+ * preguntarle al cliente. `motivos` y `preguntas` salen tal cual de
+ * `validarPropuesta` (`orders/estado.ts`), que ya los redacta en palabras
+ * legibles: no se reescriben aquí para que el modelo reciba EXACTAMENTE el
+ * hecho que el backend comprobó, no una paráfrasis.
+ */
+export function correccionDePropuestaRechazada(
+  motivos: string[],
+  preguntas: string[]
+): string {
+  return [
+    "ALTO. El sistema NO pudo registrar el pedido tal como lo propusiste:",
+    ...motivos.map((m) => `- ${m}`),
+    "Eso significa que lo que le estás por decir al cliente se apoya en algo que no existe en el catálogo real o en datos que todavía faltan.",
+    "Rehaz tu respuesta preguntándole al cliente lo que hace falta, con estas opciones reales:",
+    ...preguntas.map((p) => `- ${p}`),
+    "No confirmes ni des por hecho lo que el sistema acaba de rechazar. Responde ÚNICAMENTE el objeto JSON.",
+  ].join("\n");
+}
+
 export const CORRECCION_DE_DATOS_DE_CUENTA =
   "ALTO. Los datos de cuenta que citaste NO coinciden con los datos reales configurados por el negocio — parece que cambiaste o inventaste un dígito. Nunca alteres esos datos: cópialos TAL CUAL como aparecen en tu información, sin cambiar ni un dígito, o si no los tienes completos, no los inventes: pide confirmarlos con el equipo. Responde ÚNICAMENTE el objeto JSON.";

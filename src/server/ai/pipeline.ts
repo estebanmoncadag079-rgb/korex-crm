@@ -168,6 +168,7 @@ import {
   correccionDeInconsistenciaFinanciera,
   contradiceDatosDeCuenta,
   CORRECCION_DE_DATOS_DE_CUENTA,
+  correccionDePropuestaRechazada,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
 import { encolarTurno, siguePoseyendoElTrabajo } from "@/server/ai/cola";
@@ -336,11 +337,77 @@ export function mayorSaltoDeHistorial(
   return mayorGapMs > 0 ? diasDeSalto(mayorGapMs) : null;
 }
 
+/**
+ * Fase 8I — qué decirle al modelo de un mensaje del cliente que llegó SIN
+ * texto pero CON adjunto (un sticker, un video, o un audio/imagen cuya
+ * conversión falló).
+ *
+ * Incidente real (MALIA, 8-sep-2026, conv cv_d6dk9kjvzln94gm5qlv4): una
+ * clienta mandó un sticker. `mediaATexto` no convierte stickers y
+ * `textoDeMensaje` deja `null` cuando hay adjunto, así que la fila se guardó
+ * sin texto y el filtro de aquí abajo la descartaba entera. Como era el
+ * ÚLTIMO mensaje, lo que le llegaba al modelo terminaba en su propia
+ * respuesta anterior — y Gemini rechaza eso: `400 "Requests ending with a
+ * model turn are not supported"` → derivación a una persona.
+ *
+ * Es la MISMA familia del incidente de Jorge (La Churra, 2-ago-2026, ver el
+ * comentario de `pendientes` en `runAgentTurn`): historial que termina en el
+ * turno del propio agente → error del proveedor → venta perdida. Aquel se
+ * cerró para "no hay nada nuevo que contestar"; este entra por la otra
+ * puerta: SÍ hay algo nuevo, pero sin texto que mostrar.
+ *
+ * Medido en producción antes del arreglo: 234 stickers, 27 videos y 15
+ * audios en 30 días, en ~114 conversaciones — todos invisibles para el
+ * agente. No es un caso raro: es tráfico normal de WhatsApp.
+ *
+ * El marcador se calcula aquí, al armar lo que ve el modelo, y NO se guarda
+ * en la base: en la bandeja una persona ya ve el sticker en pantalla y un
+ * texto puesto encima sería ruido. Así además quedan cubiertos los 277
+ * mensajes que ya están guardados sin texto, sin migrar nada.
+ */
+export function descripcionDeAdjuntoSinTexto(type: string | null | undefined): string {
+  switch (type) {
+    case "sticker":
+      return "[el cliente envió un sticker]";
+    case "video":
+      return "[el cliente envió un video]";
+    case "audio":
+      return "[el cliente envió una nota de voz que no se pudo transcribir]";
+    case "image":
+      return "[el cliente envió una imagen que no se pudo leer]";
+    case "document":
+      return "[el cliente envió un documento]";
+    default:
+      return "[el cliente envió un archivo]";
+  }
+}
+
 export function toChatHistory(
-  history: { direction: string; text: string | null; aiGenerated?: boolean; createdAt?: Date }[],
+  history: {
+    direction: string;
+    text: string | null;
+    aiGenerated?: boolean;
+    createdAt?: Date;
+    type?: string | null;
+    mediaUrl?: string | null;
+  }[],
   estado?: "abierto" | "cerrado" | null
 ): ChatMessage[] {
-  const mensajes = history.filter((m) => m.text);
+  /*
+   * Fase 8I — un mensaje ENTRANTE con adjunto y sin texto deja de
+   * desaparecer: se le pone un marcador que describe qué llegó (ver
+   * `descripcionDeAdjuntoSinTexto`). Solo los entrantes: un saliente sin
+   * texto no puede dejar el historial terminando en turno del modelo, que es
+   * lo que rompía el turno, y tocarlo sería cambiar lo que ve el modelo en
+   * conversaciones donde hoy funciona bien.
+   */
+  const mensajes = history
+    .map((m) =>
+      !m.text && m.direction === "in" && m.mediaUrl
+        ? { ...m, text: descripcionDeAdjuntoSinTexto(m.type) }
+        : m
+    )
+    .filter((m) => m.text);
   const resultado: ChatMessage[] = [];
   for (let i = 0; i < mensajes.length; i++) {
     const m = mensajes[i]!;
@@ -1442,6 +1509,66 @@ export async function runAgentTurn(
   }
 
   let action: AgentActionType = result.data;
+
+  /**
+   * Fase 8J — el carrito que el backend RECHAZÓ deja de ser invisible.
+   *
+   * Incidente real (MALIA, 8-sep-2026, conv cv_2xfh67lig9a07xzief96): una
+   * clienta pidió un "pavé de oblea". El backend rechazó el carrito CINCO
+   * veces seguidas —`"Oblea" no está entre las opciones de Pavé Cremoso 8
+   * oz`— y cada rechazo se registraba en una métrica y se descartaba
+   * (`guardarEstadoPropuesto`, más abajo: antes hacía `return null`). El
+   * modelo nunca se enteró: siguió armando el pedido con un ítem que el
+   * sistema jamás iba a aceptar, le mostró un resumen de $36.000 a la
+   * clienta, y el error solo salió a la luz al cerrar —cuando el guardarraíl
+   * financiero vio que el carrito real valía $18.000— con una derivación a
+   * una persona, diez minutos después. La clienta canceló.
+   *
+   * Medido en 3 horas de producción: **21 de 95 propuestas rechazadas
+   * (22%)**, y la cascada es clara — un ítem que no resuelve deja el carrito
+   * sin total, así que todos los turnos siguientes se rechazan con
+   * `confirmado sin total calculado`. Avisarle al modelo en el PRIMER
+   * rechazo corta la cascada entera.
+   *
+   * Aquí es el único punto donde esto se puede corregir a tiempo: el estado
+   * se valida justo después de la respuesta del modelo y **antes** de que la
+   * acción se ejecute, así que el cliente todavía no ha recibido nada.
+   *
+   * Deliberadamente conservador, por lo aprendido hoy con los guardarraíles
+   * que causaron derivaciones en cadena:
+   * - Solo corrige cuando el rechazo trae una PREGUNTA que hacerle al
+   *   cliente (`dudas`): sin eso no hay nada accionable y una llamada más al
+   *   modelo sería puro gasto.
+   * - UN solo reintento.
+   * - Si el reintento tampoco valida, **sigue el turno como hasta hoy** — no
+   *   deriva. Peor que hoy, imposible; el guardarraíl financiero sigue
+   *   siendo la última barrera antes de cerrar un pedido inconsistente.
+   */
+  if (estadoRecienGuardado?.rechazo && estadoRecienGuardado.rechazo.preguntas.length > 0) {
+    const { motivos, preguntas } = estadoRecienGuardado.rechazo;
+    console.warn(
+      `[estado] propuesta rechazada por el backend en ${conversationId} (${motivos.join(" · ")}); avisando al modelo antes de responderle al cliente`
+    );
+    const messagesReintento: ChatMessage[] = [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: correccionDePropuestaRechazada(motivos, preguntas) },
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/propuesta-rechazada`
+    );
+    if (reintento.ok) {
+      action = reintento.data;
+      agregarGuardarrail(traza, "propuesta_rechazada", true);
+    } else {
+      // El proveedor falló en el reintento: se sigue con la respuesta
+      // original, exactamente como se hacía antes de esta fase.
+      agregarGuardarrail(traza, "propuesta_rechazada", false);
+    }
+  }
 
   /**
    * `consult_availability` es una acción interna: el sistema calcula los
@@ -4415,7 +4542,17 @@ async function guardarEstadoPropuesto(entrada: {
    * sobre datos viejos.
    */
   versionEsperada?: number;
-}): Promise<{ guardadoConfirmadoTrue: boolean } | null> {
+}): Promise<{
+  guardadoConfirmadoTrue?: boolean;
+  /**
+   * Fase 8J — por qué el backend NO aceptó el carrito, en las mismas palabras
+   * que ya calcula `validarPropuesta`. Antes esto solo se registraba en una
+   * métrica y se descartaba: el modelo seguía el turno creyendo que su
+   * propuesta valía, y el cliente recibía una respuesta construida sobre un
+   * pedido que el sistema jamás iba a aceptar.
+   */
+  rechazo?: { motivos: string[]; preguntas: string[] };
+} | null> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
   const t0 = Date.now();
@@ -4452,7 +4589,17 @@ async function guardarEstadoPropuesto(entrada: {
     );
     if (!v.ok) {
       metrica("rechazado", { validacion: v });
-      return null;
+      /*
+       * Fase 8J — se devuelve el porqué en vez de tragárselo. El llamador
+       * decide qué hacer con él (hoy: una corrección al modelo antes de que
+       * el cliente vea nada); aquí solo se deja de perder la información.
+       */
+      return {
+        rechazo: {
+          motivos: v.rechazos,
+          preguntas: v.dudas.map((d) => d.preguntar).filter(Boolean),
+        },
+      };
     }
     const resultado = await guardarEstado({
       conversationId: entrada.conversationId,

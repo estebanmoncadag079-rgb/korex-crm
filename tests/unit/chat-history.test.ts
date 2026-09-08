@@ -82,3 +82,63 @@ describe("mensajes que escribe una persona del equipo", () => {
     expect(turno.role).toBe("assistant");
   });
 });
+
+/**
+ * Fase 8I — incidente real (MALIA, 8-sep-2026, conv cv_d6dk9kjvzln94gm5qlv4):
+ * una clienta mandó un STICKER. Los stickers no se transcriben y llegan con
+ * `text = null`, así que el filtro de `toChatHistory` los descartaba enteros.
+ * Como el sticker era el ÚLTIMO mensaje, lo que le llegaba al modelo
+ * terminaba en su propia respuesta anterior — y Gemini rechaza eso:
+ * `400 "Requests ending with a model turn are not supported"` → derivación.
+ *
+ * Misma familia que el incidente de Jorge (La Churra, 2-ago-2026), que ya
+ * costó una venta por la otra puerta: historial terminando en turno del
+ * agente.
+ *
+ * Medido antes del arreglo: 234 stickers, 27 videos y 15 audios en 30 días,
+ * en ~114 conversaciones — todos invisibles para el agente.
+ */
+describe("Fase 8I: adjuntos entrantes sin texto (stickers, videos, audios sin transcribir)", () => {
+  it("BUG REAL: un sticker al final ya NO deja el historial terminando en turno del modelo", () => {
+    const turnos = toChatHistory([
+      { direction: "in", text: "hola, quiero un pavé" },
+      { direction: "out", text: "¡Claro! ¿De cuál sabor?", aiGenerated: true },
+      { direction: "in", text: null, type: "sticker", mediaUrl: "https://x/y.webp" },
+    ]);
+    expect(turnos).toHaveLength(3);
+    expect(turnos.at(-1)!.role).toBe("user");
+    expect(turnos.at(-1)!.content).toContain("sticker");
+  });
+
+  it("describe cada tipo por lo que es, sin inventar contenido", () => {
+    const tipo = (t: string) =>
+      toChatHistory([{ direction: "in", text: null, type: t, mediaUrl: "https://x/y" }])[0]!.content;
+    expect(tipo("sticker")).toContain("sticker");
+    expect(tipo("video")).toContain("video");
+    expect(tipo("audio")).toContain("nota de voz");
+    expect(tipo("image")).toContain("imagen");
+    expect(tipo("document")).toContain("documento");
+    expect(tipo("cualquier_otro")).toContain("archivo");
+  });
+
+  it("no toca lo que SÍ trae texto: un audio transcrito entra con su transcripción", () => {
+    const turno = toChatHistory([
+      { direction: "in", text: "quiero dos pavés", type: "audio", mediaUrl: "https://x/y.ogg" },
+    ])[0]!;
+    expect(turno.role).toBe("user");
+    expect(turno.content).toBe("quiero dos pavés");
+  });
+
+  it("un mensaje sin texto y SIN adjunto sigue descartándose (ya trae su marcador desde la ingesta)", () => {
+    expect(toChatHistory([{ direction: "in", text: null, type: "unsupported" }])).toHaveLength(0);
+  });
+
+  it("un SALIENTE sin texto se sigue descartando: no puede romper el turno y tocarlo cambiaría lo que ve el modelo donde hoy funciona", () => {
+    const turnos = toChatHistory([
+      { direction: "in", text: "hola" },
+      { direction: "out", text: null, type: "image", mediaUrl: "https://x/y.jpg" },
+    ]);
+    expect(turnos).toHaveLength(1);
+    expect(turnos[0]!.role).toBe("user");
+  });
+});

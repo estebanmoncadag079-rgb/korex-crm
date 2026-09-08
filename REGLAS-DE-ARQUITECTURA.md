@@ -268,6 +268,13 @@ Y dentro de la categoría 1, de qué tipo de dato se trata:
 * Reserva.
 * Política.
 
+**Cuidado (8-sep-2026):** el lenguaje de la solicitud no basta para
+clasificar. Cuando exista duda, comprobar primero qué mecanismo/archivos
+reales serían afectados (adelantando la pregunta del Paso 4) y si son
+compartidos por la plataforma, antes de fijar la categoría — una petición
+redactada en términos de un solo cliente puede requerir tocar algo
+compartido por todas las organizaciones.
+
 ---
 
 ### Paso 3

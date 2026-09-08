@@ -1,0 +1,12 @@
+-- Fase 10Q (4-sep-2026) — token de posesion (compare-and-set optimista) para
+-- agent_job. Ver el comentario de `generation` en schema.ts: completarTrabajo/
+-- fallarTrabajo escribian por `id` sin comprobar `locked_by`, asi que un
+-- worker que perdio un trabajo por rescatarHuerfanos (turno vivo > 5 min, no
+-- un proceso muerto) podia completar/fallar un job que ya era de otro
+-- worker. `tomarTrabajo` y `rescatarHuerfanos` incrementan `generation` al
+-- (re)asignar; completarTrabajo/fallarTrabajo solo afectan la fila si la
+-- generacion coincide con la que tenian al tomarlo.
+--
+-- Rollback:
+--   ALTER TABLE "agent_job" DROP COLUMN "generation";
+ALTER TABLE "agent_job" ADD COLUMN "generation" integer DEFAULT 0 NOT NULL;

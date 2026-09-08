@@ -185,6 +185,53 @@ export function prometeRecurso(texto: string | null | undefined): boolean {
 export const CORRECCION_DE_RECURSO_PROMETIDO =
   'ALTO. Tu respuesta le dice al cliente que le compartes un catálogo, una foto o un documento, pero NO emitiste send_image en este turno: nada se envía y el cliente se queda esperando algo que nunca llega. Si el recurso está en la lista de FOTOS QUE PUEDES ENVIAR, emite send_image con su etiqueta EXACTA, copiada tal cual de esa lista. Si no hay ninguna con ese nombre, dilo con reply y NO prometas un envío que no puedes cumplir. Responde ÚNICAMENTE el objeto JSON.';
 
+/*
+ * ============================================================
+ * "Handoff fantasma": promete un humano y la acción NO es `handoff`
+ * ============================================================
+ *
+ * Fase 10T — mismo molde que `prometeRecurso` (18-ago-2026, catálogo
+ * fantasma), aplicado al hallazgo de la auditoría de handoff: el prompt
+ * (`generador/generar.ts`) le pide al modelo, para CUALQUIER derivación,
+ * decir en una línea "te comunico con alguien del equipo" — pero nada
+ * comprobaba que la acción emitida fuera de verdad `handoff`. Se confirmó un
+ * caso real ya en código, no hipotético: `pipeline.ts` (reschedule con el
+ * servicio de la cita ya borrado del catálogo) mandaba ese texto exacto con
+ * un `reply` suelto, sin ningún handoff detrás — el agente seguía activo y
+ * respondía normal al siguiente mensaje, dejando al cliente esperando a una
+ * persona que nunca llega. Ese caso puntual ya se corrigió directamente en
+ * `pipeline.ts`; este guardarraíl es la protección general para cualquier
+ * otro camino (presente o futuro) que caiga en el mismo patrón.
+ */
+const VERBO_DE_DERIVACION = "(?:comunico|paso|conecto|derivo|transfiero)";
+const HUMANO_DEL_EQUIPO =
+  "(?:alguien(?:\\s+del\\s+equipo)?|una\\s+persona(?:\\s+del\\s+equipo)?|un\\s+asesor(?:a)?|el\\s+equipo)";
+
+const PROMETE_HUMANO: RegExp[] = [
+  // "te comunico/paso/conecto/derivo... con alguien/una persona/el equipo"
+  new RegExp(`\\bte\\s+${VERBO_DE_DERIVACION}\\b[^.!?]{0,40}?\\bcon\\s+${HUMANO_DEL_EQUIPO}\\b`, "i"),
+  // "alguien del equipo/una persona te atiende/contacta/escribe"
+  new RegExp(`\\b${HUMANO_DEL_EQUIPO}\\s+te\\s+(?:atiende|contacta|escribe|responde)\\b`, "i"),
+];
+
+/**
+ * `true` si alguna ORACIÓN (no una pregunta) promete un humano real. Mismo
+ * criterio que `prometeRecurso`: por oración, ignorando preguntas — "¿quieres
+ * que te comunique con alguien del equipo?" es una oferta, no una promesa.
+ */
+export function prometeHumanoSinDerivar(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    return PROMETE_HUMANO.some((re) => re.test(oracion));
+  });
+}
+
+/** La corrección cuando promete un humano sin que la acción sea `handoff`. */
+export const CORRECCION_DE_HUMANO_PROMETIDO =
+  "ALTO. Tu respuesta le dice al cliente que lo vas a comunicar con una persona o con el equipo, pero tu acción NO es \"handoff\": nadie del equipo se entera y el cliente se queda esperando a alguien que nunca llega. Si de verdad hace falta derivar, cambia tu acción a \"handoff\" con ese mismo farewell. Si no hace falta derivar, no le prometas que lo vas a comunicar con una persona. Responde ÚNICAMENTE el objeto JSON.";
+
 /* ============================================================
  * Producto que desaparece del pedido (9-ago-2026)
  * ============================================================ */
@@ -322,10 +369,6 @@ const ANUNCIA_RESUMEN: RegExp[] = [
   /aqu[íi]\s+(?:est[áa]|tienes)\s+(?:el\s+)?resumen/i,
 ];
 
-/**
- * Un total con cifra. Es lo que distingue un resumen de verdad de un anuncio
- * vacío: puede faltar cualquier viñeta, pero un resumen sin total no es nada.
- */
 /**
  * Un resumen de verdad lleva su total con la cifra.
  *
@@ -624,12 +667,77 @@ export const CORRECCION_DE_DOMICILIO_CONTRADICHO =
  *   podrían estar perfectos y el texto que de verdad se lee seguir
  *   diciendo un número distinto.
  */
+/**
+ * Fase 11-C — las mismas cifras en pesos que `figurasDeDomicilioEnCents`,
+ * pero cerca de la palabra "total": defensa de TEXTO adicional, nunca la
+ * única (el chequeo real es `subtotalReal`, un número estructurado — ver
+ * `inconsistenciaFinancieraDePedido`). Sirve para cazar el caso donde los
+ * campos estructurados de `notify_order` cuadran entre sí (o faltan) pero
+ * el `summary` que de verdad lee el equipo por WhatsApp dice una cifra
+ * distinta del total real.
+ */
+const MENCIONA_TOTAL = /\btotal\b/gi;
+
+function figurasDeTotalEnCents(texto: string): number[] {
+  const resultado: number[] = [];
+  const re = new RegExp(MENCIONA_TOTAL);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto))) {
+    const finKeyword = m.index + m[0].length;
+    const despues = texto.slice(finKeyword, finKeyword + VENTANA);
+    const antes = texto.slice(Math.max(0, m.index - VENTANA), m.index);
+    const cifra = despues.match(/\$\s*([\d][\d.,]*)/) ?? antes.match(/\$\s*([\d][\d.,]*)/);
+    if (cifra) resultado.push(pesosTextoACents(cifra[1]!));
+  }
+  return resultado;
+}
+
 export type InconsistenciaFinanciera =
   | "total-no-cuadra"
   | "domicilio-no-verificado"
   | "resumen-contradice-tarifa"
+  | "subtotal-no-verificado"
+  | "subtotal-no-coincide-con-el-carrito"
+  | "resumen-contradice-total-real"
   | null;
 
+/**
+ * Fase 10V, Hallazgo B (auditoría) — bug real confirmado: los tres campos
+ * financieros son OPCIONALES en el esquema de `notify_order`, y todos los
+ * chequeos de abajo estaban condicionados a que el campo EXISTIERA. Un
+ * pedido con domicilio podía cerrar con `notify_order` omitiendo
+ * `deliveryFeeCents`/`subtotalCents`/`totalCents` por completo — ningún
+ * chequeo se disparaba, porque todos empiezan con "si el campo existe" en
+ * vez de "el campo DEBE existir". Es el mismo patrón del incidente de
+ * domicilio, pero por AUSENCIA de dato en vez de por dato erróneo.
+ *
+ * La corrección exige una señal EXPLÍCITA de que el pedido incluye
+ * domicilio antes de exigir los campos — nunca al revés — con dos niveles,
+ * preferido primero el estructurado:
+ *
+ * 1. `zonaVerificada` (este turno) — la señal fuerte: `consultar_domicilio`
+ *    se ejecutó y confirmó una tarifa real.
+ * 2. Si esa señal no existe (el modelo no reverificó este turno), una señal
+ *    de respaldo en TEXTO — reutilizando `figurasDeDomicilioEnCents`, ya
+ *    escrito para detectar contradicciones, no inventado aquí — que
+ *    detecta si el propio resumen menciona una cifra de domicilio real.
+ *    Sin ninguna de las dos señales (pedido sin domicilio, recogida en
+ *    local, vertical sin `delivery_zone`), nada nuevo se exige: compatible
+ *    con clientes que no usan domicilio en absoluto.
+ *
+ * Fase 10V-X — `entregaPersistida` (la verificación de un turno ANTERIOR de
+ * la misma conversación, ver `EntregaVerificada` en `orders/estado.ts`) se
+ * suma como una TERCERA fuente, pero con un papel distinto a propósito de
+ * las otras dos: nunca decide por sí sola que el pedido "incluye
+ * domicilio" (eso seguiría disparando el guardarraíl para un pedido de
+ * recogida cuyo cliente preguntó el precio del domicilio por curiosidad en
+ * un turno anterior y nunca lo pidió — Fase 10V-X, escenario 10). Solo
+ * entra a jugar DESPUÉS de que `deliveryFeeCents` ya viene afirmado: si el
+ * modelo no reverificó en este turno pero el valor que trae coincide con
+ * la última verificación real conocida, se acepta sin forzar una
+ * derivación a persona en el caso normal de "el cliente confirma varios
+ * mensajes después de preguntar el precio".
+ */
 export function inconsistenciaFinancieraDePedido(input: {
   summary: string;
   subtotalCents?: number;
@@ -637,10 +745,20 @@ export function inconsistenciaFinancieraDePedido(input: {
   totalCents?: number;
   zonaVerificada: { feeCents: number } | null;
   /**
+   * Fase 10V-X — la última verificación conocida, persistida entre turnos.
+   * `null` cuando nunca se verificó nada, cuando la última consulta no
+   * resolvió ninguna zona (pendiente), o cuando `tipo==="recogida"` — en
+   * los tres casos no hay ninguna tarifa de domicilio que dar por buena.
+   */
+  entregaPersistida?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+  /**
    * Incidente real (7-sep-2026) — `true` solo cuando ESTE negocio tiene
    * `delivery_source='tabla'`, es decir, cuando `consultar_domicilio`
    * EXISTE en su contrato de acciones y hay `delivery_zone` real contra la
    * que verificar (ver `tieneZonasDeEntrega` en `pipeline.ts`/`prompts.ts`).
+   * Mismo campo que Fase 10V, Hallazgo C, llamaba `deliverySourceEstructurado`
+   * — es EL MISMO concepto (`delivery_source==='tabla'`), reconciliado bajo
+   * un solo nombre tras encontrarse duplicado en Fase 6B.
    *
    * **Por qué hizo falta**: el chequeo de abajo exigía que `deliveryFeeCents`
    * estuviera respaldado por `consultar_domicilio`. Pero esa acción solo se
@@ -660,11 +778,70 @@ export function inconsistenciaFinancieraDePedido(input: {
    *
    * Un guardarraíl no puede exigir una evidencia que el propio sistema le
    * impide producir: donde no hay infraestructura de verificación, este
-   * chequeo no protege nada — solo rompe cierres legítimos.
+   * chequeo no protege nada — solo rompe cierres legítimos. También
+   * controla la señal de respaldo en TEXTO (`figurasDeDomicilioEnCents`,
+   * Fase 10V Hallazgo B): igual que el chequeo principal, solo aplica donde
+   * existe la infraestructura para producir la prueba estructurada.
+   * `zonaVerificada` (la señal fuerte, de ESTE turno) sigue aplicando
+   * siempre, sin este candado: si SÍ se verificó este turno, el campo
+   * estructurado es obligatorio sin importar el modo del negocio.
    */
   puedeVerificarDomicilio: boolean;
+  /**
+   * Fase 11-C — el subtotal REAL, calculado por el backend contra el
+   * catálogo (`conversation_state.estado.totalCents`, ya computado por
+   * `normalizarPedido` — nunca un cálculo nuevo inventado aquí). Presente
+   * SOLO cuando esta organización tiene `state_source='backend'` Y ya hay
+   * un carrito estructurado con todos sus ítems resueltos — para el resto
+   * de negocios (los 4 reales hoy, en `'prompt'`) queda `undefined` y este
+   * chequeo entero se salta: el backend no pretende saber un subtotal que
+   * no tiene de dónde sacar (el catálogo ahí vive en prosa, no en un
+   * carrito). Ver el informe de la Fase 11-C para el porqué exacto de este
+   * límite y qué haría falta para cerrarlo en el modo `'prompt'`.
+   */
+  subtotalReal?: number;
 }): InconsistenciaFinanciera {
   const { summary, subtotalCents, deliveryFeeCents, totalCents, zonaVerificada } = input;
+
+  /**
+   * Fase 11-C — cuando el backend YA conoce el subtotal real (carrito
+   * estructurado), se exige y se verifica SIEMPRE — independiente de si el
+   * pedido incluye domicilio. A diferencia del chequeo de domicilio (que
+   * solo se activa si algo indica que HAY domicilio, para no romper a
+   * quien nunca lo usa), aquí no hace falta esa cautela: `subtotalReal`
+   * solo existe cuando el negocio YA tiene el carrito estructurado
+   * encendido, así que exigirlo nunca sorprende a un negocio que no lo
+   * tenía antes.
+   */
+  if (input.subtotalReal !== undefined) {
+    if (subtotalCents === undefined) return "subtotal-no-verificado";
+    if (subtotalCents !== input.subtotalReal) return "subtotal-no-coincide-con-el-carrito";
+  }
+
+  /**
+   * La tarifa que de verdad se puede dar por buena: la de ESTE turno si se
+   * verificó, y si no, la última persistida — pero solo si esa persistida
+   * es de domicilio y con zona ya resuelta (`feeCents !== null`). Una
+   * `entregaPersistida` de recogida, o de domicilio pendiente, no cuenta:
+   * cae al mismo "domicilio-no-verificado" de siempre.
+   */
+  const zonaEfectiva: { feeCents: number } | null =
+    zonaVerificada ??
+    (input.entregaPersistida?.tipo === "domicilio" && input.entregaPersistida.feeCents !== null
+      ? { feeCents: input.entregaPersistida.feeCents }
+      : null);
+
+  const incluyeDomicilio =
+    zonaVerificada !== null ||
+    (input.puedeVerificarDomicilio && figurasDeDomicilioEnCents(summary).length > 0);
+  if (incluyeDomicilio) {
+    if (deliveryFeeCents === undefined || deliveryFeeCents === null) {
+      return "domicilio-no-verificado";
+    }
+    if (subtotalCents === undefined || totalCents === undefined) {
+      return "total-no-cuadra";
+    }
+  }
 
   if (subtotalCents !== undefined && totalCents !== undefined) {
     const esperado = subtotalCents + (deliveryFeeCents ?? 0);
@@ -672,31 +849,44 @@ export function inconsistenciaFinancieraDePedido(input: {
   }
 
   // Un deliveryFeeCents no-nulo SIEMPRE debe venir respaldado por una
-  // verificación de ESTE turno — no basta con que se haya verificado en un
-  // turno anterior de la misma conversación (esa verificación, ephemera,
-  // no sobrevive entre turnos: ver el comentario del bucle en pipeline.ts).
-  // Forzar a reverificar justo antes de cerrar es barato y es exactamente
-  // lo que ya hace el guardarraíl gemelo "notify_order sin resumen previo".
-  //
-  // …pero SOLO donde reverificar es posible (`puedeVerificarDomicilio`): en
+  // verificación real — de ESTE turno, o la última persistida de una
+  // conversación anterior (Fase 10V-X) — …pero SOLO donde reverificar es
+  // posible (`puedeVerificarDomicilio`, fix de Zahenz/MALIA, 7-sep-2026): en
   // un negocio sin `delivery_zone` el modelo no tiene ninguna acción con la
-  // que producir esa prueba, y exigírsela solo produce derivaciones. Ver el
-  // comentario del campo, arriba.
+  // que producir esa prueba, y exigírsela solo produce derivaciones después
+  // de que el cliente ya confirmó. Sin este candado, cualquier negocio en
+  // `'prompt'` (los 4 clientes reales hoy) vuelve a caer en el incidente de
+  // Zahenz/MALIA en cuanto el modelo rellene `deliveryFeeCents` por su cuenta
+  // (el esquema plano de `CAMPOS_DE_ACCION` se lo ofrece siempre).
   if (
     input.puedeVerificarDomicilio &&
     deliveryFeeCents !== undefined &&
     deliveryFeeCents !== null
   ) {
-    if (!zonaVerificada || deliveryFeeCents !== zonaVerificada.feeCents) {
+    if (!zonaEfectiva || deliveryFeeCents !== zonaEfectiva.feeCents) {
       return "domicilio-no-verificado";
     }
   }
 
   // El campo estructurado puede estar perfecto y el TEXTO que de verdad
   // lee el equipo decir otra cosa — se comprueba aparte, siempre que haya
-  // una zona verificada este turno, exista o no el campo estructurado.
-  if (zonaVerificada && dijoOtroValorDeDomicilio(summary, zonaVerificada.feeCents)) {
+  // una tarifa efectiva conocida (de este turno o persistida).
+  if (zonaEfectiva && dijoOtroValorDeDomicilio(summary, zonaEfectiva.feeCents)) {
     return "resumen-contradice-tarifa";
+  }
+
+  /**
+   * Fase 11-C — mismo criterio que arriba, para el TOTAL real: defensa de
+   * texto adicional (nunca la única — el chequeo real ya pasó arriba, con
+   * el número estructurado). Solo aplica cuando hay un `subtotalReal`
+   * conocido: sin él no hay ningún total "real" contra el cual comparar lo
+   * que diga el resumen.
+   */
+  if (input.subtotalReal !== undefined) {
+    const totalReal = input.subtotalReal + (zonaEfectiva?.feeCents ?? 0);
+    if (figurasDeTotalEnCents(summary).some((c) => c !== totalReal)) {
+      return "resumen-contradice-total-real";
+    }
   }
 
   return null;
@@ -708,6 +898,15 @@ export function correccionDeInconsistenciaFinanciera(fallo: InconsistenciaFinanc
   }
   if (fallo === "resumen-contradice-tarifa") {
     return "ALTO. El texto de \"summary\" en notify_order menciona una cifra de domicilio DISTINTA de la que consultar_domicilio verificó. Corrige el summary para que use exactamente la tarifa verificada. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "subtotal-no-verificado") {
+    return "ALTO. En notify_order falta subtotalCents. El backend ya calculó el subtotal real de este pedido contra el catálogo — inclúyelo tal cual, no lo omitas. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "subtotal-no-coincide-con-el-carrito") {
+    return "ALTO. subtotalCents en notify_order NO coincide con el subtotal real que el backend ya calculó contra el catálogo. No sumes ni redondees a mano: usa exactamente el subtotal real del pedido. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "resumen-contradice-total-real") {
+    return "ALTO. El texto de \"summary\" en notify_order menciona un total DISTINTO del total real (subtotal del catálogo + domicilio verificado). Corrige el summary para que use exactamente ese total. Responde ÚNICAMENTE el objeto JSON.";
   }
   return "ALTO. En notify_order, deliveryFeeCents NO es la tarifa que confirmó consultar_domicilio en esta conversación. Usa exactamente esa cifra verificada. Responde ÚNICAMENTE el objeto JSON.";
 }
@@ -1124,6 +1323,31 @@ export function niegaMetodoDePagoPermitido(
 
 export const CORRECCION_DE_PRODUCTO_CONTRADICHO =
   "ALTO. El sistema ya confirmó, en este mismo turno, que SÍ existe el producto que preguntaron — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí lo tienen, con el precio que te dio el sistema. Responde ÚNICAMENTE el objeto JSON.";
+
+/**
+ * Fase 10S — hueco real: `contradiceProductoEncontrado` solo puede aplicarse
+ * cuando `resultadoProducto.status === "found"` (el tipo `multiple_matches`
+ * no trae un único `producto`, por diseño — ver `buscar.ts`). Si el sistema
+ * devolvió VARIOS candidatos igual de buenos y el modelo, ignorando la
+ * instrucción `[SISTEMA]` de preguntar, asume uno sin preguntar, nada lo
+ * detectaba. Mismo criterio textual que el resto del archivo: sin "¿"/"?" en
+ * la respuesta Y mencionando por nombre a uno de los candidatos.
+ */
+export function asumeProductoAmbiguoSinPreguntar(
+  texto: string | null | undefined,
+  productos: { nombre: string }[]
+): boolean {
+  if (!texto || !productos.length) return false;
+  if (texto.includes("¿") || texto.includes("?")) return false;
+  const palabrasTexto = new Set(palabrasSignificativas(texto));
+  return productos.some((p) => {
+    const clave = palabrasSignificativas(p.nombre);
+    return clave.length > 0 && clave.every((palabra) => palabrasTexto.has(palabra));
+  });
+}
+
+export const CORRECCION_DE_PRODUCTO_AMBIGUO_SIN_PREGUNTAR =
+  "ALTO. El sistema encontró VARIOS productos que podrían ser lo que pidió el cliente, y tu respuesta asumió uno sin preguntar cuál. No inventes cuál de ellos es: reescribe tu respuesta preguntando cuál de esos productos quiere, antes de dar un precio o confirmar que lo tienen. Responde ÚNICAMENTE el objeto JSON.";
 
 export const CORRECCION_DE_PAGO_CONTRADICHO =
   "ALTO. El sistema ya confirmó, en este mismo turno, que ese método de pago SÍ está permitido — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí se acepta. Responde ÚNICAMENTE el objeto JSON.";

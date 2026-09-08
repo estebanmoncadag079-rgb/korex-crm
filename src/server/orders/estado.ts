@@ -14,8 +14,9 @@
  * `agent_profile.state_source = 'backend'`, y hoy los cuatro están en
  * `'prompt'`.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
+import { scoped } from "@/lib/db/tenant";
 import * as schema from "@/lib/db/schema";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
@@ -114,6 +115,42 @@ export type ReservaDeCita = {
   recursoNombre: string | null;
 };
 
+/**
+ * Fase 10V-X — la verificación de domicilio, persistida ENTRE turnos.
+ *
+ * Nace de la brecha real: un cliente pregunta la tarifa ("¿cuánto a
+ * Kachipay?" → `consultar_domicilio` confirma $12.000) y confirma el pedido
+ * varios mensajes después. Hasta ahora esa verificación era EFÍMERA — solo
+ * vivía en `messages` del turno en que se consultó (ver el comentario del
+ * bucle en `pipeline.ts`) — así que el guardarraíl de cierre exigía
+ * reverificar EN EL MISMO TURNO del cierre, o forzaba una derivación a
+ * persona en el caso normal de "confirmo más tarde". Esto lo saca de la
+ * memoria del turno y lo pone donde sobrevive: la misma fila de
+ * `conversation_state` que ya existía para el Fase 2 (`items`/`datos`), pero
+ * de forma INDEPENDIENTE de `state_source` — ver `leerEntregaVerificada`/
+ * `guardarEntregaVerificada` más abajo, y el porqué de esa independencia en
+ * su comentario.
+ *
+ * `tipo: "domicilio"` con `feeCents: null` es un estado válido y
+ * deliberado: "el cliente quiere domicilio, pero la zona todavía no está
+ * resuelta" — la transición explícita que pide el cambio de zona (zona
+ * anterior invalidada, nueva zona pendiente) en vez de dejar la tarifa
+ * vieja como válida por omisión.
+ */
+export type EntregaVerificada = {
+  tipo: "domicilio" | "recogida";
+  /** `null` cuando `tipo==="domicilio"` y la zona aún no resolvió (pendiente). */
+  zonaId: string | null;
+  /** Redundante a propósito, igual que `ofrecible.nombre`: si la zona se borra, el registro sigue legible. */
+  zonaNombre: string | null;
+  /** `null` = domicilio pendiente de verificar. `0` es una tarifa real (zona gratis), nunca "no aplica". */
+  feeCents: number | null;
+  /** El mensaje del cliente que disparó esta verificación — para trazabilidad, no para lógica. */
+  verificadoEnMensajeId: string | null;
+  /** ISO. Cuándo se resolvió (o se invalidó) esta entrega. */
+  verificadoEn: string;
+};
+
 export type EstadoDelPedido = {
   schema_version: number;
   /** Todo lo que lleva el pedido, en el orden en que se pidió. Máximo `MAX_ITEMS`. */
@@ -150,6 +187,17 @@ export type EstadoDelPedido = {
    * que no conoce.
    */
   modalidadDeEntrega?: string | null;
+  /**
+   * Fase 10V-X — la última verificación de domicilio conocida para ESTA
+   * conversación, sobreviviendo entre turnos. `null`/ausente = nunca se
+   * verificó nada (o `delivery_source` no es `'tabla'` para este negocio).
+   * Ver `EntregaVerificada` arriba para el porqué de cada campo.
+   *
+   * Opcional a propósito, mismo criterio que `modalidadDeEntrega`: un
+   * estado escrito antes de que este campo existiera se sigue leyendo
+   * igual, sin subir `SCHEMA_VERSION`.
+   */
+  entrega?: EntregaVerificada | null;
   /** Lo calcula el servidor. NUNCA el número que diga el modelo. */
   totalCents: number | null;
   /** Texto libre: el modelo devuelve etiquetas que ningún enum previó. */
@@ -165,6 +213,7 @@ export function estadoVacio(): EstadoDelPedido {
     datos: {},
     reserva: null,
     modalidadDeEntrega: null,
+    entrega: null,
     totalCents: null,
     paso: "sin pedido",
     confirmado: false,
@@ -399,27 +448,96 @@ export function validarPropuesta(
   };
 }
 
-/** El estado guardado, o `null` si esta conversación aún no tiene. */
-export async function leerEstado(conversationId: string): Promise<EstadoDelPedido | null> {
+/**
+ * El estado guardado, o `null` si esta conversación aún no tiene.
+ *
+ * Fase 10X — `organizationId` es OPCIONAL a propósito, por compatibilidad:
+ * `scripts/probar-estado.ts` llama esto sin él y los scripts quedan fuera
+ * del gate de typecheck (ver CLAUDE.md), así que no se toca sin poder
+ * ejecutarlo contra la base real. Hoy no es explotable sin `organizationId`
+ * —el único llamador real (`pipeline.ts`) deriva `conversationId` de una
+ * fila ya verificada por organización, nunca del cliente—, pero cuando se
+ * pasa, la lectura queda `scoped()` de verdad: la protección barata para
+ * que dejar de ser cierto algún día no sea una fuga silenciosa.
+ */
+/**
+ * Fase 10R — bug real: una fila cuya forma no es la esperada (falta `items`
+ * o `datos` — escrita por una versión de código distinta, o corrompida a
+ * mano) pasaba el único chequeo que existía (`typeof === "object"`) y
+ * llegaba intacta hasta `comoTexto` (`orders/extraer.ts`), que asume
+ * `estado.items` sin comprobarlo: una excepción SIN CAPTURAR dentro de
+ * `runAgentTurn`, que agota los 5 reintentos de `agent_job` (~40 min, ver
+ * `cola.ts`) y deja al cliente en silencio total, sin handoff automático ni
+ * visibilidad en ningún panel. Ahora se trata como "sin estado" — igual que
+ * una versión futura desconocida — en vez de tumbar el turno; queda un log
+ * para que no sea un silencio invisible.
+ */
+function formaReconocida(guardado: unknown): guardado is EstadoDelPedido {
+  if (!guardado || typeof guardado !== "object") return false;
+  const g = guardado as Partial<EstadoDelPedido>;
+  return (
+    Array.isArray(g.items) &&
+    typeof g.datos === "object" &&
+    g.datos !== null &&
+    !Array.isArray(g.datos)
+  );
+}
+
+async function leerFilaDeEstado(
+  conversationId: string,
+  organizationId?: string
+): Promise<{ estado: EstadoDelPedido; version: number } | null> {
   const db = getDb();
-  const [fila] = await db
-    .select()
-    .from(schema.conversationState)
-    .where(eq(schema.conversationState.conversationId, conversationId));
+  const condicion = organizationId
+    ? scoped(
+        schema.conversationState.organizationId,
+        organizationId,
+        eq(schema.conversationState.conversationId, conversationId)
+      )
+    : eq(schema.conversationState.conversationId, conversationId);
+  const [fila] = await db.select().from(schema.conversationState).where(condicion);
   if (!fila) return null;
 
-  const guardado = fila.estado as EstadoDelPedido;
+  const guardado = fila.estado;
+  if (!formaReconocida(guardado)) {
+    console.error(
+      `[estado] conversation_state con forma inesperada (conversación ${conversationId}): se trata como "sin estado" en vez de tumbar el turno.`
+    );
+    return null;
+  }
   /*
-   * Una forma que no reconocemos NO se usa a medias.
+   * Una versión que no reconocemos NO se usa a medias.
    *
    * Con `schema_version` mayor que la nuestra, el estado lo escribió una
    * versión más nueva del código: leerlo sería inventarse los campos que
    * faltan. Se empieza limpio, que es recuperable, en vez de arrastrar basura.
    */
-  if (!guardado || typeof guardado !== "object" || guardado.schema_version > SCHEMA_VERSION) {
+  if (guardado.schema_version > SCHEMA_VERSION) {
     return null;
   }
-  return guardado;
+  return { estado: guardado, version: fila.version };
+}
+
+export async function leerEstado(
+  conversationId: string,
+  organizationId?: string
+): Promise<EstadoDelPedido | null> {
+  const fila = await leerFilaDeEstado(conversationId, organizationId);
+  return fila?.estado ?? null;
+}
+
+/**
+ * Programa de mejora integral, Prioridad 3 — igual que `leerEstado`, pero
+ * además devuelve el token de concurrencia (`version`) de la fila leída, para
+ * que quien va a escribir MÁS TARDE en el turno (tras llamadas al modelo,
+ * guardarraíles, reintentos) pueda pedir que su escritura solo se aplique si
+ * nadie más escribió mientras tanto (`guardarEstado({..., versionEsperada})`).
+ */
+export async function leerEstadoConVersion(
+  conversationId: string,
+  organizationId?: string
+): Promise<{ estado: EstadoDelPedido; version: number } | null> {
+  return leerFilaDeEstado(conversationId, organizationId);
 }
 
 /**
@@ -428,6 +546,21 @@ export async function leerEstado(conversationId: string): Promise<EstadoDelPedid
  * La instrumentación va aquí desde el primer commit (regla 6): un escritor
  * nuevo sin trazabilidad es exactamente lo que este proyecto acaba de cerrar.
  */
+/**
+ * Programa de mejora integral, Prioridad 3 — `versionEsperada` es el token
+ * de concurrencia optimista (mismo principio que `generation` en
+ * `agent_job`, Fase 10Q). Cuando se pasa, la escritura solo se aplica si la
+ * fila SIGUE en esa versión — si otra ejecución de `runAgentTurn` para la
+ * MISMA conversación ya escribió después de que quien llama esto leyó su
+ * estado, esta escritura no afecta ninguna fila en vez de pisar datos más
+ * nuevos con una decisión tomada sobre datos viejos. Opcional a propósito:
+ * los llamadores que no conocen (o no necesitan) una versión previa —
+ * `borrarEstado`, scripts, la corrección de higiene que solo re-lee justo
+ * antes de escribir— siguen con el comportamiento incondicional de siempre.
+ *
+ * `guardarEstado` sigue sin lanzar NUNCA: una carrera perdida se registra y
+ * se ignora, igual que cualquier otro fallo aquí.
+ */
 export async function guardarEstado(
   entrada: {
     conversationId: string;
@@ -435,12 +568,13 @@ export async function guardarEstado(
     estado: EstadoDelPedido;
     actor: Actor;
     proceso: string;
+    versionEsperada?: number;
   }
-): Promise<void> {
+): Promise<{ ok: boolean }> {
   const db = getDb();
-  const anterior = await leerEstado(entrada.conversationId);
+  const anterior = await leerEstado(entrada.conversationId, entrada.organizationId);
 
-  await db
+  const filas = await db
     .insert(schema.conversationState)
     .values({
       conversationId: entrada.conversationId,
@@ -457,8 +591,22 @@ export async function guardarEstado(
         schemaVersion: entrada.estado.schema_version,
         paso: entrada.estado.paso,
         updatedAt: new Date(),
+        version: sql`${schema.conversationState.version} + 1`,
       },
-    });
+      ...(entrada.versionEsperada !== undefined
+        ? { where: eq(schema.conversationState.version, entrada.versionEsperada) }
+        : {}),
+    })
+    .returning({ conversationId: schema.conversationState.conversationId });
+
+  if (entrada.versionEsperada !== undefined && filas.length === 0) {
+    console.warn(
+      `[estado] ${entrada.organizationId}: carrera de escritura perdida en conversación ` +
+        `${entrada.conversationId} (versión esperada ${entrada.versionEsperada} ya no coincide) — ` +
+        `esta escritura de "${entrada.proceso}" se descarta, no se pisa el estado más nuevo.`
+    );
+    return { ok: false };
+  }
 
   registrarCambioDeEstado({
     conversationId: entrada.conversationId,
@@ -467,18 +615,88 @@ export async function guardarEstado(
     actor: entrada.actor,
     proceso: entrada.proceso,
   });
+  return { ok: true };
 }
 
-/** Vacía el estado. Es lo que hace el `"0"` de La Churra. */
+/**
+ * Fase 10V-X — lee la última verificación de domicilio conocida para esta
+ * conversación, SIN importar `state_source`.
+ *
+ * **Por qué independiente de `leerEstado`/`estadoEstructurado`**: el Fase 2
+ * completo (`items`/`datos` estructurados) sigue apagado para los 4
+ * clientes reales (`state_source='prompt']`) — pero uno de ellos ya tiene
+ * `delivery_source='tabla'` (el incidente de Kachipay que originó todo
+ * esto). Atar la persistencia de la tarifa de domicilio al MISMO
+ * interruptor que el resto del Fase 2 habría dejado la brecha real sin
+ * cerrar: se necesitaría encender `state_source='backend'` completo —un
+ * cambio de comportamiento mucho más grande, sin encender hoy— solo para
+ * arreglar el domicilio. Se reutiliza la MISMA fila, columna y mecanismo de
+ * concurrencia (`conversation_state`, `version`), pero el llamador
+ * (`pipeline.ts`) decide leer/escribir esto según `delivery_source==='tabla'`
+ * exclusivamente — nunca según `state_source`.
+ */
+export async function leerEntregaVerificada(
+  conversationId: string,
+  organizationId: string
+): Promise<EntregaVerificada | null> {
+  const fila = await leerFilaDeEstado(conversationId, organizationId);
+  return fila?.estado.entrega ?? null;
+}
+
+/**
+ * Guarda la verificación de domicilio, preservando lo demás que ya hubiera
+ * en el estado (para no pisar `items`/`datos` de un negocio que además
+ * tenga `state_source='backend'` — combinación que hoy no tiene ningún
+ * cliente real, pero que no debe romperse si algún día la tiene).
+ *
+ * Lee su PROPIA versión justo antes de escribir (nunca una capturada al
+ * principio del turno): esto puede llamarse en mitad del turno, desde el
+ * bucle de `consultar_domicilio`, mucho antes de que el resto del pipeline
+ * decida si guarda algo más — usar una versión vieja aquí perdería
+ * carreras contra escrituras que ni siquiera han pasado todavía.
+ *
+ * Nunca lanza: mismo criterio que `guardarEstado`, del que depende.
+ */
+export async function guardarEntregaVerificada(entrada: {
+  conversationId: string;
+  organizationId: string;
+  /** `null` invalida/borra la verificación conocida (reinicio, pedido ya confirmado). */
+  entrega: EntregaVerificada | null;
+  actor: Actor;
+  proceso: string;
+}): Promise<{ ok: boolean }> {
+  const fila = await leerFilaDeEstado(entrada.conversationId, entrada.organizationId);
+  const base = fila?.estado ?? estadoVacio();
+  return guardarEstado({
+    conversationId: entrada.conversationId,
+    organizationId: entrada.organizationId,
+    estado: { ...base, entrega: entrada.entrega },
+    actor: entrada.actor,
+    proceso: entrada.proceso,
+    versionEsperada: fila?.version,
+  });
+}
+
+/**
+ * Vacía el estado. Es lo que hace el `"0"` de La Churra.
+ *
+ * Fase 10X — `organizationId` opcional en `opciones`, mismo motivo que
+ * `leerEstado`: cuando se pasa, el borrado queda `scoped()`.
+ */
 export async function borrarEstado(
   conversationId: string,
-  opciones: { actor: Actor; proceso: string }
+  opciones: { actor: Actor; proceso: string; organizationId?: string }
 ): Promise<void> {
   const db = getDb();
-  const anterior = await leerEstado(conversationId);
-  await db
-    .delete(schema.conversationState)
-    .where(eq(schema.conversationState.conversationId, conversationId));
+  const anterior = await leerEstado(conversationId, opciones.organizationId);
+  const condicion = opciones.organizationId
+    ? scoped(
+        schema.conversationState.organizationId,
+        opciones.organizationId,
+        eq(schema.conversationState.conversationId, conversationId)
+      )
+    : eq(schema.conversationState.conversationId, conversationId);
+  await db.delete(schema.conversationState).where(condicion);
   if (anterior) {
     registrarCambioDeEstado({
       conversationId,
@@ -514,6 +732,9 @@ function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
     "reserva.duracionMin": e.reserva?.duracionMin ?? null,
     "reserva.recursoId": e.reserva?.recursoId ?? null,
     "reserva.recursoNombre": e.reserva?.recursoNombre ?? null,
+    "entrega.tipo": e.entrega?.tipo ?? null,
+    "entrega.zonaNombre": e.entrega?.zonaNombre ?? null,
+    "entrega.feeCents": e.entrega?.feeCents ?? null,
     totalCents: e.totalCents,
     paso: e.paso,
     confirmado: e.confirmado,

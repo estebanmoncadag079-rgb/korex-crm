@@ -1052,9 +1052,30 @@ export async function reprogramarCita(input: {
   nuevaHora: string;
   hours: BusinessHours;
   now?: Date;
-}): Promise<{ ok: true } | { ok: false; reason: "sin_cupo" | "fuera_de_horario" }> {
+}): Promise<
+  { ok: true } | { ok: false; reason: "sin_cupo" | "fuera_de_horario" | "especialista_no_disponible" }
+> {
   if (!esFechaValida(input.nuevaFecha, input.hours, input.now)) {
     return { ok: false, reason: "fuera_de_horario" };
+  }
+  /**
+   * Fase 10U — bug real: a diferencia de `crearCita`/`crearCitaMultiple`
+   * (que SIEMPRE resuelven contra `staffIdsForService`, filtrado por
+   * `isNull(archivedAt)`), `reprogramarCita` pasaba `input.staffId` directo
+   * a `disponibilidadReal` como `staffIdPreferido` — una rama que
+   * DELIBERADAMENTE evita ese filtro (línea ~600 de este archivo). Si la
+   * especialista de la cita original fue dada de baja después, esto permitía
+   * reprogramar (por el cliente o por el panel, vía `moverCita`) hacia una
+   * especialista que el catálogo ya no ofrece — sin ningún rechazo. Se
+   * revalida aquí, ANTES de calcular disponibilidad, con la misma fuente que
+   * usa la creación.
+   */
+  const staffActivosParaElServicio = await staffIdsForService(
+    input.organizationId,
+    input.service.id
+  );
+  if (!staffActivosParaElServicio.includes(input.staffId)) {
+    return { ok: false, reason: "especialista_no_disponible" };
   }
   const disp = await disponibilidadReal({
     organizationId: input.organizationId,
@@ -1749,7 +1770,15 @@ export async function moverCita(input: {
   now?: Date;
 }): Promise<
   | { ok: true }
-  | { ok: false; reason: "no_existe" | "sin_horario" | "sin_cupo" | "fuera_de_horario" }
+  | {
+      ok: false;
+      reason:
+        | "no_existe"
+        | "sin_horario"
+        | "sin_cupo"
+        | "fuera_de_horario"
+        | "especialista_no_disponible";
+    }
 > {
   const db = getDb();
   const filas = await db

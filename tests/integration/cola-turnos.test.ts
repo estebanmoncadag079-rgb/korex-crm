@@ -101,7 +101,7 @@ describe.skipIf(!hayBase)("cola de turnos del agente (Postgres real)", () => {
     expect(await m.cola.tomarTrabajo("w2")).toBeNull();
 
     // Al terminar el primero, el segundo ya se puede atender.
-    await m.cola.completarTrabajo(primero!.id);
+    await m.cola.completarTrabajo(primero!.id, primero!.generation);
     expect(await m.cola.tomarTrabajo("w2")).not.toBeNull();
   });
 
@@ -131,10 +131,86 @@ describe.skipIf(!hayBase)("cola de turnos del agente (Postgres real)", () => {
     expect(recuperado?.conversationId).toBe(FIXTURE.conversacion);
   });
 
+  /**
+   * Fase 10Q — el caso real que el token de generación existe para cerrar:
+   * un turno que sigue VIVO (no un proceso muerto) puede tardar más de
+   * `HUERFANO_TRAS_MS` por guardarraíles encadenados, cada uno con su propio
+   * reintento de `chatJson` (ver el comentario de `HUERFANO_TRAS_MS` en
+   * cola.ts). `rescatarHuerfanos` no distingue ese caso de un proceso
+   * muerto, así que reasigna el trabajo — y el worker original, cuando por
+   * fin termina, NO debe poder completar/fallar un trabajo que ya es de
+   * otro. Antes de esta fase, `completarTrabajo`/`fallarTrabajo` escribían
+   * por `id` sin comprobar nada más: esto habría borrado o reprogramado el
+   * trabajo del worker NUEVO por debajo, con el original todavía creyendo
+   * que era suyo.
+   */
+  it("worker-viejo-lento: una escritura tardía con la generación vieja NO pisa al worker nuevo dueño del trabajo", async () => {
+    await m.cola.encolarTurno(FIXTURE.conversacion, { delayMs: 0 });
+    const viejo = await m.cola.tomarTrabajo("worker-viejo-lento");
+    expect(viejo).not.toBeNull();
+
+    // El turno sigue vivo (no un proceso muerto) pero ya lleva más de
+    // HUERFANO_TRAS_MS procesando — rescatarHuerfanos lo reasigna igual.
+    await db.execute(sql`
+      UPDATE agent_job SET locked_at = now() - interval '30 minutes'
+       WHERE id = ${viejo!.id}
+    `);
+    expect(await m.cola.rescatarHuerfanos()).toBe(1);
+
+    const nuevo = await m.cola.tomarTrabajo("worker-nuevo-rapido");
+    expect(nuevo).not.toBeNull();
+    expect(nuevo!.id).toBe(viejo!.id); // mismo trabajo, otro dueño
+    expect(nuevo!.generation).not.toBe(viejo!.generation);
+
+    // El worker viejo, sin saber que lo perdió, por fin termina y llama
+    // completarTrabajo con SU generación (la vieja): no debe borrar nada.
+    await m.cola.completarTrabajo(viejo!.id, viejo!.generation);
+    const [siguéCorriendo] = (await db.execute(sql`
+      SELECT status, locked_by FROM agent_job WHERE id = ${viejo!.id}
+    `)) as unknown as Array<{ status: string; locked_by: string }>;
+    expect(siguéCorriendo).toBeDefined(); // la fila SIGUE existiendo
+    expect(siguéCorriendo!.status).toBe("corriendo");
+    expect(siguéCorriendo!.locked_by).toBe("worker-nuevo-rapido");
+
+    // El worker nuevo sí puede completarlo de verdad, con su propia generación.
+    await m.cola.completarTrabajo(nuevo!.id, nuevo!.generation);
+    const estado = await m.cola.estadoDeLaCola();
+    expect(estado.corriendo).toBe(0);
+    expect(estado.pendientes).toBe(0);
+  });
+
+  it("worker-viejo-lento: un fallarTrabajo tardío con la generación vieja tampoco reprograma ni agota el trabajo del nuevo dueño", async () => {
+    await m.cola.encolarTurno(FIXTURE.conversacion, { delayMs: 0 });
+    const viejo = await m.cola.tomarTrabajo("worker-viejo-lento");
+    await db.execute(sql`
+      UPDATE agent_job SET locked_at = now() - interval '30 minutes'
+       WHERE id = ${viejo!.id}
+    `);
+    await m.cola.rescatarHuerfanos();
+    const nuevo = await m.cola.tomarTrabajo("worker-nuevo-rapido");
+    expect(nuevo).not.toBeNull();
+
+    // El worker viejo "termina" con un error, usando su generación vieja.
+    const r = await m.cola.fallarTrabajo(
+      viejo!.id,
+      new Error("el worker viejo por fin respondió, tarde"),
+      viejo!.attempts,
+      viejo!.generation
+    );
+    expect(r.reintenta).toBe(true); // no revienta, pero no debe afectar nada
+
+    const [fila] = (await db.execute(sql`
+      SELECT status, locked_by, last_error FROM agent_job WHERE id = ${nuevo!.id}
+    `)) as unknown as Array<{ status: string; locked_by: string; last_error: string | null }>;
+    expect(fila!.status).toBe("corriendo");
+    expect(fila!.locked_by).toBe("worker-nuevo-rapido");
+    expect(fila!.last_error).toBeNull(); // el error del worker viejo NO se escribió
+  });
+
   it("un fallo se reintenta con espera, no se pierde", async () => {
     await m.cola.encolarTurno(FIXTURE.conversacion, { delayMs: 0 });
     const t = await m.cola.tomarTrabajo("w1");
-    const r = await m.cola.fallarTrabajo(t!.id, new Error("el modelo falló"), t!.attempts);
+    const r = await m.cola.fallarTrabajo(t!.id, new Error("el modelo falló"), t!.attempts, t!.generation);
 
     expect(r.reintenta).toBe(true);
     const estado = await m.cola.estadoDeLaCola();
@@ -149,7 +225,8 @@ describe.skipIf(!hayBase)("cola de turnos del agente (Postgres real)", () => {
     const r = await m.cola.fallarTrabajo(
       t!.id,
       new Error("causa raíz"),
-      m.cola.MAX_INTENTOS
+      m.cola.MAX_INTENTOS,
+      t!.generation
     );
 
     expect(r.reintenta).toBe(false);
@@ -167,7 +244,7 @@ describe.skipIf(!hayBase)("cola de turnos del agente (Postgres real)", () => {
     const t = await m.cola.tomarTrabajo("w1");
     await m.cola.encolarTurno(FIXTURE.conversacion, { delayMs: 0 });
 
-    await m.cola.fallarTrabajo(t!.id, new Error("x"), t!.attempts);
+    await m.cola.fallarTrabajo(t!.id, new Error("x"), t!.attempts, t!.generation);
 
     const estado = await m.cola.estadoDeLaCola();
     expect(estado.pendientes).toBe(1);
@@ -210,7 +287,7 @@ describe.skipIf(!hayBase)("cola de turnos del agente (Postgres real)", () => {
 
     // Al liberar uno, entra el siguiente de esa organización: es un tope de
     // simultaneidad, no un límite de cuánto se le atiende en total.
-    await m.cola.completarTrabajo(tomados[0]!.id);
+    await m.cola.completarTrabajo(tomados[0]!.id, tomados[0]!.generation);
     expect(await m.cola.tomarTrabajo("w9")).not.toBeNull();
   });
 

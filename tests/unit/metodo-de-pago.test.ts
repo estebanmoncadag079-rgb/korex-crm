@@ -38,3 +38,38 @@ describe("resolverMetodoDePago", () => {
     expect(r).toEqual({ status: "recognized", method: "Daviplata", allowed: true });
   });
 });
+
+describe("resolverMetodoDePago — Fase 10S: negación explícita ('No aceptamos X')", () => {
+  it("BUG REAL (4-sep-2026): 'No aceptamos efectivo, solo transferencia' + 'efectivo' -> allowed:false, no true", () => {
+    const r = resolverMetodoDePago("No aceptamos efectivo, solo transferencia", "efectivo");
+    expect(r).toEqual({ status: "recognized", method: "efectivo", allowed: false });
+  });
+
+  it("variante natural: 'No manejamos pagos en efectivo, solo transferencia bancaria'", () => {
+    const r = resolverMetodoDePago("No manejamos pagos en efectivo, solo transferencia bancaria", "efectivo");
+    expect(r).toEqual({ status: "recognized", method: "efectivo", allowed: false });
+  });
+
+  it("negación por categoría (sinónimo, no substring literal): 'No aceptamos transferencias' + 'Nequi'", () => {
+    const r = resolverMetodoDePago("No aceptamos transferencias, solo efectivo", "Nequi");
+    expect(r).toEqual({ status: "recognized", method: "Nequi", allowed: false });
+  });
+
+  it("la negación no contamina un método distinto declarado sin negar en el mismo texto", () => {
+    const r = resolverMetodoDePago("No aceptamos efectivo, solo transferencia", "transferencia");
+    expect(r).toEqual({ status: "recognized", method: "transferencia", allowed: true });
+  });
+
+  it("dos menciones del mismo término: una negada y otra no -> allowed:true (basta una real)", () => {
+    const r = resolverMetodoDePago(
+      "No aceptamos efectivo en domicilios, pero sí efectivo si recoges en el local",
+      "efectivo"
+    );
+    expect(r).toEqual({ status: "recognized", method: "efectivo", allowed: true });
+  });
+
+  it("sin negación cerca, sigue permitido como siempre (no falso positivo del detector)", () => {
+    const r = resolverMetodoDePago("Aceptamos efectivo y transferencia", "efectivo");
+    expect(r).toEqual({ status: "recognized", method: "efectivo", allowed: true });
+  });
+});

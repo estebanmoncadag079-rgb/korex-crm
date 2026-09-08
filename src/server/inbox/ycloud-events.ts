@@ -98,7 +98,7 @@ export async function handleYcloudEvent(
     // equipo YA, para que lo atienda a mano en WhatsApp, es lo único que
     // evita que el cliente se quede esperando sin que nadie se entere
     // (verificado en vivo el 1-ago-2026 en Lis Pastelería).
-    await alertarMensajePerdido(m?.wabaId, m?.to);
+    await alertarMensajePerdido(m?.wabaId, m?.to, m?.id);
     return { organizationId: null };
   }
 
@@ -299,6 +299,35 @@ async function handleMessageStatusUpdate(
 }
 
 /**
+ * Fase 10W — bug real encontrado por auditoría: un reintento del POST
+ * completo del webhook (YCloud reintenta si no recibió 2xx a tiempo, y el
+ * job de `reprocesarWebhosFallidos` también reprocesa eventos marcados
+ * `fallido`) volvía a llamar esto para el MISMO evento perdido, y
+ * `notifyTeam` no tiene ninguna deduplicación propia — el equipo recibía la
+ * misma alerta de WhatsApp duplicada. Dedup en memoria por `id` del mensaje
+ * (basta: una sola instancia del proceso, sin cola externa entre réplicas) y
+ * una ventana corta — es una alerta operativa, no un efecto financiero:
+ * proporcional al riesgo real, no la idempotencia de Postgres de
+ * `notify_order`.
+ */
+const ALERTAS_MENSAJE_PERDIDO_RECIENTES = new Map<string, number>();
+const VENTANA_DEDUP_ALERTA_MS = 10 * 60_000;
+const MAX_ALERTAS_RECORDADAS = 500;
+
+function yaAlertadoRecientemente(id: string | undefined): boolean {
+  if (!id) return false; // sin id no hay nada estable contra qué deduplicar
+  const ahora = Date.now();
+  const anterior = ALERTAS_MENSAJE_PERDIDO_RECIENTES.get(id);
+  if (anterior !== undefined && ahora - anterior < VENTANA_DEDUP_ALERTA_MS) return true;
+  ALERTAS_MENSAJE_PERDIDO_RECIENTES.set(id, ahora);
+  if (ALERTAS_MENSAJE_PERDIDO_RECIENTES.size > MAX_ALERTAS_RECORDADAS) {
+    const masAntigua = ALERTAS_MENSAJE_PERDIDO_RECIENTES.keys().next().value;
+    if (masAntigua !== undefined) ALERTAS_MENSAJE_PERDIDO_RECIENTES.delete(masAntigua);
+  }
+  return false;
+}
+
+/**
  * Un evento sin "from" no trae contacto ni conversación: no hay dónde
  * escribir una nota en el CRM. Lo único posible es resolver el CLIENTE por
  * `wabaId`/`to` (que sí suelen venir) y avisarle por WhatsApp a su equipo,
@@ -306,9 +335,14 @@ async function handleMessageStatusUpdate(
  */
 async function alertarMensajePerdido(
   wabaId?: string,
-  to?: string
+  to?: string,
+  id?: string
 ): Promise<void> {
   if (!wabaId && !to) return;
+  if (yaAlertadoRecientemente(id)) {
+    console.info(`[ycloud webhook] alerta de mensaje perdido ya enviada para id=${id}: no se repite`);
+    return;
+  }
   try {
     const route = await resolveRoute(to?.replace(/^\+/, "") ?? "", wabaId ?? "");
     if (!route) return;

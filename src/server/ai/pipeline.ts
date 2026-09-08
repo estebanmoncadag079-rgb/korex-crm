@@ -33,9 +33,16 @@ import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import {
   registrarConfirmacionDePedido,
+  borrarConfirmacionDePedido,
   intentarNotificarPedido,
   ultimaConfirmacionDe,
 } from "@/server/ai/confirmacion-de-pedido";
+import {
+  registrarConfirmacionDeCita,
+  borrarConfirmacionDeCita,
+  guardarContenidoDeCita,
+  intentarNotificarCita,
+} from "@/server/ai/confirmacion-de-cita";
 import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
 import {
@@ -91,15 +98,20 @@ import {
   resolverZonaDeEntrega,
   zonasDeEntregaQuery,
   textoDeResultadoDomicilio,
+  textoDeResultadoRecogida,
   type ZonaDeEntrega,
 } from "@/server/delivery/zonas";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
+  estadoVacio,
+  guardarEntregaVerificada,
   guardarEstado,
-  leerEstado,
+  leerEntregaVerificada,
+  leerEstadoConVersion,
   registrarMetricaDeEstado,
   validarPropuesta,
+  type EntregaVerificada,
   type EstadoDelPedido,
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
@@ -128,14 +140,18 @@ import {
   CORRECCION_DE_PAGO_SIN_VERIFICAR,
   CORRECCION_DE_PRODUCTO_OLVIDADO,
   CORRECCION_DE_RECURSO_PROMETIDO,
+  CORRECCION_DE_HUMANO_PROMETIDO,
+  prometeHumanoSinDerivar,
   CORRECCION_DE_TURNO_MUDO,
   CORRECCION_SIN_RESUMEN,
   CORRECCION_SIN_TOTAL,
   confirmaPagoSinVerificar,
   contradiceProductoEncontrado,
+  asumeProductoAmbiguoSinPreguntar,
   handoffPorHechoDeEspecialistaSinVerificar,
   niegaMetodoDePagoPermitido,
   CORRECCION_DE_PRODUCTO_CONTRADICHO,
+  CORRECCION_DE_PRODUCTO_AMBIGUO_SIN_PREGUNTAR,
   CORRECCION_DE_PAGO_CONTRADICHO,
   noDioElTotal,
   productosOlvidados,
@@ -152,7 +168,7 @@ import {
   correccionDeInconsistenciaFinanciera,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
-import { encolarTurno } from "@/server/ai/cola";
+import { encolarTurno, siguePoseyendoElTrabajo } from "@/server/ai/cola";
 import {
   agregarContenidoFaltante,
   correccionDeContenidoFaltante,
@@ -713,7 +729,7 @@ function textoDeResultadoProducto(
 }
 
 /**
- * Fase urgente (5-sep-2026) — incidente real de La Churra. "No encontrado
+ * Fase urgente (4-sep-2026) — incidente real de La Churra. "No encontrado
  * entre los productos" nunca puede convertirse en "[SISTEMA] no lo tienen"
  * sin revisar TAMBIÉN las opciones (salsas, toppings, tamaños) — ver
  * `buscarOpciones`. Esta función es el único punto donde se decide el
@@ -788,7 +804,16 @@ function textoDeResultadoPago(
  */
 export async function runAgentTurn(
   conversationId: string,
-  opts?: { now?: Date }
+  opts?: {
+    now?: Date;
+    /**
+     * Fase 11-A — presente SOLO cuando el turno viene de la cola real
+     * (`worker.ts`, ver `ejecutar()`). Con esto puesto, cualquier efecto
+     * externo del turno se detiene si este worker deja de ser el dueño
+     * válido de la generación — ver `asegurarOwnershipVigente`.
+     */
+    jobOwnership?: { jobId: string; generation: number };
+  }
 ): Promise<AgentActionType | null> {
   if (!isAiConfigured()) return null;
 
@@ -798,8 +823,9 @@ export async function runAgentTurn(
     .from(schema.conversation)
     .where(eq(schema.conversation.id, conversationId))
     .limit(1);
-  const conversation = convRows[0];
+  const conversation: Conversation | undefined = convRows[0];
   if (!conversation) return null;
+  conversation.jobOwnership = opts?.jobOwnership;
   const organizationId = conversation.organizationId;
 
   // Condiciones de silencio: handoff activo o IA apagada en la conversación.
@@ -1007,6 +1033,9 @@ export async function runAgentTurn(
   const estadoEstructurado = profile.stateSource === "backend";
   let bloqueDeEstado: string | undefined;
   let estadoGuardado: EstadoDelPedido | null = null;
+  // Prioridad 3 (programa de mejora integral) — token de concurrencia de la
+  // fila leída este turno; ver `guardarEstado({..., versionEsperada})`.
+  let versionDeEstadoLeido: number | undefined;
   /**
    * Qué pide ESTE negocio para cerrar. Sale de su ficha; el núcleo no tiene ni
    * una lista de campos. Vacío = no hay ficha (Lis, con prompt manual).
@@ -1063,10 +1092,16 @@ export async function runAgentTurn(
    * resuelve contra `delivery_zone`, verificado, igual que ya hace el
    * catálogo de productos.
    */
-  const zonasDeEntrega: ZonaDeEntrega[] =
-    !contrataCitas(vertical) && profile.deliverySource === "tabla"
-      ? await zonasDeEntregaQuery(organizationId)
-      : [];
+  /**
+   * Fase 10V-X — un solo interruptor para todo lo nuevo de este fase: la
+   * carga de zonas Y la persistencia de la verificación entre turnos. A
+   * propósito NUNCA depende de `estadoEstructurado`/`state_source` — ver el
+   * comentario de `leerEntregaVerificada` en `orders/estado.ts`.
+   */
+  const domicilioEstructurado = !contrataCitas(vertical) && profile.deliverySource === "tabla";
+  const zonasDeEntrega: ZonaDeEntrega[] = domicilioEstructurado
+    ? await zonasDeEntregaQuery(organizationId)
+    : [];
 
   if (estadoEstructurado) {
     const productos = await catalogoDe(organizationId, vertical);
@@ -1078,9 +1113,11 @@ export async function runAgentTurn(
       );
     } else {
       if (lastInbound.text && matchesReinicio(lastInbound.text)) {
-        await borrarEstado(conversation.id, { actor: "pipeline", proceso: "reinicio" });
+        await borrarEstado(conversation.id, { actor: "pipeline", proceso: "reinicio", organizationId });
       }
-      estadoGuardado = await leerEstado(conversation.id);
+      const filaDeEstado = await leerEstadoConVersion(conversation.id, organizationId);
+      estadoGuardado = filaDeEstado?.estado ?? null;
+      versionDeEstadoLeido = filaDeEstado?.version;
       /*
        * Ahora sí se sabe cómo quiere recibirlo el cliente, así que los
        * requisitos se resuelven con las DOS mitades: lo que el negocio ofrece
@@ -1109,6 +1146,39 @@ export async function runAgentTurn(
         bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? [], vertical);
       }
     }
+  }
+
+  /**
+   * Fase 10V-X — la última verificación de domicilio conocida, para que el
+   * guardarraíl de cierre (más abajo) no dependa de que el modelo
+   * reverifique EN ESTE TURNO. Si `estadoEstructurado` ya leyó el estado
+   * completo arriba, se reutiliza esa misma lectura (nunca dos golpes a la
+   * base por lo mismo); si no (el caso real de toda la flota hoy), se lee
+   * aparte — `leerEntregaVerificada` es independiente de `state_source` a
+   * propósito, ver su comentario en `orders/estado.ts`.
+   */
+  let entregaPersistida: EntregaVerificada | null = null;
+  if (domicilioEstructurado) {
+    /**
+     * Mismo comando "0" que ya vacía el estado de Fase 2 (arriba) — pero
+     * ese `borrarEstado` solo corre dentro de `estadoEstructurado` con
+     * catálogo cargado. Aquí se repite de forma independiente para que un
+     * cliente en `state_source='prompt'` (todos los reales hoy) también
+     * pueda arrancar de cero: sin esto, "0" reiniciaba el pedido en prosa
+     * pero la tarifa de domicilio verificada seguía viva.
+     */
+    if (lastInbound.text && matchesReinicio(lastInbound.text)) {
+      await guardarEntregaVerificada({
+        conversationId: conversation.id,
+        organizationId,
+        entrega: null,
+        actor: "pipeline",
+        proceso: "reinicio",
+      });
+    }
+    entregaPersistida = estadoEstructurado
+      ? (estadoGuardado?.entrega ?? null)
+      : await leerEntregaVerificada(conversation.id, organizationId);
   }
 
   const messages: ChatMessage[] = [
@@ -1226,16 +1296,34 @@ export async function runAgentTurn(
     const consultaFactual = detectarConsultaFactualDeProducto(lastInbound.text);
     if (consultaFactual) {
       resultadoProducto = buscarProductos(productosDelPedido, consultaFactual);
+      /**
+       * Incidente real de La Churra (4-sep-2026) — "¿tienen chocolate
+       * blanco?" es una pregunta factual como cualquier otra, pero
+       * "chocolate blanco" es una SALSA (una opción dentro de cada
+       * producto), no un producto en sí. `buscarProductos` solo busca
+       * entre nombres de producto, así que devolvía `not_found` y el
+       * `[SISTEMA]` de abajo le decía al modelo "no lo tienen" sobre algo
+       * que sí estaba en el catálogo, un nivel más abajo. "No encontrado
+       * entre los productos" nunca puede convertirse en "no existe" sin
+       * revisar también las opciones — ver `buscarOpciones`.
+       */
       const resultadoOpcion =
-        resultadoProducto.status === "not_found" ? buscarOpciones(productosDelPedido, consultaFactual) : null;
+        resultadoProducto.status === "not_found"
+          ? buscarOpciones(productosDelPedido, consultaFactual)
+          : null;
       console.warn(
-        `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status}${resultadoOpcion ? ` opcion=${resultadoOpcion.status}` : ""} (verificado antes de llamar al modelo)`
+        `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status}` +
+          (resultadoOpcion ? ` status_opcion=${resultadoOpcion.status}` : "") +
+          ` (verificado antes de llamar al modelo)`
       );
       traza.deteccionFactual = consultaFactual;
       agregarHecho(traza, {
         tipo: "producto",
         consulta: consultaFactual,
-        resultado: resultadoProducto.status,
+        resultado:
+          resultadoOpcion && resultadoOpcion.status !== "not_found"
+            ? `opcion_${resultadoOpcion.status}`
+            : resultadoProducto.status,
         origen: "backend",
       });
       messages.push({
@@ -1316,17 +1404,19 @@ export async function runAgentTurn(
    * vale, se registra y se descarta, pero el cliente ya tiene su contestación.
    * Un estado que no valida no puede convertirse en un turno perdido.
    */
-  if (estadoEstructurado && result.ok) {
-    await guardarEstadoPropuesto({
-      organizationId,
-      conversationId: conversation.id,
-      propuesta: propuestaDelTurno,
-      msModelo,
-      requisitos,
-      vertical,
-      modalidadesOfrecidas,
-    });
-  }
+  const estadoRecienGuardado =
+    estadoEstructurado && result.ok
+      ? await guardarEstadoPropuesto({
+          organizationId,
+          conversationId: conversation.id,
+          propuesta: propuestaDelTurno,
+          msModelo,
+          requisitos,
+          vertical,
+          modalidadesOfrecidas,
+          versionEsperada: versionDeEstadoLeido,
+        })
+      : null;
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
   // son justo los que encarecen a un cliente sin que se note en ninguna parte.
   await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
@@ -1520,18 +1610,26 @@ export async function runAgentTurn(
     // Reutiliza el catálogo ya cargado arriba (una sola consulta a la base
     // de datos por turno, sin importar cuántas veces se llegue aquí).
     resultadoProducto = buscarProductos(productosDelPedido, action.consulta);
-    const resultadoOpcion =
-      resultadoProducto.status === "not_found" ? buscarOpciones(productosDelPedido, action.consulta) : null;
+    // Mismo criterio que la verificación forzada de arriba: "no está entre
+    // los productos" no es "no existe" — puede ser una salsa/opción.
+    const resultadoOpcionAccion =
+      resultadoProducto.status === "not_found"
+        ? buscarOpciones(productosDelPedido, action.consulta)
+        : null;
     console.warn(
-      `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}${resultadoOpcion ? ` opcion=${resultadoOpcion.status}` : ""}`
+      `[producto] ${organizationId}: consulta="${action.consulta}" status=${resultadoProducto.status}` +
+        (resultadoOpcionAccion ? ` status_opcion=${resultadoOpcionAccion.status}` : "")
     );
     agregarHecho(traza, {
       tipo: "producto",
       consulta: action.consulta,
-      resultado: resultadoProducto.status,
+      resultado:
+        resultadoOpcionAccion && resultadoOpcionAccion.status !== "not_found"
+          ? `opcion_${resultadoOpcionAccion.status}`
+          : resultadoProducto.status,
       origen: "backend",
     });
-    const infoProducto = textoDeResultadoCatalogo(action.consulta, resultadoProducto, resultadoOpcion);
+    const infoProducto = textoDeResultadoCatalogo(action.consulta, resultadoProducto, resultadoOpcionAccion);
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoProducto });
     const siguiente = await chatJson(AgentAction, messages, {
@@ -1602,6 +1700,52 @@ export async function runAgentTurn(
         "[producto] sigue contradiciendo el hecho verificado; lo toma una persona"
       );
       agregarGuardarrail(traza, "producto_contradicho", false);
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Fase 10S — mitad simétrica para `multiple_matches`: el sistema encontró
+   * VARIOS candidatos igual de buenos y le pidió al modelo preguntar cuál;
+   * si el modelo ignora esa instrucción y asume uno sin preguntar, nada lo
+   * detectaba hasta ahora (a diferencia de `found`, este `status` no trae un
+   * único `producto`, así que necesita su propio detector — ver
+   * `asumeProductoAmbiguoSinPreguntar`).
+   */
+  if (
+    resultadoProducto?.status === "multiple_matches" &&
+    action.action === "reply" &&
+    asumeProductoAmbiguoSinPreguntar(action.text, resultadoProducto.productos)
+  ) {
+    console.warn("[producto] asumió un candidato ambiguo sin preguntar; rehaciendo el turno");
+    const reintento = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_PRODUCTO_AMBIGUO_SIN_PREGUNTAR },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/producto-ambiguo`
+    );
+    if (
+      reintento.ok &&
+      !(
+        reintento.data.action === "reply" &&
+        asumeProductoAmbiguoSinPreguntar(reintento.data.text, resultadoProducto.productos)
+      )
+    ) {
+      action = reintento.data;
+      agregarGuardarrail(traza, "producto_ambiguo_sin_preguntar", true);
+    } else {
+      console.error(
+        "[producto] sigue asumiendo un candidato ambiguo sin preguntar; lo toma una persona"
+      );
+      agregarGuardarrail(traza, "producto_ambiguo_sin_preguntar", false);
       await derivarAUnaPersona(conversation);
       registrarHandoff(traza, "model_output_recovery_failed");
       traza.accionFinal = "handoff";
@@ -1724,17 +1868,83 @@ export async function runAgentTurn(
     consultasDomicilio < MAX_CONSULTAS_DOMICILIO
   ) {
     consultasDomicilio++;
-    resultadoZona = resolverZonaDeEntrega(zonasDeEntrega, action.zona);
-    console.warn(
-      `[domicilio] ${organizationId}: zona="${action.zona}" status=${resultadoZona.status}`
-    );
-    agregarHecho(traza, {
-      tipo: "domicilio",
-      consulta: action.zona,
-      resultado: resultadoZona.status,
-      origen: "backend",
-    });
-    const infoZona = textoDeResultadoDomicilio(action.zona, resultadoZona);
+    /**
+     * Fase 10V-X — cada consulta de este turno REEMPLAZA por completo lo
+     * que hubiera persistido antes: es la transición explícita que exige
+     * un cambio de zona (zona anterior invalidada, nueva zona pendiente
+     * hasta que se resuelva) — nunca queda una tarifa vieja como válida
+     * por omisión. `recogida:true` hace lo mismo para "el cliente ya no
+     * quiere domicilio", sin pasar por el buscador de zonas.
+     */
+    let infoZona: string;
+    let nuevaEntrega: EntregaVerificada;
+    if (action.recogida === true) {
+      resultadoZona = null;
+      console.warn(`[domicilio] ${organizationId}: cliente registrado como recogida (sin domicilio)`);
+      agregarHecho(traza, {
+        tipo: "domicilio",
+        consulta: "recogida",
+        resultado: "recogida",
+        origen: "backend",
+      });
+      infoZona = textoDeResultadoRecogida();
+      nuevaEntrega = {
+        tipo: "recogida",
+        zonaId: null,
+        zonaNombre: null,
+        feeCents: null,
+        verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
+        verificadoEn: new Date().toISOString(),
+      };
+    } else {
+      resultadoZona = resolverZonaDeEntrega(zonasDeEntrega, action.zona);
+      console.warn(
+        `[domicilio] ${organizationId}: zona="${action.zona}" status=${resultadoZona.status}`
+      );
+      agregarHecho(traza, {
+        tipo: "domicilio",
+        consulta: action.zona,
+        resultado: resultadoZona.status,
+        origen: "backend",
+      });
+      infoZona = textoDeResultadoDomicilio(action.zona, resultadoZona);
+      nuevaEntrega = {
+        tipo: "domicilio",
+        zonaId: resultadoZona.status === "found" ? resultadoZona.zona.id : null,
+        zonaNombre: resultadoZona.status === "found" ? resultadoZona.zona.nombre : null,
+        feeCents: resultadoZona.status === "found" ? resultadoZona.zona.feeCents : null,
+        verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
+        verificadoEn: new Date().toISOString(),
+      };
+    }
+    if (domicilioEstructurado) {
+      const guardado = await guardarEntregaVerificada({
+        conversationId: conversation.id,
+        organizationId,
+        entrega: nuevaEntrega,
+        actor: "pipeline",
+        proceso: "consultar_domicilio",
+      });
+      if (guardado.ok) {
+        entregaPersistida = nuevaEntrega;
+        // Mantiene sincronizada la versión que usará el guardado de la
+        // Fase 2 al final del turno (`guardarEstadoPropuesto`, más abajo):
+        // sin esto, esta escritura de en medio del turno dejaría esa
+        // versión desactualizada y esa escritura posterior perdería su
+        // propia carrera contra sí misma. Combinación sin clientes reales
+        // hoy (ver el comentario de `domicilioEstructurado`), pero
+        // correcta si algún día coinciden `state_source='backend'` y
+        // `delivery_source='tabla'`.
+        if (estadoEstructurado) {
+          estadoGuardado = { ...(estadoGuardado ?? estadoVacio()), entrega: nuevaEntrega };
+          if (versionDeEstadoLeido !== undefined) versionDeEstadoLeido += 1;
+        }
+      } else {
+        console.warn(
+          `[domicilio] ${organizationId}: no se pudo persistir la verificación de domicilio (carrera perdida); sigue vigente solo este turno`
+        );
+      }
+    }
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoZona });
     const siguiente = await chatJson(AgentAction, messages, {
@@ -1812,9 +2022,10 @@ export async function runAgentTurn(
    * acción — nunca se calcula el total leyendo el `summary` en prosa. Es
    * la corrección directa del incidente de Kachipay: `deliveryFeeCents`
    * debe ser exactamente la tarifa que `consultar_domicilio` verificó EN
-   * ESTE TURNO (no en uno anterior — esa verificación es efímera, solo
-   * vive en `messages` de este turno, nunca se persiste), y `totalCents`
-   * debe cuadrar aritméticamente.
+   * ESTE TURNO, o la última verificación persistida de un turno anterior
+   * de esta misma conversación (Fase 10V-X — `entregaPersistida`, ver
+   * `EntregaVerificada` en `orders/estado.ts`), y `totalCents` debe cuadrar
+   * aritméticamente.
    */
   if (action.action === "notify_order") {
     const fallo = inconsistenciaFinancieraDePedido({
@@ -1823,7 +2034,12 @@ export async function runAgentTurn(
       deliveryFeeCents: action.deliveryFeeCents,
       totalCents: action.totalCents,
       zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
+      entregaPersistida,
       puedeVerificarDomicilio: zonasDeEntrega.length > 0,
+      // Fase 11-C — el subtotal REAL, ya calculado por el backend contra
+      // el catálogo (nunca `null`: eso significaría un ítem sin resolver,
+      // y entonces no hay ningún subtotal real que exigir todavía).
+      subtotalReal: estadoGuardado?.totalCents ?? undefined,
     });
     if (fallo) {
       console.warn(`[pedido] inconsistencia financiera (${fallo}); rehaciendo el turno`);
@@ -1845,7 +2061,9 @@ export async function runAgentTurn(
               deliveryFeeCents: reintento.data.deliveryFeeCents,
               totalCents: reintento.data.totalCents,
               zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
+              entregaPersistida,
               puedeVerificarDomicilio: zonasDeEntrega.length > 0,
+              subtotalReal: estadoGuardado?.totalCents ?? undefined,
             })
           : "total-no-cuadra";
       if (reintento.ok && reintento.data.action === "notify_order" && !reintentoFallo) {
@@ -1870,19 +2088,17 @@ export async function runAgentTurn(
   }
 
   /**
-   * Incidente real (5-sep-2026), Caso B — corregido: `notify_order` es una
-   * acción IRREVERSIBLE (avisa al equipo por WhatsApp; no hay forma de
-   * "desavisar"). El único candado que existía hasta ahora
-   * (`registrarConfirmacionDePedido`, dentro del `case` de más abajo)
-   * protege que el MISMO lote de mensajes disparadores no confirme dos
-   * veces — pero un mensaje CUALQUIERA del cliente después de un cierre
-   * exitoso ("¿cuánto demora?", "gracias", lo que sea) trae su propio
-   * `pendientes`, con un `idempotencyKey` DISTINTO: el `UNIQUE` de Postgres
-   * no lo detecta, y si el modelo decide reabrir la confirmación —visto en
-   * producción tras el relevo automático de `handoff-policy.ts`
-   * (`HANDOFF_RESUME_HOURS`), que 2 horas después de cerrar el pedido
-   * reintroduce TODO el historial al agente sin que nadie lo pida— nada lo
-   * frenaba: doble aviso al equipo, doble "pedido confirmado" en el CRM.
+   * Guardarraíl de "pedido ya confirmado" (incidente real, 5-sep-2026, Caso
+   * B): un mensaje del cliente DESPUÉS de un cierre exitoso podía reabrir la
+   * confirmación. `EstadoDelPedido`/`conversation_state.confirmado` no basta
+   * como fuente de verdad aquí — lo que importa es si YA existe una fila en
+   * `order_confirmation` para esta conversación, con un `idempotencyKey`
+   * DISTINTO: el `UNIQUE` de Postgres no lo detecta, y si el modelo decide
+   * reabrir la confirmación —visto en producción tras el relevo automático
+   * de `handoff-policy.ts` (`HANDOFF_RESUME_HOURS`), que 2 horas después de
+   * cerrar el pedido reintroduce TODO el historial al agente sin que nadie
+   * lo pida— nada lo frenaba: doble aviso al equipo, doble "pedido
+   * confirmado" en el CRM.
    *
    * El backend, no el modelo, decide si esto es el MISMO pedido o uno
    * genuinamente nuevo: si esta conversación ya tiene una confirmación
@@ -2102,6 +2318,52 @@ export async function runAgentTurn(
         "[agente] sigue prometiendo un recurso sin enviarlo; lo toma una persona"
       );
       agregarGuardarrail(traza, "recurso_prometido", false);
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Fase 10T — "handoff fantasma": promete un humano (ver
+   * anuncio-de-cierre.ts) y la acción emitida no es `handoff`. Mismo
+   * tratamiento que el recurso prometido: una oportunidad de rehacerlo con
+   * la corrección delante y, si insiste, se deriva de verdad — es la única
+   * forma de cumplir lo que el cliente ya leyó.
+   */
+  if (action.action !== "handoff" && textosAlCliente(action).some(prometeHumanoSinDerivar)) {
+    console.warn("[agente] prometió un humano sin derivar; rehaciendo el turno");
+    const messagesReintento: ChatMessage[] = [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_HUMANO_PROMETIDO },
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/humano-prometido`
+    );
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-humano-prometido",
+    });
+    if (
+      resuelto.ok &&
+      (resuelto.accion.action === "handoff" ||
+        !textosAlCliente(resuelto.accion).some(prometeHumanoSinDerivar))
+    ) {
+      action = resuelto.accion;
+      agregarGuardarrail(traza, "humano_prometido", true);
+    } else if (!resuelto.ok) {
+      return resuelto.resultado;
+    } else {
+      console.error(
+        "[agente] sigue prometiendo un humano sin derivar; se deriva de verdad"
+      );
+      agregarGuardarrail(traza, "humano_prometido", false);
       await derivarAUnaPersona(conversation);
       registrarHandoff(traza, "model_output_recovery_failed");
       traza.accionFinal = "handoff";
@@ -2645,6 +2907,25 @@ export async function runAgentTurn(
     }
   }
 
+  /**
+   * Prioridad 1 (programa de mejora integral) — mismo patrón del incidente
+   * de domicilio, aplicado a `conversation_state`: la propuesta de este
+   * turno se guardó con `confirmado:true` justo después de la primera
+   * llamada al modelo (`guardarEstadoPropuesto`, arriba), pero entre ese
+   * guardado y AQUÍ pueden correr hasta 8 guardarraíles de texto que
+   * reescriben `action` sin volver a extraer el estado (ninguno llama
+   * `chatJsonConEstado`, todos usan `chatJson` plano). Si ninguno de ellos
+   * terminó cerrando un `notify_order` real, un pedido puede quedar
+   * `confirmado:true` en base de datos sin que el turno haya cerrado nada
+   * — mintiendo sobre lo que en verdad pasó. En este punto `action` ya es
+   * la decisión final (ver el comentario de "Punto único de registro de la
+   * traza" más abajo), así que aquí es donde se puede saber con certeza si
+   * de verdad hubo un cierre.
+   */
+  if (estadoRecienGuardado?.guardadoConfirmadoTrue && action.action !== "notify_order") {
+    await corregirConfirmadoSinCierre(organizationId, conversation.id);
+  }
+
   if (action.action === "move_stage") {
     const stage = resolveStage(action.stage, stages);
     if (!stage) {
@@ -2821,9 +3102,42 @@ export async function runAgentTurn(
         await deliverReply(conversation, action.farewell);
       }
       await applyHandoff(conversationId, organizationId, "modelo");
+      // Fase 10T — bug real: este camino (decisión del MODELO, no error ni
+      // FR-022) marcaba el handoff sin avisar nunca al equipo por WhatsApp —
+      // solo quedaba el evento SSE del CRM. El prompt le pide al modelo decir
+      // siempre "te comunico con el equipo" justo en este camino silencioso.
+      await notificarEquipoDeHandoff(
+        conversation,
+        action.reason ? `${AVISO_EQUIPO_MODELO} Motivo: ${action.reason}` : AVISO_EQUIPO_MODELO
+      );
       return action;
     }
     case "notify_order": {
+      /**
+       * Fase 11-A — se verifica ownership ANTES de reclamar la clave de
+       * idempotencia: si este worker ya perdió la generación, ni siquiera
+       * vale la pena tomar la clave (el nuevo dueño, en su propia
+       * ejecución, la tomará él).
+       */
+      await asegurarOwnershipVigente(conversation);
+      /**
+       * Fase 11-B — el teléfono se resuelve ANTES de registrar la
+       * confirmación: `orderConfirmation.customerPhone` guarda el dato que
+       * un reintento posterior de la notificación va a necesitar (ver
+       * `intentarNotificarPedido`), y todavía no hay ninguna clave tomada
+       * de la que preocuparse si esto falla — es el mismo caso "nada que
+       * deshacer" que antes protegía el bloque de más abajo.
+       */
+      let phone: string | null;
+      try {
+        phone = await contactPhoneOf(organizationId, conversation.contactId);
+      } catch (err) {
+        console.error(
+          `[agente] no se pudo resolver el teléfono del contacto en ${conversationId} antes de confirmar el pedido:`,
+          err
+        );
+        throw err;
+      }
       /**
        * Fase 10N-A — idempotencia real (Postgres, no memoria) antes de
        * cualquier efecto: el `INSERT` con `UNIQUE(conversation_id,
@@ -2834,21 +3148,18 @@ export async function runAgentTurn(
        * motivo) para la misma conversación, solo una gana el `INSERT` y
        * solo esa manda el WhatsApp al equipo / anota el pedido.
        *
-       * Fase urgente (5-sep-2026) — BUG REAL corregido: la despedida al
-       * CLIENTE (`action.farewell`, más abajo) vivía FUERA de este
-       * `if/else`, incondicional — así que una re-ejecución del mismo
-       * turno (`primeraVez: false`) correctamente no repetía el aviso al
-       * EQUIPO, pero SÍ le reenviaba al CLIENTE el mismo mensaje de
-       * confirmación, una vez por cada re-ejecución. Ahora vive DENTRO
-       * del `else` (solo `primeraVez`).
-       *
-       * Además, el aviso al equipo ahora pasa por `intentarNotificarPedido`
-       * (confirmacion-de-pedido.ts): el primer intento y cualquier
-       * reintento posterior (worker) comparten el MISMO claim atómico
-       * sobre `orderConfirmation.notify_status`, así que tampoco puede
-       * duplicarse por esa vía.
+       * Fase urgente (4-sep-2026) — BUG REAL corregido: hasta ahora, la
+       * despedida al CLIENTE (`action.farewell`, más abajo) se mandaba
+       * FUERA de este `if/else`, incondicionalmente — así que una
+       * ejecución duplicada (`primeraVez: false`) correctamente no
+       * repetía el aviso al EQUIPO, pero SÍ le reenviaba al CLIENTE el
+       * mismo mensaje de confirmación, una vez por cada re-ejecución del
+       * turno. Es la causa real, confirmada, del incidente reportado
+       * ("el mismo mensaje de confirmación enviado ~3 veces"): no una
+       * carrera en `notifyTeam` (esa ya estaba protegida), sino la
+       * despedida al cliente viviendo fuera de la protección de
+       * idempotencia. Ahora vive DENTRO del `else` (solo `primeraVez`).
        */
-      const phone = await contactPhoneOf(organizationId, conversation.contactId);
       const { primeraVez, id: confirmationId } = await registrarConfirmacionDePedido({
         organizationId,
         conversationId,
@@ -2865,9 +3176,68 @@ export async function runAgentTurn(
           `[agente] notify_order duplicado (mismo pedido, misma conversación) en ${conversationId}; no se repite el aviso`
         );
       } else {
+        /**
+         * Fase 10V-X — este pedido se cierra: la verificación de domicilio
+         * que lo respaldaba deja de ser válida para lo que venga después
+         * en esta MISMA conversación. Sin esto, un pedido nuevo (otro día,
+         * otro cliente que retoma el chat) heredaría en silencio la
+         * tarifa del pedido anterior — nunca se asume que una conversación
+         * es un solo pedido. Solo invalida, nunca lanza: un fallo aquí no
+         * puede tumbar el cierre real del pedido, que ya está registrado.
+         */
+        if (domicilioEstructurado) {
+          await guardarEntregaVerificada({
+            conversationId,
+            organizationId,
+            entrega: null,
+            actor: "pipeline",
+            proceso: "pedido_confirmado",
+          }).catch((err) => {
+            console.error("[domicilio] no se pudo invalidar la verificación tras cerrar el pedido:", err);
+          });
+        }
         // Orden deliberado: primero el registro (fuente de verdad), después el
         // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
         // despedida — así un pedido nunca se pierde por un fallo de envío.
+        try {
+          // Fase 11-A — segunda comprobación, justo antes del efecto
+          // externo real (`intentarNotificarPedido`, más abajo): pudo pasar
+          // tiempo real (llamadas al modelo, guardarraíles) entre que este
+          // worker reclamó la generación y que llega hasta aquí.
+          await asegurarOwnershipVigente(conversation);
+        } catch (err) {
+          /**
+           * Fase 10V, Hallazgo D — la notificación TODAVÍA no se ha
+           * intentado: deshacer la clave aquí es seguro (nada que
+           * duplicar) y deja que el reintento del job (Fase 10Q) — o, si
+           * este worker perdió ownership, el que haga la PRÓXIMA
+           * ejecución de esta conversación — lo intente de cero.
+           */
+          await borrarConfirmacionDePedido({
+            conversationId,
+            messageIds: pendientes.map((m) => m.id),
+          }).catch((errDeshacer) => {
+            console.error(
+              "[agente] no se pudo deshacer la idempotencia tras un error inesperado:",
+              errDeshacer
+            );
+          });
+          throw err;
+        }
+        /**
+         * Fase 11-B — separación real entre "pedido registrado" (ya
+         * ocurrió, arriba) y "aviso entregado" (esto). Para conversaciones
+         * de prueba (Laboratorio) se conserva el camino directo de
+         * siempre: `notifyTeam` con `isTest: true` simula el aviso sin
+         * mandar nada real, y no hay ningún reintento que rastrear — el
+         * Laboratorio nunca debe generar una fila que
+         * `reintentarNotificacionesPendientes` intente reenviar de verdad.
+         * Para conversaciones reales, `intentarNotificarPedido` corre la
+         * MISMA máquina de estados que usará cualquier reintento posterior
+         * (`orderConfirmation.notifyStatus`): si `notifyTeam` no logra
+         * entregarlo a NINGÚN número, la fila queda en `fallo_recuperable`
+         * en vez de darse por avisada sin haberlo logrado.
+         */
         const result = conversation.isTest
           ? await notifyTeam({
               organizationId,
@@ -2881,11 +3251,36 @@ export async function runAgentTurn(
               summary: action.summary,
               customerPhone: phone,
             });
-        await appendLeadNote(
-          organizationId,
-          conversation.contactId,
-          `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
-        );
+        try {
+          await appendLeadNote(
+            organizationId,
+            conversation.contactId,
+            `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
+          );
+        } catch (err) {
+          /**
+           * Fase 10V, Hallazgo D — a diferencia de arriba, aquí el intento
+           * de notificación YA se ejecutó (con evidencia guardada en
+           * `orderConfirmation.notifyStatus`, Fase 11-B): deshacer la clave
+           * arriesgaría duplicar el aviso real al equipo en un reintento.
+           * Se registra el fallo y se sigue — falta la nota del CRM, pero
+           * el pedido ya quedó avisado (o correctamente marcado como
+           * pendiente de reintento), que es lo que no se puede perder.
+           */
+          console.error(
+            `[agente] no se pudo anotar la nota del pedido en ${conversationId} (el aviso al equipo SÍ se intentó, no se reintenta para no duplicarlo):`,
+            err
+          );
+        }
+        /**
+         * Fase urgente (4-sep-2026) — la despedida al CLIENTE es un
+         * efecto externo real (un mensaje de WhatsApp), igual que el
+         * aviso al equipo: solo debe salir la PRIMERA vez que se
+         * confirma este pedido exacto (mismos mensajes disparadores).
+         * Antes vivía fuera de este `if/else` y se reenviaba en cada
+         * re-ejecución del turno — la causa confirmada del incidente
+         * real de mensajes duplicados.
+         */
         if (action.farewell) {
           await deliverReply(conversation, action.farewell);
         }
@@ -2894,7 +3289,9 @@ export async function runAgentTurn(
       // inequívoca de venta que tiene el sistema, y sin esto el lead se quedaba
       // en "Nuevo" para siempre aunque el equipo ya estuviera despachándolo.
       // Aislado: el pedido ya está registrado y avisado, que es lo que no se
-      // puede perder.
+      // puede perder. Se deja FUERA del `if/else` a propósito: es idempotente
+      // por sí solo (`onLeadWon` comprueba el stage antes de moverlo) y debe
+      // completarse aunque una ejecución anterior ya hubiera avisado.
       try {
         if (await onLeadWon(organizationId, conversation.contactId)) {
           publish(organizationId, {
@@ -2906,6 +3303,8 @@ export async function runAgentTurn(
         console.error("[embudo] no se pudo cerrar el lead:", err);
       }
       // Pedido cerrado = lo toma una persona (coordinar entrega y pago).
+      // También idempotente (fija un timestamp/motivo, no un efecto que se
+      // acumule) y por eso se deja fuera del `if/else` igual que arriba.
       await applyHandoff(conversationId, organizationId, "modelo");
       return action;
     }
@@ -2918,9 +3317,37 @@ export async function runAgentTurn(
        * especialista; solo una de las dos se pudo agendar antes de esto, y
        * el texto anunciaba las dos como agendadas.
        */
+      // Fase 11-A — mismo criterio que notify_order: sin ownership vigente,
+      // ni vale la pena reclamar la clave de idempotencia.
+      await asegurarOwnershipVigente(conversation);
+
       const agendadas: { nombreVisita: string; fecha: string; hora: string; staffName: string }[] =
         [];
       const fallidas: { nombreVisita: string; motivo: string }[] = [];
+
+      /**
+       * Programa de mejora integral, Prioridad 5 — idempotencia REAL
+       * (Postgres) antes de crear ninguna cita, mismo principio que
+       * `notify_order` (Fase 10N-A). Riesgo real (auditoría 10U): un turno
+       * vivo puede tardar más de `HUERFANO_TRAS_MS` y `rescatarHuerfanos`
+       * reasignarlo mientras el original sigue vivo (ver `cola.ts`); si el
+       * turno se reintenta completo y pide un horario DISTINTO al ya
+       * reservado, el `EXCLUDE` de `appointment_resource` no lo detecta —
+       * sería una segunda cita real. Si este mismo lote de mensajes ya
+       * disparó una ejecución de `book_appointment` en esta conversación,
+       * esta ejecución NUNCA vuelve a llamar `crearCitaMultiple`.
+       */
+      const { primeraVez: primeraVezDeEsteLote, id: confirmacionDeCitaId } =
+        await registrarConfirmacionDeCita({
+          organizationId,
+          conversationId,
+          messageIds: pendientes.map((m) => m.id),
+        });
+      if (!primeraVezDeEsteLote) {
+        console.warn(
+          `[citas] book_appointment duplicado (mismos mensajes disparadores) en ${conversationId}; no se vuelve a agendar, se reporta lo que ya exista`
+        );
+      }
 
       for (const reserva of action.reservas) {
         // Uno o varios servicios en la MISMA visita de esta reserva — igual
@@ -3058,16 +3485,64 @@ export async function runAgentTurn(
           agregarGuardarrail(traza, "appointment_incomplete_services", false);
         }
 
-        const resultado = await crearCitaMultiple({
-          organizationId,
-          contactId: conversation.contactId,
-          services: servicios,
-          fecha,
-          hora: reserva.hora,
-          staffIdPreferido: resuelto.staffId,
-          hours,
-          now: opts?.now,
-        });
+        let resultado:
+          | Awaited<ReturnType<typeof crearCitaMultiple>>
+          | Awaited<ReturnType<typeof buscarCitaYaCreada>>;
+        if (primeraVezDeEsteLote) {
+          try {
+            resultado = await crearCitaMultiple({
+              organizationId,
+              contactId: conversation.contactId,
+              services: servicios,
+              fecha,
+              hora: reserva.hora,
+              staffIdPreferido: resuelto.staffId,
+              hours,
+              now: opts?.now,
+            });
+          } catch (err) {
+            /**
+             * Fase 10V, Hallazgo D — un error INESPERADO (no el `sin_cupo`/
+             * `fuera_de_horario` que `crearCitaMultiple` ya maneja sin
+             * lanzar) dejaría, sin esto, la clave de idempotencia tomada
+             * para siempre sin que la cita se haya creado nunca: el
+             * reintento del job vería `primeraVezDeEsteLote=false` y jamás
+             * volvería a intentarlo. Si NINGUNA reserva de este lote se
+             * creó todavía, deshacer la clave es seguro (nada que
+             * duplicar) y dejar que el reintento del job lo intente de
+             * cero. Si YA se creó alguna, deshacer arriesgaría duplicarla
+             * en el reintento — se reporta esta reserva puntual como
+             * fallida en vez de eso (riesgo residual documentado, no un
+             * rediseño completo: ver el informe de la Fase 10V).
+             */
+            if (agendadas.length === 0) {
+              await borrarConfirmacionDeCita({
+                conversationId,
+                messageIds: pendientes.map((m) => m.id),
+              }).catch((errDeshacer) => {
+                console.error(
+                  "[citas] no se pudo deshacer la idempotencia tras un error inesperado:",
+                  errDeshacer
+                );
+              });
+              throw err;
+            }
+            console.error(
+              `[citas] crearCitaMultiple lanzó un error inesperado en ${conversation.id} tras ya haber creado ${agendadas.length} reserva(s) de este lote; no se deshace la idempotencia (evitaría duplicar lo ya creado)`,
+              err
+            );
+            fallidas.push({ nombreVisita, motivo: "ocurrió un error inesperado al agendar" });
+            break;
+          }
+        } else {
+          resultado = await buscarCitaYaCreada(
+            organizationId,
+            conversation.contactId,
+            servicios[0]!.id,
+            fecha,
+            reserva.hora
+          );
+        }
         if (!resultado.ok) {
           /**
            * El hueco puede estar ocupado por la PROPIA clienta: pasa cada vez
@@ -3130,10 +3605,16 @@ export async function runAgentTurn(
           )
           .join("\n"),
         farewell: action.farewell,
+        confirmationId: confirmacionDeCitaId,
       });
       return action;
     }
     case "reschedule_appointment": {
+      // Fase 11-A — antes de tocar una cita real (`reprogramarCita`, más
+      // abajo, es un UPDATE sin protección de idempotencia propia — ver
+      // riesgos restantes del informe): sin ownership vigente, ni se
+      // intenta.
+      await asegurarOwnershipVigente(conversation);
       const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
       const cita = encontrarCitaActiva(activas, action.servicio);
       if (!cita) {
@@ -3147,8 +3628,13 @@ export async function runAgentTurn(
       }
       const servicioRow = services.find((s) => s.id === cita.serviceId);
       if (!servicioRow) {
-        await deliverReply(conversation, "Ese servicio ya no está en el catálogo; te comunico con el equipo.");
-        return action;
+        // Fase 10T — bug real: esto le decía al cliente "te comunico con el
+        // equipo" con `deliverReply` puro, sin ejecutar NINGÚN handoff real
+        // (ni `applyHandoff`, ni aviso al equipo) — el agente seguía activo y
+        // respondiendo normal al siguiente mensaje, promesa vacía. Ahora usa
+        // el mismo camino real que cualquier otra derivación por error.
+        await derivarAUnaPersona(conversation, { reason: "error" });
+        return { action: "handoff", reason: "error" };
       }
       const nuevaFecha = normalizarFecha(action.nuevaFecha) ?? action.nuevaFecha;
       const resultado = await reprogramarCita({
@@ -3162,6 +3648,14 @@ export async function runAgentTurn(
         now: opts?.now,
       });
       if (!resultado.ok) {
+        if (resultado.reason === "especialista_no_disponible") {
+          // Fase 10U — bug real: la especialista de la cita original ya no
+          // está activa (o ya no ofrece este servicio). No es "elige otra
+          // hora" (`sin_cupo`) — con ella ninguna hora sirve. Handoff real,
+          // mismo camino que "servicio ya no está en el catálogo" (Fase 10T).
+          await derivarAUnaPersona(conversation, { reason: "error" });
+          return { action: "handoff", reason: "error" };
+        }
         const msg =
           resultado.reason === "fuera_de_horario"
             ? "Esa fecha no se puede agendar. ¿Qué otro día te gustaría?"
@@ -3180,6 +3674,8 @@ export async function runAgentTurn(
       return action;
     }
     case "cancel_appointment": {
+      // Fase 11-A — mismo criterio que reschedule_appointment.
+      await asegurarOwnershipVigente(conversation);
       const activas = await citasActivasDeContacto(organizationId, conversation.contactId);
       const cita = encontrarCitaActiva(activas, action.servicio);
       if (!cita) {
@@ -3205,7 +3701,64 @@ export async function runAgentTurn(
   return null;
 }
 
-type Conversation = typeof schema.conversation.$inferSelect;
+type Conversation = typeof schema.conversation.$inferSelect & {
+  /**
+   * Fase 11-A — a qué job/generación pertenece la ejecución EN CURSO de
+   * `runAgentTurn`, cuando viene de la cola real (`worker.ts`). Se asigna
+   * UNA vez, al principio del turno (ver `runAgentTurn`), sobre el mismo
+   * objeto `conversation` que ya viaja por todo el archivo — así ningún
+   * punto de llamada de `deliverReply`/`derivarAUnaPersona`/etc. necesita
+   * un parámetro nuevo para enterarse.
+   *
+   * `undefined` para cualquier llamador que no pase por la cola
+   * (Laboratorio, scripts, pruebas que invocan `runAgentTurn` directo): en
+   * ese caso no hay ningún worker concurrente del que protegerse, y
+   * `asegurarOwnershipVigente` no hace ninguna consulta — cero cambio de
+   * comportamiento para esos caminos.
+   */
+  jobOwnership?: { jobId: string; generation: number };
+};
+
+/**
+ * Fase 11-A — el worker que la lanza ya no es dueño de la generación que
+ * reclamó (otro worker la reasignó vía `rescatarHuerfanos`). Se usa como una
+ * señal DISTINGUIBLE de cualquier otro fallo: `worker.ts` la reconoce y NO
+ * la trata como un error del turno (no reintenta, no ensucia el log de
+ * fallos) — es la salida controlada que pide la Parte A: ni un mensaje ni un
+ * efecto más, y sin intentar finalizar el job como propio (`completarTrabajo`/
+ * `fallarTrabajo` ya son no-op para una generación vieja, pero ni falta hace
+ * llamarlos).
+ */
+export class OwnershipPerdidaError extends Error {
+  constructor(
+    public readonly jobId: string,
+    public readonly generation: number
+  ) {
+    super(
+      `[fencing] el worker ya no es dueño del job ${jobId} (generación ${generation}); se detiene antes de un efecto externo`
+    );
+    this.name = "OwnershipPerdidaError";
+  }
+}
+
+/**
+ * El chequeo real, contra Postgres — nunca una bandera en memoria (ver el
+ * comentario de `siguePoseyendoElTrabajo` en `cola.ts`). Se llama al
+ * principio de cada función que produce un efecto externo crítico; lanza
+ * `OwnershipPerdidaError` si el worker ya perdió la generación, ANTES de que
+ * esa función haga nada más.
+ */
+async function asegurarOwnershipVigente(conversation: Conversation): Promise<void> {
+  const ownership = conversation.jobOwnership;
+  if (!ownership) return;
+  const vigente = await siguePoseyendoElTrabajo(ownership);
+  if (!vigente) {
+    console.warn(
+      `[fencing] worker perdió ownership del job ${ownership.jobId} (generación ${ownership.generation}, conversación ${conversation.id}); se detiene antes de un efecto externo`
+    );
+    throw new OwnershipPerdidaError(ownership.jobId, ownership.generation);
+  }
+}
 
 /**
  * Lo que se le dice al cliente cuando el agente no logra resolver.
@@ -3225,6 +3778,30 @@ const AVISO_EQUIPO_ERROR =
 const AVISO_EQUIPO_CLIENTE_PIDIO_ASESOR =
   "🙋 Un cliente pidió hablar con una persona del equipo. Revisa la " +
   "bandeja cuanto antes: quedó esperando la confirmación.";
+
+const AVISO_EQUIPO_MODELO =
+  "🤖 El agente derivó una conversación a una persona por regla de negocio. " +
+  "Revisa la bandeja cuanto antes.";
+
+/**
+ * Fase 10T — extraído de `derivarAUnaPersona` para que TODO handoff (error,
+ * cliente, o decisión del modelo por regla de negocio) avise al equipo por
+ * el mismo camino real, sin duplicar el try/catch.
+ */
+async function notificarEquipoDeHandoff(conversation: Conversation, summary: string): Promise<void> {
+  await asegurarOwnershipVigente(conversation);
+  try {
+    const phone = await contactPhoneOf(conversation.organizationId, conversation.contactId);
+    await notifyTeam({
+      organizationId: conversation.organizationId,
+      summary,
+      customerPhone: phone,
+      isTest: conversation.isTest,
+    });
+  } catch (err) {
+    console.error("[agente] no se pudo avisar al equipo de la derivación:", err);
+  }
+}
 
 /**
  * Cierra el turno pasando la conversación a una persona, avisando al cliente
@@ -3249,12 +3826,26 @@ async function derivarAUnaPersona(
     teamSummary?: string;
   }
 ): Promise<void> {
+  await asegurarOwnershipVigente(conversation);
   const reason = opts?.reason ?? "error";
   const teamSummary = opts?.teamSummary ?? AVISO_EQUIPO_ERROR;
 
   try {
     await deliverReply(conversation, AVISO_DE_DERIVACION, { esAviso: true });
   } catch (err) {
+    /**
+     * Fase 6B — hallazgo de auditoría: este catch trataba
+     * `OwnershipPerdidaError` (lanzada por la propia reverificación interna
+     * de `deliverReply`, una consulta real a Postgres — no una bandera en
+     * memoria) igual que cualquier fallo de envío benigno, y seguía adelante
+     * con `applyHandoff` SIN ninguna protección de ownership. La propiedad
+     * exigida es "perder ownership antes de un efecto externo crítico => no
+     * ejecutar ese efecto" — `applyHandoff` es exactamente ese efecto. Si se
+     * perdió la generación en la ventana entre el chequeo de arriba y este,
+     * se aborta aquí mismo: no se marca el handoff, no se notifica al
+     * equipo. El nuevo dueño del job se encarga de todo el turno de cero.
+     */
+    if (err instanceof OwnershipPerdidaError) throw err;
     // Que no se pueda avisar no debe impedir la derivación: lo importante es
     // que quede en la bandeja para que alguien la atienda.
     console.warn("[agente] no se pudo avisar al cliente de la derivación:", err);
@@ -3267,17 +3858,7 @@ async function derivarAUnaPersona(
    * cliente escribía enojado por no recibir respuesta (caso real, Lis
    * Pastelería, 1-ago-2026). Mismo mecanismo que el aviso de pedidos.
    */
-  try {
-    const phone = await contactPhoneOf(conversation.organizationId, conversation.contactId);
-    await notifyTeam({
-      organizationId: conversation.organizationId,
-      summary: teamSummary,
-      customerPhone: phone,
-      isTest: conversation.isTest,
-    });
-  } catch (err) {
-    console.error("[agente] no se pudo avisar al equipo de la derivación:", err);
-  }
+  await notificarEquipoDeHandoff(conversation, teamSummary);
 }
 
 /**
@@ -3300,6 +3881,7 @@ async function deliverReply(
   text: string,
   opts?: { esAviso?: boolean }
 ): Promise<void> {
+  await asegurarOwnershipVigente(conversation);
   if (conversation.isTest) {
     await persistTestOutbound(conversation, text);
     return;
@@ -3337,6 +3919,7 @@ async function deliverImage(
   url: string,
   pie?: string
 ): Promise<void> {
+  await asegurarOwnershipVigente(conversation);
   // En una conversación de prueba no se toca WhatsApp: queda el rastro escrito.
   if (conversation.isTest) {
     await persistTestOutbound(conversation, `[foto: ${url}]${pie ? `\n${pie}` : ""}`);
@@ -3366,6 +3949,7 @@ async function deliverDocument(
   etiqueta: string,
   pie?: string
 ): Promise<void> {
+  await asegurarOwnershipVigente(conversation);
   if (conversation.isTest) {
     await persistTestOutbound(conversation, `[documento: ${url}]${pie ? `\n${pie}` : ""}`);
     return;
@@ -3397,6 +3981,7 @@ async function deliverMenu(
   conversation: Conversation,
   menu: MenuInteractivo
 ): Promise<void> {
+  await asegurarOwnershipVigente(conversation);
   if (conversation.isTest) {
     await persistTestOutbound(conversation, textoPlanoDeMenu(menu));
     return;
@@ -3579,15 +4164,61 @@ async function avisarYConfirmar(params: {
   nota: string;
   avisoEquipo: string;
   farewell?: string;
+  /**
+   * Fase 6B — presente SOLO para `book_appointment` (la fila de
+   * `appointmentBookingConfirmation` que `registrarConfirmacionDeCita` ya
+   * creó). Cuando existe, el aviso pasa por `intentarNotificarCita`
+   * (registro/aviso/reintento — mismo patrón que `notify_order`, Fase
+   * 11-B) en vez de llamar `notifyTeam` directo: si el envío falla,
+   * `reintentarNotificacionesDeCitaPendientes` (worker.ts) lo reintenta
+   * solo, en vez de perderse en silencio. `reschedule_appointment` y
+   * `cancel_appointment` no tienen una fila de idempotencia propia (riesgo
+   * residual ya documentado, fuera de este alcance) y siguen con el
+   * `notifyTeam` directo de siempre cuando este campo no se pasa.
+   */
+  confirmationId?: string;
 }): Promise<void> {
+  // Fase 11-A — `notifyTeam`, aquí abajo, es un efecto externo crítico
+  // (mismo tipo que el de `notify_order`) sin ningún otro punto de
+  // comprobación en su camino — se verifica ownership antes de tocar nada.
+  await asegurarOwnershipVigente(params.conversation);
   await appendLeadNote(params.organizationId, params.conversation.contactId, params.nota);
   const phone = await contactPhoneOf(params.organizationId, params.conversation.contactId);
-  await notifyTeam({
-    organizationId: params.organizationId,
-    summary: params.avisoEquipo,
-    customerPhone: phone,
-    isTest: params.conversation.isTest,
-  });
+  if (params.confirmationId && !params.conversation.isTest) {
+    /**
+     * Mismo criterio que `notify_order` (Fase 11-B): para conversaciones
+     * reales, `intentarNotificarCita` corre la máquina de estados que
+     * también usará cualquier reintento posterior
+     * (`appointmentBookingConfirmation.notifyStatus`).
+     */
+    await guardarContenidoDeCita(params.confirmationId, params.avisoEquipo, phone);
+    const resultado = await intentarNotificarCita({
+      id: params.confirmationId,
+      organizationId: params.organizationId,
+      summary: params.avisoEquipo,
+      customerPhone: phone,
+    });
+    if (resultado.estado === "fallo_recuperable") {
+      console.warn(
+        `[citas] aviso al equipo no entregado en el primer intento (conversación ${params.conversation.id}); reintentarNotificacionesDeCitaPendientes lo reintentará: ${resultado.detail}`
+      );
+    }
+  } else {
+    /**
+     * Camino directo de siempre: `reschedule_appointment`/
+     * `cancel_appointment` (sin `confirmationId`, riesgo residual ya
+     * documentado, fuera de este alcance) y CUALQUIER conversación de
+     * prueba (Laboratorio) — `isTest: true` simula el aviso sin mandar nada
+     * real, y no debe generar una fila que
+     * `reintentarNotificacionesDeCitaPendientes` intente reenviar de verdad.
+     */
+    await notifyTeam({
+      organizationId: params.organizationId,
+      summary: params.avisoEquipo,
+      customerPhone: phone,
+      isTest: params.conversation.isTest,
+    });
+  }
   await deliverReply(
     params.conversation,
     params.farewell ? `${params.confirmacion}\n${params.farewell}` : params.confirmacion
@@ -3609,6 +4240,33 @@ function matchesReinicio(texto: string, palabras: string[] = ["0"]): boolean {
 }
 
 /**
+ * Programa de mejora integral, Prioridad 5 — se usa SOLO cuando este lote de
+ * mensajes ya disparó una ejecución de `book_appointment` (idempotencia,
+ * ver el llamador): en vez de arriesgarse a llamar `crearCitaMultiple` una
+ * segunda vez, busca si la cita YA quedó creada por la ejecución anterior,
+ * para reportarla con datos reales — o decir honestamente que no se pudo
+ * confirmar, nunca fingir un éxito que no ocurrió ni crear una duplicada.
+ * Mismo criterio de match que ya usaba el chequeo "suya" de más abajo
+ * (servicio + fecha + hora), reutilizado aquí en vez de duplicado dos veces.
+ */
+async function buscarCitaYaCreada(
+  organizationId: string,
+  contactId: string,
+  serviceId: string,
+  fecha: string,
+  hora: string
+): Promise<{ ok: true; staffName: string } | { ok: false; reason: "sin_cupo" }> {
+  const activas = await citasActivasDeContacto(organizationId, contactId);
+  const existente = activas.find(
+    (c) =>
+      c.serviceId === serviceId &&
+      utcAFechaHoraBogota(c.startsAt).fecha === fecha &&
+      utcAFechaHoraBogota(c.startsAt).hora === hora
+  );
+  return existente ? { ok: true, staffName: existente.staffName } : { ok: false, reason: "sin_cupo" };
+}
+
+/**
  * Valida la propuesta del modelo y la guarda si es válida.
  *
  * **Nunca lanza**: esto corre después de que el cliente ya tenga su respuesta.
@@ -3624,7 +4282,16 @@ async function guardarEstadoPropuesto(entrada: {
   vertical: Vertical;
   /** Contra qué se resuelve la modalidad que proponga el modelo. */
   modalidadesOfrecidas: readonly string[];
-}): Promise<void> {
+  /**
+   * Prioridad 3 (programa de mejora integral) — la versión leída al empezar
+   * el turno. Si otra ejecución viva de `runAgentTurn` para la MISMA
+   * conversación ya escribió después (rescate de huérfanos que reasignó un
+   * turno que en realidad seguía vivo, ver `cola.ts`), esta escritura no se
+   * aplica — nunca se pisa un estado más nuevo con una decisión tomada
+   * sobre datos viejos.
+   */
+  versionEsperada?: number;
+}): Promise<{ guardadoConfirmadoTrue: boolean } | null> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
   const t0 = Date.now();
@@ -3647,7 +4314,7 @@ async function guardarEstadoPropuesto(entrada: {
   // deja de ser raro, el modelo dejó de extraer y hay que enterarse.
   if (!entrada.propuesta) {
     metrica("sin_propuesta");
-    return;
+    return null;
   }
 
   try {
@@ -3661,18 +4328,62 @@ async function guardarEstadoPropuesto(entrada: {
     );
     if (!v.ok) {
       metrica("rechazado", { validacion: v });
-      return;
+      return null;
     }
-    await guardarEstado({
+    const resultado = await guardarEstado({
       conversationId: entrada.conversationId,
       organizationId: entrada.organizationId,
       estado: v.estado,
       actor: "pipeline",
       proceso: "runAgentTurn",
+      versionEsperada: entrada.versionEsperada,
     });
+    if (!resultado.ok) {
+      // Perdimos la carrera: no se escribió nada nuestro, así que no hay
+      // nada que luego "corregir" — el estado de la otra ejecución queda
+      // intacto, que es lo correcto.
+      metrica("error", { detalle: "carrera de escritura perdida (versionEsperada obsoleta)" });
+      return null;
+    }
     metrica("guardado", { validacion: v });
+    return { guardadoConfirmadoTrue: v.estado.confirmado === true };
   } catch (err) {
     metrica("error", { detalle: (err as Error).message });
+    return null;
+  }
+}
+
+/**
+ * Prioridad 1 (programa de mejora integral, ver el llamador) — deja
+ * `conversation_state.estado.confirmado` en `false` cuando el turno que lo
+ * marcó `true` terminó SIN cerrar un pedido real. Nunca lanza: es una
+ * corrección de higiene sobre un dato que ya se guardó, no puede convertirse
+ * en un turno perdido si falla.
+ */
+async function corregirConfirmadoSinCierre(
+  organizationId: string,
+  conversationId: string
+): Promise<void> {
+  try {
+    // Se relee justo antes de escribir (no se reutiliza una versión leída
+    // hace varios guardarraíles atrás): la ventana entre esta lectura y la
+    // escritura de abajo es la más corta posible, pero sigue protegida por
+    // `versionEsperada` igual que la escritura principal.
+    const fila = await leerEstadoConVersion(conversationId, organizationId);
+    if (!fila || !fila.estado.confirmado) return;
+    console.warn(
+      `[estado] ${organizationId}: el turno terminó sin cerrar un pedido, pero el estado había quedado confirmado:true; se corrige a false.`
+    );
+    await guardarEstado({
+      conversationId,
+      organizationId,
+      estado: { ...fila.estado, confirmado: false },
+      versionEsperada: fila.version,
+      actor: "pipeline",
+      proceso: "correccion_confirmado_sin_cierre",
+    });
+  } catch (err) {
+    console.error("[estado] no se pudo corregir confirmado sin cierre:", err);
   }
 }
 

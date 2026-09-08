@@ -357,4 +357,74 @@ describe("runAgentTurn: consultar_producto / consultar_medio_pago (docs/korexia/
     const correccion = terceraLlamada.find((m) => m.content.includes("ALTO."));
     expect(correccion?.content).toMatch(/SÍ existe el producto/);
   });
+
+  it("Fase 10S: múltiples coincidencias, pero el modelo asume una sin preguntar -> se corrige solo", async () => {
+    const conv = conversacion("org_1");
+    queueTurnoBase(conv, perfil("org_1", "Transferencia bancaria"), historial("quiero el especial"));
+    catalogoDePedidosMock.mockResolvedValue([
+      producto("x", "Combo Familiar Grande", 3000000),
+      producto("y", "Combo Grande Familiar", 3200000),
+    ]);
+
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "consultar_producto", consulta: "grande familiar combo ya" },
+        raw: "{}",
+      })
+      // Ignora la instrucción de preguntar: asume el Combo Familiar Grande sin más.
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "¡Claro! El Combo Familiar Grande vale $30.000." },
+        raw: "{}",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "¿Cuál de los dos combos prefieres: el Grande o el Familiar?" },
+        raw: "{}",
+      });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+
+    expect(chatJson).toHaveBeenCalledTimes(3);
+    expect(action?.action).toBe("reply");
+    expect((action as { text?: string })?.text).toMatch(/\?/);
+
+    const terceraLlamada = chatJson.mock.calls[2]![1] as { role: string; content: string }[];
+    const correccion = terceraLlamada.find((m) => m.content.includes("ALTO."));
+    expect(correccion?.content).toMatch(/VARIOS productos/);
+  });
+
+  it("Fase 10S: múltiples coincidencias, el modelo insiste en asumir una -> deriva a una persona", async () => {
+    const conv = conversacion("org_1");
+    queueTurnoBase(conv, perfil("org_1", "Transferencia bancaria"), historial("quiero el especial"));
+    catalogoDePedidosMock.mockResolvedValue([
+      producto("x", "Combo Familiar Grande", 3000000),
+      producto("y", "Combo Grande Familiar", 3200000),
+    ]);
+
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "consultar_producto", consulta: "grande familiar combo ya" },
+        raw: "{}",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "¡Claro! El Combo Familiar Grande vale $30.000." },
+        raw: "{}",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "Perfecto, el Combo Familiar Grande son $30.000 en total." },
+        raw: "{}",
+      });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn(conv.id);
+
+    expect(chatJson).toHaveBeenCalledTimes(3);
+    expect(action?.action).toBe("handoff");
+  });
 });

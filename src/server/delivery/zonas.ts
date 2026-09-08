@@ -144,3 +144,8 @@ export function textoDeResultadoDomicilio(consulta: string, resultado: Resultado
   }
   return `[SISTEMA] No encontré "${consulta}" entre las zonas de domicilio registradas. No inventes una tarifa: dile al cliente que vas a confirmar el valor del domicilio a esa zona, o pregúntale por una zona conocida.`;
 }
+
+/** Texto del hecho verificado tras `consultar_domicilio` con `recogida:true` — Fase 10V-X. */
+export function textoDeResultadoRecogida(): string {
+  return "[SISTEMA] Registrado: este pedido es de recogida en el local, sin domicilio. No cobres ni menciones ninguna tarifa de domicilio para este pedido.";
+}

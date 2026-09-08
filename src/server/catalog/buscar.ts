@@ -40,13 +40,22 @@ function tokens(s: string): string[] {
     .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
 }
 
-/** Dos palabras "coinciden" si son iguales o comparten un prefijo largo (tolera plural/género). */
+/**
+ * Fase 10S — bug real: la tolerancia original ("comparten los primeros 5
+ * caracteres") fusionaba palabras distintas — `coincide("chocolate",
+ * "choconuez")` y `coincide("limon", "limonada")` daban `true` porque solo
+ * miraba un prefijo compartido de longitud fija, sin exigir que una fuera
+ * REALMENTE el inicio completo de la otra. Ahora exige contención total
+ * (la corta es un prefijo genuino de la larga) y limita cuánto puede
+ * extenderse la larga (≤2 caracteres: cubre plural "-s"/"-es" y variación de
+ * género, no una palabra nueva como "-ada" o "-nuez").
+ */
 function coincide(a: string, b: string): boolean {
   if (a === b) return true;
-  const min = Math.min(a.length, b.length);
-  let i = 0;
-  while (i < min && a[i] === b[i]) i++;
-  return i >= 5 || (i === min && min >= 4);
+  const [corta, larga] = a.length <= b.length ? [a, b] : [b, a];
+  if (corta.length < 4) return false;
+  if (!larga.startsWith(corta)) return false;
+  return larga.length - corta.length <= 2;
 }
 
 /**

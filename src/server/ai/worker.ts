@@ -8,8 +8,9 @@ import {
   tomarTrabajo,
   type TrabajoTomado,
 } from "@/server/ai/cola";
-import { runAgentTurn } from "@/server/ai/pipeline";
+import { OwnershipPerdidaError, runAgentTurn } from "@/server/ai/pipeline";
 import { reintentarNotificacionesPendientes } from "@/server/ai/confirmacion-de-pedido";
+import { reintentarNotificacionesDeCitaPendientes } from "@/server/ai/confirmacion-de-cita";
 import { enfriarLeadsDeTodasLasOrganizaciones } from "@/server/inbox/lead-activity";
 import { reprocesarWebhooksFallidos } from "@/server/inbox/webhook-event-log";
 
@@ -126,10 +127,27 @@ async function ejecutar(trabajo: TrabajoTomado): Promise<void> {
     `[diag-turno] worker toma job=${trabajo.id} conv=${trabajo.conversationId} intento=${trabajo.attempts}`
   );
   try {
-    await runAgentTurn(trabajo.conversationId);
-    await completarTrabajo(trabajo.id);
+    await runAgentTurn(trabajo.conversationId, {
+      jobOwnership: { jobId: trabajo.id, generation: trabajo.generation },
+    });
+    await completarTrabajo(trabajo.id, trabajo.generation);
     console.info(`[diag-turno] job=${trabajo.id} conv=${trabajo.conversationId} completado`);
   } catch (err) {
+    /**
+     * Fase 11-A — el fencing de ownership (`asegurarOwnershipVigente` en
+     * `pipeline.ts`) detuvo el turno porque otro worker ya reclamó una
+     * generación más nueva de este mismo job. Esto NO es un fallo: es el
+     * mecanismo funcionando como debe. No se reintenta (el nuevo dueño ya
+     * se está haciendo cargo) y no se llama `fallarTrabajo` — sería un
+     * no-op de todas formas (la generación ya no coincide), y llamarlo solo
+     * ensuciaría el log con un "turno falló" que no lo es.
+     */
+    if (err instanceof OwnershipPerdidaError) {
+      console.warn(
+        `[worker] job=${trabajo.id} conv=${trabajo.conversationId}: ${err.message} — otro worker ya es el dueño, no se reporta como fallo`
+      );
+      return;
+    }
     console.error(
       `[worker] turno falló (conversación ${trabajo.conversationId}, intento ${trabajo.attempts}):`,
       err
@@ -138,7 +156,8 @@ async function ejecutar(trabajo: TrabajoTomado): Promise<void> {
       const { reintenta } = await fallarTrabajo(
         trabajo.id,
         err,
-        trabajo.attempts
+        trabajo.attempts,
+        trabajo.generation
       );
       if (!reintenta) {
         console.error(
@@ -189,6 +208,22 @@ async function mantenimiento(): Promise<void> {
     }
   } catch (err) {
     console.error("[worker] reintento de avisos de pedido falló:", err);
+  }
+
+  /**
+   * Fase 6B — mismo criterio que el bloque anterior (Fase 11-B, pedidos),
+   * aplicado a citas: un aviso de `book_appointment` que quedó `pendiente`,
+   * `fallo_recuperable`, o `enviando` huérfano se reintenta aquí, con el
+   * MISMO resumen/teléfono guardados al agendar — nunca se pierde solo
+   * porque el primer intento de aviso falló.
+   */
+  try {
+    const reintentadosCitas = await reintentarNotificacionesDeCitaPendientes();
+    if (reintentadosCitas > 0) {
+      console.log(`[worker] ${reintentadosCitas} aviso(s) de cita reintentado(s)`);
+    }
+  } catch (err) {
+    console.error("[worker] reintento de avisos de cita falló:", err);
   }
 
   try {

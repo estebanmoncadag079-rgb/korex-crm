@@ -38,6 +38,7 @@ const prefixes = {
   pricingRate: "prate",
   orderConfirmation: "ordc",
   deliveryZone: "dz",
+  appointmentBookingConfirmation: "apbc",
 } as const;
 
 export type IdKind = keyof typeof prefixes;

@@ -45,6 +45,11 @@ vi.mock("@/server/ai/notify-team", () => ({
   contactPhoneOf: (...a: unknown[]) => contactPhoneOf(...a),
 }));
 
+const registrarConfirmacionDeCita = vi.fn();
+vi.mock("@/server/ai/confirmacion-de-cita", () => ({
+  registrarConfirmacionDeCita: (...a: unknown[]) => registrarConfirmacionDeCita(...a),
+}));
+
 const selectQueue: unknown[][] = [];
 const inserted: { table: unknown; values: Record<string, unknown> }[] = [];
 
@@ -146,6 +151,7 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
     catalogoParaPrompt.mockReset();
     notifyTeam.mockReset().mockResolvedValue({ sent: 0, failed: 0, detail: "ok" });
     contactPhoneOf.mockReset().mockResolvedValue(null);
+    registrarConfirmacionDeCita.mockReset().mockResolvedValue({ primeraVez: true });
     selectQueue.length = 0;
     inserted.length = 0;
   });
@@ -191,6 +197,75 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
     );
     expect(reply?.values.text).toMatch(/Quedaste agendada/);
     expect(reply?.values.text).toMatch(/Corte de cabello/);
+  });
+
+  it("Prioridad 5 (mejora integral): book_appointment duplicado (mismos mensajes disparadores) con la cita YA creada -> NO vuelve a llamar crearCitaMultiple, confirma con los datos reales", async () => {
+    queueTurnoBase();
+    catalogoParaPrompt.mockResolvedValue([SERVICIO]);
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: {
+        action: "book_appointment",
+        reservas: [{ servicios: ["corte de cabello"], fecha: "2026-08-10", hora: "10:00" }],
+      },
+      raw: "{}",
+    });
+    resolverEspecialistaMultiple.mockResolvedValue({ ok: true, staffId: null });
+    // El "turno anterior" (que en realidad seguía vivo cuando rescatarHuerfanos
+    // lo reasignó) ya creó la cita — esta ejecución la debe encontrar.
+    registrarConfirmacionDeCita.mockResolvedValue({ primeraVez: false });
+    citasActivasDeContacto.mockResolvedValue([
+      {
+        id: "cit_ya_creada",
+        serviceId: "svc_1",
+        serviceName: "Corte de cabello",
+        staffId: "st_1",
+        staffName: "Ana",
+        startsAt: new Date("2026-08-10T15:00:00Z"), // 10:00 Bogotá
+        endsAt: new Date("2026-08-10T15:30:00Z"),
+      },
+    ]);
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_citas");
+
+    expect(crearCitaMultiple).not.toHaveBeenCalled();
+    expect(action?.action).toBe("book_appointment");
+    const reply = inserted.find(
+      (i) => (i.values as { direction?: string }).direction === "out"
+    );
+    expect(reply?.values.text).toMatch(/Quedaste agendada/);
+    expect(reply?.values.text).toMatch(/Ana/);
+  });
+
+  it("Prioridad 5 (mejora integral): book_appointment duplicado SIN ninguna cita ya creada -> tampoco llama crearCitaMultiple, y NO finge un éxito que no ocurrió", async () => {
+    queueTurnoBase();
+    catalogoParaPrompt.mockResolvedValue([SERVICIO]);
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: {
+        action: "book_appointment",
+        reservas: [{ servicios: ["corte de cabello"], fecha: "2026-08-10", hora: "10:00" }],
+      },
+      raw: "{}",
+    });
+    resolverEspecialistaMultiple.mockResolvedValue({ ok: true, staffId: null });
+    registrarConfirmacionDeCita.mockResolvedValue({ primeraVez: false });
+    // La ejecución anterior murió ANTES de llegar a crear la cita: no hay
+    // nada que encontrar.
+    citasActivasDeContacto.mockResolvedValue([]);
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_citas");
+
+    // Ni se crea (protección contra la duplicada) ni se avisa al equipo con
+    // un "Nueva cita" que no existe.
+    expect(crearCitaMultiple).not.toHaveBeenCalled();
+    expect(notifyTeam).not.toHaveBeenCalled();
+    const reply = inserted.find(
+      (i) => (i.values as { direction?: string }).direction === "out"
+    );
+    expect(reply?.values.text).not.toMatch(/Quedaste agendada/);
   });
 
   it("reschedule_appointment: encuentra la cita activa por nombre parafraseado y reprograma", async () => {
@@ -289,5 +364,92 @@ describe("runAgentTurn: agendar/reprogramar/cancelar cita (tras el dedup)", () =
 
     expect(reprogramarCita).not.toHaveBeenCalled();
     expect(notifyTeam).not.toHaveBeenCalled();
+  });
+
+  it("Fase 10U: reschedule_appointment cuya especialista ya no está disponible -> handoff REAL, nunca 'elige otra hora'", async () => {
+    queueTurnoBase();
+    catalogoParaPrompt.mockResolvedValue([SERVICIO]);
+    citasActivasDeContacto.mockResolvedValue([
+      {
+        id: "cit_1",
+        serviceId: "svc_1",
+        serviceName: "Corte de cabello",
+        staffId: "st_dada_de_baja",
+        staffName: "Ana",
+        startsAt: new Date("2026-08-10T15:00:00Z"),
+        endsAt: new Date("2026-08-10T15:30:00Z"),
+      },
+    ]);
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: {
+        action: "reschedule_appointment",
+        servicio: "corte",
+        nuevaFecha: "2026-08-11",
+        nuevaHora: "11:00",
+      },
+      raw: "{}",
+    });
+    // reprogramarCita (mockeada aquí) ya rechazó por especialista no
+    // disponible — el bug real era que el pipeline nunca podía llegar a
+    // este caso con la reacción correcta porque `queries.ts` ni siquiera lo
+    // detectaba antes de esta fase (siempre devolvía sin_cupo o ok:true).
+    reprogramarCita.mockResolvedValue({ ok: false, reason: "especialista_no_disponible" });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_citas");
+
+    expect(action?.action).toBe("handoff");
+    expect(notifyTeam).toHaveBeenCalledTimes(1);
+    const reply = inserted.find(
+      (i) => (i.values as { direction?: string }).direction === "out"
+    );
+    // Nunca el mensaje de "elige otra hora": con esa especialista ninguna
+    // hora sirve, así que decirlo sería engañoso.
+    expect(reply?.values.text).not.toMatch(/qué otra hora/i);
+    expect(reply?.values.text).toMatch(/persona del equipo/);
+  });
+
+  it("Fase 10T: reschedule_appointment con el servicio de la cita ya borrado del catálogo -> handoff REAL, no una promesa vacía", async () => {
+    queueTurnoBase();
+    // El catálogo actual ya no incluye el servicio de la cita existente
+    // (fue borrado/renombrado desde entonces) — el bug real: antes esto
+    // solo mandaba un `reply` con "te comunico con el equipo" y seguía
+    // como si nada, sin avisar a nadie de verdad.
+    catalogoParaPrompt.mockResolvedValue([SERVICIO]);
+    citasActivasDeContacto.mockResolvedValue([
+      {
+        id: "cit_1",
+        serviceId: "svc_borrado",
+        serviceName: "Servicio Descontinuado",
+        staffId: "st_1",
+        staffName: "Ana",
+        startsAt: new Date("2026-08-10T15:00:00Z"),
+        endsAt: new Date("2026-08-10T15:30:00Z"),
+      },
+    ]);
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: {
+        action: "reschedule_appointment",
+        servicio: "servicio descontinuado",
+        nuevaFecha: "2026-08-11",
+        nuevaHora: "11:00",
+      },
+      raw: "{}",
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_citas");
+
+    expect(reprogramarCita).not.toHaveBeenCalled();
+    // Handoff REAL: la acción final es "handoff" (no "reschedule_appointment"
+    // con un reply de texto suelto) y el equipo SÍ recibe el aviso.
+    expect(action?.action).toBe("handoff");
+    expect(notifyTeam).toHaveBeenCalledTimes(1);
+    const reply = inserted.find(
+      (i) => (i.values as { direction?: string }).direction === "out"
+    );
+    expect(reply?.values.text).toMatch(/persona del equipo/);
   });
 });

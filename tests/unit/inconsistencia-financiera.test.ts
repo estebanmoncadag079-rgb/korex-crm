@@ -21,15 +21,6 @@ import {
  *   == valor guardado/verificado (zonaVerificada.feeCents)
  *   == valor usado para el total (subtotalCents + deliveryFeeCents == totalCents)
  *   == valor enviado a notify_order (deliveryFeeCents estructurado Y summary en prosa)
- *
- * **7-sep-2026**: todas las llamadas de este archivo declaran ahora
- * `puedeVerificarDomicilio: true` — es el escenario que siempre probaron (un
- * negocio con `delivery_source='tabla'`, el de Kachipay, donde
- * `consultar_domicilio` EXISTE y hay `delivery_zone` real detrás). El
- * incidente de MALIA demostró que el chequeo se estaba aplicando también a
- * negocios en `'prompt'`, donde esa verificación es imposible de producir;
- * ese caso vive en `tests/unit/cierre-domicilio-sin-tabla.test.ts`. Ninguna
- * aserción de este archivo se eliminó ni se relajó.
  */
 
 describe("dijoOtroValorDeDomicilio", () => {
@@ -90,8 +81,8 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       subtotalCents: 1800000,
       deliveryFeeCents: 800000, // $8.000 — el número equivocado del incidente real
       totalCents: 2600000,
-      zonaVerificada: ZONA_KACHIPAY,
-      puedeVerificarDomicilio: true, // consultar_domicilio verificó $12.000
+      zonaVerificada: ZONA_KACHIPAY, // consultar_domicilio verificó $12.000
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBe("domicilio-no-verificado");
   });
@@ -114,8 +105,8 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       subtotalCents: 1800000,
       deliveryFeeCents: 1200000,
       totalCents: 3000000,
-      zonaVerificada: null,
-      puedeVerificarDomicilio: true, // nada verificado en ESTE turno
+      zonaVerificada: null, // nada verificado en ESTE turno
+      puedeVerificarDomicilio: true,
     });
     expect(r).toBe("domicilio-no-verificado");
   });
@@ -152,6 +143,66 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
     });
     expect(r).toBeNull();
   });
+
+  /*
+   * ============================================================
+   * Fase 10V, Hallazgo B — bug real: los campos financieros se podían
+   * omitir por completo en un pedido CON domicilio, y nada lo detectaba
+   * porque todos los chequeos exigían que el campo YA existiera.
+   * ============================================================
+   */
+  it("BUG REAL (Hallazgo B): domicilio en el summary, CERO campos estructurados, delivery_source='tabla' -> ya no pasa colado", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Domicilio: $12.000. Total: $30.000",
+      // subtotalCents, deliveryFeeCents y totalCents NO vienen — el bypass exacto.
+      zonaVerificada: null, // tampoco se reverificó este turno
+      puedeVerificarDomicilio: true,
+    });
+    expect(r).toBe("domicilio-no-verificado");
+  });
+
+  it("Hallazgo C: el MISMO caso, pero delivery_source='prompt' -> pasa exactamente igual que antes (compatibilidad)", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Domicilio: $12.000. Total: $30.000",
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false, // el negocio nunca tuvo delivery_zone
+    });
+    expect(r).toBeNull();
+  });
+
+  it("Hallazgo B: zonaVerificada este turno pero deliveryFeeCents OMITIDO (no solo mal) -> también se detecta", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "Domicilio a Kachipay: $12.000. Total: $30.000",
+      subtotalCents: 1800000,
+      totalCents: 3000000,
+      // deliveryFeeCents ausente, no null ni un número equivocado
+      zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
+    });
+    expect(r).toBe("domicilio-no-verificado");
+  });
+
+  it("Hallazgo B: zonaVerificada este turno, deliveryFeeCents presente, pero subtotalCents/totalCents omitidos", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "Domicilio a Kachipay: $12.000",
+      deliveryFeeCents: 1200000,
+      // subtotalCents y totalCents ausentes
+      zonaVerificada: ZONA_KACHIPAY,
+      puedeVerificarDomicilio: true,
+    });
+    expect(r).toBe("total-no-cuadra");
+  });
+
+  it("compatibilidad: sin ninguna mención de domicilio y sin ningún campo -> nunca exige nada, incluso en modo 'tabla'", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "1 Pavé — $18.000. Recoges en el local. Total: $18.000",
+      subtotalCents: 1800000,
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: true,
+    });
+    expect(r).toBeNull();
+  });
 });
 
 describe("correccionDeInconsistenciaFinanciera", () => {
@@ -163,5 +214,157 @@ describe("correccionDeInconsistenciaFinanciera", () => {
     expect(a).toMatch(/JSON/);
     expect(b).toMatch(/JSON/);
     expect(c).toMatch(/JSON/);
+  });
+
+  it("Fase 11-C: los 3 motivos nuevos también dan mensajes de corrección distintos", () => {
+    const a = correccionDeInconsistenciaFinanciera("subtotal-no-verificado");
+    const b = correccionDeInconsistenciaFinanciera("subtotal-no-coincide-con-el-carrito");
+    const c = correccionDeInconsistenciaFinanciera("resumen-contradice-total-real");
+    expect(new Set([a, b, c]).size).toBe(3);
+    expect(a).toMatch(/JSON/);
+    expect(b).toMatch(/JSON/);
+    expect(c).toMatch(/JSON/);
+  });
+});
+
+/**
+ * Fase 11-C — dinero calculado por backend. `subtotalReal` es el subtotal
+ * que YA calculó `normalizarPedido` contra el catálogo real
+ * (`conversation_state.estado.totalCents`) — presente SOLO cuando la
+ * organización tiene `state_source='backend'` y el carrito está resuelto
+ * (ver el comentario del parámetro en `anuncio-de-cierre.ts`). Ausente
+ * (`undefined`) para el resto — los 4 clientes reales hoy, en `'prompt'`
+ * — donde el backend NO pretende saber un subtotal que no tiene de dónde
+ * sacar: ahí el comportamiento es exactamente el de antes (probado en el
+ * resto de este archivo, sin ningún `subtotalReal`).
+ */
+describe("inconsistenciaFinancieraDePedido — Fase 11-C: subtotal calculado por el backend", () => {
+  it("1/2: productos y cantidades reales -> el subtotal correcto (calculado por el backend) se acepta sin fricción", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas — $20.000. Total: $20.000",
+      subtotalCents: 2000000,
+      totalCents: 2000000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 2000000,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("3/4: domicilio + subtotal real -> el total correcto (subtotal real + tarifa verificada) se acepta", () => {
+    const ZONA = { feeCents: 1200000 };
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas — $20.000. Domicilio: $12.000. Total: $32.000",
+      subtotalCents: 2000000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3200000,
+      zonaVerificada: ZONA,
+      puedeVerificarDomicilio: true,
+      subtotalReal: 2000000,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("5/6: el LLM propone un subtotal INCORRECTO (no coincide con el carrito real) -> se rechaza, nunca sale así", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas — $18.000. Total: $18.000",
+      subtotalCents: 1800000, // el LLM se equivocó sumando
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 2000000, // el backend YA sabe que son $20.000
+    });
+    expect(r).toBe("subtotal-no-coincide-con-el-carrito");
+  });
+
+  it("6b: subtotalCents ausente pero el backend SÍ conoce el subtotal real -> se exige, no se omite en silencio", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas confirmadas.",
+      totalCents: 2000000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 2000000,
+    });
+    expect(r).toBe("subtotal-no-verificado");
+  });
+
+  it("2/CRITICAL: aritméticamente correcto pero financieramente incorrecto — el escenario exacto del encargo (subtotal=25.000, domicilio=12.000, total=37.000 cuadra solo, pero el carrito real es 30.000)", () => {
+    const ZONA = { feeCents: 1200000 };
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "Pedido — Domicilio: $12.000. Total: $37.000",
+      subtotalCents: 2500000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3700000, // 25.000 + 12.000 = 37.000: cuadra internamente
+      zonaVerificada: ZONA,
+      puedeVerificarDomicilio: true,
+      subtotalReal: 3000000, // pero el catálogo real dice $30.000
+    });
+    // "aritméticamente correcto" (25.000+12.000=37.000) NO equivale a
+    // "financieramente correcto" (el carrito real vale 30.000): debe
+    // rechazarse por el subtotal, no colarse porque la suma cuadra.
+    expect(r).toBe("subtotal-no-coincide-con-el-carrito");
+  });
+
+  it("7: cambio de tarifa de domicilio -> el subtotal sigue siendo válido, solo se exige la tarifa NUEVA", () => {
+    const ZONA_NUEVA = { feeCents: 500000 };
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas — $20.000. Domicilio: $5.000. Total: $25.000",
+      subtotalCents: 2000000,
+      deliveryFeeCents: 500000,
+      totalCents: 2500000,
+      zonaVerificada: ZONA_NUEVA,
+      puedeVerificarDomicilio: true,
+      subtotalReal: 2000000,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("8: pedido SIN domicilio (recogida), con subtotal real -> se exige el subtotal igual, pero nunca exige domicilio", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas — $20.000. Recoges en el local.",
+      subtotalCents: 2000000,
+      totalCents: 2000000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 2000000,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("9/legacy: sin `subtotalReal` (modo 'prompt', los 4 clientes reales hoy) -> el chequeo nuevo NUNCA se activa, comportamiento idéntico al de antes", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas — $18.000 (el LLM las sumó mal, nadie puede saberlo sin carrito real). Total: $18.000",
+      subtotalCents: 1800000,
+      totalCents: 1800000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      // subtotalReal: undefined (ausente) — el negocio no tiene carrito estructurado
+    });
+    expect(r).toBeNull();
+  });
+
+  it("11: el resumen en TEXTO contradice el total real, aunque los campos estructurados falten -> se detecta igual (defensa de regex, no la única)", () => {
+    const ZONA = { feeCents: 1200000 };
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "Domicilio: $12.000. Total: $28.000", // el texto dice 28.000
+      // sin subtotalCents/totalCents estructurados
+      zonaVerificada: ZONA,
+      puedeVerificarDomicilio: true,
+      subtotalReal: 2000000, // el total real es 20.000+12.000 = 32.000
+    });
+    // Sin subtotalCents, ya se rechaza antes de llegar al chequeo de texto.
+    expect(r).toBe("subtotal-no-verificado");
+  });
+
+  it("11b: campos estructurados perfectos, pero el TEXTO del resumen dice un total distinto -> se detecta (defensa adicional, no solo aritmética)", () => {
+    const r = inconsistenciaFinancieraDePedido({
+      summary: "2 Churritas. Total: $99.000", // el texto miente sobre el total real
+      subtotalCents: 2000000,
+      totalCents: 2000000,
+      zonaVerificada: null,
+      puedeVerificarDomicilio: false,
+      subtotalReal: 2000000,
+    });
+    expect(r).toBe("resumen-contradice-total-real");
   });
 });

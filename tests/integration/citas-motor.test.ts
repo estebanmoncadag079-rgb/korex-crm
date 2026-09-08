@@ -335,6 +335,52 @@ d("motor de citas (Postgres real)", () => {
       });
       expect(dispViejo["09:00"] ?? []).toContain(F.hilary);
     });
+
+    /**
+     * Fase 10U — bug real: `reprogramarCita` pasaba el `staffId` de la cita
+     * directo a `disponibilidadReal` como `staffIdPreferido`, una rama que
+     * evita el filtro `isNull(archivedAt)` que SÍ aplica `crearCita`. Si la
+     * especialista original se dio de baja después de la cita, esto dejaba
+     * reprogramar hacia ella sin ningún rechazo — tanto desde el agente como
+     * desde el panel (`moverCita`, que delega aquí).
+     */
+    it("Fase 10U: NO deja reprogramar hacia una especialista ya dada de baja (bug real corregido)", async () => {
+      await limpiarAgenda();
+      const creada = await agendar(F.natural, "09:00", F.valentina);
+      if (!creada.ok) throw new Error("no se pudo preparar la prueba");
+
+      const { eq } = await import("drizzle-orm");
+      await db
+        .update(schema.resource)
+        .set({ archivedAt: new Date() })
+        .where(eq(schema.resource.id, F.valentina));
+      try {
+        const movida = await mod.reprogramarCita({
+          organizationId: ORG,
+          appointmentId: creada.appointment.id,
+          service: servicios[F.natural]!,
+          staffId: F.valentina,
+          nuevaFecha: OTRA_FECHA,
+          nuevaHora: "10:00",
+          hours: HOURS,
+        });
+        expect(movida.ok).toBe(false);
+        if (!movida.ok) expect(movida.reason).toBe("especialista_no_disponible");
+
+        // La cita original sigue intacta: no se movió a ningún lado.
+        const filas = await db
+          .select()
+          .from(schema.appointment)
+          .where(eq(schema.appointment.id, creada.appointment.id));
+        expect(filas[0]!.status).toBe("pendiente");
+      } finally {
+        // No contaminar el resto de la suite: Valentina vuelve a estar activa.
+        await db
+          .update(schema.resource)
+          .set({ archivedAt: null })
+          .where(eq(schema.resource.id, F.valentina));
+      }
+    });
   });
 
   it("cancelar devuelve el hueco a la agenda", async () => {

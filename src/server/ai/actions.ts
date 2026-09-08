@@ -174,6 +174,16 @@ export const AgentAction = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("consultar_domicilio"),
     zona: z.string().min(1),
+    /**
+     * Fase 10V-X — el cliente dijo que RECOGE en el local (no quiere
+     * domicilio). `zona` sigue siendo obligatoria en el esquema (puede
+     * llevar cualquier texto, como "recogida" — el servidor la ignora
+     * cuando esta bandera es `true`) para no bifurcar el contrato en dos
+     * acciones que hacen casi lo mismo. Sin esta señal explícita, un
+     * cambio de domicilio a recogida solo se sabría inventando un "no
+     * encontré esa zona" — indistinguible de una zona real mal escrita.
+     */
+    recogida: z.boolean().optional(),
   }),
   /**
    * Vertical de citas (solo orgs con agent_profile.appointmentsEnabled).
@@ -321,6 +331,7 @@ const CAMPOS_DE_ACCION: Record<string, unknown> = {
   consulta: { type: ["string", "null"] },
   metodo: { type: ["string", "null"] },
   zona: { type: ["string", "null"] },
+  recogida: { type: ["boolean", "null"] },
   subtotalCents: { type: ["number", "null"] },
   deliveryFeeCents: { type: ["number", "null"] },
   totalCents: { type: ["number", "null"] },

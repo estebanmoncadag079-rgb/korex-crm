@@ -49,6 +49,15 @@ vi.mock("@/lib/db", () => ({
       values: (values: Record<string, unknown>) => {
         const chain = {
           onConflictDoNothing: () => chain,
+          /**
+           * Fase 10V-X — `guardarEntregaVerificada` (llamada por
+           * `consultar_domicilio` en el pipeline) pasa por `guardarEstado`,
+           * que usa `onConflictDoUpdate`. No se simula ninguna carrera
+           * perdida aquí: siempre "gana" la escritura, que es lo que este
+           * archivo necesita para probar el mecanismo de verificación en sí,
+           * no la concurrencia (esa vive en `estado-entrega.test.ts`).
+           */
+          onConflictDoUpdate: () => chain,
           returning: () => Promise.resolve([values]),
           then: (resolve: (v: unknown) => void) => Promise.resolve([values]).then(resolve),
         };

@@ -55,6 +55,8 @@ export const PATCH = withAuth(async (session, req: Request, ctx: Params) => {
         sin_cupo:
           "A esa hora la especialista ya tiene otra cita (o el servicio no termina antes de cerrar).",
         fuera_de_horario: "Ese día u hora está fuera del horario de atención.",
+        especialista_no_disponible:
+          "La especialista de esta cita ya no está activa (o ya no ofrece este servicio). Reasígnala a otra especialista antes de mover la fecha.",
       };
       return apiError(422, r.reason, mensajes[r.reason] ?? "No se pudo mover la cita.");
     }

@@ -46,6 +46,7 @@ export async function cargarConBaseDePruebas() {
   const catalogoRender = await import("@/server/catalog/render");
   const catalogoProductos = await import("@/server/catalog/productos");
   const catalogoOpciones = await import("@/server/catalog/opciones");
+  const estado = await import("@/server/orders/estado");
   return {
     ...db,
     cola,
@@ -67,6 +68,7 @@ export async function cargarConBaseDePruebas() {
     catalogoRender,
     catalogoProductos,
     catalogoOpciones,
+    estado,
   };
 }
 

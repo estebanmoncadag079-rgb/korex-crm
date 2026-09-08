@@ -52,6 +52,15 @@ export type TrabajoTomado = {
   conversationId: string;
   organizationId: string;
   attempts: number;
+  /**
+   * Fase 10Q — token de posesión de ESTE reclamo. `completarTrabajo` y
+   * `fallarTrabajo` deben recibir exactamente este valor: si para entonces la
+   * fila ya tiene otra generación (porque `rescatarHuerfanos` la reasignó a
+   * otro worker mientras este seguía vivo, procesando de más de
+   * `HUERFANO_TRAS_MS`), la escritura no afecta ninguna fila — nunca pisa el
+   * trabajo del nuevo dueño.
+   */
+  generation: number;
 };
 
 /**
@@ -139,6 +148,7 @@ export async function tomarTrabajo(
            locked_at = now(),
            locked_by = ${worker},
            attempts = agent_job.attempts + 1,
+           generation = agent_job.generation + 1,
            updated_at = now()
      WHERE agent_job.id = (
        SELECT c.id
@@ -162,12 +172,14 @@ export async function tomarTrabajo(
     RETURNING agent_job.id,
               agent_job.conversation_id,
               agent_job.organization_id,
-              agent_job.attempts
+              agent_job.attempts,
+              agent_job.generation
   `)) as unknown as Array<{
     id: string;
     conversation_id: string;
     organization_id: string;
     attempts: number;
+    generation: number;
   }>;
 
   const f = filas[0];
@@ -177,13 +189,32 @@ export async function tomarTrabajo(
     conversationId: f.conversation_id,
     organizationId: f.organization_id,
     attempts: Number(f.attempts),
+    generation: Number(f.generation),
   };
 }
 
-/** Turno cumplido: el trabajo desaparece. La tabla guarda pendientes, no historia. */
-export async function completarTrabajo(id: string): Promise<void> {
+/**
+ * Turno cumplido: el trabajo desaparece. La tabla guarda pendientes, no
+ * historia.
+ *
+ * Fase 10Q — `generation` es el token de posesión devuelto por
+ * `tomarTrabajo`: el `DELETE` solo afecta la fila si sigue siendo la misma
+ * generación. Si no afecta ninguna, no es un error — significa que
+ * `rescatarHuerfanos` ya reasignó (o descartó) este trabajo mientras este
+ * worker seguía procesándolo de más; el nuevo dueño es responsable de la
+ * fila ahora, así que aquí no hay nada más que hacer.
+ */
+export async function completarTrabajo(id: string, generation: number): Promise<void> {
   const db = getDb();
-  await db.execute(sql`DELETE FROM agent_job WHERE id = ${id}`);
+  const filas = (await db.execute(sql`
+    DELETE FROM agent_job WHERE id = ${id} AND generation = ${generation} RETURNING id
+  `)) as unknown as Array<{ id: string }>;
+  if (filas.length === 0) {
+    console.warn(
+      `[cola] completarTrabajo(${id}) no afectó ninguna fila: ya no era de esta generación ` +
+        `(reasignado o descartado por rescatarHuerfanos mientras corría). Sin efecto — el turno ya no era nuestro.`
+    );
+  }
 }
 
 /**
@@ -193,26 +224,39 @@ export async function completarTrabajo(id: string): Promise<void> {
  * Si mientras corría se encoló otro turno para la misma conversación, este se
  * borra en vez de reprogramarse: aquel ya cubre los mismos mensajes, y dos
  * pendientes a la vez violarían el índice único.
+ *
+ * Fase 10Q — `generation` es el token de posesión de `tomarTrabajo`: ambas
+ * escrituras (agotado y reprogramación) solo afectan la fila si sigue siendo
+ * la misma generación. Si no, este worker ya no es dueño del trabajo
+ * (`rescatarHuerfanos` lo reasignó) y no se toca nada — igual que
+ * `completarTrabajo`.
  */
 export async function fallarTrabajo(
   id: string,
   error: unknown,
-  attempts: number
+  attempts: number,
+  generation: number
 ): Promise<{ reintenta: boolean }> {
   const db = getDb();
   const mensaje = error instanceof Error ? error.message : String(error);
   const recorte = mensaje.slice(0, 2000);
 
   if (attempts >= MAX_INTENTOS) {
-    await db.execute(sql`
+    const filas = (await db.execute(sql`
       UPDATE agent_job
          SET status = 'fallido',
              locked_at = NULL,
              locked_by = NULL,
              last_error = ${recorte},
              updated_at = now()
-       WHERE id = ${id}
-    `);
+       WHERE id = ${id} AND generation = ${generation}
+      RETURNING id
+    `)) as unknown as Array<{ id: string }>;
+    if (filas.length === 0) {
+      console.warn(
+        `[cola] fallarTrabajo(${id}) (agotado) no afectó ninguna fila: ya no era de esta generación.`
+      );
+    }
     return { reintenta: false };
   }
 
@@ -230,6 +274,7 @@ export async function fallarTrabajo(
            run_at = now() + make_interval(secs => ${espera} / 1000.0),
            updated_at = now()
      WHERE agent_job.id = ${id}
+       AND agent_job.generation = ${generation}
        AND NOT EXISTS (
              SELECT 1 FROM agent_job o
               WHERE o.conversation_id = agent_job.conversation_id
@@ -239,9 +284,12 @@ export async function fallarTrabajo(
   `)) as unknown as Array<{ id: string }>;
 
   if (reprogramados.length === 0) {
-    // Ya hay otro turno pendiente para esta conversación: cubre los mismos
-    // mensajes, así que este sobra (y dos pendientes violarían el índice).
-    await completarTrabajo(id);
+    // O ya hay otro turno pendiente para esta conversación (cubre los mismos
+    // mensajes, y dos pendientes violarían el índice), o ya no somos dueños
+    // de esta generación (rescatarHuerfanos la reasignó). El mismo
+    // `completarTrabajo` con nuestra generación resuelve ambos de forma
+    // segura: si perdimos la generación, tampoco borra nada ajeno.
+    await completarTrabajo(id, generation);
   }
   return { reintenta: true };
 }
@@ -252,6 +300,15 @@ export async function fallarTrabajo(
  * cliente esperando una respuesta que nadie va a mandar.
  *
  * Se llama al arrancar y periódicamente desde el worker.
+ *
+ * Fase 10Q — el trabajo "huérfano" no siempre lo es de verdad: un turno vivo
+ * puede tardar más de `HUERFANO_TRAS_MS` (varios guardarraíles encadenados,
+ * cada uno con su propio reintento de `chatJson`, ver el comentario de
+ * `HUERFANO_TRAS_MS` arriba). Por eso el `UPDATE` que revive el trabajo
+ * INCREMENTA `generation`: si el worker original seguía vivo y más tarde
+ * llama `completarTrabajo`/`fallarTrabajo` con la generación vieja, esa
+ * escritura ya no afecta ninguna fila — ni siquiera en la ventana entre este
+ * rescate y que otro worker lo reclame de nuevo.
  */
 export async function rescatarHuerfanos(): Promise<number> {
   const db = getDb();
@@ -273,6 +330,7 @@ export async function rescatarHuerfanos(): Promise<number> {
        SET status = 'pendiente',
            locked_at = NULL,
            locked_by = NULL,
+           generation = agent_job.generation + 1,
            run_at = now(),
            updated_at = now()
      WHERE agent_job.status = 'corriendo'
@@ -281,6 +339,50 @@ export async function rescatarHuerfanos(): Promise<number> {
   `)) as unknown as Array<{ id: string }>;
 
   return revividos.length;
+}
+
+/**
+ * Fase 11-A — fencing real de ownership.
+ *
+ * El token `generation` (Fase 10Q) ya protege que un worker "huérfano"
+ * (reasignado por `rescatarHuerfanos` mientras seguía vivo) no pueda
+ * **finalizar** el `agent_job` como propio (`completarTrabajo`/
+ * `fallarTrabajo` ya son no-op si la generación cambió). Lo que NO estaba
+ * protegido es lo que pasa MIENTRAS ese worker sigue corriendo, después de
+ * perder la generación: `runAgentTurn` no sabía que ya no era el dueño, así
+ * que seguía adelante — podía mandar un mensaje real al cliente, agendar una
+ * cita, notificar un pedido — exactamente cuando el nuevo dueño (Worker B)
+ * podía estar haciendo lo mismo para la misma conversación.
+ *
+ * `siguePoseyendoElTrabajo` es la comprobación explícita, SIEMPRE contra
+ * Postgres — nunca una bandera en memoria, que solo reflejaría lo que este
+ * proceso cree, no lo que la base realmente tiene: `generation` pudo cambiar
+ * en otro proceso, en otra réplica, sin que este worker se entere hasta que
+ * pregunta. Se llama justo antes de cada efecto externo crítico (ver los
+ * puntos de llamada en `pipeline.ts`: `deliverReply`, `deliverImage`,
+ * `deliverDocument`, `deliverMenu`, `derivarAUnaPersona`,
+ * `notificarEquipoDeHandoff`, y el arranque de `notify_order`/
+ * `book_appointment`/`reschedule_appointment`/`cancel_appointment`) — nunca
+ * en operaciones puramente internas (leer catálogo, llamar al modelo,
+ * validar una propuesta), para no convertir cada paso del turno en una
+ * consulta más a la base.
+ */
+export async function siguePoseyendoElTrabajo(
+  ownership: { jobId: string; generation: number } | undefined
+): Promise<boolean> {
+  // Sin contexto de cola (Laboratorio, scripts, pruebas que llaman
+  // `runAgentTurn` directo) no hay ningún worker concurrente del que
+  // protegerse — el fencing simplemente no aplica.
+  if (!ownership) return true;
+  const db = getDb();
+  const filas = (await db.execute(sql`
+    SELECT 1 FROM agent_job
+     WHERE id = ${ownership.jobId}
+       AND generation = ${ownership.generation}
+       AND status = 'corriendo'
+     LIMIT 1
+  `)) as unknown as unknown[];
+  return filas.length > 0;
 }
 
 /** Para el panel y las pruebas: cuántos trabajos hay en cada estado. */

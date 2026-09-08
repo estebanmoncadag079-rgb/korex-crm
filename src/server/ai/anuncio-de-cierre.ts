@@ -1351,3 +1351,81 @@ export const CORRECCION_DE_PRODUCTO_AMBIGUO_SIN_PREGUNTAR =
 
 export const CORRECCION_DE_PAGO_CONTRADICHO =
   "ALTO. El sistema ya confirmó, en este mismo turno, que ese método de pago SÍ está permitido — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí se acepta. Responde ÚNICAMENTE el objeto JSON.";
+
+/*
+ * ============================================================
+ * Fidelidad de datos de cuenta (Fase 8C, auditoría de Fase 8B)
+ * ============================================================
+ *
+ * Hueco encontrado en la Fase 8B: `resolverMetodoDePago`/
+ * `niegaMetodoDePagoPermitido` verifican el MÉTODO de pago (transferencia,
+ * Nequi, efectivo...) contra `ficha.pago.formas`, pero nada verifica que los
+ * DÍGITOS de una cuenta que el modelo cita coincidan con
+ * `ficha.pago.datosDeCuenta` real. El prompt ya pide "cópialos TAL CUAL, sin
+ * cambiar ni un dígito" (`prompts.ts`) — esto es la verificación, no solo la
+ * petición.
+ *
+ * Deliberadamente NO exige que el modelo cite el número COMPLETO (una cita
+ * parcial legítima —los últimos dígitos, un fragmento— debe pasar) ni marca
+ * cualquier número que aparezca en la respuesta: fechas, precios, cantidades
+ * y teléfonos mencionados por otro motivo no son cuentas bancarias y no deben
+ * disparar esto. Dos filtros, no uno:
+ *
+ * 1. Solo se miran oraciones con CONTEXTO DE PAGO (mismo principio de
+ *    "misma cláusula" que `contradiceEnLaMismaOracion`, aplicado con
+ *    palabras clave en vez de negación) — un precio de domicilio o una fecha
+ *    de cita, en su propia oración sin mención de cuenta/banco/Nequi, nunca
+ *    entra a compararse.
+ * 2. Dentro de esas oraciones, solo secuencias de 6+ dígitos (por debajo de
+ *    eso es más plausible una cantidad, una hora o parte de un precio) que
+ *    tengan el MISMO LARGO que alguna cuenta real mencionada en
+ *    `datosDeCuenta` (dígito alterado: mismo largo, otro contenido) — un
+ *    número de largo distinto (una fecha larga, otro identificador) no se
+ *    marca, aunque esté en una oración de pago.
+ *
+ * Una cita PARCIAL de una cuenta real (substring de una cuenta real, o que
+ * contiene una cuenta real completa con algo alrededor) nunca se marca,
+ * comparando primero contra el conjunto COMPLETO de cuentas reales antes de
+ * mirar el largo.
+ */
+
+const UMBRAL_DIGITOS_CUENTA = 6;
+
+const CONTEXTO_DE_PAGO =
+  /\b(cuenta|nequi|daviplata|bancolombia|davivienda|banco|transfer|consignar?|consignaci[oó]n|llave|pse|ahorros|corriente)\b/i;
+
+function secuenciasNumericas(texto: string): string[] {
+  return (texto.match(/\d{6,}/g) ?? []).filter((s) => s.length >= UMBRAL_DIGITOS_CUENTA);
+}
+
+/**
+ * `true` si, en una oración con contexto de pago, el texto cita una
+ * secuencia numérica con la FORMA de una cuenta real declarada
+ * (`datosDeCuenta`, que puede traer varias cuentas/líneas) pero que no
+ * coincide, ni total ni parcialmente, con ninguna de ellas.
+ */
+export function contradiceDatosDeCuenta(
+  texto: string | null | undefined,
+  datosDeCuenta: string | null | undefined
+): boolean {
+  if (!texto || !datosDeCuenta) return false;
+  const cuentasReales = secuenciasNumericas(datosDeCuenta);
+  if (!cuentasReales.length) return false;
+
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    if (!CONTEXTO_DE_PAGO.test(oracion)) return false;
+    const citadas = secuenciasNumericas(oracion);
+    return citadas.some((citada) => {
+      const coincideConAlguna = cuentasReales.some(
+        (real) => real.includes(citada) || citada.includes(real)
+      );
+      if (coincideConAlguna) return false;
+      return cuentasReales.some((real) => real.length === citada.length);
+    });
+  });
+}
+
+export const CORRECCION_DE_DATOS_DE_CUENTA =
+  "ALTO. Los datos de cuenta que citaste NO coinciden con los datos reales configurados por el negocio — parece que cambiaste o inventaste un dígito. Nunca alteres esos datos: cópialos TAL CUAL como aparecen en tu información, sin cambiar ni un dígito, o si no los tienes completos, no los inventes: pide confirmarlos con el equipo. Responde ÚNICAMENTE el objeto JSON.";

@@ -166,6 +166,8 @@ import {
   CORRECCION_DE_DOMICILIO_CONTRADICHO,
   inconsistenciaFinancieraDePedido,
   correccionDeInconsistenciaFinanciera,
+  contradiceDatosDeCuenta,
+  CORRECCION_DE_DATOS_DE_CUENTA,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
 import { encolarTurno, siguePoseyendoElTrabajo } from "@/server/ai/cola";
@@ -2410,6 +2412,59 @@ export async function runAgentTurn(
         "[agente] sigue confirmando un pago sin verificarlo; lo toma una persona"
       );
       agregarGuardarrail(traza, "pago_sin_verificar", false);
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
+  }
+
+  /**
+   * Fase 8C (auditoría de Fase 8B) — fidelidad de los datos de cuenta que el
+   * modelo cita, contra `ficha.pago.datosDeCuenta` real. `fichaDelNegocio`
+   * se lee siempre (línea ~1049), sin depender de `paymentSource`, así que
+   * esto protege tanto `payment_source='ficha'` como el `'prompt'` por
+   * defecto — en ambos casos el dato real es el mismo. Mismo tratamiento que
+   * el resto de la familia: una oportunidad de rehacerlo con la corrección
+   * delante y, si insiste, lo atiende una persona.
+   */
+  const datosDeCuentaReales = fichaDelNegocio
+    ? (fichaDelNegocio as FichaDelNegocio).pago?.datosDeCuenta
+    : undefined;
+  if (
+    datosDeCuentaReales &&
+    textosAlCliente(action).some((t) => contradiceDatosDeCuenta(t, datosDeCuentaReales))
+  ) {
+    console.warn("[pago] citó datos de cuenta que no coinciden con los reales; rehaciendo el turno");
+    const messagesReintento: ChatMessage[] = [
+      ...messages,
+      { role: "assistant", content: result.raw },
+      { role: "user", content: CORRECCION_DE_DATOS_DE_CUENTA },
+    ];
+    const reintento = await chatJson(AgentAction, messagesReintento);
+    await registrarUsoIa(
+      organizationId,
+      reintento.usage,
+      `conv:${conversationId}/datos-de-cuenta-contradichos`
+    );
+    const resuelto = await resolverAccionTrasReintento(messagesReintento, reintento, {
+      organizationId, conversationId, conversation, services, hours, now: opts?.now, traza,
+      sufijoDeUso: "-datos-de-cuenta-contradichos",
+    });
+    if (
+      resuelto.ok &&
+      !textosAlCliente(resuelto.accion).some((t) => contradiceDatosDeCuenta(t, datosDeCuentaReales))
+    ) {
+      action = resuelto.accion;
+      agregarGuardarrail(traza, "datos_de_cuenta_contradichos", true);
+    } else if (!resuelto.ok) {
+      return resuelto.resultado;
+    } else {
+      console.error(
+        "[pago] sigue citando datos de cuenta que no coinciden con los reales; lo toma una persona"
+      );
+      agregarGuardarrail(traza, "datos_de_cuenta_contradichos", false);
       await derivarAUnaPersona(conversation);
       registrarHandoff(traza, "model_output_recovery_failed");
       traza.accionFinal = "handoff";

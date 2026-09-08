@@ -16,9 +16,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
-# migrate.mjs autocontenido (drizzle-orm + postgres bundleados)
+# migrate.mjs autocontenido (drizzle-orm + postgres bundleados). Fase 6I —
+# --alias:@=./src porque ahora importa src/server/ops/schema-readiness.ts
+# (verificación de esquema post-migración, ver el comentario en el propio
+# migrate.mjs y docs/korexia/167).
 RUN pnpm exec esbuild scripts/migrate.mjs --bundle --platform=node \
-    --format=esm --outfile=migrate.bundle.mjs \
+    --format=esm --outfile=migrate.bundle.mjs --alias:@=./src \
     --banner:js="import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
 RUN pnpm exec esbuild scripts/seed/demo.ts --bundle --platform=node \
     --format=esm --outfile=seed-demo.bundle.mjs --alias:@=./src \

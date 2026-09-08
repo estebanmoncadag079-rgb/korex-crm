@@ -748,3 +748,75 @@ describe("un pedido lleva varias cosas", () => {
     expect(r.reconstruible).toBe(false);
   });
 });
+
+/**
+ * Fase 8K — incidente REAL de producción (MALIA, 8-sep-2026, conv
+ * cv_dr0ulagqbpnhomqop0pt). Una clienta pidió tres pavés y escribió
+ * "Correcto" al resumen. El bot la derivó a una persona.
+ *
+ * Lo que había pasado: los tres ítems estaban perfectamente resueltos contra
+ * el catálogo real (producto, sabor, hasta el topping con su +$2.000), pero
+ * los TRES quedaron con `totalCents: null`. El primero no traía Topping —que
+ * ese negocio tiene configurado como obligatorio— así que dejó una duda; y
+ * como el cálculo del total miraba `dudas.length === 0` sobre la lista de
+ * TODO el pedido, esa duda dejó sin precio también a los otros dos.
+ *
+ * Carrito sin total → `validarPropuesta` lo rechaza ("confirmado sin total
+ * calculado") → al cerrar, el guardarraíl financiero no tiene contra qué
+ * comparar → derivación. En 3 h de producción ese motivo explicaba 15 de 21
+ * rechazos.
+ */
+describe("Fase 8K: la duda de un ítem no puede dejar sin precio a los demás", () => {
+  it("BUG REAL: con un ítem incompleto, los ítems COMPLETOS conservan su total", () => {
+    const r = normalizarPedido(
+      {
+        items: [
+          // Incompleto: la CHURRITA exige 1 salsa y no trae ninguna.
+          { ofrecible: "CHURRITA", cantidad: 1, opciones: [] },
+          // Completo: su salsa elegida.
+          { ofrecible: "CHURRITA", cantidad: 2, opciones: sal("arequipe") },
+        ],
+        datos: {},
+      },
+      CARTA
+    );
+
+    expect(r.estado.items[0]!.totalCents).toBeNull(); // el incompleto, sin precio
+    expect(r.estado.items[1]!.totalCents).toBe(2000000); // 2 × $10.000, con su precio
+    // El pedido entero sigue sin total mientras falte algo: eso es correcto y
+    // no cambia — lo que cambia es que ya no se pierde el precio de lo que SÍ
+    // está resuelto.
+    expect(r.estado.totalCents).toBeNull();
+  });
+
+  it("resuelto lo que faltaba, el pedido completo SÍ tiene total (antes se quedaba en null para siempre)", () => {
+    const r = normalizarPedido(
+      {
+        items: [
+          { ofrecible: "CHURRITA", cantidad: 1, opciones: sal("lechera") },
+          { ofrecible: "CHURRITA", cantidad: 2, opciones: sal("arequipe") },
+        ],
+        datos: {},
+      },
+      CARTA
+    );
+    expect(r.estado.items[0]!.totalCents).toBe(1000000);
+    expect(r.estado.items[1]!.totalCents).toBe(2000000);
+    expect(r.estado.totalCents).toBe(3000000);
+  });
+
+  it("el orden no importa: el ítem completo va primero y el incompleto después", () => {
+    const r = normalizarPedido(
+      {
+        items: [
+          { ofrecible: "CHURRITA", cantidad: 2, opciones: sal("arequipe") },
+          { ofrecible: "CHURRITA", cantidad: 1, opciones: [] },
+        ],
+        datos: {},
+      },
+      CARTA
+    );
+    expect(r.estado.items[0]!.totalCents).toBe(2000000);
+    expect(r.estado.items[1]!.totalCents).toBeNull();
+  });
+});

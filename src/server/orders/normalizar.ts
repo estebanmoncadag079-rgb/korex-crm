@@ -265,6 +265,31 @@ function resolverItem(
   dudas: Duda[],
   unidadesPorProducto?: Record<string, number>
 ): ItemNormalizado {
+  /**
+   * Fase 8K — cuántas dudas traía el pedido ANTES de resolver este ítem.
+   *
+   * `dudas` es la lista de TODA la conversación (ver el comentario de arriba:
+   * "son de la conversación, no del ítem"), y el cálculo del total de abajo
+   * la miraba entera: `dudas.length === 0`. Con un pedido de varios ítems eso
+   * significa que **el primero que deja una duda deja sin precio a todos los
+   * que vengan después**, aunque estén perfectamente resueltos.
+   *
+   * Incidente real (MALIA, 8-sep-2026, conv cv_dr0ulagqbpnhomqop0pt): tres
+   * pavés, todos con su producto y su sabor resueltos contra el catálogo
+   * real. El primero no traía Topping —que ese negocio tiene configurado
+   * como obligatorio— así que dejó una duda; los otros dos, uno de ellos CON
+   * su topping elegido, se quedaron igualmente en `totalCents: null`. El
+   * carrito entero quedó sin total, `validarPropuesta` lo rechazó
+   * ("confirmado sin total calculado"), y al cerrar el guardarraíl
+   * financiero derivó a una persona. La clienta había escrito "Correcto".
+   *
+   * En 3 h de producción ese motivo explicaba 15 de 21 rechazos.
+   *
+   * El total de un ítem solo puede depender de SU propia resolución: se
+   * cuentan las dudas que agrega ESTE ítem, no las que ya traía el pedido.
+   */
+  const dudasAntesDeEsteItem = dudas.length;
+
   // --- El producto -------------------------------------------------------
   let producto: ProductoDelCatalogo | undefined;
   const crudo = propuesto.ofrecible?.trim() ?? "";
@@ -610,7 +635,9 @@ function resolverItem(
 
   // --- El total, siempre del servidor ------------------------------------
   let totalCents: number | null = null;
-  if (producto && dudas.length === 0) {
+  // Fase 8K — solo las dudas de ESTE ítem, no las que ya traía el pedido
+  // (ver `dudasAntesDeEsteItem`, arriba).
+  if (producto && dudas.length === dudasAntesDeEsteItem) {
     if (producto.precioCents === null) {
       dudas.push({
         campo: "total",

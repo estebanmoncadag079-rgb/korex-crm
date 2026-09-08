@@ -59,6 +59,50 @@ function coincide(a: string, b: string): boolean {
 }
 
 /**
+ * Fase 8E — incidente real (8-sep-2026, MALIA): una clienta pidió "el pavé
+ * de oblea". El catálogo solo tiene "Pavé Cremoso 8 oz" y "Pavé Cremoso 16
+ * oz"; "oblea" no existe ni como producto ni como opción. Esta función
+ * devolvía `found: Pavé Cremoso 8 oz` — el ÚNICO token que coincidía era
+ * "pave", que comparten los dos productos y no distingue nada; la palabra
+ * que de verdad pedía la clienta ("oblea") no coincidía con nada; y el
+ * desempate entre los dos hermanos lo decidió `ratio`, que ahí solo mide
+ * cuál de los dos NOMBRES es más corto.
+ *
+ * Ese `found` no se queda en una sugerencia: se le inyecta al modelo como
+ * hecho verificado ("este dato es real, no lo pongas en duda") y
+ * `contradiceProductoEncontrado` lo OBLIGA a sostenerlo. El bot ofreció un
+ * producto inexistente, el carrito real lo rechazó en silencio cinco veces
+ * ("Oblea" no está entre las opciones), el cierre falló por inconsistencia
+ * financiera y el pedido acabó derivado a una persona y perdido.
+ *
+ * Un match solo identifica de verdad si algo de lo que coincidió DISTINGUE
+ * al candidato de sus hermanos. Si todo lo que coincidió es de familia
+ * (tokens que comparten dos o más productos del catálogo) y además queda
+ * una palabra significativa del cliente sin explicar, esto no es "lo
+ * encontré": es "se parece al apellido". Se devuelve `not_found`, que en el
+ * pipeline cae a `buscarOpciones` (por si era una opción real, como el
+ * "chocolate blanco" de La Churra) antes de responderle nada al cliente.
+ */
+function soloCoincideElApellido(
+  catalogo: ProductoDelCatalogo[],
+  ganador: ProductoDelCatalogo,
+  qt: string[]
+): boolean {
+  const pt = tokens(ganador.nombre);
+  const coincidieron = pt.filter((t) => qt.some((u) => coincide(t, u)));
+  if (!coincidieron.length) return false;
+  // Sin palabras del cliente sin explicar, el match cubre lo que pidió: no
+  // hay nada que sospechar (ej. "el de 8 oz" → "Pavé Cremoso 8 oz").
+  const sinExplicar = qt.filter((u) => !pt.some((t) => coincide(t, u)));
+  if (!sinExplicar.length) return false;
+  // ¿Alguno de los tokens que coincidió distingue a ESTE producto de los
+  // demás? Basta uno para que el match sea una identificación real.
+  return coincidieron.every(
+    (t) => catalogo.filter((p) => tokens(p.nombre).some((o) => coincide(o, t))).length >= 2
+  );
+}
+
+/**
  * Busca en el catálogo real, tolerando tildes, mayúsculas y nombres
  * parafraseados por el cliente. A diferencia de `buscarServicio` (que
  * devuelve "el mejor o null"), aquí hace falta distinguir *cuántos*
@@ -109,7 +153,12 @@ export function buscarProductos(
   }
 
   if (candidatos.length === 0) return { status: "not_found" };
-  if (candidatos.length === 1) return { status: "found", producto: candidatos[0]! };
+  if (candidatos.length === 1) {
+    // Fase 8E — ver `soloCoincideElApellido`: un match de puro nombre de
+    // familia, con una palabra del cliente sin explicar, no es un hallazgo.
+    if (soloCoincideElApellido(catalogo, candidatos[0]!, qt)) return { status: "not_found" };
+    return { status: "found", producto: candidatos[0]! };
+  }
   return { status: "multiple_matches", productos: candidatos };
 }
 

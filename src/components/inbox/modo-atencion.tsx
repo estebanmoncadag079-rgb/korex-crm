@@ -3,6 +3,7 @@
 import { Sparkles, UserRound } from "lucide-react";
 import type { ConversationDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { modoDeAtencion } from "./helpers";
 
 /**
  * Quién está atendiendo esta conversación, a la vista y de un clic.
@@ -38,10 +39,15 @@ export function ModoAtencion({
     reactivate?: boolean;
   }) => Promise<void>;
 }) {
-  const enIa =
-    agentReady && conversation.aiEnabled && !conversation.handoffAt;
+  /**
+   * La MISMA regla que pinta la insignia de la bandeja (`helpers.ts`), no una
+   * copia: si el chat y la lista pudieran discrepar sobre quién atiende, el
+   * indicador haría más daño que no tenerlo.
+   */
+  const modo = modoDeAtencion(conversation, agentReady);
+  const enIa = modo === "ia";
 
-  if (!agentReady) {
+  if (modo === "apagado") {
     return (
       <span
         title="El agente está apagado para todo el negocio. Actívalo en Agente."

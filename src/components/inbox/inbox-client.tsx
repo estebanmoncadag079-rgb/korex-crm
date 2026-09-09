@@ -215,6 +215,7 @@ export function InboxClient() {
           selectedId={selectedId}
           onSelect={select}
           onSeeded={() => void refetchConversations()}
+          agentReady={agentReady}
         />
       </section>
 

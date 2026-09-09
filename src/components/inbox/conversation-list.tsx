@@ -6,7 +6,7 @@ import type { ConversationDto } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ContactAvatar } from "@/components/avatar";
 import { Button } from "@/components/ui/button";
-import { formatTime, previewText } from "./helpers";
+import { formatTime, modoDeAtencion, previewText } from "./helpers";
 
 const STAGE_DOT: Record<string, string> = {
   Nuevo: "#9ca3af",
@@ -57,11 +57,14 @@ export function ConversationList({
   selectedId,
   onSelect,
   onSeeded,
+  agentReady,
 }: {
   conversations: ConversationDto[] | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onSeeded: () => void;
+  /** El agente está configurado y encendido a nivel del negocio. */
+  agentReady: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "unread">("all");
@@ -144,6 +147,7 @@ export function ConversationList({
             {visible.map((c) => {
               const unread = c.unreadCount > 0;
               const active = selectedId === c.id;
+              const modo = modoDeAtencion(c, agentReady);
               return (
                 <li key={c.id} className="relative border-b border-border/70">
                   {active && (
@@ -208,10 +212,43 @@ export function ConversationList({
                             {c.stageName}
                           </span>
                         )}
-                        {c.handoffAt && (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-[#ece2cf] bg-[#faf7f0] px-2 py-0.5 text-[11px] text-[#8a6d3b]">
+                        {/*
+                          El modo va SIEMPRE, incluso cuando atiende la IA: sin
+                          la insignia verde, "no hay insignia" sería ambiguo
+                          —¿la IA responde, o nadie?— y ese vacío es justo lo
+                          que hay que quitar. La de IA es discreta a propósito y
+                          la de humano contrasta, para que la vista caiga sola
+                          en las que necesitan a alguien.
+                        */}
+                        {modo === "ia" && (
+                          <span
+                            title="Responde la IA. Nadie tiene que intervenir."
+                            className="inline-flex items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[11px] font-medium text-success"
+                          >
+                            <Sparkles className="h-3 w-3" strokeWidth={1.7} />
+                            IA
+                          </span>
+                        )}
+                        {modo === "humano" && (
+                          <span
+                            title={
+                              c.handoffAt
+                                ? "Está en manos de una persona: alguien tiene que responder."
+                                : "La IA está apagada en esta conversación: si nadie responde, nadie responde."
+                            }
+                            className="inline-flex items-center gap-1 rounded-full border border-[#ece2cf] bg-[#faf7f0] px-2 py-0.5 text-[11px] font-medium text-[#8a6d3b]"
+                          >
                             <UserRound className="h-3 w-3" strokeWidth={1.7} />
-                            Atención humana
+                            Humano
+                          </span>
+                        )}
+                        {modo === "apagado" && (
+                          <span
+                            title="El agente está apagado para todo el negocio. Se activa en Agente."
+                            className="inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] text-text-3"
+                          >
+                            <Sparkles className="h-3 w-3" strokeWidth={1.7} />
+                            Agente apagado
                           </span>
                         )}
                       </span>

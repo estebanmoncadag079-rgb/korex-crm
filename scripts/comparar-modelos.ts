@@ -280,7 +280,7 @@ for (const [origen, mensajes] of guiones) {
     let accion: string | null = null;
     let derivo = false;
     try {
-      const r = await runAgentTurn(conv.id, { immediate: true });
+      const r = await runAgentTurn(conv.id);
       accion = r?.action ?? null;
       derivo = r?.action === "handoff";
     } catch (err) {

@@ -32,18 +32,11 @@ import {
 import { matchesHandoffIntent } from "@/server/ai/handoff";
 import { contactPhoneOf, notifyTeam } from "@/server/ai/notify-team";
 import {
-  registrarConfirmacionDePedido,
-  borrarConfirmacionDePedido,
-  intentarNotificarPedido,
-  ultimaConfirmacionDe,
-} from "@/server/ai/confirmacion-de-pedido";
-import {
   registrarConfirmacionDeCita,
   borrarConfirmacionDeCita,
   guardarContenidoDeCita,
   intentarNotificarCita,
 } from "@/server/ai/confirmacion-de-cita";
-import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buildAgentSystemPrompt, businessStatus, type CatalogEntry } from "@/server/ai/prompts";
 import {
   buscarServicio,
@@ -116,6 +109,10 @@ import {
   type PropuestaDelModelo,
 } from "@/server/orders/estado";
 import { MAX_ITEMS } from "@/server/orders/normalizar";
+import {
+  puedeConfirmarPedido,
+  ejecutarConfirmacionDePedido,
+} from "@/server/orders/policy";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import {
@@ -207,13 +204,6 @@ export const HISTORY_LIMIT = 20;
  * este archivo: no se le dice "vas a rehacer el pedido", se le dice qué
  * hecho verificado ignoró y qué debe hacer con el mensaje real del cliente.
  */
-const CORRECCION_DE_PEDIDO_YA_CONFIRMADO =
-  "[SISTEMA] Este pedido YA fue confirmado y notificado al equipo anteriormente en esta " +
-  "misma conversación — no vuelvas a usar la acción notify_order para él, sin importar lo " +
-  "que diga el historial. Responde directamente a lo último que escribió el cliente (una " +
-  "pregunta, un comentario, lo que sea) como una conversación normal. Si de verdad está " +
-  "pidiendo algo NUEVO y distinto, trátalo como un pedido aparte: solo entonces puede volver " +
-  "a corresponder notify_order, con ese contenido nuevo.";
 
 /**
  * Punto de entrada con debounce (mensajes entrantes reales).
@@ -2254,48 +2244,45 @@ export async function runAgentTurn(
    * 'tabla'`); el caso sin catálogo estructurado queda documentado como
    * hallazgo, no resuelto aquí (fuera del alcance de este incidente).
    */
-  if (action.action === "notify_order" && productosDelPedido.length > 0) {
-    const ultimaConfirmacion = await ultimaConfirmacionDe(conversationId);
-    if (ultimaConfirmacion) {
-      const huboPedidoNuevo = history.some(
-        (m) =>
-          m.direction === "in" &&
-          m.createdAt.getTime() > ultimaConfirmacion.createdAt.getTime() &&
-          Boolean(m.text) &&
-          buscarProductos(productosDelPedido, m.text!).status !== "not_found"
+  if (action.action === "notify_order") {
+    // Fase 1 — la DECISIÓN vive en `orders/policy.ts`; reaccionar (reintentar
+    // con el modelo, derivar, anotar la traza) sigue siendo del pipeline.
+    const veredicto = await puedeConfirmarPedido({
+      conversationId,
+      productosDelPedido,
+      history,
+    });
+    if (!veredicto.ok) {
+      console.warn(
+        `[pedido] notify_order rechazado por el backend en ${conversationId}: ${veredicto.motivo}`
       );
-      if (!huboPedidoNuevo) {
-        console.warn(
-          `[pedido] notify_order rechazado por el backend en ${conversationId}: ya existe una confirmación (${ultimaConfirmacion.id}) y ningún mensaje del cliente desde entonces nombra un producto del catálogo`
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: veredicto.correccion },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/pedido-ya-confirmado`
+      );
+      if (reintento.ok && reintento.data.action !== "notify_order") {
+        action = reintento.data;
+        agregarGuardarrail(traza, "pedido_ya_confirmado", true);
+      } else {
+        console.error(
+          `[pedido] insiste en confirmar un pedido ya cerrado en ${conversationId}; lo toma una persona`
         );
-        const reintento = await chatJson(AgentAction, [
-          ...messages,
-          { role: "assistant", content: result.raw },
-          { role: "user", content: CORRECCION_DE_PEDIDO_YA_CONFIRMADO },
-        ]);
-        await registrarUsoIa(
-          organizationId,
-          reintento.usage,
-          `conv:${conversationId}/pedido-ya-confirmado`
-        );
-        if (reintento.ok && reintento.data.action !== "notify_order") {
-          action = reintento.data;
-          agregarGuardarrail(traza, "pedido_ya_confirmado", true);
-        } else {
-          console.error(
-            `[pedido] insiste en confirmar un pedido ya cerrado en ${conversationId}; lo toma una persona`
-          );
-          agregarGuardarrail(traza, "pedido_ya_confirmado", false);
-          await derivarAUnaPersona(conversation, {
-            reason: "modelo",
-            teamSummary:
-              "El asistente intentó volver a confirmar un pedido que ya estaba cerrado y notificado. Revisa la conversación: puede ser un pedido nuevo mal interpretado, o el bot reabriendo el anterior por error.",
-          });
-          registrarHandoff(traza, "model_output_recovery_failed");
-          traza.accionFinal = "handoff";
-          registrarTrazaDelTurno(traza);
-          return { action: "handoff", reason: "error" };
-        }
+        agregarGuardarrail(traza, "pedido_ya_confirmado", false);
+        await derivarAUnaPersona(conversation, {
+          reason: "modelo",
+          teamSummary:
+            "El asistente intentó volver a confirmar un pedido que ya estaba cerrado y notificado. Revisa la conversación: puede ser un pedido nuevo mal interpretado, o el bot reabriendo el anterior por error.",
+        });
+        registrarHandoff(traza, "model_output_recovery_failed");
+        traza.accionFinal = "handoff";
+        registrarTrazaDelTurno(traza);
+        return { action: "handoff", reason: "error" };
       }
     }
   }
@@ -3299,198 +3286,33 @@ export async function runAgentTurn(
     }
     case "notify_order": {
       /**
-       * Fase 11-A — se verifica ownership ANTES de reclamar la clave de
-       * idempotencia: si este worker ya perdió la generación, ni siquiera
-       * vale la pena tomar la clave (el nuevo dueño, en su propia
-       * ejecución, la tomará él).
-       */
-      await asegurarOwnershipVigente(conversation);
-      /**
-       * Fase 11-B — el teléfono se resuelve ANTES de registrar la
-       * confirmación: `orderConfirmation.customerPhone` guarda el dato que
-       * un reintento posterior de la notificación va a necesitar (ver
-       * `intentarNotificarPedido`), y todavía no hay ninguna clave tomada
-       * de la que preocuparse si esto falla — es el mismo caso "nada que
-       * deshacer" que antes protegía el bloque de más abajo.
-       */
-      let phone: string | null;
-      try {
-        phone = await contactPhoneOf(organizationId, conversation.contactId);
-      } catch (err) {
-        console.error(
-          `[agente] no se pudo resolver el teléfono del contacto en ${conversationId} antes de confirmar el pedido:`,
-          err
-        );
-        throw err;
-      }
-      /**
-       * Fase 10N-A — idempotencia real (Postgres, no memoria) antes de
-       * cualquier efecto: el `INSERT` con `UNIQUE(conversation_id,
-       * idempotency_key)` es quien decide, no una variable en este
-       * proceso. Cubre la ventana de carrera real de `rescatarHuerfanos`
-       * (cola.ts) — si dos ejecuciones de este turno corrieran en
-       * paralelo (o si el mismo turno se re-ejecuta por cualquier otro
-       * motivo) para la misma conversación, solo una gana el `INSERT` y
-       * solo esa manda el WhatsApp al equipo / anota el pedido.
+       * Fase 1 del plan de `docs/korexia/156`: el cierre del pedido —la única
+       * acción irreversible del vertical— vive en `orders/policy.ts`. Aquí
+       * queda solo la llamada y los efectos que este módulo posee
+       * (`deliverReply`, ownership, nota del lead, relevo), que se pasan
+       * explícitos para no crear un ciclo entre los dos archivos.
        *
-       * Fase urgente (4-sep-2026) — BUG REAL corregido: hasta ahora, la
-       * despedida al CLIENTE (`action.farewell`, más abajo) se mandaba
-       * FUERA de este `if/else`, incondicionalmente — así que una
-       * ejecución duplicada (`primeraVez: false`) correctamente no
-       * repetía el aviso al EQUIPO, pero SÍ le reenviaba al CLIENTE el
-       * mismo mensaje de confirmación, una vez por cada re-ejecución del
-       * turno. Es la causa real, confirmada, del incidente reportado
-       * ("el mismo mensaje de confirmación enviado ~3 veces"): no una
-       * carrera en `notifyTeam` (esa ya estaba protegida), sino la
-       * despedida al cliente viviendo fuera de la protección de
-       * idempotencia. Ahora vive DENTRO del `else` (solo `primeraVez`).
+       * Es una mudanza: no cambió ninguna decisión ni el orden de las
+       * operaciones. Los comentarios que explican POR QUÉ ese orden es el que
+       * es —cada uno con su incidente detrás— se fueron con el código.
        */
-      const { primeraVez, id: confirmationId } = await registrarConfirmacionDePedido({
-        organizationId,
-        conversationId,
-        // IDs de los mensajes del cliente que disparan este cierre — no el
-        // `summary` del modelo (ver el comentario de confirmacion-de-pedido.ts:
-        // el texto libre no es estable entre dos ejecuciones paralelas del
-        // mismo turno, estos IDs de fila SÍ lo son).
-        messageIds: pendientes.map((m) => m.id),
-        summary: action.summary,
-        customerPhone: phone,
-      });
-      if (!primeraVez) {
-        console.warn(
-          `[agente] notify_order duplicado (mismo pedido, misma conversación) en ${conversationId}; no se repite el aviso`
-        );
-      } else {
-        /**
-         * Fase 10V-X — este pedido se cierra: la verificación de domicilio
-         * que lo respaldaba deja de ser válida para lo que venga después
-         * en esta MISMA conversación. Sin esto, un pedido nuevo (otro día,
-         * otro cliente que retoma el chat) heredaría en silencio la
-         * tarifa del pedido anterior — nunca se asume que una conversación
-         * es un solo pedido. Solo invalida, nunca lanza: un fallo aquí no
-         * puede tumbar el cierre real del pedido, que ya está registrado.
-         */
-        if (domicilioEstructurado) {
-          await guardarEntregaVerificada({
-            conversationId,
-            organizationId,
-            entrega: null,
-            actor: "pipeline",
-            proceso: "pedido_confirmado",
-          }).catch((err) => {
-            console.error("[domicilio] no se pudo invalidar la verificación tras cerrar el pedido:", err);
-          });
+      await ejecutarConfirmacionDePedido(
+        {
+          conversation,
+          organizationId,
+          conversationId,
+          summary: action.summary,
+          farewell: action.farewell,
+          messageIds: pendientes.map((m) => m.id),
+          domicilioEstructurado,
+        },
+        {
+          asegurarOwnershipVigente,
+          deliverReply,
+          appendLeadNote,
+          applyHandoff,
         }
-        // Orden deliberado: primero el registro (fuente de verdad), después el
-        // aviso por WhatsApp (puede fallar por la ventana de 24 h) y al final la
-        // despedida — así un pedido nunca se pierde por un fallo de envío.
-        try {
-          // Fase 11-A — segunda comprobación, justo antes del efecto
-          // externo real (`intentarNotificarPedido`, más abajo): pudo pasar
-          // tiempo real (llamadas al modelo, guardarraíles) entre que este
-          // worker reclamó la generación y que llega hasta aquí.
-          await asegurarOwnershipVigente(conversation);
-        } catch (err) {
-          /**
-           * Fase 10V, Hallazgo D — la notificación TODAVÍA no se ha
-           * intentado: deshacer la clave aquí es seguro (nada que
-           * duplicar) y deja que el reintento del job (Fase 10Q) — o, si
-           * este worker perdió ownership, el que haga la PRÓXIMA
-           * ejecución de esta conversación — lo intente de cero.
-           */
-          await borrarConfirmacionDePedido({
-            conversationId,
-            messageIds: pendientes.map((m) => m.id),
-          }).catch((errDeshacer) => {
-            console.error(
-              "[agente] no se pudo deshacer la idempotencia tras un error inesperado:",
-              errDeshacer
-            );
-          });
-          throw err;
-        }
-        /**
-         * Fase 11-B — separación real entre "pedido registrado" (ya
-         * ocurrió, arriba) y "aviso entregado" (esto). Para conversaciones
-         * de prueba (Laboratorio) se conserva el camino directo de
-         * siempre: `notifyTeam` con `isTest: true` simula el aviso sin
-         * mandar nada real, y no hay ningún reintento que rastrear — el
-         * Laboratorio nunca debe generar una fila que
-         * `reintentarNotificacionesPendientes` intente reenviar de verdad.
-         * Para conversaciones reales, `intentarNotificarPedido` corre la
-         * MISMA máquina de estados que usará cualquier reintento posterior
-         * (`orderConfirmation.notifyStatus`): si `notifyTeam` no logra
-         * entregarlo a NINGÚN número, la fila queda en `fallo_recuperable`
-         * en vez de darse por avisada sin haberlo logrado.
-         */
-        const result = conversation.isTest
-          ? await notifyTeam({
-              organizationId,
-              summary: action.summary,
-              customerPhone: phone,
-              isTest: true,
-            })
-          : await intentarNotificarPedido({
-              id: confirmationId,
-              organizationId,
-              summary: action.summary,
-              customerPhone: phone,
-            });
-        try {
-          await appendLeadNote(
-            organizationId,
-            conversation.contactId,
-            `Pedido confirmado: ${action.summary}\n[aviso al equipo: ${result.detail}]`
-          );
-        } catch (err) {
-          /**
-           * Fase 10V, Hallazgo D — a diferencia de arriba, aquí el intento
-           * de notificación YA se ejecutó (con evidencia guardada en
-           * `orderConfirmation.notifyStatus`, Fase 11-B): deshacer la clave
-           * arriesgaría duplicar el aviso real al equipo en un reintento.
-           * Se registra el fallo y se sigue — falta la nota del CRM, pero
-           * el pedido ya quedó avisado (o correctamente marcado como
-           * pendiente de reintento), que es lo que no se puede perder.
-           */
-          console.error(
-            `[agente] no se pudo anotar la nota del pedido en ${conversationId} (el aviso al equipo SÍ se intentó, no se reintenta para no duplicarlo):`,
-            err
-          );
-        }
-        /**
-         * Fase urgente (4-sep-2026) — la despedida al CLIENTE es un
-         * efecto externo real (un mensaje de WhatsApp), igual que el
-         * aviso al equipo: solo debe salir la PRIMERA vez que se
-         * confirma este pedido exacto (mismos mensajes disparadores).
-         * Antes vivía fuera de este `if/else` y se reenviaba en cada
-         * re-ejecución del turno — la causa confirmada del incidente
-         * real de mensajes duplicados.
-         */
-        if (action.farewell) {
-          await deliverReply(conversation, action.farewell);
-        }
-      }
-      // El embudo se cierra solo: un pedido confirmado es la única señal
-      // inequívoca de venta que tiene el sistema, y sin esto el lead se quedaba
-      // en "Nuevo" para siempre aunque el equipo ya estuviera despachándolo.
-      // Aislado: el pedido ya está registrado y avisado, que es lo que no se
-      // puede perder. Se deja FUERA del `if/else` a propósito: es idempotente
-      // por sí solo (`onLeadWon` comprueba el stage antes de moverlo) y debe
-      // completarse aunque una ejecución anterior ya hubiera avisado.
-      try {
-        if (await onLeadWon(organizationId, conversation.contactId)) {
-          publish(organizationId, {
-            type: "conversation.updated",
-            data: { conversation: { id: conversationId } },
-          });
-        }
-      } catch (err) {
-        console.error("[embudo] no se pudo cerrar el lead:", err);
-      }
-      // Pedido cerrado = lo toma una persona (coordinar entrega y pago).
-      // También idempotente (fija un timestamp/motivo, no un efecto que se
-      // acumule) y por eso se deja fuera del `if/else` igual que arriba.
-      await applyHandoff(conversationId, organizationId, "modelo");
+      );
       return action;
     }
     case "book_appointment": {

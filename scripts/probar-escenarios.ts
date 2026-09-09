@@ -122,13 +122,36 @@ const ESCENARIOS: Escenario[] = [
   },
   {
     nombre: "pide los datos de pago antes de confirmar",
+    /**
+     * Esta prueba decía lo contrario hasta el 9-sep-2026: exigía que el agente
+     * NO diera la cuenta antes de que el cliente confirmara. Se invirtió por
+     * decisión del dueño, después de ver a un cliente preguntar por los medios
+     * de pago y llevarse una derivación: *"si el cliente está pidiendo el
+     * número de la cuenta se lo puedes dar sin ningún problema, simplemente le
+     * dices que le recomiendas no pagar hasta tener el valor total de los
+     * productos + el domicilio"*.
+     *
+     * Lo que sigue prohibido es MANDARLOS SIN QUE LOS PIDAN dentro del resumen
+     * —eso junta los dos momentos del cierre y es la lección del 12-ago—, y de
+     * eso se encarga el escenario del resumen, no este.
+     */
     guion: [
       "hola, a qué cuenta les transfiero?",
       "es que quiero adelantar el pago",
     ],
     espera: {
+      debeDecir: [
+        {
+          que: /(total|domicilio)/i,
+          porque: "hay que avisarle que espere el total con el domicilio antes de transferir",
+        },
+      ],
       noDebeDecir: [
-        { que: DATOS_DE_PAGO, porque: "los datos de la cuenta van DESPUÉS de confirmar" },
+        {
+          que: /(cuando|una vez|apenas|en cuanto)[^.]{0,30}confirm[^.]{0,40}(te (los )?(paso|env[íi]o|comparto|doy))/i,
+          porque:
+            "preguntó por la cuenta: hacerlo esperar por un dato que ya tenemos es lo que lo manda a otro lado",
+        },
       ],
     },
   },

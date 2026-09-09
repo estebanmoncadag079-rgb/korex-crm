@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conEntregaConservada, validarPropuesta } from "@/server/orders/estado";
+import { conEntregaConservada, estadoVacio, validarPropuesta } from "@/server/orders/estado";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 
 /**
@@ -65,7 +65,7 @@ describe("la verificación de domicilio sobrevive al turno", () => {
   });
 
   it("sin entrega conocida, respeta la que ya trajera el estado", () => {
-    const estado = { ...({} as never), entrega: ENTREGA } as Parameters<typeof conEntregaConservada>[0];
+    const estado = { ...estadoVacio(), entrega: ENTREGA };
     expect(conEntregaConservada(estado, undefined).entrega).toEqual(ENTREGA);
     expect(conEntregaConservada(estado, null).entrega).toEqual(ENTREGA);
   });
@@ -73,13 +73,13 @@ describe("la verificación de domicilio sobrevive al turno", () => {
   it("sin nada por ningún lado, queda en null y no en undefined", () => {
     // `undefined` desaparece al serializar a JSON y deja el campo ausente en
     // la fila; `null` dice explícitamente "no hay verificación".
-    const estado = { ...({} as never) } as Parameters<typeof conEntregaConservada>[0];
+    const estado = { ...estadoVacio(), entrega: undefined };
     expect(conEntregaConservada(estado, undefined).entrega).toBeNull();
   });
 
   it("una entrega NUEVA pisa a la vieja: la del turno manda", () => {
     const vieja = { ...ENTREGA, zonaNombre: "Talanga", feeCents: 1000000 };
-    const estado = { ...({} as never), entrega: vieja } as Parameters<typeof conEntregaConservada>[0];
+    const estado = { ...estadoVacio(), entrega: vieja };
     expect(conEntregaConservada(estado, ENTREGA).entrega).toEqual(ENTREGA);
   });
 });

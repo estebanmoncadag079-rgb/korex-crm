@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { gruposAmbiguos, obligaAPagarUnExtra, opcionesAmbiguas } from "@/lib/catalogo-ambiguedad";
 import { repeticionObligatoria } from "@/lib/catalogo-repeticion";
 
 /**
@@ -128,6 +129,20 @@ export function CatalogoProductos() {
 
   const bloqueados = grupos.filter((g) => repeticionObligatoria(g) && !g.permiteRepeticion);
 
+  /**
+   * Dos grupos del MISMO producto con nombres que el agente no distingue son
+   * la trampa más cara del catálogo: cualquier opción que exista en los dos
+   * deja al cliente en un bucle de preguntas sin salida (MALIA, 8-sep-2026 —
+   * ver `lib/catalogo-ambiguedad.ts`). Se avisa por producto porque es ahí
+   * donde chocan, y es ahí donde se renombra uno de los dos.
+   */
+  const productosConGruposAmbiguos = [...gruposPorProducto.entries()]
+    .map(([productoId, gs]) => ({
+      producto: gs[0]?.producto ?? productoId,
+      ambiguos: gruposAmbiguos(gs),
+    }))
+    .filter((p) => p.ambiguos.length > 0);
+
   return (
     <div className="h-full overflow-y-auto">
       <header className="flex items-start justify-between gap-3 border-b px-4 py-3.5 md:px-6 md:py-4">
@@ -150,6 +165,27 @@ export function CatalogoProductos() {
             {error}
           </p>
         )}
+
+        {productosConGruposAmbiguos.map((p) => (
+          <div
+            key={p.producto}
+            className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30"
+          >
+            <p className="text-sm font-medium">
+              ⚠️ En «{p.producto}»{" "}
+              {p.ambiguos.length === 1
+                ? `hay más de un grupo llamado «${p.ambiguos[0]}»`
+                : `el agente confunde ${p.ambiguos.map((n) => `«${n}»`).join(" con ")}`}
+              .
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Si una misma opción existe en los dos, el cliente queda atrapado:
+              el agente le pregunta cuál quiere y las dos respuestas suenan
+              igual. Ponle a uno un nombre claramente distinto —por ejemplo
+              «Sabor» y «Toppings», no «Topping» y «Toppings»—.
+            </p>
+          </div>
+        ))}
 
         {bloqueados.length > 0 && (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
@@ -582,6 +618,7 @@ function FilaDeGrupo({ grupo, onCambio }: { grupo: Grupo; onCambio: () => Promis
       {expandido && (
         <OpcionesDelGrupo
           groupId={grupo.id}
+          minimo={grupo.minimo}
           onCambioGrupo={onCambio}
           creando={creandoOpcion}
           onIniciarCrear={() => setCreandoOpcion(true)}
@@ -594,12 +631,14 @@ function FilaDeGrupo({ grupo, onCambio }: { grupo: Grupo; onCambio: () => Promis
 
 function OpcionesDelGrupo({
   groupId,
+  minimo,
   onCambioGrupo,
   creando,
   onIniciarCrear,
   onTerminarCrear,
 }: {
   groupId: string;
+  minimo: number;
   onCambioGrupo: () => Promise<void>;
   creando: boolean;
   onIniciarCrear: () => void;
@@ -622,6 +661,28 @@ function OpcionesDelGrupo({
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  /**
+   * Dos opciones con el mismo nombre dentro de un grupo son indistinguibles
+   * para el agente, y atrapan al cliente en un bucle de preguntas del que no
+   * puede salir (MALIA, 8-sep-2026 — ver `lib/catalogo-ambiguedad.ts`). El
+   * aviso va aquí dentro, junto a las opciones, porque es aquí donde se
+   * arregla.
+   */
+  const ambiguas = opcionesAmbiguas(opciones ?? []);
+
+  /**
+   * Un extra de pago marcado como obligatorio atrapa al cliente: no puede
+   * rechazarlo y el agente se lo pedirá una y otra vez (MALIA, 8-sep-2026 —
+   * ver `lib/catalogo-ambiguedad.ts`). Solo se mira con las opciones ya
+   * cargadas: un grupo vacío tiene otro problema, y ya tiene su propio aviso.
+   */
+  const obligaAPagar =
+    opciones !== null &&
+    obligaAPagarUnExtra({
+      minimo,
+      opciones: opciones.map((o) => ({ precioExtraCents: o.precioDeltaCents })),
+    });
 
   async function crear(datos: { nombre: string; precio: string }) {
     setError(null);
@@ -668,6 +729,32 @@ function OpcionesDelGrupo({
   return (
     <div className="mt-3 space-y-2 border-t pt-3">
       {error && <p className="text-[13px] text-[#a2504c]">{error}</p>}
+      {obligaAPagar && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="text-sm font-medium">
+            ⚠️ Este grupo es obligatorio y todas sus opciones cuestan extra.
+          </p>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            El cliente no puede decir que no lo quiere: si lo rechaza, el agente
+            se lo volverá a pedir, una y otra vez, y el pedido se traba. Si tus
+            clientes pueden pedirlo sin esto, marca el grupo como opcional
+            (mínimo 0).
+          </p>
+        </div>
+      )}
+      {ambiguas.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="text-sm font-medium">
+            ⚠️ {ambiguas.length === 1 ? "Hay una opción repetida" : "Hay opciones repetidas"} en
+            este grupo: {ambiguas.join(", ")}.
+          </p>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            El agente no puede distinguirlas: cuando el cliente diga ese nombre,
+            no sabrá cuál de las dos quiere y el pedido se le traba. Si una es un
+            sabor y la otra un extra de pago, van en grupos separados.
+          </p>
+        </div>
+      )}
       {opciones === null ? (
         <p className="text-[13px] text-muted-foreground">Cargando…</p>
       ) : opciones.length === 0 ? (

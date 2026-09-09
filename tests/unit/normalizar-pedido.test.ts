@@ -820,3 +820,104 @@ describe("Fase 8K: la duda de un ítem no puede dejar sin precio a los demás", 
     expect(r.estado.items[1]!.totalCents).toBeNull();
   });
 });
+
+/**
+ * Incidente real (MALIA, 8-sep-2026, conv cv_cxjpas85h1czjkvn9qw6).
+ *
+ * El "Pavé Cremoso 8 oz" tenía DOS grupos llamados los dos `Topping`: uno con
+ * los 6 sabores (gratis) y otro con los 9 toppings de $2.000, porque alguien
+ * renombró el grupo `Sabor`. Como "Milo" existe en los dos, la desambiguación
+ * armaba la pregunta con el nombre de los grupos y salía esto:
+ *
+ *     ¿"Milo" como topping o como topping?
+ *
+ * La clienta escribió "Sin toppings" TRES veces, el agente le preguntó CUATRO,
+ * el ítem se quedaba sin total en cada vuelta y el carrito se rechazaba entero.
+ * El pedido se perdió.
+ *
+ * La suite completa pasaba ese día —209 archivos, 2064 pruebas— porque el
+ * código no estaba roto: lo estaba el catálogo. Estas pruebas cierran la otra
+ * mitad: que un catálogo mal cargado no pueda ATRAPAR al cliente.
+ */
+describe("dos grupos que se llaman igual no pueden atrapar al cliente", () => {
+  const paveConGruposDuplicados: ProductoDelCatalogo = {
+    id: "pave8",
+    nombre: "Pavé Cremoso 8 oz",
+    categoria: null,
+    precioCents: 1000000,
+    descripcion: null,
+    grupos: [
+      {
+        id: "g-sabores",
+        nombre: "Topping", // era "Sabor" hasta que alguien lo renombró
+        minimo: 0,
+        maximo: 1,
+        permiteRepeticion: false,
+        opciones: [
+          { id: "s1", nombre: "Milo", precioExtraCents: 0 },
+          { id: "s2", nombre: "Limón", precioExtraCents: 0 },
+        ],
+      },
+      {
+        id: "g-toppings",
+        nombre: "Topping",
+        minimo: 0,
+        maximo: 1,
+        permiteRepeticion: false,
+        opciones: [
+          { id: "t1", nombre: "Milo", precioExtraCents: 200000 },
+          { id: "t2", nombre: "Oreo", precioExtraCents: 200000 },
+        ],
+      },
+    ],
+  };
+
+  it("pregunta por el PRECIO, que sí distingue, en vez de por el nombre repetido", () => {
+    const r = normalizarPedido(
+      { items: [{ ofrecible: "Pavé Cremoso 8 oz", cantidad: 1, opciones: [{ grupo: "Topping", opcion: "Milo" }] }], datos: {} },
+      [paveConGruposDuplicados]
+    );
+    const pregunta = r.dudas.map((d) => d.preguntar).join(" ");
+    // Lo que salía antes y hacía imposible responder:
+    expect(pregunta).not.toMatch(/como topping o como topping/i);
+    // Lo que sale ahora, y sí se puede contestar:
+    expect(pregunta).toMatch(/sin costo adicional/i);
+    expect(pregunta).toMatch(/\$2\.000/);
+  });
+
+  it("cuando los nombres SÍ distinguen, se sigue preguntando por el nombre", () => {
+    const conNombresDistintos: ProductoDelCatalogo = {
+      ...paveConGruposDuplicados,
+      grupos: [
+        { ...paveConGruposDuplicados.grupos[0]!, nombre: "Sabor" },
+        { ...paveConGruposDuplicados.grupos[1]!, nombre: "Toppings" },
+      ],
+    };
+    const r = normalizarPedido(
+      { items: [{ ofrecible: "Pavé Cremoso 8 oz", cantidad: 1, opciones: [{ opcion: "Milo" }] }], datos: {} },
+      [conNombresDistintos]
+    );
+    expect(r.dudas.map((d) => d.preguntar).join(" ")).toMatch(/como sabor o como toppings/i);
+  });
+
+  it("si ni el nombre ni el precio distinguen, se toma una y el pedido AVANZA", () => {
+    const duplicadoExacto: ProductoDelCatalogo = {
+      ...paveConGruposDuplicados,
+      grupos: [
+        paveConGruposDuplicados.grupos[0]!,
+        {
+          ...paveConGruposDuplicados.grupos[1]!,
+          opciones: [{ id: "t1", nombre: "Milo", precioExtraCents: 0 }],
+        },
+      ],
+    };
+    const r = normalizarPedido(
+      { items: [{ ofrecible: "Pavé Cremoso 8 oz", cantidad: 1, opciones: [{ grupo: "Topping", opcion: "Milo" }] }], datos: {} },
+      [duplicadoExacto]
+    );
+    // Elegir una u otra da el mismo pedido: preguntar sería solo una trampa.
+    expect(r.dudas).toHaveLength(0);
+    expect(i0(r).seleccion.map((s) => s.nombre)).toEqual(["Milo"]);
+    expect(i0(r).totalCents).toBe(1000000);
+  });
+});

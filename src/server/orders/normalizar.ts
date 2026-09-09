@@ -514,12 +514,57 @@ function resolverItem(
       }
 
       if (candidatos.length > 1) {
-        dudas.push({
-          campo: propuesta.grupo ?? "opciones",
-          porque: `"${cruda}" está en ${candidatos.length} grupos de ${producto.nombre} y no se dijo cuál`,
-          preguntar: `¿"${cruda}" como ${candidatos.map((c) => c.g.nombre.toLowerCase()).join(" o como ")}?`,
-        });
-        continue;
+        /**
+         * Incidente real (MALIA, 8-sep-2026, conv cv_cxjpas85h1czjkvn9qw6).
+         *
+         * El "Pavé Cremoso 8 oz" tenía DOS grupos llamados los dos `Topping`
+         * —uno con los 6 sabores, otro con los 9 toppings de $2.000— porque
+         * alguien renombró el grupo `Sabor`. "Milo", "Leche Klim" y "Arequipe"
+         * existen en los dos, así que este bloque se disparaba... y armaba la
+         * pregunta con los NOMBRES DE LOS GRUPOS:
+         *
+         *     ¿"Milo" como topping o como topping?
+         *
+         * Una pregunta que nadie puede responder. La clienta escribió "Sin
+         * toppings" TRES veces, el agente le preguntó CUATRO, el ítem se quedó
+         * sin `totalCents` en cada vuelta y el carrito se rechazaba entero.
+         * El pedido se perdió.
+         *
+         * La ambigüedad del catálogo se avisa aparte, en la pantalla
+         * (`lib/catalogo-ambiguedad.ts`), para que el negocio la arregle. Pero
+         * el cliente que ya está escribiendo no puede esperar a eso: aquí se
+         * pregunta por lo que SÍ distingue a las candidatas —el precio— y, si
+         * ni el nombre ni el precio las distinguen, se toma la primera, porque
+         * entonces elegir una u otra da exactamente el mismo pedido y seguir
+         * preguntando es solo una trampa.
+         */
+        const porNombre = candidatos.map((c) => c.g.nombre.toLowerCase());
+        const porPrecio = candidatos.map((c) =>
+          c.o.precioExtraCents > 0
+            ? `con $${(c.o.precioExtraCents / 100).toLocaleString("es-CO", { minimumFractionDigits: 0 })} adicionales`
+            : "sin costo adicional"
+        );
+        const distintos = (xs: string[]) => new Set(xs).size === xs.length;
+
+        if (distintos(porNombre)) {
+          dudas.push({
+            campo: propuesta.grupo ?? "opciones",
+            porque: `"${cruda}" está en ${candidatos.length} grupos de ${producto.nombre} y no se dijo cuál`,
+            preguntar: `¿"${cruda}" como ${porNombre.join(" o como ")}?`,
+          });
+          continue;
+        }
+        if (distintos(porPrecio)) {
+          dudas.push({
+            campo: propuesta.grupo ?? "opciones",
+            porque: `"${cruda}" está en ${candidatos.length} grupos de ${producto.nombre} con el mismo nombre y no se dijo cuál`,
+            preguntar: `¿"${cruda}" ${porPrecio.join(" o ")}?`,
+          });
+          continue;
+        }
+        // Indistinguibles en nombre y en precio: son la misma cosa cargada dos
+        // veces. Se sigue con la primera en vez de atrapar al cliente.
+        candidatos.length = 1;
       }
 
       const { g, o } = candidatos[0]!;
@@ -629,6 +674,29 @@ function resolverItem(
       const grupo = producto.grupos.find((g) => llave(g.nombre) === llave(cruda));
       if (grupo && grupo.minimo < 1) {
         gruposDeclinados.push({ grupoId: grupo.id, grupoNombre: grupo.nombre });
+      } else if (grupo) {
+        /**
+         * El cliente dijo que NO quiere algo que el catálogo marca como
+         * obligatorio. Ignorarlo sigue siendo lo correcto —un grupo obligatorio
+         * hay que elegirlo—, pero hacerlo **en silencio** deja al cliente en un
+         * bucle del que no puede salir: `faltaDelItem` lo volverá a pedir, él
+         * lo volverá a rechazar, y así.
+         *
+         * Incidente real (MALIA, 8-sep-2026, conv cv_cxjpas85h1czjkvn9qw6): el
+         * grupo `Topping` —un extra de $2.000— estaba marcado como
+         * obligatorio. La clienta escribió "Sin toppings" TRES veces y el
+         * agente le preguntó CUATRO. El pedido se perdió y no quedó ni una
+         * línea que dijera por qué.
+         *
+         * Casi siempre esto no es un cliente difícil: es un grupo mal marcado
+         * en el catálogo. Se registra para que se vea sin tener que reconstruir
+         * la conversación desde la base.
+         */
+        console.warn(
+          `[pedido] el cliente rechazó "${grupo.nombre}" de ${producto.nombre}, ` +
+            `pero el catálogo lo exige (mínimo ${grupo.minimo}): se le va a volver a pedir. ` +
+            `Si se puede pedir sin eso, el grupo debería ser opcional.`
+        );
       }
     }
   }

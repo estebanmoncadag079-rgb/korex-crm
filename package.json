@@ -48,7 +48,7 @@
     "corregir:regla-catalogo-lis": "esbuild scripts/corregir-regla-catalogo-lis.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-regla-catalogo-lis.mjs --alias:@=./src --packages=external && node .tmp-corregir-regla-catalogo-lis.mjs",
     "subir:media": "esbuild scripts/subir-media.ts --bundle --platform=node --format=esm --outfile=.tmp-subir-media.mjs --alias:@=./src --packages=external && node .tmp-subir-media.mjs",
     "comparar:modelos": "esbuild scripts/comparar-modelos.ts --bundle --platform=node --format=esm --outfile=.tmp-comparar-modelos.mjs --alias:@=./src --packages=external && node .tmp-comparar-modelos.mjs",
-    "probar:carga": "esbuild scripts/probar-carga.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-carga.mjs --alias:@=./src --packages=external && node .tmp-probar-carga.mjs"
+    "probar:bot": "esbuild scripts/probar-bot.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-bot.mjs --alias:@=./src --packages=external && node .tmp-probar-bot.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

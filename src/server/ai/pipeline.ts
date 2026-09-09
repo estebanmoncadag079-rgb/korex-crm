@@ -4042,12 +4042,29 @@ async function notificarEquipoDeHandoff(conversation: Conversation, summary: str
   await asegurarOwnershipVigente(conversation);
   try {
     const phone = await contactPhoneOf(conversation.organizationId, conversation.contactId);
-    await notifyTeam({
+    const resultado = await notifyTeam({
       organizationId: conversation.organizationId,
       summary,
       customerPhone: phone,
       isTest: conversation.isTest,
     });
+    /**
+     * El resultado se descartaba entero, y con él la única señal de que la
+     * promesa que se le acaba de hacer al cliente —"te comunico con una
+     * persona del equipo"— no la iba a cumplir nadie. Una derivación sin
+     * destinatarios no dejaba NI UNA LÍNEA en los logs: por eso el incidente
+     * de MALIA (8-sep-2026) hubo que reconstruirlo desde la base de datos.
+     *
+     * No se convierte en excepción a propósito: la derivación en sí es
+     * correcta y la conversación tiene que quedar marcada en la bandeja pase
+     * lo que pase. Lo que cambia es que ahora se ve.
+     */
+    if (!resultado.sent && !conversation.isTest) {
+      console.error(
+        `[agente] conv=${conversation.id} se le prometió una persona al cliente y ` +
+          `el aviso al equipo NO llegó a nadie: ${resultado.detail}`
+      );
+    }
   } catch (err) {
     console.error("[agente] no se pudo avisar al equipo de la derivación:", err);
   }

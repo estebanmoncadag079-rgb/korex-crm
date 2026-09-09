@@ -175,6 +175,35 @@ function ProfileSection({
       </CardHeader>
       <CardContent className="space-y-4">
         {/*
+          Incidente real (MALIA, 8-sep-2026, 23:43). Una clienta confirmó su
+          pedido, el agente le prometió "te comunico con una persona del
+          equipo"... y nadie vino en 14 minutos, mientras ella escribía cinco
+          veces ("Ya no hay servicio??"). El motivo: este campo estaba vacío.
+
+          Lo que convierte eso en un fallo del PRODUCTO y no del negocio es que
+          el sistema **lo sabía**: había escrito "sin números de aviso
+          configurados" en `order_confirmation.notify_detail` 31 veces
+          seguidas, en tres negocios distintos, desde el 5-sep — 31 pedidos
+          confirmados de los que nadie se enteró jamás. El diagnóstico era
+          perfecto y no había una sola superficie donde alguien pudiera verlo.
+
+          Por eso el aviso vive aquí, en el punto donde se arregla, y dice la
+          consecuencia (nadie los recibe) en vez del estado (campo vacío).
+        */}
+        {!form.notifyPhones?.trim() && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+            <p className="text-sm font-medium">
+              ⚠️ Nadie está recibiendo los pedidos.
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Sin ningún número aquí abajo, cuando un cliente confirme un pedido
+              —o cuando el agente diga &ldquo;te comunico con una persona del
+              equipo&rdquo;— no le llega el aviso a nadie. El pedido queda solo
+              en la bandeja, y alguien tiene que estar mirándola para verlo.
+            </p>
+          </div>
+        )}
+        {/*
           Aquí se editaban a mano el nombre, el tono, las instrucciones, las
           reglas de escalado y el saludo. Se quitaron el 15-ago-2026.
 

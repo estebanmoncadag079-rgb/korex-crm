@@ -27,6 +27,19 @@ export type NotifyResult = {
   sent: number;
   failed: number;
   detail: string;
+  /**
+   * El negocio no tiene NINGÚN número configurado: no es que el envío fallara,
+   * es que no había a quién enviarlo. Se distingue a propósito, porque las dos
+   * cosas se veían idénticas desde fuera (`sent: 0`) y eso costó caro.
+   *
+   * Incidente real (MALIA, 8-sep-2026): 31 pedidos confirmados en tres
+   * negocios desde el 5-sep, ni un solo aviso entregado, y una clienta
+   * esperando 14 minutos a una persona que nadie llamó. Quien mirara la base
+   * veía `notify_status = 'fallo_recuperable'` —que suena a hipo de WhatsApp,
+   * algo que se arregla solo— cuando en realidad era una casilla vacía en la
+   * pantalla del agente, que no se arregla nunca sin que alguien la llene.
+   */
+  sinDestinatarios?: boolean;
 };
 
 /**
@@ -89,9 +102,14 @@ export async function notifyTeam(input: {
   const template = rows[0]?.notifyTemplate?.trim() || null;
   const templateLang = rows[0]?.notifyTemplateLang?.trim() || "es";
   if (phones.length === 0) {
+    console.error(
+      `[aviso] org=${input.organizationId} SIN NÚMEROS DE AVISO CONFIGURADOS: ` +
+        `nadie recibió este aviso. Se arregla en /agente → "Avisar pedidos a estos WhatsApp".`
+    );
     return {
       sent: 0,
       failed: 0,
+      sinDestinatarios: true,
       detail:
         "sin números de aviso configurados (el pedido queda solo en la bandeja)",
     };

@@ -592,6 +592,26 @@ function pesosTextoACents(cifraTexto: string): number {
   return Number(cifraTexto.replace(/[.,]/g, "")) * 100;
 }
 
+/**
+ * Cifras en pesos escritas por una persona del negocio: "26.000", "$26.000",
+ * "serían 40.000 con domi".
+ *
+ * Solo se aceptan de 4 a 7 dígitos (con o sin separador de miles) para no
+ * confundir un precio con una hora ("11:42"), una cantidad ("son 3") o un
+ * número de cuenta. Es deliberadamente estrecho: esto abre una excepción a un
+ * candado de dinero, y prefiero que se le escape un total legítimo a que
+ * reconozca uno que nadie dijo.
+ */
+export function cifrasEnPesosDelTexto(texto: string | null | undefined): number[] {
+  if (!texto) return [];
+  const cifras: number[] = [];
+  for (const m of texto.matchAll(/\$?\s?\b(\d{1,3}(?:[.,]\d{3})+|\d{4,7})\b/g)) {
+    const cents = pesosTextoACents(m[1]!);
+    if (Number.isFinite(cents) && cents >= 100000) cifras.push(cents);
+  }
+  return [...new Set(cifras)];
+}
+
 /** "Domicilio gratis", "envío sin costo" — un $0 explícito sin necesidad de escribir "$0". */
 const GRATIS_CERCA = /\b(gratis|sin costo|no cobra|no tiene costo)\b/i;
 
@@ -771,6 +791,16 @@ export function inconsistenciaFinancieraDePedido(input: {
    */
   entregaPersistida?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
   /**
+   * Los totales, en centavos, que una PERSONA del negocio escribió en este
+   * chat — no el modelo. Salen de las filas `message` con `direction='out'` y
+   * `ai_generated=false`, así que son un hecho de la base, no algo que el
+   * modelo pueda afirmar.
+   *
+   * Sirven para una sola cosa: que el candado de domicilio no bloquee un total
+   * que el equipo ya cotizó a mano. Ver el comentario largo en el chequeo.
+   */
+  totalesDichosPorUnaPersona?: number[];
+  /**
    * Incidente real (7-sep-2026) — `true` solo cuando ESTE negocio tiene
    * `delivery_source='tabla'`, es decir, cuando `consultar_domicilio`
    * EXISTE en su contrato de acciones y hay `delivery_zone` real contra la
@@ -883,7 +913,39 @@ export function inconsistenciaFinancieraDePedido(input: {
     deliveryFeeCents !== null
   ) {
     if (!zonaEfectiva || deliveryFeeCents !== zonaEfectiva.feeCents) {
-      return "domicilio-no-verificado";
+      /**
+       * …salvo que UNA PERSONA del negocio ya haya dicho ese total en este
+       * mismo chat.
+       *
+       * Incidentes reales, dos en dos días (MALIA, 8 y 9-sep-2026). El patrón
+       * es idéntico y cuesta pedidos ya pagados:
+       *
+       *     11:39  persona → "Holaa, buenas tardes! Serían 26.000"
+       *     11:40  persona → "Con el domicilio incluido"
+       *     11:41  bot     → "Con el domicilio incluido el total es de $26.000"
+       *     11:41  cliente → [COMPROBANTE] $26.000        ← ya pagó
+       *     11:42  bot     → "Te comunico con una persona"
+       *
+       * El equipo cotiza a mano —sin pasar por la tabla de zonas, porque ellos
+       * ya saben lo que cobran— y el modelo repite ese número. Aquí no hay nada
+       * que verificar: nadie mencionó un barrio, así que `zonaEfectiva` es
+       * `null` y el candado se cierra sobre un total que no lo inventó el
+       * modelo.
+       *
+       * Peor: el propio prompt le ORDENA obedecer esos compromisos ("Respeta
+       * los compromisos concretos que haga con este cliente", `toChatHistory`).
+       * Le pedíamos una cosa y lo castigábamos por hacerla.
+       *
+       * La excepción no debilita el candado, porque no se cree lo que dice el
+       * modelo: se comprueba contra las FILAS de `message` que escribió una
+       * persona (`direction='out'`, `ai_generated=false`). Es la misma clase de
+       * prueba que usa el resto del sistema — un hecho de la base, no una
+       * afirmación del turno.
+       */
+      const loDijoUnaPersona =
+        totalCents !== undefined &&
+        (input.totalesDichosPorUnaPersona ?? []).includes(totalCents);
+      if (!loDijoUnaPersona) return "domicilio-no-verificado";
     }
   }
 

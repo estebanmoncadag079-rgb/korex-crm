@@ -3,6 +3,7 @@ import {
   correccionDeInconsistenciaFinanciera,
   dijoOtroValorDeDomicilio,
   inconsistenciaFinancieraDePedido,
+  cifrasEnPesosDelTexto,
 } from "@/server/ai/anuncio-de-cierre";
 
 /**
@@ -597,5 +598,101 @@ describe("inconsistenciaFinancieraDePedido — Fase 8D: fidelidad de farewell", 
       puedeVerificarDomicilio: true,
     });
     expect(rBConTarifaDeA).toBe("domicilio-no-verificado");
+  });
+});
+
+/**
+ * Incidentes reales, dos en dos días (MALIA, 8 y 9-sep-2026). El mismo patrón,
+ * y el segundo con el cliente **ya pagado**:
+ *
+ *     11:39  persona → "Holaa, buenas tardes! Serían 26.000"
+ *     11:40  persona → "Con el domicilio incluido"
+ *     11:41  bot     → "Con el domicilio incluido el total es de $26.000"
+ *     11:41  cliente → [COMPROBANTE] $26.000
+ *     11:42  bot     → "Te comunico con una persona del equipo"
+ *
+ * El equipo cotiza a mano —101 mensajes suyos contra 273 del bot en seis
+ * horas— y cuando lo hacen no pasan por la tabla de zonas. Nadie mencionó un
+ * barrio, así que no había ninguna zona que verificar, y el candado se cerraba
+ * sobre un total que el modelo no inventó: lo copió de una persona, que es
+ * justo lo que el prompt le ordena hacer.
+ *
+ * La excepción no se cree lo que dice el modelo: los totales vienen de las
+ * FILAS de `message` escritas por una persona (`ai_generated=false`).
+ */
+describe("un total que ya dio una persona del negocio", () => {
+  const base = {
+    summary: "1 Pavé Cremoso 16 oz — $18.000\nDomicilio: $8.000\nTotal: $26.000",
+    subtotalCents: 1800000,
+    deliveryFeeCents: 800000,
+    totalCents: 2600000,
+    zonaVerificada: null,
+    puedeVerificarDomicilio: true,
+  };
+
+  it("EL INCIDENTE: sin la excepción, deriva a un cliente que ya pagó", () => {
+    expect(inconsistenciaFinancieraDePedido(base)).toBe("domicilio-no-verificado");
+  });
+
+  it("con el total dicho por una persona, el pedido se cierra", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...base,
+        totalesDichosPorUnaPersona: [2600000],
+      })
+    ).toBeNull();
+  });
+
+  it("otro total distinto NO sirve de coartada", () => {
+    // La persona dijo $30.000 y el modelo cierra en $26.000: eso no lo
+    // respalda nadie, y el candado tiene que seguir cerrado.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...base,
+        totalesDichosPorUnaPersona: [3000000],
+      })
+    ).toBe("domicilio-no-verificado");
+  });
+
+  it("con la zona SÍ verificada, la excepción no hace falta ni cambia nada", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...base,
+        zonaVerificada: { feeCents: 800000 },
+      })
+    ).toBeNull();
+  });
+
+  it("la excepción NO tapa un total que no cuadra con su propia suma", () => {
+    // 18.000 + 8.000 no son 30.000. Que una persona haya dicho 30.000 no
+    // convierte una suma mala en buena: ese es otro candado y sigue cerrado.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...base,
+        totalCents: 3000000,
+        totalesDichosPorUnaPersona: [3000000],
+      })
+    ).toBe("total-no-cuadra");
+  });
+});
+
+describe("cifrasEnPesosDelTexto", () => {
+  it("saca los totales como los escribe una persona de verdad", () => {
+    expect(cifrasEnPesosDelTexto("Holaa, buenas tardes ! Serían 26.000")).toEqual([2600000]);
+    expect(cifrasEnPesosDelTexto("Serían 40.000 en total con domi")).toEqual([4000000]);
+    expect(cifrasEnPesosDelTexto("son $12.000 el domicilio")).toEqual([1200000]);
+  });
+
+  it("no confunde una hora, una cantidad ni un texto sin cifras", () => {
+    expect(cifrasEnPesosDelTexto("llega entre 20 a 40min")).toEqual([]);
+    expect(cifrasEnPesosDelTexto("son 3 pavés")).toEqual([]);
+    expect(cifrasEnPesosDelTexto("Gracias por tu pago")).toEqual([]);
+    expect(cifrasEnPesosDelTexto(null)).toEqual([]);
+  });
+
+  it("varias cifras en un mensaje salen todas, sin repetir", () => {
+    expect(cifrasEnPesosDelTexto("18.000 más 8.000 son 26.000, o sea 26.000")).toEqual([
+      1800000, 800000, 2600000,
+    ]);
   });
 });

@@ -167,6 +167,7 @@ import {
   contradiceDatosDeCuenta,
   CORRECCION_DE_DATOS_DE_CUENTA,
   correccionDePropuestaRechazada,
+  cifrasEnPesosDelTexto,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
 import { encolarTurno, siguePoseyendoElTrabajo } from "@/server/ai/cola";
@@ -2154,8 +2155,21 @@ export async function runAgentTurn(
    * aritméticamente.
    */
   if (action.action === "notify_order") {
+    /**
+     * Los totales que una PERSONA del negocio escribio en este chat. El equipo
+     * cotiza a mano constantemente -101 mensajes suyos contra 273 del bot en
+     * seis horas, medido el 8-sep- y cuando lo hacen no pasan por la tabla de
+     * zonas. Sin esto, el candado de domicilio bloquea un total que no invento
+     * el modelo: paso dos veces en dos dias, la segunda con el cliente ya
+     * pagado (ver `anuncio-de-cierre.ts`).
+     */
+    const totalesDichosPorUnaPersona = history
+      .filter((m) => m.direction === "out" && m.aiGenerated === false)
+      .flatMap((m) => cifrasEnPesosDelTexto(m.text));
+
     const fallo = inconsistenciaFinancieraDePedido({
       summary: action.summary,
+      totalesDichosPorUnaPersona,
       // Fase 8D — lo que de verdad lee el CLIENTE, no solo el equipo.
       farewell: action.farewell,
       subtotalCents: action.subtotalCents,
@@ -2193,6 +2207,7 @@ export async function runAgentTurn(
               entregaPersistida,
               puedeVerificarDomicilio: zonasDeEntrega.length > 0,
               subtotalReal: estadoGuardado?.totalCents ?? undefined,
+              totalesDichosPorUnaPersona,
             })
           : "total-no-cuadra";
       if (reintento.ok && reintento.data.action === "notify_order" && !reintentoFallo) {

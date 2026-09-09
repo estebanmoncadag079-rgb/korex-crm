@@ -657,6 +657,32 @@ export async function leerEntregaVerificada(
  *
  * Nunca lanza: mismo criterio que `guardarEstado`, del que depende.
  */
+/**
+ * El estado propuesto, **sin perder la verificación de domicilio**.
+ *
+ * `validarPropuesta` reconstruye el estado desde lo que propone el modelo
+ * —items, datos, reserva, modalidad, total, paso, confirmado— y `entrega` no
+ * está en esa lista. Como el campo es opcional en el tipo, TypeScript nunca se
+ * quejó: cada turno se guardaba con `entrega: undefined` y borraba la
+ * verificación del turno anterior.
+ *
+ * Medido en producción el 9-sep-2026: de 101 conversaciones de MALIA con
+ * estado guardado, **solo 4 conservaban la entrega**. Las otras 97 llegaban al
+ * cierre sin zona verificada, el guardarraíl financiero no tenía contra qué
+ * comprobar la tarifa, y derivaba. Cuatro clientes perdidos en un solo día
+ * —Carol, Michael, Laura y Karol— y cada uno parecía un bug distinto: eran
+ * este.
+ *
+ * Existe como función con nombre, y no como un `...` suelto en el pipeline,
+ * para que se pueda probar y para que quien la lea sepa por qué está.
+ */
+export function conEntregaConservada(
+  estado: EstadoDelPedido,
+  entregaConocida: EntregaVerificada | null | undefined
+): EstadoDelPedido {
+  return { ...estado, entrega: entregaConocida ?? estado.entrega ?? null };
+}
+
 export async function guardarEntregaVerificada(entrada: {
   conversationId: string;
   organizationId: string;

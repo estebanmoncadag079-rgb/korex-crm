@@ -108,6 +108,7 @@ import {
   type EntregaVerificada,
   type EstadoDelPedido,
   type PropuestaDelModelo,
+  conEntregaConservada,
 } from "@/server/orders/estado";
 import { MAX_ITEMS } from "@/server/orders/normalizar";
 import {
@@ -1475,6 +1476,7 @@ export async function runAgentTurn(
           requisitos,
           vertical,
           modalidadesOfrecidas,
+          entregaConocida: entregaPersistida,
           versionEsperada: versionDeEstadoLeido,
         })
       : null;
@@ -4395,6 +4397,22 @@ async function guardarEstadoPropuesto(entrada: {
   /** Contra qué se resuelve la modalidad que proponga el modelo. */
   modalidadesOfrecidas: readonly string[];
   /**
+   * La verificación de domicilio conocida, para NO borrarla al guardar.
+   *
+   * `validarPropuesta` reconstruye el estado desde lo que propone el modelo
+   * —items, datos, reserva, modalidad, total, paso— y **`entrega` no está en
+   * esa lista**. Como el campo es opcional en el tipo, TypeScript nunca se
+   * quejó: cada turno guardaba `entrega: undefined` y borraba la verificación
+   * del turno anterior.
+   *
+   * Medido en producción el 9-sep-2026: de 101 conversaciones de MALIA con
+   * estado guardado, **solo 4 conservaban la entrega**. Las otras 97 llegaban
+   * al cierre sin zona verificada y el guardarraíl financiero las derivaba —
+   * cuatro clientes en un solo día (Carol, Michael, Laura, Karol), y cada una
+   * parecía un bug distinto.
+   */
+  entregaConocida?: EntregaVerificada | null;
+  /**
    * Prioridad 3 (programa de mejora integral) — la versión leída al empezar
    * el turno. Si otra ejecución viva de `runAgentTurn` para la MISMA
    * conversación ya escribió después (rescate de huérfanos que reasignó un
@@ -4465,7 +4483,9 @@ async function guardarEstadoPropuesto(entrada: {
     const resultado = await guardarEstado({
       conversationId: entrada.conversationId,
       organizationId: entrada.organizationId,
-      estado: v.estado,
+      // La entrega verificada sobrevive al turno: la propuesta del modelo no
+      // la trae y sin esto se borraba sola (ver `conEntregaConservada`).
+      estado: conEntregaConservada(v.estado, entrada.entregaConocida),
       actor: "pipeline",
       proceso: "runAgentTurn",
       versionEsperada: entrada.versionEsperada,

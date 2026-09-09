@@ -180,6 +180,26 @@ const ESCENARIOS: Escenario[] = [
     mensajes: ["dónde quedan?", "a qué hora abren hoy?", "cuánto se demora el domicilio?"],
   },
 
+  {
+    nombre: "empieza por la direccion, fuera de orden",
+    categoria: "pregunton",
+    ataca: "Que exija su propio orden en vez de seguir al cliente.",
+    mensajes: [
+      "quiero para la cra 22 # 10-23 un pavé",
+      "de maracuyá, el de 8 oz",
+      "sin toppings",
+    ],
+  },
+  {
+    nombre: "pregunta suelta antes de pedir nada",
+    categoria: "pregunton",
+    ataca: "Derivar en vez de guiar cuando preguntan algo del negocio.",
+    mensajes: [
+      "me confirmas los métodos de pago?",
+      "y a qué cuenta transfiero?",
+      "listo, entonces un pavé de 8 oz de milo",
+    ],
+  },
   // ─────────────────────────── reclamos y quejas
   {
     nombre: "reclamo: llegó derretido",

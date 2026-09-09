@@ -103,6 +103,21 @@ export type TrazaDelTurno = {
    * como continuación de un pedido ya entregado).
    */
   historialSaltoDias: number | null;
+  /**
+   * El modelo que de VERDAD contestó este turno — no el configurado como
+   * principal.
+   *
+   * Existe por un incidente operativo, no por curiosidad (9-sep-2026): cuando
+   * en agosto se retiró el modelo de respaldo, se quitó el código pero la
+   * variable quedó puesta en el servidor, y Sonnet siguió atendiendo
+   * conversaciones reales durante SEMANAS mientras la documentación decía que
+   * el respaldo no existía. Nadie podía verlo porque nada lo registraba.
+   *
+   * Al reponer los salvavidas (`lib/ai/index.ts`), este campo es la garantía de
+   * que eso no se repita: si un salvavidas está trabajando, sale en la traza de
+   * cada turno. También es lo que permite medir si ayudan de verdad.
+   */
+  modelo: string | null;
 };
 
 export function crearTraza(input: {
@@ -125,12 +140,21 @@ export function crearTraza(input: {
     accionFinal: null,
     handoffCausa: null,
     historialSaltoDias: null,
+    modelo: null,
   };
 }
 
 export function agregarHecho(t: TrazaDelTurno, h: HechoConsultado): void {
   t.hechos.push(h);
   t.categorias.add("fact_verified");
+}
+
+/**
+ * Anota qué modelo respondió. Se llama con `usage.model` de `chatJson`, que ya
+ * trae el modelo REAL —el que produjo la respuesta usable—, no el configurado.
+ */
+export function registrarModelo(t: TrazaDelTurno, modelo: string | undefined): void {
+  if (modelo) t.modelo = modelo;
 }
 
 /** Anota el mayor salto de inactividad detectado en el historial de este turno. */
@@ -181,6 +205,7 @@ export function registrarTrazaDelTurno(t: TrazaDelTurno): void {
       `deteccion_factual=${t.deteccionFactual ? `"${t.deteccionFactual}"` : "no"} ` +
       `deteccion_factual_pago=${t.deteccionFactualPago ? `"${t.deteccionFactualPago}"` : "no"} ` +
       `historial_salto=${t.historialSaltoDias !== null ? `${t.historialSaltoDias}d` : "no"} ` +
+      `modelo=${t.modelo ?? "-"} ` +
       `hechos=${hechos} ` +
       `accion=${t.accionFinal ?? "-"} ` +
       `categorias=${categorias} ` +

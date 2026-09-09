@@ -89,24 +89,67 @@ export async function chatJson<T>(
   }
 
   /**
-   * UN SOLO MODELO, sin red debajo.
+   * La cadena: el modelo de diario y, detrás, hasta dos salvavidas.
    *
-   * Hubo un modelo de respaldo: si Gemini agotaba sus tres intentos, se gastaba
-   * una llamada en `anthropic/claude-sonnet-4.5` antes de rendirse. **Se quitó
-   * a propósito** (13-ago-2026, decisión del dueño, ya tomada una vez el
-   * 31-jul): si el modelo no logra resolver una conversación, lo que necesita
-   * ese cliente no es otro modelo — es una PERSONA.
+   * ## Por qué existe otra vez
    *
-   * El rescate, por tanto, es humano: agotados los intentos, `runAgentTurn`
-   * avisa al cliente y deriva la conversación con `handoff`.
+   * Hubo un respaldo, se quitó el 31-jul-2026 y otra vez el 13-ago con este
+   * criterio: si el modelo no logra resolver una conversación, lo que necesita
+   * ese cliente no es otro modelo, es una PERSONA. **El dueño se retractó el
+   * 9-sep-2026** y pidió reponerlo con dos escalones, para medir si ayudan
+   * antes de decidir el modelo de diario.
    *
-   * ⚠️ No se vuelve a añadir definiendo una variable de entorno: el respaldo ya
-   * no existe en el código. La vez anterior se retiró solo la variable, quedó
-   * puesta en el servicio de EasyPanel y Sonnet siguió entrando en las
-   * conversaciones durante semanas mientras la documentación decía lo
-   * contrario.
+   * ## Qué NO cambia
+   *
+   * El rescate humano sigue siendo el último: agotada la cadena entera,
+   * `runAgentTurn` avisa al cliente y deriva con `handoff`. Los salvavidas se
+   * meten ANTES de eso, no en su lugar.
+   *
+   * ## Cuándo entra un salvavidas
+   *
+   * Solo cuando el anterior agotó sus `MAX_ATTEMPTS` y devolvió `provider_error`
+   * o `invalid_output` — es decir, cuando NO hay respuesta usable. **No entra
+   * porque una respuesta parezca mala**: eso no tiene detector aquí, y confundir
+   * "no contestó" con "contestó regular" convertiría el salvavidas en una
+   * segunda opinión aleatoria que nadie pidió. Un modelo mal configurado
+   * (`not_configured`) tampoco encadena: eso se arregla, no se rodea.
+   *
+   * ## Lo que se aprendió de la vez anterior
+   *
+   * El retiro de agosto salió mal por algo operativo: se quitó el código pero
+   * la variable quedó puesta en el servidor, y Sonnet siguió entrando en
+   * conversaciones reales durante semanas mientras la documentación decía que
+   * el respaldo no existía. Por eso ahora **cada salvavidas que entra deja un
+   * `console.warn`, y el modelo que de verdad contestó viaja en `usage.model`**
+   * hasta la traza del turno. Si un salvavidas está trabajando, se ve; no hay
+   * que fiarse de dónde uno cree que está la variable.
    */
-  return intentarCon(model, schema, messages, opts?.timeoutMs, opts?.jsonSchema);
+  const cadena = [model, env.OPENROUTER_FALLBACK_MODEL, env.OPENROUTER_FALLBACK_MODEL_2]
+    .map((m) => m?.trim())
+    .filter((m): m is string => Boolean(m));
+
+  let ultimo!: ChatJsonResult<T>;
+  const acumulado: AiUsage = { model, tokensIn: 0, tokensOut: 0, costUsd: 0 };
+  for (const [i, candidato] of cadena.entries()) {
+    if (i > 0) {
+      console.warn(
+        `[ia] ${cadena[i - 1]} agotó sus intentos (${ultimo.ok ? "" : ultimo.detail}); ` +
+          `entra el salvavidas ${candidato}`
+      );
+    }
+    ultimo = await intentarCon(candidato, schema, messages, opts?.timeoutMs, opts?.jsonSchema);
+    if (ultimo.usage) {
+      // Lo gastado por los que fallaron TAMBIÉN se pagó: un contador que solo
+      // mire al que respondió miente justo en el turno más caro.
+      acumulado.tokensIn += ultimo.usage.tokensIn;
+      acumulado.tokensOut += ultimo.usage.tokensOut;
+      acumulado.costUsd += ultimo.usage.costUsd;
+      // El modelo que de verdad contestó, no el que se intentó primero.
+      acumulado.model = ultimo.usage.model;
+    }
+    if (ultimo.ok) break;
+  }
+  return { ...ultimo, usage: acumulado };
 }
 
 /** Los MAX_ATTEMPTS intentos contra UN modelo. */

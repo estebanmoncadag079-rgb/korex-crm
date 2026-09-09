@@ -52,12 +52,27 @@ const envSchema = z.object({
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api"),
   OPENROUTER_MODEL: z.string().optional(),
   OPENROUTER_JUDGE_MODEL: z.string().optional(),
-  /*
-   * Aquí vivía OPENROUTER_FALLBACK_MODEL, el modelo de rescate. Se eliminó el
-   * 13-ago-2026: cuando el modelo no logra resolver una conversación, el
-   * rescate es una PERSONA, no otro modelo. Dejarla puesta en el servicio ya no
-   * hace nada — el código del respaldo no existe (ver `lib/ai/index.ts`).
+  /**
+   * Los modelos salvavidas, en orden. Vacíos = sin salvavidas.
+   *
+   * ## Historia, porque esto ya se quitó dos veces
+   *
+   * El respaldo existió, se quitó el 31-jul-2026 y otra vez el 13-ago con este
+   * criterio: cuando el modelo no logra resolver una conversación, el rescate
+   * es una PERSONA, no otro modelo. **El dueño se retractó el 9-sep-2026** y
+   * pidió reponerlo, ahora con dos escalones, para medir si ayudan de verdad
+   * antes de decidir el modelo de diario.
+   *
+   * La vez anterior el retiro salió mal por un motivo operativo, no de diseño:
+   * se quitó la variable del código pero **quedó puesta en el servidor**, y
+   * Sonnet siguió entrando en conversaciones reales durante semanas mientras la
+   * documentación decía que el respaldo no existía. Por eso ahora el modelo que
+   * de verdad contestó viaja en `AiUsage.model` hasta la traza del turno
+   * (`modelo=` en `[traza]`): si un salvavidas entra, se ve — no hay que
+   * confiar en que la variable esté donde uno cree.
    */
+  OPENROUTER_FALLBACK_MODEL: z.string().optional(),
+  OPENROUTER_FALLBACK_MODEL_2: z.string().optional(),
   ALLOW_SIGNUP: z.string().optional(),
   /** WhatsApp de la agencia para pedir asesoría desde el login (E.164 sin '+'). */
   SUPPORT_WHATSAPP: z.string().optional(),

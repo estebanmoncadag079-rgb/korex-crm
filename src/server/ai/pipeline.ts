@@ -85,6 +85,7 @@ import {
   registrarSaltoDeHistorial,
   registrarTrazaDelTurno,
   type TrazaDelTurno,
+  registrarModelo,
 } from "@/server/ai/traza";
 import { resolverMetodoDePago } from "@/server/pagos/metodo";
 import {
@@ -1479,6 +1480,12 @@ export async function runAgentTurn(
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
   // son justo los que encarecen a un cliente sin que se note en ninguna parte.
   await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
+  /**
+   * Qué modelo contestó de verdad. Con los salvavidas repuestos (9-sep-2026)
+   * el configurado y el que respondió pueden no ser el mismo, y la vez
+   * anterior esa diferencia estuvo semanas invisible en producción.
+   */
+  registrarModelo(traza, result.usage?.model);
   if (!result.ok) {
     if (result.error === "not_configured") return null;
     /*

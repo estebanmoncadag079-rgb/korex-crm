@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { coincideConLaBusqueda } from "@/lib/zonas-busqueda";
 
 /**
  * Las zonas de domicilio del negocio: a qué barrio se entrega y por cuánto.
@@ -44,6 +45,7 @@ export function ZonasDomicilio() {
   const [zonas, setZonas] = useState<Zona[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
 
   const refetch = useCallback(async () => {
     const res = await fetch("/api/domicilios").catch(() => null);
@@ -90,6 +92,14 @@ export function ZonasDomicilio() {
   }
 
   const activas = zonas.filter((z) => z.activa).length;
+  const buscando = busqueda.trim().length > 0;
+  const encontradas = zonas.filter((z) => coincideConLaBusqueda(z.nombre, busqueda));
+  /**
+   * Una zona INACTIVA existe en la lista pero el agente no la puede cotizar
+   * (`zonasDeEntregaQuery` filtra por `active`). Buscarla y verla ahí, sin más,
+   * haría creer que está resuelta — así que se dice.
+   */
+  const encontradaPeroInactiva = buscando && encontradas.length > 0 && !encontradas.some((z) => z.activa);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -128,7 +138,11 @@ export function ZonasDomicilio() {
         )}
 
         {creando && (
-          <FormularioZona onGuardar={crearZona} onCancelar={() => setCreando(false)} />
+          <FormularioZona
+            inicial={{ nombre: busqueda.trim(), precio: "" }}
+            onGuardar={crearZona}
+            onCancelar={() => setCreando(false)}
+          />
         )}
 
         {zonas.length === 0 && !creando && (
@@ -137,8 +151,69 @@ export function ZonasDomicilio() {
           </p>
         )}
 
+        {/*
+          La búsqueda no está aquí para filtrar una lista larga: está para
+          contestar "¿tengo este barrio o no?" con un cliente esperando al otro
+          lado. Por eso lo que más importa es el caso en que NO está —el que
+          costó el pedido de Carol el 8-sep-2026, con "villa nueva" fuera de la
+          tabla— y por eso ahí mismo se puede agregar, con el nombre ya escrito.
+        */}
+        {zonas.length > 0 && (
+          <div className="space-y-2">
+            <Input
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar un barrio… (ej: Villa Nueva)"
+              aria-label="Buscar un barrio entre tus zonas"
+            />
+            {!buscando && (
+              <p className="text-[13px] text-muted-foreground">
+                {zonas.length} {zonas.length === 1 ? "zona cargada" : "zonas cargadas"}, {activas}{" "}
+                {activas === 1 ? "activa" : "activas"}.
+              </p>
+            )}
+            {buscando && encontradas.length > 0 && !encontradaPeroInactiva && (
+              <p className="text-[13px] text-muted-foreground">
+                {encontradas.length}{" "}
+                {encontradas.length === 1 ? "zona coincide" : "zonas coinciden"} con «
+                {busqueda.trim()}».
+              </p>
+            )}
+          </div>
+        )}
+
+        {encontradaPeroInactiva && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+            <p className="text-sm font-medium">
+              ⚠️ «{busqueda.trim()}» está en tu lista, pero inactiva.
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              El agente no puede cotizarla: para él es como si no existiera. Actívala
+              abajo cuando el valor esté confirmado.
+            </p>
+          </div>
+        )}
+
+        {buscando && encontradas.length === 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+            <p className="text-sm font-medium">
+              «{busqueda.trim()}» no está en tu lista de zonas.
+            </p>
+            <p className="mt-1 text-[13px] text-muted-foreground">
+              Si un cliente de ese barrio pide un domicilio, el agente no va a inventar
+              un precio: le dirá que lo confirma con el equipo. Agrégalo para que pueda
+              cotizarlo solo.
+            </p>
+            {!creando && (
+              <Button size="sm" className="mt-3" onClick={() => setCreando(true)}>
+                Agregar «{busqueda.trim()}»
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="space-y-2">
-          {zonas.map((z) => (
+          {encontradas.map((z) => (
             <FilaZona key={z.id} zona={z} onCambio={refetch} onError={setError} />
           ))}
         </div>

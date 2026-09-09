@@ -736,6 +736,19 @@ function figurasDeTotalEnCents(texto: string): number[] {
 export type InconsistenciaFinanciera =
   | "total-no-cuadra"
   | "domicilio-no-verificado"
+  /**
+   * El pedido tiene un domicilio YA VERIFICADO en esta conversación y el
+   * cierre no lo cobra. No es que diga una tarifa equivocada — es que la
+   * borró.
+   *
+   * Incidente real (MALIA, 9-sep-2026, 18:03): la clienta pidió cambiar un
+   * sabor, se arrepintió ("déjame el pedido así tal cual") y el modelo rehizo
+   * el resumen. El primero decía "Domicilio: $10.000 · Total: $44.000"; el
+   * segundo, solo "Total productos: $34.000". El pedido se cerró sin cobrar
+   * el domicilio y ningún guardarraíl saltó, porque todos comprobaban que la
+   * cifra fuera la CORRECTA y ninguno que estuviera.
+   */
+  | "domicilio-omitido"
   | "resumen-contradice-tarifa"
   | "subtotal-no-verificado"
   | "subtotal-no-coincide-con-el-carrito"
@@ -821,6 +834,16 @@ export function inconsistenciaFinancieraDePedido(input: {
    * que el equipo ya cotizó a mano. Ver el comentario largo en el chequeo.
    */
   totalesDichosPorUnaPersona?: number[];
+  /**
+   * La modalidad de entrega YA RESUELTA por el backend contra lo que el
+   * negocio ofrece (`EstadoDelPedido.modalidadDeEntrega`).
+   *
+   * Se usa solo para `domicilio-omitido`, y es lo que distingue "este pedido
+   * es a domicilio y no lo cobró" de "preguntó el precio del domicilio por
+   * curiosidad y al final pasó a recoger". Sin ella, la comprobación cobraba
+   * un domicilio que nadie pidió — lo cazó una prueba que ya existía.
+   */
+  modalidadDeEntrega?: string | null;
   /**
    * Incidente real (7-sep-2026) — `true` solo cuando ESTE negocio tiene
    * `delivery_source='tabla'`, es decir, cuando `consultar_domicilio`
@@ -911,6 +934,42 @@ export function inconsistenciaFinancieraDePedido(input: {
     if (subtotalCents === undefined || totalCents === undefined) {
       return "total-no-cuadra";
     }
+  }
+
+  /**
+   * El domicilio VERIFICADO no se puede dejar de cobrar.
+   *
+   * `zonaEfectiva` solo es no-nulo cuando hay un domicilio con tarifa resuelta
+   * —de este turno o persistido—; un pedido que pasó a recogida deja de tenerlo
+   * y no entra aquí. Así que si existe y el cierre no trae `deliveryFeeCents`,
+   * el modelo borró un cobro real: el negocio pierde esa plata en silencio y
+   * nadie se entera hasta cuadrar caja.
+   *
+   * Va DESPUÉS de `incluyeDomicilio` a propósito: aquel cubre el domicilio
+   * verificado en ESTE turno, este cubre el que se verificó antes y sobrevivió
+   * (`conEntregaConservada`).
+   */
+  /**
+   * Solo la modalidad YA RESUELTA por el backend, nunca `entregaPersistida`.
+   *
+   * `entregaPersistida.tipo` vale "domicilio" en cuanto alguien PREGUNTA una
+   * tarifa, aunque después pida para recoger — usarla cobraba un domicilio que
+   * nadie pidió, y lo cazó una prueba que ya existía ("preguntar la tarifa por
+   * curiosidad no contamina un pedido de recogida posterior").
+   *
+   * Con la modalidad sin resolver (36 de 104 conversaciones de MALIA hoy) esta
+   * comprobación no dispara. Es a propósito: prefiero que se escape un
+   * domicilio sin cobrar a cobrar uno que el cliente no pidió.
+   */
+  const esPedidoADomicilio = /domicilio|env[íi]o|entrega a/i.test(
+    input.modalidadDeEntrega ?? ""
+  );
+  if (
+    zonaEfectiva &&
+    esPedidoADomicilio &&
+    (deliveryFeeCents === undefined || deliveryFeeCents === null)
+  ) {
+    return "domicilio-omitido";
   }
 
   if (subtotalCents !== undefined && totalCents !== undefined) {
@@ -1057,6 +1116,8 @@ export function correccionDeInconsistenciaFinanciera(fallo: InconsistenciaFinanc
   if (fallo === "despedida-contradice-total-real") {
     return "ALTO. El texto de \"farewell\" en notify_order (lo que lee el CLIENTE) menciona un total DISTINTO del total real (subtotal del catálogo + domicilio verificado). Corrige el farewell para que use exactamente ese total — el mismo que ya pusiste en summary. Responde ÚNICAMENTE el objeto JSON.";
   }
+  if (fallo === "domicilio-omitido")
+    return "ALTO. Este pedido va A DOMICILIO y su tarifa ya está verificada en esta conversación, pero notify_order no la cobra: falta deliveryFeeCents, y el summary y el farewell deben mostrar la línea del domicilio y un total que lo sume. No lo omitas — si el cliente cambió a recogida, usa consultar_domicilio con recogida:true en vez de dejarlo en blanco. Responde ÚNICAMENTE el objeto JSON.";
   return "ALTO. En notify_order, deliveryFeeCents NO es la tarifa que confirmó consultar_domicilio en esta conversación. Usa exactamente esa cifra verificada. Responde ÚNICAMENTE el objeto JSON.";
 }
 

@@ -2179,6 +2179,9 @@ export async function runAgentTurn(
       totalCents: action.totalCents,
       zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
       entregaPersistida,
+      // La modalidad ya resuelta por el backend: distingue "es a domicilio y
+      // no lo cobró" de "preguntó la tarifa y al final pasó a recoger".
+      modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
       puedeVerificarDomicilio: zonasDeEntrega.length > 0,
       // Fase 11-C — el subtotal REAL, ya calculado por el backend contra
       // el catálogo (nunca `null`: eso significaría un ítem sin resolver,
@@ -2207,6 +2210,7 @@ export async function runAgentTurn(
               totalCents: reintento.data.totalCents,
               zonaVerificada: resultadoZona?.status === "found" ? resultadoZona.zona : null,
               entregaPersistida,
+              modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
               puedeVerificarDomicilio: zonasDeEntrega.length > 0,
               subtotalReal: estadoGuardado?.totalCents ?? undefined,
               totalesDichosPorUnaPersona,

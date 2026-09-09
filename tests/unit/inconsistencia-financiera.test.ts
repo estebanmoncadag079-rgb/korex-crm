@@ -772,3 +772,86 @@ describe("el párrafo fijo del negocio no es una tarifa", () => {
     ).toBeNull();
   });
 });
+
+/**
+ * Incidente real (MALIA, 9-sep-2026, 18:03). La clienta pidió cambiar un
+ * sabor, se arrepintió —"déjame el pedido así tal cual"— y el modelo rehizo el
+ * resumen desde cero:
+ *
+ *     17:55  • Domicilio: $10.000  · **Total: $44.000**
+ *     18:02  • **Total productos: $34.000**      ← el domicilio desapareció
+ *
+ * El pedido se cerró sin cobrar el domicilio y NINGÚN guardarraíl saltó: todos
+ * comprobaban que la cifra fuera la CORRECTA, ninguno que estuviera. La zona
+ * se había verificado en el primer turno ("Carrera 13 #72-08, Barrio Siete de
+ * Agosto" → found) y seguía viva gracias a `conEntregaConservada`.
+ *
+ * Es la otra mitad del mismo problema: una cosa es que el bot MIENTA sobre la
+ * tarifa, y otra que la BORRE. La segunda no se veía.
+ */
+describe("el domicilio verificado no se puede dejar de cobrar", () => {
+  const conDomicilioPersistido = {
+    summary: "• 3 × Pavé Cremoso 8 oz — $34.000\n\n💰 *Total productos:* $34.000",
+    subtotalCents: 3400000,
+    totalCents: 3400000,
+    zonaVerificada: null,
+    entregaPersistida: { tipo: "domicilio" as const, feeCents: 1000000 },
+    modalidadDeEntrega: "domicilio",
+    puedeVerificarDomicilio: true,
+  };
+
+  it("EL INCIDENTE: cierra sin cobrar un domicilio ya verificado", () => {
+    expect(inconsistenciaFinancieraDePedido(conDomicilioPersistido)).toBe("domicilio-omitido");
+  });
+
+  it("cobrándolo, pasa limpio", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...conDomicilioPersistido,
+        summary: "• 3 × Pavé Cremoso 8 oz — $34.000\n🛵 *Domicilio:* $10.000\n\n💰 *Total:* $44.000",
+        deliveryFeeCents: 1000000,
+        totalCents: 4400000,
+      })
+    ).toBeNull();
+  });
+
+  it("si el cliente pasó a RECOGIDA, no se le cobra nada y está bien", () => {
+    // `entregaPersistida.tipo === "recogida"` deja `zonaEfectiva` en null: el
+    // chequeo no debe disparar, o cobraría un domicilio que nadie pidió.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...conDomicilioPersistido,
+        entregaPersistida: { tipo: "recogida" as const, feeCents: null },
+      })
+    ).toBeNull();
+  });
+
+  it("sin ninguna verificación previa, tampoco dispara", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({ ...conDomicilioPersistido, entregaPersistida: null })
+    ).toBeNull();
+  });
+
+  it("PREGUNTÓ LA TARIFA POR CURIOSIDAD y pidió para recoger: no se le cobra", () => {
+    // La verificación existe -alguien pregunto cuanto costaba- pero el pedido
+    // es de recogida. Cobrarle seria peor que no detectar nada.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...conDomicilioPersistido,
+        modalidadDeEntrega: "recogida",
+      })
+    ).toBeNull();
+  });
+
+  it("con la modalidad sin resolver, no dispara: no se cobra a ciegas", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({ ...conDomicilioPersistido, modalidadDeEntrega: null })
+    ).toBeNull();
+  });
+
+  it("y la corrección le dice al modelo qué hacer, incluido el caso de recogida", () => {
+    const texto = correccionDeInconsistenciaFinanciera("domicilio-omitido");
+    expect(texto).toMatch(/deliveryFeeCents/);
+    expect(texto).toMatch(/recogida/i);
+  });
+});

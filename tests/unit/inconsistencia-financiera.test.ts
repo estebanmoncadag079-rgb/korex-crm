@@ -696,3 +696,79 @@ describe("cifrasEnPesosDelTexto", () => {
     ]);
   });
 });
+
+/**
+ * Incidente real (MALIA, 9-sep-2026, 16:42): un pedido de $64.000 derivado por
+ * un falso positivo del detector de texto.
+ *
+ * El resumen terminaba con el párrafo fijo del negocio, que no lleva ninguna
+ * cifra:
+ *
+ *     💰 *Total:* $64.000
+ *
+ *     🛵 *El domicilio tiene un valor adicional, el cliente lo cubre...*
+ *
+ * El detector no encontraba nada después de "domicilio", miraba hacia atrás,
+ * cruzaba el salto de línea y agarraba el $64.000 del total — concluyendo que
+ * el resumen decía que el domicilio costaba $64.000 y contradecía la tarifa
+ * verificada de $10.000.
+ *
+ * Todo lo demás estaba bien: la zona resuelta ("Ciudad Córdoba" → found), la
+ * suma cuadrada (54.000 + 10.000 = 64.000) y la tarifa correcta. La clienta
+ * respondió "Sí correcto" y se llevó una derivación.
+ */
+describe("el párrafo fijo del negocio no es una tarifa", () => {
+  const RESUMEN_REAL = `📋 *Resumen del pedido:*
+• 1 × Pavé Cremoso 16 oz — $18.000
+• 1 × Pavé Cremoso 16 oz — $18.000
+• 1 × Pavé Cremoso 16 oz — $18.000
+
+📍 *Entrega:* Domicilio a Cl 54c #47-24, Ciudad Córdoba
+🛵 *Domicilio:* $10.000
+
+💰 *Total:* $64.000
+
+🛵 *El domicilio tiene un valor adicional, el cliente lo cubre y debe pagarlo junto con todo el pedido antes de despachar el pedido.*`;
+
+  const cierre = {
+    subtotalCents: 5400000,
+    deliveryFeeCents: 1000000,
+    totalCents: 6400000,
+    zonaVerificada: { feeCents: 1000000 },
+    puedeVerificarDomicilio: true,
+  };
+
+  it("EL INCIDENTE: el resumen real ya no se lee como contradicción", () => {
+    expect(inconsistenciaFinancieraDePedido({ ...cierre, summary: RESUMEN_REAL })).toBeNull();
+  });
+
+  it("una contradicción DE VERDAD en la misma línea sigue saltando", () => {
+    // Lo que el detector existe para cazar: el texto dice una tarifa distinta
+    // de la verificada. Eso no puede dejar de detectarse.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...cierre,
+        summary: RESUMEN_REAL.replace("*Domicilio:* $10.000", "*Domicilio:* $25.000"),
+      })
+    ).toBe("resumen-contradice-tarifa");
+  });
+
+  it('"$8.000 de domicilio" —la cifra ANTES, misma línea— se sigue leyendo', () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...cierre,
+        summary: "Son $8.000 de domicilio para tu pedido.",
+      })
+    ).toBe("resumen-contradice-tarifa");
+  });
+
+  it("y la despedida al cliente se protege igual", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...cierre,
+        summary: RESUMEN_REAL,
+        farewell: `¡Gracias!\n\nEl domicilio tiene un valor adicional que cubre el cliente.\n\nTotal: $64.000`,
+      })
+    ).toBeNull();
+  });
+});

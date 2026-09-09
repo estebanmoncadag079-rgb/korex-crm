@@ -49,7 +49,8 @@
     "subir:media": "esbuild scripts/subir-media.ts --bundle --platform=node --format=esm --outfile=.tmp-subir-media.mjs --alias:@=./src --packages=external && node .tmp-subir-media.mjs",
     "comparar:modelos": "esbuild scripts/comparar-modelos.ts --bundle --platform=node --format=esm --outfile=.tmp-comparar-modelos.mjs --alias:@=./src --packages=external && node .tmp-comparar-modelos.mjs",
     "probar:bot": "esbuild scripts/probar-bot.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-bot.mjs --alias:@=./src --packages=external && node .tmp-probar-bot.mjs",
-    "cargar:zonas": "esbuild scripts/cargar-zonas.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-zonas.mjs --alias:@=./src --packages=external && node .tmp-cargar-zonas.mjs"
+    "cargar:zonas": "esbuild scripts/cargar-zonas.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-zonas.mjs --alias:@=./src --packages=external && node .tmp-cargar-zonas.mjs",
+    "tarifar:zonas": "esbuild scripts/tarifar-zonas.ts --bundle --platform=node --format=esm --outfile=.tmp-tarifar-zonas.mjs --alias:@=./src --packages=external && node .tmp-tarifar-zonas.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

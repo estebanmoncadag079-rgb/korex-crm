@@ -630,6 +630,24 @@ const VENTANA = 25;
  * detector es una red de texto, no la fuente de verdad (esa es
  * `deliveryFeeCents`, el campo estructurado), así que prioriza no
  * disparar de más sobre precisión perfecta de NLP.
+ *
+ * ⚠️ **La ventana NO cruza un salto de línea**, y esa es la parte que costó un
+ * pedido de $64.000 (MALIA, 9-sep-2026). El resumen terminaba así:
+ *
+ *     💰 *Total:* $64.000
+ *
+ *     🛵 *El domicilio tiene un valor adicional, el cliente lo cubre...*
+ *
+ * Ese párrafo es texto fijo del negocio y no lleva ninguna cifra. El detector
+ * no encontraba nada después de "domicilio", miraba hacia atrás, se comía el
+ * salto de línea y agarraba **el $64.000 del total** — concluyendo que el
+ * resumen decía que el domicilio costaba $64.000 y contradecía la tarifa
+ * verificada de $10.000. Todo lo demás estaba bien: la zona resuelta, la suma
+ * cuadrada, la tarifa correcta. La clienta confirmó, el bot derivó.
+ *
+ * Una cifra que pertenece a una mención de domicilio está en SU MISMA LÍNEA
+ * ("Domicilio: $10.000", "$8.000 de domicilio"). Dos renglones distintos son
+ * dos hechos distintos.
  */
 function figurasDeDomicilioEnCents(texto: string): number[] {
   const resultado: number[] = [];
@@ -642,8 +660,11 @@ function figurasDeDomicilioEnCents(texto: string): number[] {
       resultado.push(0);
       continue;
     }
-    const despues = texto.slice(finKeyword, finKeyword + VENTANA);
-    const antes = texto.slice(Math.max(0, m.index - VENTANA), m.index);
+    // Recortadas en el salto de línea más cercano: la de después, en el
+    // primero que aparezca; la de antes, en el último.
+    const despues = texto.slice(finKeyword, finKeyword + VENTANA).split("\n")[0]!;
+    const antesCrudo = texto.slice(Math.max(0, m.index - VENTANA), m.index);
+    const antes = antesCrudo.slice(antesCrudo.lastIndexOf("\n") + 1);
     const cifra = despues.match(/\$\s*([\d][\d.,]*)/) ?? antes.match(/\$\s*([\d][\d.,]*)/);
     if (cifra) resultado.push(pesosTextoACents(cifra[1]!));
   }

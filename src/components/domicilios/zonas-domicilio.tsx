@@ -100,6 +100,7 @@ export function ZonasDomicilio() {
    * haría creer que está resuelta — así que se dice.
    */
   const encontradaPeroInactiva = buscando && encontradas.length > 0 && !encontradas.some((z) => z.activa);
+  const sinPrecio = zonas.filter((z) => z.feeCents === 0).length;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -169,7 +170,14 @@ export function ZonasDomicilio() {
             {!buscando && (
               <p className="text-[13px] text-muted-foreground">
                 {zonas.length} {zonas.length === 1 ? "zona cargada" : "zonas cargadas"}, {activas}{" "}
-                {activas === 1 ? "activa" : "activas"}.
+                {activas === 1 ? "activa" : "activas"}
+                {sinPrecio > 0 && (
+                  <>
+                    {" · "}
+                    <strong>{sinPrecio} sin precio</strong>
+                  </>
+                )}
+                .
               </p>
             )}
             {buscando && encontradas.length > 0 && !encontradaPeroInactiva && (
@@ -295,6 +303,8 @@ function FilaZona({
   const [editando, setEditando] = useState(false);
   const [nombre, setNombre] = useState(zona.nombre);
   const [precio, setPrecio] = useState(centsAPesos(zona.feeCents));
+  /** $0 = "todavía sin definir", no "gratis". Ver el comentario de abajo. */
+  const sinPrecio = zona.feeCents === 0;
 
   async function guardar(datos: { nombre?: string; feeCents?: number; activa?: boolean }) {
     onError(null);
@@ -372,7 +382,19 @@ function FilaZona({
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3">
       <span className="font-medium">{zona.nombre}</span>
-      <span className="text-sm text-muted-foreground">${centsAPesos(zona.feeCents)}</span>
+      {/*
+        $0 no significa "domicilio gratis": significa "todavía sin definir".
+        Es como quedan las zonas cargadas en bloque (`scripts/cargar-zonas.ts`),
+        y `delivery_zone.fee_cents` no admite nulo, así que no hay otra forma de
+        decirlo en la base. Mostrar "$0" invitaría a activarla tal cual.
+      */}
+      {sinPrecio ? (
+        <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[12px] font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          Sin precio
+        </span>
+      ) : (
+        <span className="text-sm text-muted-foreground">${centsAPesos(zona.feeCents)}</span>
+      )}
       <Badge variant={zona.activa ? "default" : "secondary"}>
         {zona.activa ? "Activa" : "Inactiva"}
       </Badge>
@@ -380,7 +402,23 @@ function FilaZona({
         <Button size="sm" variant="ghost" onClick={() => setEditando(true)}>
           Editar
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => void guardar({ activa: !zona.activa })}>
+        {/*
+          Activar una zona en $0 sería cobrar cero por ese domicilio, en todos
+          los pedidos, hasta que alguien se diera cuenta. Con 306 zonas cargadas
+          de golpe eso pasa a ser cuestión de tiempo, no de mala suerte: por eso
+          no se puede activar sin poner tarifa antes.
+        */}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={sinPrecio && !zona.activa}
+          title={
+            sinPrecio && !zona.activa
+              ? "Ponle un valor antes de activarla: si se activa en $0, el domicilio sale gratis."
+              : undefined
+          }
+          onClick={() => void guardar({ activa: !zona.activa })}
+        >
           {zona.activa ? "Desactivar" : "Activar"}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => void archivar()}>

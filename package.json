@@ -17,6 +17,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
@@ -45,7 +46,8 @@
     "consultas-verificadas": "esbuild scripts/consultas-verificadas.ts --bundle --platform=node --format=esm --outfile=.tmp-consultas-verificadas.mjs --alias:@=./src --packages=external && node .tmp-consultas-verificadas.mjs",
     "corregir:ficha-churra": "esbuild scripts/corregir-ficha-churra.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-ficha-churra.mjs --alias:@=./src --packages=external && node .tmp-corregir-ficha-churra.mjs",
     "corregir:regla-catalogo-lis": "esbuild scripts/corregir-regla-catalogo-lis.ts --bundle --platform=node --format=esm --outfile=.tmp-corregir-regla-catalogo-lis.mjs --alias:@=./src --packages=external && node .tmp-corregir-regla-catalogo-lis.mjs",
-    "subir:media": "esbuild scripts/subir-media.ts --bundle --platform=node --format=esm --outfile=.tmp-subir-media.mjs --alias:@=./src --packages=external && node .tmp-subir-media.mjs"
+    "subir:media": "esbuild scripts/subir-media.ts --bundle --platform=node --format=esm --outfile=.tmp-subir-media.mjs --alias:@=./src --packages=external && node .tmp-subir-media.mjs",
+    "comparar:modelos": "esbuild scripts/comparar-modelos.ts --bundle --platform=node --format=esm --outfile=.tmp-comparar-modelos.mjs --alias:@=./src --packages=external && node .tmp-comparar-modelos.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

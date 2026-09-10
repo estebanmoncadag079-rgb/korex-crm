@@ -257,6 +257,46 @@ export function comoTexto(
   }
 
   const falta = loQueFalta(estado, catalogo, requisitos, vertical);
+  /*
+   * Cómo se entrega este pedido, tal como lo verificó el backend.
+   *
+   * Hasta el 10-sep-2026 este bloque no decía NADA de la entrega: ni la
+   * modalidad, ni la zona, ni la tarifa. El backend sí lo sabía —lo guarda en
+   * `estado.entrega` y los guardarraíles del cierre validan contra él—, pero
+   * ese dato viajaba por una tubería que solo persistía y validaba, nunca por
+   * la que informa al modelo. El modelo tenía que acordarse del historial.
+   *
+   * Mientras la conversación es lineal se acuerda. Cuando el cliente
+   * interrumpe —"déjame el pedido así tal cual", "se equivocó de nombre",
+   * "cuánto es en total?"— rehace el resumen y ahí se le cae: tres pedidos
+   * perdidos en dos días (MALIA, 9 y 10-sep-2026), los tres cerrando sin
+   * cobrar un domicilio que estaba verificado. Se le exigía un dato que no se
+   * le daba.
+   *
+   * Solo REPRESENTA lo que ya existe: no hay campo nuevo, ni fuente de verdad
+   * nueva, ni estado que mantener. Con `entrega` ausente —los cuatro negocios
+   * en `delivery_source='prompt'` y todo el vertical de citas— no se imprime
+   * nada y el bloque sale idéntico a como salía.
+   */
+  const entrega = (() => {
+    const e = estado.entrega;
+    if (!e) return "";
+    if (e.tipo === "recogida") return "\nENTREGA: recoge en el local, sin domicilio.";
+    /*
+     * `feeCents === null` es "pendiente"; `0` es una tarifa REAL de una zona
+     * gratis (ver `EntregaVerificada` en `estado.ts`). Un `if (!e.feeCents)`
+     * los confundiría y anunciaría como pendiente un domicilio ya resuelto.
+     */
+    if (e.feeCents === null) {
+      return (
+        "\nENTREGA: domicilio, tarifa PENDIENTE de verificar" +
+        " — no la inventes ni uses una anterior."
+      );
+    }
+    const cuanto = `$${(e.feeCents / 100).toLocaleString("es-CO")}`;
+    const donde = e.zonaNombre ? ` a ${e.zonaNombre}` : "";
+    return `\nENTREGA: domicilio${donde} — tarifa ${cuanto} (la verificó el sistema, úsala tal cual).`;
+  })();
   const total =
     estado.totalCents === null
       ? ""
@@ -265,6 +305,7 @@ export function comoTexto(
 
   return (
     `${encabezado} — no vuelvas a preguntar nada de esto:\n${partes.join(" · ")}` +
+    entrega +
     total +
     (falta.length ? `\nTE FALTA, en este orden: ${falta.join(", ")}` : "\nNo falta nada: ve al resumen.")
   );

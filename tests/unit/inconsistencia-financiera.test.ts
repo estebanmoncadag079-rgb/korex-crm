@@ -49,6 +49,15 @@ describe("dijoOtroValorDeDomicilio", () => {
   });
 });
 
+/**
+ * Nota del 10-sep-2026: dos casos de este bloque esperaban
+ * `domicilio-no-verificado` y ahora esperan `domicilio-omitido`. No cambió lo
+ * que se detecta —los dos siguen saltando— sino el código que se devuelve, y
+ * con él la corrección que recibe el modelo: una está escrita para una cifra
+ * EQUIVOCADA y la otra para una que FALTA. El nombre de una de esas pruebas
+ * ("deliveryFeeCents OMITIDO, no solo mal") ya decía que eran situaciones
+ * distintas; lo que faltaba era tratarlas como tales.
+ */
 describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + deliveryFee", () => {
   const ZONA_KACHIPAY = { feeCents: 1200000 };
 
@@ -159,7 +168,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       zonaVerificada: null, // tampoco se reverificó este turno
       puedeVerificarDomicilio: true,
     });
-    expect(r).toBe("domicilio-no-verificado");
+    expect(r).toBe("domicilio-omitido");
   });
 
   it("Hallazgo C: el MISMO caso, pero delivery_source='prompt' -> pasa exactamente igual que antes (compatibilidad)", () => {
@@ -180,7 +189,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       zonaVerificada: ZONA_KACHIPAY,
       puedeVerificarDomicilio: true,
     });
-    expect(r).toBe("domicilio-no-verificado");
+    expect(r).toBe("domicilio-omitido");
   });
 
   it("Hallazgo B: zonaVerificada este turno, deliveryFeeCents presente, pero subtotalCents/totalCents omitidos", () => {
@@ -853,5 +862,64 @@ describe("el domicilio verificado no se puede dejar de cobrar", () => {
     const texto = correccionDeInconsistenciaFinanciera("domicilio-omitido");
     expect(texto).toMatch(/deliveryFeeCents/);
     expect(texto).toMatch(/recogida/i);
+  });
+});
+
+/**
+ * Incidente real (MALIA, 10-sep-2026, 13:20). La zona estaba verificada EN ESE
+ * MISMO TURNO ("Calle 33A, 17G-39, Barrio Primitivo Crespo" → found, $10.000)
+ * y el resumen cerró con "Total productos: $20.000", sin línea de domicilio.
+ *
+ * El guardarraíl saltó bien. Lo que falló fue lo que le dijimos al modelo:
+ * devolvía `domicilio-no-verificado`, cuya corrección está escrita para una
+ * cifra EQUIVOCADA ("deliveryFeeCents NO es la tarifa que confirmó
+ * consultar_domicilio"). Aquí el campo sencillamente no estaba, así que el
+ * modelo no entendía qué corregir: reintentó, volvió a omitirlo, y el cliente
+ * se llevó una derivación después de decir "Sí".
+ *
+ * Un guardarraíl que detecta bien pero explica mal solo cambia una venta
+ * perdida por una derivación.
+ */
+describe("omitir el domicilio y equivocarlo son fallos distintos", () => {
+  const zonaDeEsteTurno = {
+    summary: "• 1 × Pavé Cremoso 16 oz — $18.000\n  - Topping: M&M ($2.000)\n\n💰 *Total productos:* $20.000",
+    subtotalCents: 2000000,
+    totalCents: 2000000,
+    zonaVerificada: { feeCents: 1000000 },
+    puedeVerificarDomicilio: true,
+  };
+
+  it("EL INCIDENTE: falta la tarifa → 'omitido', no 'no verificado'", () => {
+    expect(inconsistenciaFinancieraDePedido(zonaDeEsteTurno)).toBe("domicilio-omitido");
+  });
+
+  it("y su corrección le dice que FALTA, no que esté mal", () => {
+    const texto = correccionDeInconsistenciaFinanciera("domicilio-omitido");
+    expect(texto).toMatch(/falta deliveryFeeCents/i);
+    expect(texto).toMatch(/no lo omitas/i);
+  });
+
+  it("una tarifa EQUIVOCADA sigue siendo 'no verificado', con su propio mensaje", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...zonaDeEsteTurno,
+        deliveryFeeCents: 800000, // la zona vale 10.000
+        totalCents: 2800000,
+      })
+    ).toBe("domicilio-no-verificado");
+    expect(correccionDeInconsistenciaFinanciera("domicilio-no-verificado")).toMatch(
+      /NO es la tarifa/
+    );
+  });
+
+  it("cobrándola bien, pasa limpio", () => {
+    expect(
+      inconsistenciaFinancieraDePedido({
+        ...zonaDeEsteTurno,
+        summary: "• 1 × Pavé Cremoso 16 oz — $18.000\n🛵 *Domicilio:* $10.000\n\n💰 *Total:* $30.000",
+        deliveryFeeCents: 1000000,
+        totalCents: 3000000,
+      })
+    ).toBeNull();
   });
 });

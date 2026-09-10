@@ -929,7 +929,23 @@ export function inconsistenciaFinancieraDePedido(input: {
     (input.puedeVerificarDomicilio && figurasDeDomicilioEnCents(summary).length > 0);
   if (incluyeDomicilio) {
     if (deliveryFeeCents === undefined || deliveryFeeCents === null) {
-      return "domicilio-no-verificado";
+      /**
+       * OMITIDO, no equivocado — y la diferencia importa porque de ella
+       * depende qué se le dice al modelo para que lo arregle.
+       *
+       * Hasta el 10-sep-2026 esto devolvía `domicilio-no-verificado`, cuya
+       * corrección dice "deliveryFeeCents NO es la tarifa que confirmó
+       * consultar_domicilio". Escrita para una cifra EQUIVOCADA, y aquí el
+       * campo sencillamente no está: el modelo no entiende qué corregir.
+       *
+       * Incidente real (MALIA, 10-sep-2026, 13:20): zona verificada
+       * ("Calle 33A, 17G-39, Barrio Primitivo Crespo" → found, $10.000), el
+       * resumen cerró con "Total productos: $20.000" y sin línea de domicilio.
+       * El guardarraíl saltó bien, reintentó, le mandó el mensaje del caso
+       * equivocado, el modelo insistió igual y el cliente se llevó una
+       * derivación después de decir "Sí".
+       */
+      return "domicilio-omitido";
     }
     if (subtotalCents === undefined || totalCents === undefined) {
       return "total-no-cuadra";

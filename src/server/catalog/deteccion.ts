@@ -50,6 +50,26 @@ const SEÑALES_ABIERTAS: RegExp[] = [
   /\balgo\s+para\b/,
   /\bque\s+me\b|\bcu[aá]l\s+me\b/,
   /\bopciones\b/,
+  /**
+   * Incidente real (MALIA, 12-sep-2026): "Hola! Tienes domi a ciudad
+   * pacífica?" — `PATRON_EXISTENCIA` no distingue QUÉ hay después de
+   * "tienes", así que capturó "domi a ciudad pacifica" entero y lo buscó
+   * en el catálogo de productos. Como no es un producto, dio `not_found`,
+   * y ese hecho falso llegó al modelo en el MISMO turno que el hecho
+   * verdadero del otro detector ("Ciudad Pacífica" sí existe como zona, a
+   * $12.000) — dos hechos "verificados" contradictorios sobre la misma
+   * frase. El modelo redactó algo que contradecía la tarifa real, el
+   * guardarraíl `domicilio_contradicho` lo interceptó, el reintento
+   * falló, y derivó sin haberle dicho nunca nada al cliente.
+   *
+   * Una pregunta de domicilio/envío la resuelve el detector de zonas
+   * (`resolverZonaDeEntrega`, vía `consultar_domicilio`) — este archivo no
+   * tiene que competir con él. "domi" es el término real que usó la
+   * clienta; se verificó contra los catálogos reales de los 5 negocios
+   * que ningún producto ni opción usa estas palabras, así que la
+   * exclusión no puede tapar un producto de verdad.
+   */
+  /\bdomicilios?\b|\bdomi\b|\benv[ií]os?\b/,
 ];
 
 /**

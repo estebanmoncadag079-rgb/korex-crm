@@ -117,3 +117,58 @@ describe("detectarConsultaFactualDeProducto — TIPO B (abierta, NO forzar)", ()
     expect(detectarConsultaFactualDeProducto("¿Qué tienes de chocolate?")).toBeNull();
   });
 });
+
+describe("detectarConsultaFactualDeProducto — domicilio/envío NUNCA es un producto", () => {
+  /**
+   * Incidente real (MALIA, 12-sep-2026, conv cv_jzr8hvnt02m1zvvzqgyy):
+   * "Hola! Tienes domi a ciudad pacífica?" hizo que este detector buscara
+   * "domi a ciudad pacifica" en el catálogo de PAVÉS, diera `not_found`, y
+   * ese hecho falso contradijera al detector de zonas (que sí encontró
+   * "Ciudad Pacífica" a $12.000) en el mismo turno. El modelo recibió dos
+   * hechos "verificados" que se contradecían, redactó algo que negaba la
+   * tarifa real, y terminó derivando sin haberle respondido nada al cliente.
+   */
+  it("EL INCIDENTE: 'tienes domi a X?' no es una pregunta de producto", () => {
+    expect(
+      detectarConsultaFactualDeProducto("Hola! Tienes domi a ciudad pacífica?")
+    ).toBeNull();
+  });
+
+  it("'domicilio' con el verbo de existencia, igual de bloqueado", () => {
+    expect(detectarConsultaFactualDeProducto("¿Tienen domicilio a Kachipay?")).toBeNull();
+    expect(detectarConsultaFactualDeProducto("¿Hacen domicilios?")).toBeNull();
+  });
+
+  it("'envío' con el patrón de precio, igual de bloqueado", () => {
+    expect(
+      detectarConsultaFactualDeProducto("¿Cuánto cuesta el envío a Talanga?")
+    ).toBeNull();
+    expect(detectarConsultaFactualDeProducto("¿Cuánto vale el envio?")).toBeNull();
+  });
+
+  it("sin tilde, plural, y mezclado con más texto: todas bloqueadas", () => {
+    expect(detectarConsultaFactualDeProducto("tienes envio hoy mismo?")).toBeNull();
+    expect(detectarConsultaFactualDeProducto("manejan envíos a Cañasgordas?")).toBeNull();
+  });
+
+  it("REGRESIÓN: las preguntas de producto reales de la suite de arriba siguen intactas", () => {
+    // Ninguna de las 11 pruebas "TIPO A" menciona domicilio/envío — confirma
+    // que la exclusión nueva no les toca ni un carácter.
+    expect(detectarConsultaFactualDeProducto("¿Tienen torta de chocolate?")).toBe(
+      "torta de chocolate"
+    );
+    expect(detectarConsultaFactualDeProducto("¿Tienes Pavé de Leche Klim?")).toBe(
+      "pave de leche klim"
+    );
+    expect(
+      detectarConsultaFactualDeProducto("¿Cuánto cuesta la porción de chocolate?")
+    ).toBe("porcion de chocolate");
+  });
+
+  it("no dispara con substrings parecidos que no son la palabra completa", () => {
+    // Límites de palabra (\b): "dominio" y "condominio" no deben confundirse
+    // con "domi". Es un caso hipotético, no uno visto en producción, pero es
+    // exactamente el tipo de falso positivo que \b existe para evitar.
+    expect(detectarConsultaFactualDeProducto("¿Tienen servicio a domicilio o dominio propio?")).toBeNull();
+  });
+});

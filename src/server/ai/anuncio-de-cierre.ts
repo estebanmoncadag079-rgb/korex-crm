@@ -792,6 +792,25 @@ export type InconsistenciaFinanciera =
   | "total-no-cuadra"
   | "domicilio-no-verificado"
   /**
+   * El cierre cobra un domicilio y en esta conversación **no se verificó
+   * ninguna zona, nunca**. Distinto de `domicilio-no-verificado`, donde sí
+   * hay una tarifa verificada y el modelo puso otra.
+   *
+   * Los dos caían en el mismo código hasta el 14-sep-2026, y con él en la
+   * misma corrección: *"usa exactamente esa cifra verificada"*. Al modelo que
+   * nunca consultó se le pedía copiar un número que no existe — imposible de
+   * cumplir, así que reintentaba igual y el turno terminaba en handoff.
+   *
+   * Medido ese día en MALIA: **4 de 8 derivaciones en tres horas** eran
+   * esto, y el testigo es el pedido de $48.000 de Brenda (12-sep), donde la
+   * zona "Versalles" existía en la tabla a $8.000 —exactamente lo que el bot
+   * cobró— pero nadie la había consultado.
+   *
+   * Con su propio código, la corrección puede pedir lo que sí se puede
+   * hacer: verificar la zona antes de cerrar.
+   */
+  | "domicilio-nunca-verificado"
+  /**
    * El pedido tiene un domicilio YA VERIFICADO en esta conversación y el
    * cierre no lo cobra. No es que diga una tarifa equivocada — es que la
    * borró.
@@ -1096,7 +1115,12 @@ export function inconsistenciaFinancieraDePedido(input: {
       const loDijoUnaPersona =
         totalCents !== undefined &&
         (input.totalesDichosPorUnaPersona ?? []).includes(totalCents);
-      if (!loDijoUnaPersona) return "domicilio-no-verificado";
+      if (!loDijoUnaPersona) {
+        // Nunca se verificó NADA vs. se verificó y puso otra cifra: son dos
+        // problemas distintos y solo uno se puede corregir copiando un
+        // número. Ver `domicilio-nunca-verificado`.
+        return zonaEfectiva ? "domicilio-no-verificado" : "domicilio-nunca-verificado";
+      }
     }
   }
 
@@ -1186,6 +1210,9 @@ export function correccionDeInconsistenciaFinanciera(fallo: InconsistenciaFinanc
   }
   if (fallo === "despedida-contradice-total-real") {
     return "ALTO. El texto de \"farewell\" en notify_order (lo que lee el CLIENTE) menciona un total DISTINTO del total real (subtotal del catálogo + domicilio verificado). Corrige el farewell para que use exactamente ese total — el mismo que ya pusiste en summary. Responde ÚNICAMENTE el objeto JSON.";
+  }
+  if (fallo === "domicilio-nunca-verificado") {
+    return 'ALTO. Este pedido cobra un domicilio que NO se ha verificado en ningún momento de esta conversación: no puedes inventar ni recordar una tarifa. ANTES de cerrar, emite {"action":"consultar_domicilio","zona":"<la dirección o barrio que te dio el cliente>"} para que el servidor te dé la tarifa real. Si el cliente pasa a recoger, usa recogida:true. Responde ÚNICAMENTE el objeto JSON.';
   }
   if (fallo === "domicilio-omitido")
     return "ALTO. Este pedido va A DOMICILIO y su tarifa ya está verificada en esta conversación, pero notify_order no la cobra: falta deliveryFeeCents, y el summary y el farewell deben mostrar la línea del domicilio y un total que lo sume. No lo omitas — si el cliente cambió a recogida, usa consultar_domicilio con recogida:true en vez de dejarlo en blanco. Responde ÚNICAMENTE el objeto JSON.";

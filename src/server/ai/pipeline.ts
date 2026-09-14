@@ -2272,7 +2272,7 @@ export async function runAgentTurn(
     });
     if (fallo) {
       console.warn(`[pedido] inconsistencia financiera (${fallo}); rehaciendo el turno`);
-      const reintento = await chatJson(AgentAction, [
+      let reintento = await chatJson(AgentAction, [
         ...messages,
         { role: "assistant", content: result.raw },
         { role: "user", content: correccionDeInconsistenciaFinanciera(fallo) },
@@ -2282,6 +2282,82 @@ export async function runAgentTurn(
         reintento.usage,
         `conv:${conversationId}/inconsistencia-financiera`
       );
+
+      /**
+       * El modelo hace EXACTAMENTE lo que le pedimos —verificar el domicilio
+       * antes de cerrar— y hasta el 14-sep-2026 lo castigábamos por ello: el
+       * cálculo de `reintentoFallo` de más abajo da por fallida cualquier
+       * respuesta que no sea `notify_order`, así que una consulta legítima
+       * terminaba en handoff igual que una cifra inventada.
+       *
+       * Aquí se le resuelve la zona y se le pide cerrar otra vez, ya con la
+       * tarifa real. Es la salida de los 4 de 8 handoffs de MALIA del
+       * 14-sep, y del pedido de $48.000 de Brenda: la zona existía en la
+       * tabla, solo que nadie la había consultado.
+       */
+      if (
+        fallo === "domicilio-nunca-verificado" &&
+        reintento.ok &&
+        reintento.data.action === "consultar_domicilio"
+      ) {
+        const pedido = reintento.data;
+        let infoZona: string;
+        let nuevaEntrega: EntregaVerificada;
+        if (pedido.recogida === true) {
+          resultadoZona = null;
+          infoZona = textoDeResultadoRecogida();
+          nuevaEntrega = {
+            tipo: "recogida",
+            zonaId: null,
+            zonaNombre: null,
+            feeCents: null,
+            verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
+            verificadoEn: new Date().toISOString(),
+          };
+        } else {
+          resultadoZona = resolverZonaDeEntrega(zonasDeEntrega, pedido.zona);
+          infoZona = textoDeResultadoDomicilio(pedido.zona, resultadoZona);
+          nuevaEntrega = {
+            tipo: "domicilio",
+            zonaId: resultadoZona.status === "found" ? resultadoZona.zona.id : null,
+            zonaNombre: resultadoZona.status === "found" ? resultadoZona.zona.nombre : null,
+            feeCents: resultadoZona.status === "found" ? resultadoZona.zona.feeCents : null,
+            verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
+            verificadoEn: new Date().toISOString(),
+          };
+        }
+        console.warn(
+          `[pedido] ${organizationId}: el modelo verificó el domicilio al corregir (zona="${
+            pedido.recogida === true ? "recogida" : pedido.zona
+          }" status=${resultadoZona?.status ?? "recogida"}); se le deja cerrar con la tarifa real`
+        );
+        agregarHecho(traza, {
+          tipo: "domicilio",
+          consulta: pedido.recogida === true ? "recogida" : pedido.zona,
+          resultado: pedido.recogida === true ? "recogida" : resultadoZona!.status,
+          origen: "backend",
+        });
+        if (domicilioEstructurado) {
+          const guardado = await guardarEntregaVerificada({
+            conversationId: conversation.id,
+            organizationId,
+            entrega: nuevaEntrega,
+            actor: "pipeline",
+            proceso: "consultar_domicilio",
+          });
+          if (guardado.ok) entregaPersistida = nuevaEntrega;
+        }
+        reintento = await chatJson(AgentAction, [
+          ...messages,
+          { role: "assistant", content: JSON.stringify(pedido) },
+          { role: "user", content: infoZona },
+        ]);
+        await registrarUsoIa(
+          organizationId,
+          reintento.usage,
+          `conv:${conversationId}/cierre-tras-verificar`
+        );
+      }
       const reintentoFallo =
         reintento.ok && reintento.data.action === "notify_order"
           ? inconsistenciaFinancieraDePedido({

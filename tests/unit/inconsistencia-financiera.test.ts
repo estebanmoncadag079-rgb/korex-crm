@@ -150,7 +150,15 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
     expect(r).toBe("resumen-contradice-tarifa");
   });
 
-  it("domicilio-no-verificado: deliveryFeeCents no-nulo sin NINGUNA zona verificada este turno (aunque se haya verificado en un turno anterior)", () => {
+  /**
+   * Nota del 14-sep-2026: este caso esperaba `domicilio-no-verificado` y ahora
+   * espera `domicilio-nunca-verificado`. **No cambió lo que se detecta** —
+   * sigue bloqueando igual— sino el código que se devuelve, y con él la
+   * corrección que recibe el modelo: sin ninguna zona verificada, pedirle
+   * "usa exactamente esa cifra verificada" era pedirle que copiara un número
+   * inexistente. Ahora se le pide lo que sí puede hacer: consultar la zona.
+   */
+  it("domicilio-nunca-verificado: deliveryFeeCents no-nulo sin NINGUNA zona verificada este turno (aunque se haya verificado en un turno anterior)", () => {
     const r = inconsistenciaFinancieraDePedido({
       summary: "Domicilio: $12.000. Total: $30.000",
       subtotalCents: 1800000,
@@ -159,7 +167,7 @@ describe("inconsistenciaFinancieraDePedido — invariante total = subtotal + del
       zonaVerificada: null, // nada verificado en ESTE turno
       puedeVerificarDomicilio: true,
     });
-    expect(r).toBe("domicilio-no-verificado");
+    expect(r).toBe("domicilio-nunca-verificado");
   });
 
   it("G: pedido sin domicilio (deliveryFeeCents null) — total = subtotal, sin inconsistencia", () => {
@@ -680,8 +688,10 @@ describe("un total que ya dio una persona del negocio", () => {
     puedeVerificarDomicilio: true,
   };
 
+  // `base` no lleva ninguna zona verificada, así que desde el 14-sep-2026 el
+  // código es `domicilio-nunca-verificado` (mismo bloqueo, otra corrección).
   it("EL INCIDENTE: sin la excepción, deriva a un cliente que ya pagó", () => {
-    expect(inconsistenciaFinancieraDePedido(base)).toBe("domicilio-no-verificado");
+    expect(inconsistenciaFinancieraDePedido(base)).toBe("domicilio-nunca-verificado");
   });
 
   it("con el total dicho por una persona, el pedido se cierra", () => {
@@ -701,7 +711,7 @@ describe("un total que ya dio una persona del negocio", () => {
         ...base,
         totalesDichosPorUnaPersona: [3000000],
       })
-    ).toBe("domicilio-no-verificado");
+    ).toBe("domicilio-nunca-verificado");
   });
 
   it("con la zona SÍ verificada, la excepción no hace falta ni cambia nada", () => {

@@ -392,6 +392,73 @@ describe("notify_order: el pedido usa EXACTAMENTE la tarifa verificada — el in
     expect(action).toEqual({ action: "handoff", reason: "error" });
   });
 
+  /**
+   * MALIA, 14-sep-2026: 4 de las 8 derivaciones de tres horas fueron esto —
+   * el modelo cerrando un pedido con una tarifa de domicilio que nunca
+   * consultó. El testigo es el pedido de $48.000 de Brenda (12-sep): la zona
+   * "Versalles" estaba en la tabla a $8.000, exactamente lo que el bot cobró,
+   * pero nadie la había verificado.
+   *
+   * El guardarraíl hacía bien en bloquear. Lo que estaba mal era la salida:
+   * la corrección le pedía "usa la cifra verificada" cuando no existía
+   * ninguna, y si el modelo hacía lo correcto —consultar— el pipeline lo
+   * trataba como un cierre fallido y derivaba igual.
+   */
+  it("cierra cobrando un domicilio que nunca verificó: se le pide consultar, consulta, y el pedido se cierra con la tarifa real", async () => {
+    queueTurno(RESUMEN_PREVIO, [ZONA_KACHIPAY]);
+    const cierreSinVerificar = {
+      action: "notify_order",
+      summary: "1 Pavé — $18.000. Domicilio: $12.000. Total: $30.000",
+      subtotalCents: 1800000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3000000,
+    };
+    // Lo que le pedimos que haga, y que antes castigábamos:
+    const consulta = { action: "consultar_domicilio", zona: "Kachipay" };
+    const cierreBueno = { ...cierreSinVerificar };
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        data: cierreSinVerificar,
+        raw: JSON.stringify(cierreSinVerificar),
+      })
+      .mockResolvedValueOnce({ ok: true, data: consulta, raw: JSON.stringify(consulta) })
+      .mockResolvedValueOnce({ ok: true, data: cierreBueno, raw: JSON.stringify(cierreBueno) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_pedidos");
+
+    // El pedido se cierra — antes esto terminaba en handoff.
+    expect(action).toEqual(cierreBueno);
+    expect(notifyTeam).toHaveBeenCalled();
+    // Y la zona quedó verificada de verdad contra la tabla.
+    expect(zonasDeEntregaQuery).toHaveBeenCalled();
+  });
+
+  it("si tras pedirle que verifique sigue sin hacerlo, el candado NO se abre", async () => {
+    queueTurno(RESUMEN_PREVIO, [ZONA_KACHIPAY]);
+    const cierreSinVerificar = {
+      action: "notify_order",
+      summary: "1 Pavé — $18.000. Domicilio: $12.000. Total: $30.000",
+      subtotalCents: 1800000,
+      deliveryFeeCents: 1200000,
+      totalCents: 3000000,
+    };
+    // Insiste en cerrar sin consultar nada.
+    chatJson.mockResolvedValue({
+      ok: true,
+      data: cierreSinVerificar,
+      raw: JSON.stringify(cierreSinVerificar),
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_pedidos");
+
+    // El pedido NO se registra: la acción final es handoff, no notify_order.
+    // (`notifyTeam` sí se llama, pero para avisar al equipo de la derivación.)
+    expect(action).toEqual({ action: "handoff", reason: "error" });
+  });
+
   it("negocio con delivery_source='prompt' (comportamiento de siempre) — notify_order sin campos estructurados pasa exactamente igual que antes", async () => {
     const profileViejo = { ...PROFILE, deliverySource: "prompt" };
     selectQueue.push([CONVERSATION], [profileViejo], [...RESUMEN_PREVIO].reverse(), [], [], []);

@@ -83,7 +83,9 @@ describe("PROTECCIÓN INTACTA donde SÍ se puede verificar (delivery_source='tab
         zonaVerificada: null, // nunca se consultó en este turno
         ...CON_TABLA_DE_ZONAS,
       })
-    ).toBe("domicilio-no-verificado");
+      // Desde el 14-sep-2026 este caso (sin NINGUNA zona verificada) tiene su
+      // propio código: el bloqueo es el mismo, la corrección al modelo no.
+    ).toBe("domicilio-nunca-verificado");
   });
 
   it("tarifa que NO coincide con la zona verificada -> se sigue bloqueando", () => {

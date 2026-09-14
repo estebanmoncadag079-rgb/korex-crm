@@ -719,6 +719,31 @@ export const CORRECCION_DE_DOMICILIO_CONTRADICHO =
   "ALTO. Ya se verificó la tarifa REAL de domicilio para esta zona (consultar_domicilio) y tu respuesta menciona una cifra DISTINTA. Usa exactamente la tarifa verificada, no la cambies ni la redondees ni la inventes de nuevo. Responde ÚNICAMENTE el objeto JSON.";
 
 /**
+ * El modelo pidió `consultar_domicilio` con lo MISMO que ya consultó en este
+ * turno. Repetirle el mismo `[SISTEMA]` no lo saca del bucle —ya lo ignoró
+ * una vez—, así que se le responde otra cosa.
+ *
+ * Incidente real (MALIA, 14-sep-2026): "Para pedirte uno y paso a recogerlo".
+ * El modelo registró la recogida, el backend le confirmó "Registrado: este
+ * pedido es de recogida", y volvió a registrarla. Dos veces. Agotó el
+ * presupuesto de consultas del turno y la clienta se quedó esperando cuatro
+ * minutos y medio para recibir un "te comunico con una persona".
+ */
+export const CORRECCION_DE_DOMICILIO_YA_CONSULTADO =
+  "ALTO. Eso YA lo consultaste en este mismo turno y el resultado está justo arriba: el servidor ya lo registró, no hace falta repetirlo. NO vuelvas a emitir consultar_domicilio. Contesta al cliente ahora con ese dato, o sigue con el pedido donde ibas. Responde ÚNICAMENTE el objeto JSON.";
+
+/**
+ * Se acabaron las consultas de domicilio del turno y el modelo pide otra.
+ *
+ * Antes este camino derivaba de una, sin darle al modelo ninguna oportunidad
+ * de contestar — el único guardarraíl del pipeline que abandonaba al cliente
+ * sin intentar rescatarlo primero. Con la recogida ya registrada no faltaba
+ * ningún dato: el turno podía cerrarse perfectamente.
+ */
+export const CORRECCION_DE_DOMICILIO_AGOTADO =
+  "ALTO. Ya se hicieron todas las consultas de domicilio permitidas en este turno y sus resultados están arriba. No puedes consultar más. Responde al cliente con lo que ya está registrado; si te falta un dato para continuar, PREGÚNTASELO al cliente en vez de consultar otra vez. Responde ÚNICAMENTE el objeto JSON.";
+
+/**
  * Consistencia financiera del cierre del pedido (`notify_order`, Fase
  * 10N-J). "El dinero viaja como números, no se recalcula leyendo el
  * `summary` en prosa" — estos chequeos son la aplicación literal de esa

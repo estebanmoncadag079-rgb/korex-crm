@@ -162,7 +162,9 @@ import {
   elClienteVioUnTotal,
   MENSAJE_RETIRADO,
   dijoOtroValorDeDomicilio,
+  CORRECCION_DE_DOMICILIO_AGOTADO,
   CORRECCION_DE_DOMICILIO_CONTRADICHO,
+  CORRECCION_DE_DOMICILIO_YA_CONSULTADO,
   inconsistenciaFinancieraDePedido,
   correccionDeInconsistenciaFinanciera,
   contradiceDatosDeCuenta,
@@ -1992,11 +1994,25 @@ export async function runAgentTurn(
    */
   const MAX_CONSULTAS_DOMICILIO = 2;
   let consultasDomicilio = 0;
+  /**
+   * Lo que YA se consultó en este turno, para no contestar dos veces lo
+   * mismo. Si el modelo repite una consulta es porque el `[SISTEMA]` que
+   * recibió no lo sacó de donde estaba; repetírselo idéntico tampoco lo va
+   * a sacar (MALIA, 14-sep-2026: registró la misma recogida dos veces y
+   * agotó el turno). La segunda vez recibe una corrección, no un eco.
+   */
+  const consultasDeDomicilioHechas = new Set<string>();
   while (
     action.action === "consultar_domicilio" &&
     consultasDomicilio < MAX_CONSULTAS_DOMICILIO
   ) {
     consultasDomicilio++;
+    const claveDeLaConsulta =
+      action.recogida === true
+        ? "recogida"
+        : `zona:${(action.zona ?? "").trim().toLowerCase()}`;
+    const esRepetida = consultasDeDomicilioHechas.has(claveDeLaConsulta);
+    consultasDeDomicilioHechas.add(claveDeLaConsulta);
     /**
      * Fase 10V-X — cada consulta de este turno REEMPLAZA por completo lo
      * que hubiera persistido antes: es la transición explícita que exige
@@ -2075,7 +2091,17 @@ export async function runAgentTurn(
       }
     }
     messages.push({ role: "assistant", content: JSON.stringify(action) });
-    messages.push({ role: "user", content: infoZona });
+    // Repetir el mismo hecho no lo saca del bucle: la segunda vez va la
+    // corrección, que sí es información nueva.
+    messages.push({
+      role: "user",
+      content: esRepetida ? CORRECCION_DE_DOMICILIO_YA_CONSULTADO : infoZona,
+    });
+    if (esRepetida) {
+      console.warn(
+        `[domicilio] ${organizationId}: el modelo repitió la consulta "${claveDeLaConsulta}" en el mismo turno; se le corrige en vez de repetirle el dato`
+      );
+    }
     const siguiente = await chatJson(AgentAction, messages, {
       jsonSchema: formatoDeRespuestaDeAccion(),
     });
@@ -2097,12 +2123,45 @@ export async function runAgentTurn(
     }
     action = siguiente.data;
   }
+  /**
+   * Se acabaron las consultas y el modelo pide otra.
+   *
+   * Hasta el 14-sep-2026 esto derivaba de una, y era el ÚNICO camino del
+   * pipeline que abandonaba al cliente sin intentar rescatarlo: todos los
+   * guardarraíles reintentan con una corrección antes de rendirse. Costó una
+   * clienta de MALIA que solo había dicho "para pedirte uno y paso a
+   * recogerlo" — la recogida ya estaba registrada, no faltaba ningún dato, y
+   * aun así se quedó cuatro minutos esperando para que le dijeran que la
+   * atendería una persona.
+   */
   if (action.action === "consultar_domicilio") {
-    await derivarAUnaPersona(conversation);
-    registrarHandoff(traza, "model_output_recovery_failed");
-    traza.accionFinal = "handoff";
-    registrarTrazaDelTurno(traza);
-    return { action: "handoff", reason: "error" };
+    console.warn(
+      `[domicilio] ${organizationId}: consultas agotadas y el modelo pide otra; se le corrige antes de derivar`
+    );
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+    messages.push({ role: "user", content: CORRECCION_DE_DOMICILIO_AGOTADO });
+    const rescate = await chatJson(AgentAction, messages, {
+      jsonSchema: formatoDeRespuestaDeAccion(),
+    });
+    await registrarUsoIa(
+      organizationId,
+      rescate.usage,
+      `conv:${conversationId}/domicilio-agotado`
+    );
+    if (rescate.ok && rescate.data.action !== "consultar_domicilio") {
+      action = rescate.data;
+      agregarGuardarrail(traza, "domicilio_en_bucle", true);
+    } else {
+      console.error(
+        `[domicilio] ${organizationId}: sigue pidiendo consultar domicilio tras la corrección; lo toma una persona`
+      );
+      agregarGuardarrail(traza, "domicilio_en_bucle", false);
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "model_output_recovery_failed");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
   }
 
   /**

@@ -338,6 +338,60 @@ describe("notify_order: el pedido usa EXACTAMENTE la tarifa verificada — el in
     expect(chatJson).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * MALIA, 14-sep-2026, 11:06. Una clienta escribió "Para pedirte uno y paso
+   * a recogerlo". El modelo registró la recogida, el backend le respondió
+   * "Registrado: este pedido es de recogida", y el modelo la volvió a
+   * registrar. Y otra vez. Agotó las dos consultas del turno y el pipeline
+   * derivó sin más: cuatro minutos y medio de espera para leer "te comunico
+   * con una persona", cuando no faltaba ningún dato para seguir.
+   *
+   * Dos cosas cambiaron: repetir una consulta ya no devuelve el mismo eco
+   * (que ya se había ignorado una vez), y agotar el presupuesto ya no
+   * significa abandonar sin intentar — como en todos los demás guardarraíles.
+   */
+  it("el modelo repite la misma consulta hasta agotar el turno: se le corrige y CONTESTA, no se deriva", async () => {
+    queueTurno(
+      [{ id: "m1", direction: "in", text: "Para pedirte uno y paso a recogerlo", createdAt: new Date() }],
+      [ZONA_KACHIPAY]
+    );
+    const recogida = { action: "consultar_domicilio", zona: "recogida", recogida: true };
+    const respuesta = {
+      action: "reply",
+      text: "¡Listo! Lo dejamos para recoger en el local 🏠 ¿Qué sabor quieres?",
+    };
+    chatJson
+      // pide recogida…
+      .mockResolvedValueOnce({ ok: true, data: recogida, raw: JSON.stringify(recogida) })
+      // …y la vuelve a pedir (aquí recibe la corrección, no el mismo dato)
+      .mockResolvedValueOnce({ ok: true, data: recogida, raw: JSON.stringify(recogida) })
+      // …e insiste una tercera vez: se agotan las consultas del turno
+      .mockResolvedValueOnce({ ok: true, data: recogida, raw: JSON.stringify(recogida) })
+      // el rescate: con la corrección final sí contesta al cliente
+      .mockResolvedValueOnce({ ok: true, data: respuesta, raw: JSON.stringify(respuesta) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_pedidos");
+
+    expect(action).toEqual(respuesta);
+    expect(notifyTeam).not.toHaveBeenCalled();
+  });
+
+  it("si ni con la corrección sale del bucle, ahí sí lo toma una persona", async () => {
+    queueTurno(
+      [{ id: "m1", direction: "in", text: "paso a recogerlo", createdAt: new Date() }],
+      [ZONA_KACHIPAY]
+    );
+    const recogida = { action: "consultar_domicilio", zona: "recogida", recogida: true };
+    // Insiste siempre, incluso tras la corrección final.
+    chatJson.mockResolvedValue({ ok: true, data: recogida, raw: JSON.stringify(recogida) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_pedidos");
+
+    expect(action).toEqual({ action: "handoff", reason: "error" });
+  });
+
   it("negocio con delivery_source='prompt' (comportamiento de siempre) — notify_order sin campos estructurados pasa exactamente igual que antes", async () => {
     const profileViejo = { ...PROFILE, deliverySource: "prompt" };
     selectQueue.push([CONVERSATION], [profileViejo], [...RESUMEN_PREVIO].reverse(), [], [], []);

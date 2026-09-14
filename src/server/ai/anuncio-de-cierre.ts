@@ -1124,10 +1124,28 @@ export function inconsistenciaFinancieraDePedido(input: {
     }
   }
 
+  /**
+   * Las mismas cifras legítimas que ya se le pasan a `dijoOtroValorDeDomicilio`
+   * en `reply` (pipeline.ts, 14-sep-2026) — el total y el subtotal real, para
+   * que "$64.000 con domicilio a Los Samanes" no se confunda con una tarifa
+   * inventada solo por caer cerca de la palabra "domicilio".
+   *
+   * Hasta aquí, este arreglo solo cubría `reply` — la pregunta de precio
+   * antes de pedir. `summary` y `farewell` son del CIERRE del pedido
+   * (`notify_order`) y seguían comparando solo contra la tarifa, con el
+   * mismo falso positivo posible. MALIA, 14-sep-2026 (`cv_zsinmell…`): pedido
+   * de $64.000 confirmado, zona verificada, y el farewell derivó con
+   * `despedida-contradice-tarifa` — mismo patrón, otro campo.
+   */
+  const cifrasLegitimasDelCierre = [totalCents, input.subtotalReal];
+
   // El campo estructurado puede estar perfecto y el TEXTO que de verdad
   // lee el equipo decir otra cosa — se comprueba aparte, siempre que haya
   // una tarifa efectiva conocida (de este turno o persistida).
-  if (zonaEfectiva && dijoOtroValorDeDomicilio(summary, zonaEfectiva.feeCents)) {
+  if (
+    zonaEfectiva &&
+    dijoOtroValorDeDomicilio(summary, zonaEfectiva.feeCents, cifrasLegitimasDelCierre)
+  ) {
     return "resumen-contradice-tarifa";
   }
   /**
@@ -1136,7 +1154,11 @@ export function inconsistenciaFinancieraDePedido(input: {
    * (lo que ve el cliente) diga la misma tarifa — son dos textos libres
    * independientes del mismo turno del modelo.
    */
-  if (zonaEfectiva && farewell && dijoOtroValorDeDomicilio(farewell, zonaEfectiva.feeCents)) {
+  if (
+    zonaEfectiva &&
+    farewell &&
+    dijoOtroValorDeDomicilio(farewell, zonaEfectiva.feeCents, cifrasLegitimasDelCierre)
+  ) {
     return "despedida-contradice-tarifa";
   }
 

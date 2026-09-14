@@ -104,6 +104,27 @@ dejó de hacer es bloquear cifras correctas.
   garantía contra el bug la da la prueba unitaria**, que sí reproduce el
   texto problemático.
 
+## Continuación — el mismo bug, un campo que quedó sin cubrir
+
+**14-sep-2026, misma tarde.** El arreglo de arriba solo tocó `reply` — la
+pregunta de precio antes de pedir. El monitoreo en vivo destapó que
+`summary` y `farewell` (el cierre del pedido, `notify_order`) llamaban a la
+misma función `dijoOtroValorDeDomicilio` **sin el tercer parámetro**, así
+que seguían con el bug original.
+
+MALIA, `cv_zsinmell29s4an7m12lu`: pedido de 4 pavés confirmado ($64.000),
+zona verificada, y `despedida-contradice-tarifa` disparó porque el
+`farewell` decía *"con domicilio a Los Samanes tu pedido queda en $64.000
+en total"* — el total, mencionado cerca de "domicilio", tomado otra vez por
+una tarifa inventada.
+
+Arreglo: las mismas cifras legítimas (`totalCents`, `subtotalReal`) ahora se
+pasan también en las comprobaciones de `summary` y `farewell`
+(`anuncio-de-cierre.ts:~1130-1145`). Pruebas nuevas en
+`inconsistencia-financiera.test.ts`: el caso exacto del incidente, y que una
+cifra que no corresponde a nada verificado (ni tarifa, ni total, ni
+subtotal) sigue bloqueando.
+
 ## Cómo revertir
 
 `git revert` del commit. El tercer parámetro de `dijoOtroValorDeDomicilio`

@@ -588,6 +588,46 @@ describe("inconsistenciaFinancieraDePedido — Fase 8D: fidelidad de farewell", 
     expect(r).toBe("despedida-contradice-tarifa");
   });
 
+  /**
+   * MALIA, 14-sep-2026 (conv `cv_zsinmell29s4an7m12lu`). Pedido de 4 pavés
+   * confirmado ($64.000), zona verificada ("Cañaverales - Los Samanes"), y el
+   * `farewell` mencionó el TOTAL ($64.000) — legítimo, es lo que el cliente
+   * debe pagar. El detector, sin conocer que $64.000 era el total, lo tomó
+   * por una tarifa de domicilio inventada. Mismo patrón que el Pavé 16oz
+   * (docs/korexia/170), esta vez en el cierre del pedido, no en una pregunta
+   * de precio — por eso el arreglo de esa tarde no lo cubría.
+   */
+  it("2c: farewell menciona el TOTAL cerca de 'domicilio' — no es una tarifa inventada (incidente del 14-sep)", () => {
+    const texto = "¡Gracias! Con domicilio a Los Samanes tu pedido queda en $64.000 en total.";
+    // Antes: solo se comparaba contra la tarifa → falso positivo.
+    expect(
+      inconsistenciaFinancieraDePedido({
+        summary: "4 Pavés — $60.000. Domicilio: $4.000. Total: $64.000",
+        farewell: texto,
+        subtotalCents: 6000000,
+        deliveryFeeCents: 400000,
+        totalCents: 6400000,
+        zonaVerificada: { feeCents: 400000 },
+        puedeVerificarDomicilio: true,
+      })
+    ).toBeNull();
+  });
+
+  it("sigue atrapando una cifra en el farewell que no corresponde a NADA verificado", () => {
+    const texto = "¡Gracias! El domicilio a Los Samanes son $9.999, en camino tu pedido.";
+    expect(
+      inconsistenciaFinancieraDePedido({
+        summary: "4 Pavés — $60.000. Domicilio: $4.000. Total: $64.000",
+        farewell: texto,
+        subtotalCents: 6000000,
+        deliveryFeeCents: 400000,
+        totalCents: 6400000,
+        zonaVerificada: { feeCents: 400000 },
+        puedeVerificarDomicilio: true,
+      })
+    ).toBe("despedida-contradice-tarifa");
+  });
+
   it("3: farewell sin ninguna cifra -> pasa, sin falso positivo", () => {
     const r = inconsistenciaFinancieraDePedido({
       summary: "1 Pavé — $18.000. Total: $18.000",

@@ -11,7 +11,33 @@ const MAX_RESERVAS = 4;
  */
 export const AgentAction = z.discriminatedUnion("action", [
   z.object({ action: z.literal("none") }),
-  z.object({ action: z.literal("reply"), text: z.string().min(1) }),
+  /**
+   * La respuesta que lee el cliente.
+   *
+   * `deliveryFeeCents` y `totalCents` son OPCIONALES y no cambian lo que se
+   * envía: son las cifras que el propio texto menciona, declaradas aparte
+   * para que el guardarraíl financiero las compare como NÚMEROS en vez de
+   * volver a leer la prosa. Mismos nombres que en `notify_order` a
+   * propósito — es el mismo dato, y ahí este patrón nunca ha fallado.
+   *
+   * Nace de un incidente real (MALIA, 13-sep-2026): a la pregunta *"¿qué
+   * vale el pavé de Milo grande con domicilio a Ciudad 2000?"* el backend
+   * verificó bien las dos cifras (producto $18.000, zona $8.000) y el
+   * modelo respondió el total correcto, $26.000. Pero
+   * `dijoOtroValorDeDomicilio` releía el texto, encontraba "$26.000" cerca
+   * de la palabra "domicilio", lo comparaba con los $8.000 verificados y
+   * concluía que el bot se había inventado la tarifa. Reintento, segundo
+   * fallo igual, y la clienta quedó derivada sin respuesta.
+   *
+   * Con la cifra declarada aparte no hay nada que adivinar: el guardarraíl
+   * sabe qué valores son legítimos en ese texto.
+   */
+  z.object({
+    action: z.literal("reply"),
+    text: z.string().min(1),
+    deliveryFeeCents: z.number().int().nonnegative().nullable().optional(),
+    totalCents: z.number().int().nonnegative().optional(),
+  }),
   z.object({
     action: z.literal("update_lead"),
     note: z.string().min(1),

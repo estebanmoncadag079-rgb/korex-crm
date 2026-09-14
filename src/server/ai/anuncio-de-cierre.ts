@@ -672,17 +672,47 @@ function figurasDeDomicilioEnCents(texto: string): number[] {
 }
 
 /**
- * `true` si el texto menciona una cifra de domicilio/envío DISTINTA de la
- * que `consultar_domicilio` verificó contra `delivery_zone` en este mismo
- * turno. No exige que el texto mencione domicilio — si no lo menciona,
- * nunca hay contradicción que detectar.
+ * `true` si el texto menciona, cerca de la palabra "domicilio", una cifra
+ * que NO corresponde a ningún valor que el backend verificó en este turno.
+ * No exige que el texto mencione domicilio — si no lo menciona, nunca hay
+ * contradicción que detectar.
+ *
+ * ⚠️ **La pregunta que hace este detector cambió el 14-sep-2026**, y ese es
+ * todo el arreglo. Antes preguntaba *"¿esta cifra ES la tarifa?"* y
+ * comparaba contra un solo número; ahora pregunta *"¿esta cifra corresponde
+ * a ALGO verificado?"* y compara contra todos.
+ *
+ * El incidente que lo obligó (MALIA, 13-sep-2026): *"¿qué vale el pavé de
+ * Milo grande con domicilio a Ciudad 2000?"*. Producto $18.000 y zona
+ * $8.000, ambos verificados; el modelo respondió el total correcto de
+ * $26.000. La ventana de 25 caracteres encontraba "$26.000" junto a
+ * "domicilio", veía que no era $8.000, y daba por inventada una tarifa que
+ * nadie había inventado. Dos intentos, handoff, clienta sin respuesta.
+ *
+ * Una pregunta de precio CON domicilio invita a responder el total cerca de
+ * la palabra "domicilio" — es la redacción natural, no un error del modelo.
+ *
+ * **No pierde capacidad de detección**: una cifra que no coincide con
+ * ninguno de los valores verificados sigue siendo una contradicción y sigue
+ * bloqueando. Lo que deja de hacer es bloquear cifras correctas.
  */
 export function dijoOtroValorDeDomicilio(
   texto: string | null | undefined,
-  feeCentsVerificado: number
+  feeCentsVerificado: number,
+  /**
+   * Las demás cifras que el backend dio por buenas en este turno (el total
+   * que el modelo declaró en `reply`, el subtotal de los ítems). Vacío
+   * mantiene exactamente el comportamiento anterior: quien no las pase
+   * sigue comparando solo contra la tarifa.
+   */
+  otrosValoresVerificados: readonly (number | null | undefined)[] = []
 ): boolean {
   if (!texto) return false;
-  return figurasDeDomicilioEnCents(texto).some((c) => c !== feeCentsVerificado);
+  const legitimas = new Set<number>([feeCentsVerificado]);
+  for (const valor of otrosValoresVerificados) {
+    if (typeof valor === "number" && Number.isFinite(valor)) legitimas.add(valor);
+  }
+  return figurasDeDomicilioEnCents(texto).some((c) => !legitimas.has(c));
 }
 
 export const CORRECCION_DE_DOMICILIO_CONTRADICHO =

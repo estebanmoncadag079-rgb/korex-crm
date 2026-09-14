@@ -47,6 +47,47 @@ describe("dijoOtroValorDeDomicilio", () => {
     expect(dijoOtroValorDeDomicilio(null, 1200000)).toBe(false);
     expect(dijoOtroValorDeDomicilio(undefined, 1200000)).toBe(false);
   });
+
+  /**
+   * EL INCIDENTE (MALIA, 13-sep-2026, conv cv_6jgzf5s7yprsv5rb1vfq).
+   *
+   * Clienta: "Hermosa una pregunta, que vale el pave de Milo grande con
+   * domicilio a ciudad 2000?". El backend verificó las dos cifras bien
+   * —Pavé Cremoso 16 oz $18.000, Ciudad 2000 $8.000— y el modelo respondió
+   * el total correcto: $26.000. Pero la ventana de 25 caracteres encontraba
+   * "$26.000" junto a la palabra "domicilio", veía que no era $8.000, y
+   * concluía que el bot se había inventado la tarifa. Reintento, mismo
+   * resultado, handoff: la clienta escribió "Gracias" y se quedó esperando.
+   *
+   * Preguntar "¿cuánto vale X CON domicilio?" invita a responder el total
+   * junto a esa palabra. Es la redacción natural, no un error del modelo.
+   */
+  it("EL TOTAL junto a la palabra domicilio no es una tarifa inventada (incidente Ciudad 2000)", () => {
+    // La cifra tiene que caer dentro de la ventana de 25 caracteres desde
+    // "domicilio" para que el detector la vea; así es como se disparó en
+    // producción. Un texto con el total más lejos ni siquiera reproduce el
+    // fallo (lo comprobó la primera versión de esta prueba).
+    const texto = "El Pavé de Milo grande es $18.000. El total con domicilio es $26.000";
+    // Antes: solo se comparaba contra la tarifa → falso positivo → handoff.
+    expect(dijoOtroValorDeDomicilio(texto, 800000)).toBe(true);
+    // Ahora, sabiendo que $26.000 es el total declarado, es una cifra legítima.
+    expect(dijoOtroValorDeDomicilio(texto, 800000, [2600000, 1800000])).toBe(false);
+  });
+
+  it("sigue atrapando una cifra que no corresponde a NINGÚN valor verificado", () => {
+    // $12.000 no es la tarifa ($8.000), ni el total ($26.000), ni el subtotal
+    // ($18.000): eso sí es una tarifa inventada y debe seguir bloqueando.
+    const texto = "El domicilio a Ciudad 2000 son $12.000";
+    expect(dijoOtroValorDeDomicilio(texto, 800000, [2600000, 1800000])).toBe(true);
+  });
+
+  it("las cifras legítimas nulas o ausentes se ignoran sin romper la comparación", () => {
+    // El modelo puede omitir totalCents: entonces se compara solo con lo que
+    // haya, que es exactamente el comportamiento anterior al cambio.
+    const texto = "El domicilio a Ciudad 2000 son $8.000";
+    expect(dijoOtroValorDeDomicilio(texto, 800000, [undefined, null])).toBe(false);
+    expect(dijoOtroValorDeDomicilio("El domicilio son $26.000", 800000, [null])).toBe(true);
+  });
 });
 
 /**

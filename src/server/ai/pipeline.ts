@@ -2105,11 +2105,29 @@ export async function runAgentTurn(
     return { action: "handoff", reason: "error" };
   }
 
-  /** Mismo criterio que el guardarraíl de producto, para la tarifa de domicilio. */
+  /**
+   * Mismo criterio que el guardarraíl de producto, para la tarifa de
+   * domicilio.
+   *
+   * Las cifras que el texto puede mencionar legítimamente son TRES, no una:
+   * la tarifa verificada, el subtotal que el backend ya calculó sobre los
+   * ítems, y el total que el modelo declara en `reply`. Pasarlas todas es lo
+   * que evita el falso positivo del 13-sep-2026 —responder "$26.000 con
+   * domicilio a Ciudad 2000" no es inventarse una tarifa— sin dejar de
+   * atrapar una cifra que no corresponda a nada verificado.
+   */
+  const cifrasLegitimasDelTurno =
+    action.action === "reply"
+      ? [action.totalCents, estadoGuardado?.totalCents]
+      : [estadoGuardado?.totalCents];
   if (
     resultadoZona?.status === "found" &&
     action.action === "reply" &&
-    dijoOtroValorDeDomicilio(action.text, resultadoZona.zona.feeCents)
+    dijoOtroValorDeDomicilio(
+      action.text,
+      resultadoZona.zona.feeCents,
+      cifrasLegitimasDelTurno
+    )
   ) {
     console.warn("[domicilio] contradijo la tarifa verificada; rehaciendo el turno");
     const reintento = await chatJson(AgentAction, [
@@ -2126,7 +2144,12 @@ export async function runAgentTurn(
       reintento.ok &&
       !(
         reintento.data.action === "reply" &&
-        dijoOtroValorDeDomicilio(reintento.data.text, resultadoZona.zona.feeCents)
+        dijoOtroValorDeDomicilio(
+          reintento.data.text,
+          resultadoZona.zona.feeCents,
+          // Las del REINTENTO: el modelo pudo declarar otro total al rehacer.
+          [reintento.data.totalCents, estadoGuardado?.totalCents]
+        )
       )
     ) {
       action = reintento.data;

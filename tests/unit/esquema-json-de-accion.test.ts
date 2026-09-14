@@ -61,4 +61,40 @@ describe("el esquema JSON de la acción no se separa de la unión de Zod", () =>
     // si una se queda fuera, el proveedor rechaza la petición entera.
     expect([...schema.required].sort()).toEqual(Object.keys(schema.properties).sort());
   });
+
+  /**
+   * La otra mitad del mismo contrato: no basta con que el campo EXISTA en los
+   * dos sitios, tiene que aceptar los mismos VALORES.
+   *
+   * El modo estricto obliga a declarar toda propiedad en `required`, así que
+   * el modelo emite todas en cada respuesta y rellena con `null` las que no
+   * apliquen a la acción elegida. Si Zod declara un campo `.optional()` sin
+   * `.nullable()`, ese `null` legítimo revienta la validación entera.
+   *
+   * Pasó en producción el 14-sep-2026: `totalCents` se añadió a `reply`
+   * copiando la forma de `notify_order` (`.optional()` a secas). Seis turnos
+   * rotos en dos horas con "no cumple el esquema: totalCents Expected number,
+   * received null", cada uno terminando en handoff por `backend_error` y
+   * dejando al cliente esperando minutos. `notify_order` se salvaba porque su
+   * camino limpia los nulos antes de validar; el bucle de
+   * `consultar_domicilio` llama al modelo directo y no limpia nada.
+   */
+  it("acepta los null que el modo estricto obliga al modelo a emitir", () => {
+    const comoLoManda = {
+      action: "reply" as const,
+      text: "Domicilio a Ciudad 2000: $8.000. Total: $26.000.",
+      deliveryFeeCents: null,
+      totalCents: null,
+    };
+    const r = AgentAction.safeParse(comoLoManda);
+    expect(
+      r.success,
+      `un reply con los numéricos en null debe validar: ${r.success ? "" : JSON.stringify(r.error.issues)}`
+    ).toBe(true);
+
+    // Y con valores reales sigue validando, que es para lo que existen.
+    expect(
+      AgentAction.safeParse({ ...comoLoManda, deliveryFeeCents: 800000, totalCents: 2600000 }).success
+    ).toBe(true);
+  });
 });

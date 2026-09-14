@@ -35,8 +35,20 @@ export const AgentAction = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("reply"),
     text: z.string().min(1),
+    /**
+     * ⚠️ Los dos aceptan `null`, y eso NO es decorativo: `CAMPOS_DE_ACCION`
+     * los declara como `["number","null"]`, así que el modelo los manda en
+     * `null` siempre que no apliquen (es el contrato plano del modo estricto
+     * del proveedor). La primera versión de esto copió `totalCents` de
+     * `notify_order` —donde es `.optional()` sin `nullable`— y rompió 6
+     * turnos en producción en dos horas: `no cumple el esquema: totalCents
+     * Expected number, received null`, cada uno terminando en handoff por
+     * `backend_error`. `notify_order` se salva porque su camino pasa por
+     * `sinNulos`; el bucle de `consultar_domicilio` llama a `chatJson`
+     * directo y no limpia nada.
+     */
     deliveryFeeCents: z.number().int().nonnegative().nullable().optional(),
-    totalCents: z.number().int().nonnegative().optional(),
+    totalCents: z.number().int().nonnegative().nullable().optional(),
   }),
   z.object({
     action: z.literal("update_lead"),

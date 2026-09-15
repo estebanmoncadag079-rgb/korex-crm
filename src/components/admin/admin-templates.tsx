@@ -103,6 +103,8 @@ export function AdminTemplates() {
   const [filtroProvider, setFiltroProvider] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [creando, setCreando] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [mensajeSync, setMensajeSync] = useState<string | null>(null);
   const [editando, setEditando] = useState<AdminTemplate | null>(null);
   const [detalle, setDetalle] = useState<AdminTemplate | null>(null);
 
@@ -126,6 +128,46 @@ export function AdminTemplates() {
     void refetch();
   }, [refetch]);
 
+  /**
+   * Trae a Korex las plantillas que el cliente creó y aprobó DIRECTAMENTE en
+   * YCloud. Hasta el 15-sep-2026 el endpoint existía pero no había forma de
+   * dispararlo desde la interfaz: había que llamarlo por código, así que en
+   * la práctica las plantillas aprobadas no llegaban nunca.
+   *
+   * Pide una organización concreta a propósito: el endpoint sincroniza
+   * contra el WABA de UN cliente, y hacerlo "para todos" a ciegas
+   * multiplicaría llamadas al proveedor sin que nadie las haya pedido.
+   */
+  async function traerDeYCloud() {
+    if (!filtroOrg) {
+      setMensajeSync("Elige primero un cliente en el filtro de arriba.");
+      return;
+    }
+    setSincronizando(true);
+    setMensajeSync(null);
+    const res = await fetch("/api/admin/templates/sync-ycloud", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ organizationId: filtroOrg }),
+    }).catch(() => null);
+    setSincronizando(false);
+    if (!res?.ok) {
+      setMensajeSync(await leerError(res));
+      return;
+    }
+    const r = (await res.json()) as {
+      creadas: number;
+      actualizadas: number;
+      marcadasAusentes: number;
+      total: number;
+    };
+    setMensajeSync(
+      `${r.total} plantilla(s) en YCloud · ${r.creadas} nueva(s), ` +
+        `${r.actualizadas} actualizada(s), ${r.marcadasAusentes} ya no está(n) allá.`
+    );
+    void refetch();
+  }
+
   useEffect(() => {
     // Reutiliza el listado ya existente de clientes (mismo patrón que el
     // resto del panel de agencia) en vez de un endpoint nuevo solo para esto.
@@ -146,12 +188,31 @@ export function AdminTemplates() {
           su propia configuración.
         </p>
         {!creando && (
-          <Button onClick={() => setCreando(true)}>
-            <Plus className="h-4 w-4" />
-            Nuevo borrador
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => void traerDeYCloud()}
+              disabled={sincronizando}
+              title="Trae las plantillas que el cliente creó y aprobó directamente en YCloud"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${sincronizando ? "animate-spin" : ""}`}
+              />
+              {sincronizando ? "Trayendo…" : "Traer de YCloud"}
+            </Button>
+            <Button onClick={() => setCreando(true)}>
+              <Plus className="h-4 w-4" />
+              Nuevo borrador
+            </Button>
+          </div>
         )}
       </div>
+
+      {mensajeSync && (
+        <p className="text-sm text-muted-foreground" role="status">
+          {mensajeSync}
+        </p>
+      )}
 
       {creando && (
         <TemplateForm

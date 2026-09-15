@@ -266,9 +266,29 @@ function esRespuestaDeTemplateValida(mapeado: TemplateYCloudMapeado): boolean {
  */
 function extraerListaDeTemplates(json: unknown): unknown[] | null {
   if (json === null || typeof json !== "object") return null;
-  const data = (json as { data?: unknown }).data;
-  if (!Array.isArray(data)) return null;
-  return data;
+  /**
+   * `items` es lo que YCloud devuelve DE VERDAD en
+   * `GET /v2/whatsapp/templates`. Verificado contra producción el
+   * 15-sep-2026 con el WABA de Camilabrandcol:
+   *
+   *     { "offset": 0, "limit": 10, "length": 1, "items": [ … ] }
+   *
+   * Hasta ese día aquí solo se leía `data`, así que toda respuesta real
+   * caía en `AMBIGUOUS` ("2xx sin una lista reconocible") y **la
+   * sincronización nunca pudo traer una sola plantilla**. No se detectó
+   * antes porque esta función no tuvo ningún caller en producción hasta
+   * la Fase 10D (ver el comentario de `sync-ycloud-templates.ts`), y
+   * porque su prueba unitaria daba por buena la forma `data[]` sin
+   * haberla contrastado nunca con la API.
+   *
+   * Se siguen aceptando las dos: `items` es la real; `data` se conserva
+   * por si alguna ruta del proveedor la usa, y para no romper nada que
+   * ya dependiera de ella.
+   */
+  const contenedor = json as { items?: unknown; data?: unknown };
+  if (Array.isArray(contenedor.items)) return contenedor.items;
+  if (Array.isArray(contenedor.data)) return contenedor.data;
+  return null;
 }
 
 /** 401/403 auth, 404 not_found, 409 conflict, 429 rate_limited, cualquier otro 4xx → validation. Nunca se llama para 5xx (esos son AMBIGUOUS, más arriba). */

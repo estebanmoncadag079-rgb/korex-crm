@@ -442,6 +442,60 @@ describe("listarTemplatesYCloud", () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * LA FORMA REAL. Copiada literalmente de lo que YCloud respondió en
+   * producción el 15-sep-2026 para el WABA de Camilabrandcol
+   * (`360940597111677`), con su plantilla `ventana_cerrada_23h` aprobada.
+   *
+   * El caso "R" de arriba usa `data[]` y pasaba en verde desde la Fase 9D,
+   * pero esa forma se dio por buena sin contrastarla nunca contra la API:
+   * **la respuesta real viene en `items`**. Con solo `data`, toda
+   * sincronización real devolvía AMBIGUOUS y no traía ni una plantilla.
+   */
+  it("R2: 200 con items[] (la forma REAL de YCloud) → SUCCESS, no AMBIGUOUS", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        respuesta(200, {
+          offset: 0,
+          limit: 10,
+          length: 1,
+          items: [
+            {
+              officialTemplateId: "998036376595829",
+              wabaId: "360940597111677",
+              name: "ventana_cerrada_23h",
+              language: "es_CO",
+              category: "UTILITY",
+              status: "APPROVED",
+              components: [
+                { type: "BODY", text: "✨ ¡Hola! Bienvenido(a) a Camilabrandcol" },
+                { type: "HEADER", format: "TEXT", text: "{{1}} Estamos para ayudarte" },
+                { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Continuar consulta." }] },
+              ],
+            },
+          ],
+        })
+      )
+    );
+    const r = await listarTemplatesYCloud({ apiKey: "k", wabaId: "360940597111677" });
+    expect(r.kind).toBe("SUCCESS");
+    if (r.kind === "SUCCESS") {
+      expect(r.templates).toHaveLength(1);
+      expect(r.templates[0]!.name).toBe("ventana_cerrada_23h");
+      expect(r.templates[0]!.providerStatus).toBe("APPROVED");
+      expect(r.templates[0]!.language).toBe("es_CO");
+    }
+    vi.unstubAllGlobals();
+  });
+
+  it("R3: un 2xx sin lista reconocible sigue siendo AMBIGUOUS, no una lista vacía", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(respuesta(200, { total: 1 })));
+    const r = await listarTemplatesYCloud({ apiKey: "k", wabaId: "waba_1" });
+    expect(r.kind).toBe("AMBIGUOUS");
+    vi.unstubAllGlobals();
+  });
+
   it("S: 401 → EXPLICIT_FAILURE authentication", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(respuesta(401, { message: "no autorizado" })));
     const r = await listarTemplatesYCloud({ apiKey: "k", wabaId: "waba_1" });

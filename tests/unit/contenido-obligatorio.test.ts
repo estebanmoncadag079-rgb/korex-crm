@@ -278,3 +278,42 @@ describe("correccionDeContenidoFaltante: nombra lo que falta, nunca dice 'algo'"
     expect(texto.toLowerCase()).not.toContain("algo que falta");
   });
 });
+
+/**
+ * INCIDENTE REAL (Lis Pastelería, 15-sep-2026, `cv_qe4v3mxc9txnxitfcgnm`).
+ *
+ * La MISMA raíz `pedi` que salva el caso de Maricel (arriba) causaba un
+ * bucle a mitad de pedido. Sofi ya tenía el Cremoso Franui en su carrito:
+ *
+ *     CLIENTE  "Si me gustaría añadirlo a mi pedido"  → disparaba el catálogo
+ *     BOT      [reenviaba la oferta completa con el link]
+ *     CLIENTE  "Quiero añadirlo a mi pedido"          → disparaba otra vez
+ *     BOT      [la misma frase, palabra por palabra]
+ *
+ * Tres veces, hasta que la atendió una persona. La distinción no es la
+ * palabra sino el momento: con el carrito vacío "pedido" significa *quiero
+ * empezar*; con algo dentro, *lo que ya estamos armando*.
+ */
+describe("el bucle de Sofi: 'pedido' a mitad de un pedido en curso", () => {
+  const catalogoDeLis = extraerContenidoObligatorio(undefined, KB_LIS).filter(
+    (c) => c.literal === ENLACE
+  )[0]!;
+
+  it("EL INCIDENTE: con el carrito lleno, 'añadirlo a mi pedido' ya NO pide el catálogo", () => {
+    expect(disparadoPor(["Quiero añadirlo a mi pedido"], catalogoDeLis, true)).toBe(false);
+    expect(disparadoPor(["Si me gustaría añadirlo a mi pedido"], catalogoDeLis, true)).toBe(false);
+  });
+
+  it("el caso de Maricel sigue intacto: con el carrito VACÍO sí lo pide", () => {
+    expect(disparadoPor(["¡Hola! Quiero hacer un pedido"], catalogoDeLis, false)).toBe(true);
+  });
+
+  it("preguntar por el catálogo a mitad del pedido SÍ lo sigue enviando", () => {
+    expect(disparadoPor(["¿tienen fotos del menú?"], catalogoDeLis, true)).toBe(true);
+    expect(disparadoPor(["me pasas el catálogo?"], catalogoDeLis, true)).toBe(true);
+  });
+
+  it("sin el parámetro, se comporta como siempre (retrocompatible)", () => {
+    expect(disparadoPor(["Quiero añadirlo a mi pedido"], catalogoDeLis)).toBe(true);
+  });
+});

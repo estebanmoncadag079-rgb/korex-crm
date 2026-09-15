@@ -3271,7 +3271,12 @@ export async function runAgentTurn(
       fichaDelNegocio as FichaDelNegocio,
       kb
     );
-    const disparado = contenidoObligatorio.filter((c) => disparadoPor(pendientesDelCliente, c));
+    // Con algo ya en el carrito, "añádelo a mi pedido" deja de significar
+    // "muéstrame el catálogo" — ver el incidente en `disparadoPor`.
+    const hayPedidoEnCurso = (estadoGuardado?.items?.length ?? 0) > 0;
+    const disparado = contenidoObligatorio.filter((c) =>
+      disparadoPor(pendientesDelCliente, c, hayPedidoEnCurso)
+    );
     if (disparado.length > 0) {
       const faltaAntes = disparado.filter(
         (c) => !textosAlCliente(action).some((t) => t.includes(c.literal))
@@ -3500,9 +3505,26 @@ export async function runAgentTurn(
       return action;
     }
     case "handoff": {
-      if (action.farewell) {
-        await deliverReply(conversation, action.farewell);
-      }
+      /**
+       * El cliente SIEMPRE se entera de que viene una persona.
+       *
+       * `farewell` es opcional en el contrato, así que hasta el 15-sep-2026
+       * una derivación sin despedida salía MUDA: el agente dejaba de
+       * responder y el cliente no recibía nada. Si además el negocio no
+       * tiene números de aviso configurados —el caso de Lis, MALIA y La
+       * Churra—, tampoco se enteraba el equipo: silencio por los dos lados.
+       *
+       * Incidente real (Lis Pastelería, 15-sep, `cv_z4d9leo1jbencecfx2dl`):
+       * la clienta mandó una foto del producto que quería, el modelo derivó
+       * sin `farewell`, y estuvo **nueve minutos** sin recibir una sola
+       * palabra —ni del bot ni de nadie— hasta que alguien miró la bandeja
+       * por casualidad.
+       *
+       * El prompt ya le pide al modelo despedirse aquí, y casi siempre lo
+       * hace; esto es la red para cuando no. Nunca pisa su texto: solo
+       * cubre la ausencia.
+       */
+      await deliverReply(conversation, action.farewell || AVISO_DE_DERIVACION);
       await applyHandoff(conversationId, organizationId, "modelo");
       // Fase 10T — bug real: este camino (decisión del MODELO, no error ni
       // FR-022) marcaba el handoff sin avisar nunca al equipo por WhatsApp —

@@ -92,6 +92,15 @@ const PALABRAS_DE_INSTRUCCION = new Set([
   "diga", "quiere", "pregunte", "eso", "antes", "despues",
 ]);
 
+/**
+ * Raíces de los verbos del ACTO DE COMPRAR ("pedir", "comprar", "ordenar"…),
+ * ya cortadas a 4 letras como las produce `raiz()`.
+ *
+ * Sirven de disparador SOLO mientras el cliente no tenga nada en el pedido.
+ * El porqué, con su incidente, en `disparadoPor`.
+ */
+const RAICES_DE_COMPRA = new Set(["pedi", "comp", "orde", "enca", "llev"]);
+
 function normalizar(s: string): string {
   return s
     .toLowerCase()
@@ -199,9 +208,48 @@ function clausulaDelDisparador(regla: string): string | null {
 }
 
 /** `true` si algo de lo que el cliente escribió coincide con el disparador. */
-export function disparadoPor(mensajesDelCliente: readonly string[], contenido: ContenidoObligatorio): boolean {
+export function disparadoPor(
+  mensajesDelCliente: readonly string[],
+  contenido: ContenidoObligatorio,
+  /**
+   * ¿El cliente YA tiene algo en el pedido? Cuando es `true`, los verbos de
+   * compra dejan de valer como disparador.
+   *
+   * INCIDENTE REAL (Lis Pastelería, 15-sep-2026, `cv_qe4v3mxc9txnxitfcgnm`).
+   * Su entrada de conocimiento está impecablemente escrita:
+   *
+   *     "¿Tienen catálogo o fotos del menú para ver antes de pedir?"
+   *
+   * De ahí sale la raíz `pedi` —de "pedir"—, que por diseño colisiona con
+   * "pedido" (`raiz()`, 4 letras, sin diccionario de conjugaciones). Eso es
+   * DELIBERADO y correcto al empezar: "¡Hola! Quiero hacer un pedido" debe
+   * recibir el catálogo, que es el caso de Maricel (doc 125).
+   *
+   * Pero a mitad de un pedido en curso significa lo contrario:
+   *
+   *     CLIENTE  "Si me gustaría añadirlo a mi pedido"  → disparaba el catálogo
+   *     BOT      [reenvía la oferta completa con el link]
+   *     CLIENTE  "Quiero añadirlo a mi pedido"          → disparaba otra vez
+   *     BOT      [la misma frase, palabra por palabra]
+   *
+   * Tres veces seguidas mientras la clienta intentaba avanzar: el guardarraíl
+   * exigía el link, y la única frase del modelo que lo contiene es la oferta
+   * inicial, así que la conversación no podía salir del bucle. La atendió una
+   * persona.
+   *
+   * La distinción no es la palabra, es el momento. Con el carrito vacío,
+   * "pedido" significa *quiero empezar*; con algo dentro, significa *lo que
+   * ya estamos armando*. Las demás raíces (`cata`, `foto`, `menu`…) siguen
+   * disparando siempre: quien pregunta por el catálogo a mitad del pedido sí
+   * debe recibirlo.
+   */
+  hayPedidoEnCurso = false
+): boolean {
   const normalizado = normalizar(mensajesDelCliente.join(" "));
-  return contenido.raices.some((r) => normalizado.includes(r));
+  const raices = hayPedidoEnCurso
+    ? contenido.raices.filter((r) => !RAICES_DE_COMPRA.has(r))
+    : contenido.raices;
+  return raices.some((r) => normalizado.includes(r));
 }
 
 /** El texto de corrección, listando exactamente qué falta — nunca "algo". */

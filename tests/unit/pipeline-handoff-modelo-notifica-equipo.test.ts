@@ -169,4 +169,37 @@ describe("runAgentTurn: handoff decidido por el modelo (regla de negocio) SÍ no
     );
     expect(handoffUpdate?.values).toMatchObject({ handoffReason: "modelo" });
   });
+  /**
+   * INCIDENTE REAL (Lis Pastelería, 15-sep-2026, `cv_z4d9leo1jbencecfx2dl`).
+   *
+   * `farewell` es opcional en el contrato, así que una derivación sin
+   * despedida salía MUDA: el agente dejaba de responder y el cliente no
+   * recibía nada. Si además el negocio no tiene números de aviso
+   * configurados —Lis, MALIA y La Churra— tampoco se enteraba el equipo.
+   *
+   * La clienta mandó una foto del producto que quería, el modelo derivó sin
+   * `farewell`, y estuvo NUEVE MINUTOS sin una sola palabra —ni del bot ni
+   * de nadie— hasta que alguien miró la bandeja por casualidad.
+   */
+  it("derivación SIN farewell: el cliente igual recibe aviso, nunca queda en silencio", async () => {
+    queueTurnoBase();
+    chatJson.mockResolvedValueOnce({
+      ok: true,
+      data: { action: "handoff", reason: "pide algo personalizado" },
+      raw: "{}",
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_1");
+
+    expect(action?.action).toBe("handoff");
+
+    const alCliente = inserted.find(
+      (i) => (i.values as { direction?: string }).direction === "out"
+    );
+    expect(alCliente).toBeDefined();
+    expect(String(alCliente?.values.text)).toMatch(/persona del equipo/i);
+    // Y el equipo se sigue enterando, como antes.
+    expect(notifyTeam).toHaveBeenCalledTimes(1);
+  });
 });

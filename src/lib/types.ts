@@ -37,6 +37,8 @@ export type TemplateDto = {
   body: string;
   status: "draft" | "pending" | "approved" | "rejected";
   rejectionReason: string | null;
+  /** Texto del encabezado cuando lleva `{{1}}`; `null` si no hay variable ahí. */
+  headerText: string | null;
 };
 
 export type StageDto = {

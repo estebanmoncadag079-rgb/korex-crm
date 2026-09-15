@@ -20,6 +20,7 @@ export function TemplateSender({
   const [templates, setTemplates] = useState<TemplateDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string>("");
   const [variable, setVariable] = useState("");
+  const [headerVariable, setHeaderVariable] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,6 +61,14 @@ export function TemplateSender({
 
   const selected = templates.find((t) => t.id === selectedId) ?? null;
   const needsVariable = selected ? /\{\{\s*1\s*\}\}/.test(selected.body) : false;
+  /**
+   * El encabezado puede llevar su PROPIA variable, distinta de la del
+   * cuerpo (Meta las numera por componente). Antes esto no se miraba: una
+   * plantilla con el cuerpo fijo y el encabezado personalizado no pedía
+   * ningún valor, se enviaba sin él, y Meta la rechazaba con `#132000`
+   * (incidente de Camilabrandcol, 15-sep-2026).
+   */
+  const needsHeaderVariable = Boolean(selected?.headerText);
 
   async function send() {
     if (!selected || sending) return;
@@ -73,6 +82,7 @@ export function TemplateSender({
         body: JSON.stringify({
           templateId: selected.id,
           variable: needsVariable ? variable : undefined,
+          headerVariable: needsHeaderVariable ? headerVariable : undefined,
         }),
       }
     );
@@ -86,6 +96,7 @@ export function TemplateSender({
     }
     setSelectedId("");
     setVariable("");
+    setHeaderVariable("");
     onSent();
   }
 
@@ -109,8 +120,26 @@ export function TemplateSender({
       </div>
       {selected && (
         <p className="rounded-md bg-secondary/60 p-2.5 text-xs text-muted-foreground">
+          {selected.headerText && (
+            <span className="mb-1 block font-medium text-foreground">
+              {selected.headerText}
+            </span>
+          )}
           {selected.body}
         </p>
+      )}
+      {needsHeaderVariable && (
+        <div className="space-y-1.5">
+          <Label htmlFor="template-header-variable">
+            Valor de {"{{1}}"} en el encabezado
+          </Label>
+          <Input
+            id="template-header-variable"
+            value={headerVariable}
+            onChange={(e) => setHeaderVariable(e.target.value)}
+            placeholder="p. ej. el nombre del cliente"
+          />
+        </div>
       )}
       {needsVariable && (
         <div className="space-y-1.5">
@@ -126,7 +155,12 @@ export function TemplateSender({
       {error && <p className="text-xs text-destructive">{error}</p>}
       <Button
         onClick={() => void send()}
-        disabled={!selected || sending || (needsVariable && !variable.trim())}
+        disabled={
+          !selected ||
+          sending ||
+          (needsVariable && !variable.trim()) ||
+          (needsHeaderVariable && !headerVariable.trim())
+        }
       >
         {sending ? "Enviando…" : "Enviar plantilla"}
       </Button>

@@ -20,6 +20,28 @@ export function countVariables(body: string): number {
   return matches.length;
 }
 
+/**
+ * El texto del HEADER cuando lleva una variable `{{1}}`, o `null`.
+ *
+ * Meta numera las variables POR COMPONENTE: el `{{1}}` del header y el
+ * `{{1}}` del body son dos parámetros distintos e independientes, y cada
+ * uno viaja en su propio componente del envío.
+ *
+ * Incidente real (Camilabrandcol, 15-sep-2026): su plantilla
+ * `ventana_cerrada_23h` tiene el body SIN variables y el header con
+ * `"{{1}} Estamos para ayudarte"`. Korex solo miraba el body, concluía
+ * "no necesita ningún dato", no lo pedía ni lo enviaba, y Meta rechazaba
+ * con `(#132000) Number of parameters does not match the expected number
+ * of params`. El mensaje nunca salió.
+ */
+export function headerTextConVariable(
+  components: TemplateComponents | null | undefined
+): string | null {
+  const header = components?.header;
+  if (!header || header.type !== "TEXT") return null;
+  return countVariables(header.text) === 1 ? header.text : null;
+}
+
 /** Valida el acotamiento v1: como máximo una variable, y debe ser {{1}}. Devuelve el mensaje de error, o null si es válido. */
 export function validateBodyVariables(body: string): string | null {
   const matches = [...body.matchAll(VARIABLE_REGEX)];

@@ -13,6 +13,7 @@ import type { WebhookValue } from "@/server/inbox/webhook";
 import {
   VARIABLE_REGEX,
   countVariables,
+  headerTextConVariable,
   validateBodyVariables,
   validateComponents,
   type TemplateComponents,
@@ -120,6 +121,13 @@ export function serializeTemplate(t: TemplateRow) {
     body: t.body,
     status: t.status,
     rejectionReason: t.rejectionReason,
+    /**
+     * El texto del header cuando lleva `{{1}}`. Lo necesita quien envía:
+     * sin este dato la pantalla no puede saber que hay que pedir un valor
+     * más, y el envío sale sin él (Meta lo rechaza con `#132000`). No es
+     * información sensible — es el texto de la propia plantilla.
+     */
+    headerText: headerTextConVariable(t.components),
   };
 }
 
@@ -1011,6 +1019,8 @@ export async function enviarTemplateAlProveedor(input: {
   conversationId: string;
   templateId: string;
   variable?: string;
+  /** Valor del `{{1}}` del HEADER — parámetro distinto del `variable` del body. */
+  headerVariable?: string;
   retry?: boolean;
   timeoutMs?: number;
   /**
@@ -1060,6 +1070,23 @@ export async function enviarTemplateAlProveedor(input: {
   if (needsVariable && !input.variable?.trim()) {
     throw new TemplateError("invalid", "La plantilla requiere el valor de {{1}}");
   }
+
+  /**
+   * La variable del HEADER es un parámetro distinto del `{{1}}` del body
+   * (Meta las numera por componente). Ver `headerTextConVariable` para el
+   * incidente que lo destapó: sin esto, una plantilla con header
+   * personalizado se rechaza con `#132000` y el mensaje nunca sale.
+   */
+  const textoHeaderConVariable = headerTextConVariable(contenido.components);
+  if (textoHeaderConVariable && !input.headerVariable?.trim()) {
+    throw new TemplateError(
+      "invalid",
+      "La plantilla requiere el valor de {{1}} del encabezado"
+    );
+  }
+  const headerTextParam = textoHeaderConVariable
+    ? input.headerVariable!.trim()
+    : undefined;
 
   const rows = await db
     .select({ conversation: schema.conversation, contact: schema.contact })
@@ -1125,6 +1152,7 @@ export async function enviarTemplateAlProveedor(input: {
         language: contenido.language,
         bodyParams,
         headerImageUrl,
+        headerTextParam,
         apiKey: clientApiKey,
         retry: input.retry,
         timeoutMs: input.timeoutMs,
@@ -1143,6 +1171,11 @@ export async function enviarTemplateAlProveedor(input: {
   const graphComponents = [
     ...(headerImageUrl
       ? [{ type: "header", parameters: [{ type: "image", image: { link: headerImageUrl } }] }]
+      : []),
+    // Header de TEXTO con variable — excluyente con el de imagen: una
+    // plantilla tiene un solo header, y si es TEXT no puede ser IMAGE.
+    ...(headerTextParam
+      ? [{ type: "header", parameters: [{ type: "text", text: headerTextParam }] }]
       : []),
     ...(needsVariable ? [{ type: "body", parameters: [{ type: "text", text: bodyParams[0]! }] }] : []),
   ];
@@ -1180,6 +1213,8 @@ export async function sendTemplate(input: {
   conversationId: string;
   templateId: string;
   variable?: string;
+  /** Valor del `{{1}}` del HEADER, si la plantilla lo lleva. */
+  headerVariable?: string;
 }): Promise<{ messageId: string }> {
   const resultado = await enviarTemplateAlProveedor(input);
   if (resultado.kind !== "SUCCESS") {

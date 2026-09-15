@@ -57,6 +57,16 @@ export async function ycloudSendTemplate(input: {
    * lo reemplaza.
    */
   headerImageUrl?: string;
+  /**
+   * Valor del `{{1}}` de un header de TEXTO. Excluyente con
+   * `headerImageUrl`: una plantilla tiene un solo header.
+   *
+   * Sin esto, una plantilla con encabezado personalizado se rechazaba con
+   * `(#132000) Number of parameters does not match the expected number of
+   * params` — el envío solo sabía mandar headers de imagen (incidente de
+   * Camilabrandcol, 15-sep-2026; ver `headerTextConVariable`).
+   */
+  headerTextParam?: string;
   apiKey?: string | null;
   retry?: boolean;
   timeoutMs?: number;
@@ -71,7 +81,14 @@ export async function ycloudSendTemplate(input: {
           parameters: [{ type: "image", image: { link: input.headerImageUrl } }],
         },
       ]
-    : [];
+    : input.headerTextParam
+      ? [
+          {
+            type: "header",
+            parameters: [{ type: "text", text: input.headerTextParam }],
+          },
+        ]
+      : [];
   const bodyComponent = input.bodyParams.length
     ? [
         {

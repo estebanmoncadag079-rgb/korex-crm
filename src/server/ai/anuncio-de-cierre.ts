@@ -397,6 +397,72 @@ const ANUNCIA_RESUMEN: RegExp[] = [
  */
 export const TIENE_TOTAL = /total\b[^\n$]{0,40}\$\s*[\d][\d.,]*/i;
 
+/** Una cifra en centavos, escrita como la escribe el negocio: `$42.000`. */
+function enPesos(cents: number): string {
+  return `$${Math.round(cents / 100).toLocaleString("es-CO", { minimumFractionDigits: 0 })}`;
+}
+
+/**
+ * LAS CIFRAS DEL CIERRE, ESCRITAS POR EL BACKEND.
+ *
+ * Esta función existe para terminar con una familia entera de incidentes, no
+ * para detectarlos mejor.
+ *
+ * Durante la semana del 8 al 15-sep-2026, CUATRO guardarraíles distintos
+ * derivaron pedidos correctos por lo mismo: el backend conocía una cifra con
+ * certeza, el modelo la escribía en prosa, y un guardarraíl releía esa prosa
+ * con una expresión regular y una ventana de 25 caracteres para comprobar
+ * que coincidieran. Cambiaba la frase y fallaba distinto:
+ *
+ *   `domicilio_contradicho`        — tomó el TOTAL por la tarifa (doc 170)
+ *   `despedida-contradice-tarifa`  — lo mismo en el farewell (doc 170)
+ *   `resumen-contradice-total-real`— MALIA, 15-sep: pedido de $42.000 con
+ *                                    subtotal, domicilio y total correctos
+ *   (y el mismo patrón en `reply`, que ya llevaba su propio parche)
+ *
+ * Cada arreglo tapaba un camino y el siguiente incidente entraba por otro,
+ * porque la causa nunca fue el detector: es que **la misma cifra viajaba dos
+ * veces —una como dato verificado y otra como prosa del modelo— y podían
+ * divergir**.
+ *
+ * Aquí se corta de raíz: el bloque lo escribe el backend con los números que
+ * ya calculó (subtotal contra el catálogo, domicilio contra `delivery_zone`),
+ * y se adjunta al cierre. Ya no hay dos versiones que puedan contradecirse,
+ * así que no hay nada que verificar.
+ *
+ * Devuelve `null` cuando el backend NO tiene la certeza completa —sin
+ * subtotal calculado, o con un domicilio sin verificar—: en ese caso no se
+ * afirma nada y el cierre sigue el camino de siempre. **Medio total es peor
+ * que ninguno.**
+ */
+export function bloqueDeCifrasVerificadas(input: {
+  /** Suma de los ítems contra el catálogo (`EstadoDelPedido.totalCents`). */
+  subtotalCents: number | null | undefined;
+  /** La entrega ya verificada y persistida, si la hay. */
+  entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+}): string | null {
+  const { subtotalCents, entrega } = input;
+  if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
+
+  const lineas = [`Subtotal: ${enPesos(subtotalCents)}`];
+
+  if (entrega?.tipo === "domicilio") {
+    // Un domicilio cuya tarifa no está verificada no puede escribirse como
+    // si lo estuviera: sin ella, este bloque no existe.
+    if (typeof entrega.feeCents !== "number") return null;
+    lineas.push(`Domicilio: ${enPesos(entrega.feeCents)}`);
+    lineas.push(`Total: ${enPesos(subtotalCents + entrega.feeCents)}`);
+  } else if (entrega?.tipo === "recogida") {
+    lineas.push("Recoges en el local (sin domicilio)");
+    lineas.push(`Total: ${enPesos(subtotalCents)}`);
+  } else {
+    // Sin modalidad resuelta todavía: solo se afirma lo que es seguro.
+    lineas.push(`Total: ${enPesos(subtotalCents)}`);
+  }
+
+  return lineas.join("\n");
+}
+
 /**
  * Las formas en que una cifra en centavos puede aparecer escrita en un
  * mensaje real. `1900000` → `19.000` (es-CO, la que usa el propio agente),
@@ -967,6 +1033,23 @@ export function inconsistenciaFinancieraDePedido(input: {
    * límite y qué haría falta para cerrarlo en el modo `'prompt'`.
    */
   subtotalReal?: number;
+  /**
+   * `true` cuando el backend pudo escribir el bloque de cifras del cierre
+   * (`bloqueDeCifrasVerificadas` devolvió texto) y ese bloque es el que va a
+   * leer el cliente.
+   *
+   * Con él, los cuatro chequeos que releían la prosa del modelo buscando
+   * cifras se apagan: ya no hay dos versiones de la misma cifra que puedan
+   * contradecirse, así que solo podrían producir falsos positivos. Los
+   * chequeos NUMÉRICOS (`total-no-cuadra`, `subtotal-no-coincide-con-el-
+   * carrito`, `domicilio-*`) siguen corriendo siempre — esos nunca han
+   * fallado, porque comparan número contra número.
+   *
+   * Ausente o `false` = el backend no tuvo certeza completa y el texto del
+   * modelo es la única cifra que el cliente verá: ahí los chequeos de texto
+   * se mantienen tal cual estaban.
+   */
+  cifrasLasEscribeElBackend?: boolean;
 }): InconsistenciaFinanciera {
   const { summary, farewell, subtotalCents, deliveryFeeCents, totalCents, zonaVerificada } = input;
 
@@ -1139,27 +1222,45 @@ export function inconsistenciaFinancieraDePedido(input: {
    */
   const cifrasLegitimasDelCierre = [totalCents, input.subtotalReal];
 
-  // El campo estructurado puede estar perfecto y el TEXTO que de verdad
-  // lee el equipo decir otra cosa — se comprueba aparte, siempre que haya
-  // una tarifa efectiva conocida (de este turno o persistida).
-  if (
-    zonaEfectiva &&
-    dijoOtroValorDeDomicilio(summary, zonaEfectiva.feeCents, cifrasLegitimasDelCierre)
-  ) {
-    return "resumen-contradice-tarifa";
-  }
   /**
-   * Fase 8D — mismo chequeo, sobre lo que de verdad lee el CLIENTE. Un
-   * `summary` correcto (lo que ve el equipo) no garantiza que `farewell`
-   * (lo que ve el cliente) diga la misma tarifa — son dos textos libres
-   * independientes del mismo turno del modelo.
+   * ── LOS CHEQUEOS DE TEXTO SE RETIRAN AQUÍ (15-sep-2026) ──────────────
+   *
+   * `resumen-contradice-tarifa` y `despedida-contradice-tarifa` releían el
+   * texto del modelo buscando cifras de domicilio y las comparaban con la
+   * tarifa verificada. Los sustituye `bloqueDeCifrasVerificadas`: el
+   * backend ESCRIBE las cifras del cierre, así que ya no existen dos
+   * versiones que puedan contradecirse.
+   *
+   * Se retiran solo donde hay sustituto. `verificarConCifrasDelBackend`
+   * lo dice: cuando el backend NO pudo escribir el bloque (sin subtotal
+   * calculado, o domicilio sin verificar), estos chequeos siguen corriendo
+   * exactamente como antes — es justo el caso en que el texto del modelo
+   * es la única cifra que el cliente va a ver.
+   *
+   * Historial de por qué se retiran: cuatro derivaciones de pedidos
+   * CORRECTOS en una semana (docs 170 y 176), cada una por una redacción
+   * distinta, cada arreglo destapando el siguiente camino.
    */
-  if (
-    zonaEfectiva &&
-    farewell &&
-    dijoOtroValorDeDomicilio(farewell, zonaEfectiva.feeCents, cifrasLegitimasDelCierre)
-  ) {
-    return "despedida-contradice-tarifa";
+  if (!input.cifrasLasEscribeElBackend) {
+    if (
+      zonaEfectiva &&
+      dijoOtroValorDeDomicilio(summary, zonaEfectiva.feeCents, cifrasLegitimasDelCierre)
+    ) {
+      return "resumen-contradice-tarifa";
+    }
+    /**
+     * Fase 8D — mismo chequeo, sobre lo que de verdad lee el CLIENTE. Un
+     * `summary` correcto (lo que ve el equipo) no garantiza que `farewell`
+     * (lo que ve el cliente) diga la misma tarifa — son dos textos libres
+     * independientes del mismo turno del modelo.
+     */
+    if (
+      zonaEfectiva &&
+      farewell &&
+      dijoOtroValorDeDomicilio(farewell, zonaEfectiva.feeCents, cifrasLegitimasDelCierre)
+    ) {
+      return "despedida-contradice-tarifa";
+    }
   }
 
   /**
@@ -1197,7 +1298,21 @@ export function inconsistenciaFinancieraDePedido(input: {
     figurasDeDomicilioEnCents(summary).length > 0;
   const backendConoceElTotalCompleto = zonaEfectiva !== null || !hayDomicilioEnJuego;
 
-  if (input.subtotalReal !== undefined && backendConoceElTotalCompleto) {
+  /**
+   * Mismo retiro que arriba, y por el mismo motivo: cuando el backend escribe
+   * el bloque de cifras, el total que ve el cliente ES el suyo. Comparar
+   * además la prosa del modelo solo puede producir falsos positivos.
+   *
+   * El testigo es de hoy (MALIA, 15-sep-2026, `cv_dco8y5w7c2sh99dpji2a`):
+   * 3 pavés = $30.000, domicilio a Brisas de Mayo verificado y persistido
+   * = $12.000, total correcto $42.000. La clienta dijo "Si correcto" y
+   * `resumen-contradice-total-real` derivó el pedido igual.
+   */
+  if (
+    !input.cifrasLasEscribeElBackend &&
+    input.subtotalReal !== undefined &&
+    backendConoceElTotalCompleto
+  ) {
     const totalReal = input.subtotalReal + (zonaEfectiva?.feeCents ?? 0);
     if (figurasDeTotalEnCents(summary).some((c) => c !== totalReal)) {
       return "resumen-contradice-total-real";

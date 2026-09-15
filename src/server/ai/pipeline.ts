@@ -166,6 +166,7 @@ import {
   CORRECCION_DE_DOMICILIO_CONTRADICHO,
   CORRECCION_DE_DOMICILIO_YA_CONSULTADO,
   inconsistenciaFinancieraDePedido,
+  bloqueDeCifrasVerificadas,
   correccionDeInconsistenciaFinanciera,
   contradiceDatosDeCuenta,
   CORRECCION_DE_DATOS_DE_CUENTA,
@@ -2251,7 +2252,26 @@ export async function runAgentTurn(
       .filter((m) => m.direction === "out" && m.aiGenerated === false)
       .flatMap((m) => cifrasEnPesosDelTexto(m.text));
 
+    /**
+     * Las cifras del cierre, escritas por el BACKEND con lo que ya verificó
+     * (subtotal contra el catálogo, domicilio contra `delivery_zone`).
+     *
+     * Cuando existe, es lo que el cliente va a leer, y los cuatro chequeos
+     * que releían la prosa del modelo se apagan: no puede haber contradicción
+     * entre dos textos cuando solo hay uno. Ver `bloqueDeCifrasVerificadas`
+     * para los cuatro incidentes que esto cierra de raíz.
+     *
+     * `null` = el backend no tuvo certeza completa (sin subtotal, o domicilio
+     * sin verificar). Entonces no se adjunta nada y todo sigue como antes,
+     * chequeos de texto incluidos.
+     */
+    const cifrasDelBackend = bloqueDeCifrasVerificadas({
+      subtotalCents: estadoGuardado?.totalCents,
+      entrega: entregaPersistida,
+    });
+
     const fallo = inconsistenciaFinancieraDePedido({
+      cifrasLasEscribeElBackend: cifrasDelBackend !== null,
       summary: action.summary,
       totalesDichosPorUnaPersona,
       // Fase 8D — lo que de verdad lee el CLIENTE, no solo el equipo.
@@ -2361,6 +2381,7 @@ export async function runAgentTurn(
       const reintentoFallo =
         reintento.ok && reintento.data.action === "notify_order"
           ? inconsistenciaFinancieraDePedido({
+              cifrasLasEscribeElBackend: cifrasDelBackend !== null,
               summary: reintento.data.summary,
               farewell: reintento.data.farewell,
               subtotalCents: reintento.data.subtotalCents,
@@ -2392,6 +2413,29 @@ export async function runAgentTurn(
         registrarTrazaDelTurno(traza);
         return { action: "handoff", reason: "error" };
       }
+    }
+
+    /**
+     * El cierre sale con LAS CIFRAS DEL BACKEND adjuntas — al equipo en el
+     * `summary` y al cliente en el `farewell`.
+     *
+     * Este es el punto en el que la clase entera de incidentes de la semana
+     * del 8 al 15-sep deja de ser posible: el número que lee el cliente ya
+     * no lo escribe el modelo, lo escribe quien lo calculó. Todo lo demás
+     * del texto (el saludo, el tono, el detalle de los ítems) sigue siendo
+     * del modelo, que es lo que sabe hacer bien.
+     *
+     * Se adjunta DESPUÉS de las validaciones, nunca antes: si el cierre no
+     * pasó los chequeos numéricos, no llega hasta aquí.
+     */
+    if (cifrasDelBackend && action.action === "notify_order") {
+      action = {
+        ...action,
+        summary: `${action.summary}\n\n${cifrasDelBackend}`,
+        farewell: action.farewell
+          ? `${action.farewell}\n\n${cifrasDelBackend}`
+          : action.farewell,
+      };
     }
   }
 

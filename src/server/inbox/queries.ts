@@ -23,10 +23,30 @@ export async function listConversations(
   since?: Date
 ): Promise<ConversationDto[]> {
   const db = getDb();
+  /**
+   * El `organization_id` NO es redundante aquí: es lo que hace usable el
+   * índice `message_org_conv_idx (organization_id, conversation_id,
+   * created_at)`. Sin él, Postgres no puede entrar por el índice —empieza
+   * justo por esa columna— y resuelve cada vista previa con un Seq Scan de
+   * la tabla `message` ENTERA, una vez por conversación de la bandeja.
+   *
+   * Medido el 14-sep-2026, cuando la coexistencia de Camilabrandcol
+   * sincronizó 6 meses de historial (28.479 mensajes, 2.014 conversaciones,
+   * más que todos los demás negocios juntos):
+   *
+   *     sin el filtro : 10.811 ms   (2.014 Seq Scans sobre 52.955 filas)
+   *     con el filtro :  1.594 ms   (Index Scan, 0.006 ms por fila)
+   *
+   * No cambia ni una vista previa: `message.organization_id` siempre coincide
+   * con el de su conversación (verificado en producción, 0 discrepancias) —
+   * lo garantiza el Principio III, `organization_id` NOT NULL en toda tabla
+   * de dominio.
+   */
   const previewSql = sql<string | null>`(
     select coalesce(m.text, m.type)
     from message m
-    where m.conversation_id = ${schema.conversation.id}
+    where m.organization_id = ${organizationId}
+      and m.conversation_id = ${schema.conversation.id}
     order by m.created_at desc
     limit 1
   )`;

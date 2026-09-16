@@ -107,7 +107,7 @@ solo necesitan T002/T003 respectivamente).
 - [X] T010 Compuerta 3 + `aplicarOperacion`/`aplicarOperaciones` (lote, **atómico**)
       en `src/server/appointments/operaciones.ts` (depende de T009, mismo archivo —
       NO paralelo), análogo a T006-T007 para la reserva.
-- [ ] T011 Tests unitarios sin LLM (depende de T007 Y T010 — ambas cadenas completas):
+- [X] T011 Tests unitarios sin LLM (depende de T007 Y T010 — ambas cadenas completas):
       `tests/unit/orders-operaciones.test.ts` y
       `tests/unit/appointments-operaciones.test.ts` — cada compuerta rechazando por
       separado, y el caso central de la corrección: un lote de 3 operaciones donde la

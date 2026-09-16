@@ -231,25 +231,36 @@ operaciones: [
 
 ### El mismo ejemplo, con la tercera operación fallando
 
-Cliente: *"agrégame otro pavé, cambia la cantidad a 5, y confirma"* — pero el negocio
-solo tiene 3 pavés disponibles hoy.
+**Corrección del 16-sep-2026:** la versión anterior de este ejemplo describía a
+`cambiar_cantidad` verificando "disponibilidad real" de un producto ("solo hay 3
+pavés disponibles hoy"). Encontrada como contradicción al llegar a T011: el catálogo
+de pedidos (`ProductoDelCatalogo`) **no tiene ningún concepto de stock o unidades
+disponibles** —es un menú, no un inventario— y la Compuerta 3 de `cambiar_cantidad`
+que de verdad implementa T006 (`orders/operaciones.ts`) solo verifica que la
+cantidad sea un entero de 1 o más. Documentar una capacidad que el sistema no tiene
+habría cristalizado esa invención en los tests de T011. Se reemplaza el disparador
+de la falla por uno que sí existe hoy — la propiedad que este ejemplo demuestra
+(atomicidad del lote) no cambia con el reemplazo.
+
+Cliente: *"agrégame otro pavé, cambia la cantidad a 0, y confirma"*.
 
 ```
 operaciones: [
   { tipo: "agregar_item", ofrecible: "pavé chocolate", opciones: [], cantidad: 1 },
-  { tipo: "cambiar_cantidad", ofrecible: "pavé chocolate", cantidad: 5 },
+  { tipo: "cambiar_cantidad", ofrecible: "pavé chocolate", cantidad: 0 },
   { tipo: "confirmar" }
 ]
 ```
 
 1. `agregar_item` → pasa → estado en memoria con 2 ítems.
-2. `cambiar_cantidad` a 5 → Compuerta 2 resuelve `"pavé chocolate"` contra
-   `estado.items` (una sola línea, sin ambigüedad) → Compuerta 3 verifica
-   disponibilidad real → **falla** (solo hay 3).
+2. `cambiar_cantidad` a 0 → Compuerta 2 resuelve `"pavé chocolate"` contra
+   `estado.items` (una sola línea, sin ambigüedad) → Compuerta 3 verifica que la
+   cantidad sea un entero de 1 o más → **falla** (0 no es una cantidad válida).
 3. **Se detiene aquí. `confirmar` ni siquiera se evalúa.** `guardarEstado` **no se
    llama**. El estado en la base sigue exactamente como estaba ANTES de este turno —
    el pavé agregado en el paso 1 no queda guardado, aunque esa operación sí había
    pasado sus propias tres compuertas.
-4. El modelo recibe la `correccion` de la operación 2 ("solo hay 3 disponibles") y se
-   lo explica al cliente. El cliente puede repetir el pedido completo, o ajustarlo, en
-   el turno siguiente — no queda un carrito a medias con solo una parte de lo que dijo.
+4. El modelo recibe la `correccion` de la operación 2 ("la cantidad debe ser un
+   número entero de 1 o más") y se lo explica al cliente. El cliente puede repetir
+   el pedido completo, o ajustarlo, en el turno siguiente — no queda un carrito a
+   medias con solo una parte de lo que dijo.

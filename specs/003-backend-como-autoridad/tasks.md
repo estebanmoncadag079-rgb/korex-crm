@@ -325,13 +325,79 @@ salta ningún paso.
 - [ ] T027 Activar `state_source`/`catalog_source` en los 4 negocios y los 2
       verticales a la vez, vía `arquitecturaAprobadaPara`/
       `validarConfiguracionArquitectonica` (`src/server/auth/arquitectura.ts`).
-      **Condición real que queda, según lo resuelto con Esteban**: para La Churra,
-      Lis y MALIA, `state_source='backend'` ya está activo en producción — el
-      MERGE + DEPLOY de esta rama a `main` ES la activación efectiva para esas
-      tres, no un paso de configuración aparte. Lashes Valen permanece con
-      `enabled=false` sin cambios (decisión independiente sobre si ese agente debe
-      estar operativo); su activación efectiva de Feature 003 queda pendiente de
-      que se habilite. Camilabrandcol no pertenece al alcance de esta feature.
+
+      **PREPARADA Y DOCUMENTADA (16-sep-2026) — sin ejecutar, sin merge, sin
+      deploy, sin tocar ningún flag productivo.** Verificación de solo lectura
+      contra producción (túnel documentado), repetida y sin drift respecto a la
+      consulta de T025:
+
+      | Negocio | `state_source` | `catalog_source` | `enabled` |
+      |---|---|---|---|
+      | La Churra | `backend` | `tabla` | `true` |
+      | Lis Pastelería | `backend` | `tabla` | `true` |
+      | MALIA | `backend` | `tabla` | `true` |
+      | Lashes Valen | `backend` | `prompt` | **`false`** |
+      | Camilabrandcol (fuera de alcance) | `backend` | `tabla` | `false` |
+
+      **1. Estado actual** — tabla de arriba, verificada dos veces (T025 y T027),
+      idéntica las dos veces: nada cambió entre una verificación y otra porque no
+      se tocó nada.
+
+      **2. Qué significa "activación efectiva" para cada uno:**
+      - **La Churra / Lis / MALIA**: ya tienen `state_source='backend'` — el gate
+        que decide si `chatJsonConEstado` pide `operaciones: Operacion[]`
+        (Feature 003) en vez del "estado completo" viejo. Hoy ese gate ya está en
+        `true` para las tres, pero el código DESPLEGADO (`main`) todavía no tiene
+        el motor de operaciones — así que hoy corren la ruta vieja. La activación
+        efectiva de Feature 003 para ellas ocurre en el momento exacto en que el
+        código de esta rama quede desplegado: no hace falta ningún cambio de flag
+        además del deploy.
+      - **Lashes Valen**: `state_source='backend'` también, pero `enabled=false` —
+        el agente no responde a NADIE ahí, real o de prueba fuera del sandbox
+        (`!conversation.isTest && !profile.enabled`, `pipeline.ts:922`). Su
+        `state_source` queda preparado para cuando se habilite, pero mientras
+        `enabled=false` no hay ninguna conversación real que Feature 003 pueda
+        afectar en ese negocio — su activación efectiva depende enteramente de
+        una decisión aparte (encender el agente), no de esta feature.
+      - **Camilabrandcol**: no es uno de los 4 negocios de esta feature (confirmado
+        con Esteban) — su `state_source='backend'` es resultado de
+        `arquitecturaAprobadaPara` (el default aprobado para todo cliente nuevo,
+        anterior a esta feature, ver nota de T025 sobre `probar-estado.ts`), no de
+        una decisión de Feature 003. Tiene además un problema aparte con Meta/
+        YCloud, documentado como independiente. No se toca.
+
+      **3. Confirmado**: La Churra, Lis y MALIA están en `state_source='backend'`
+      HOY, verificado dos veces, sin ningún cambio artificial de mi parte — no
+      requieren ninguna acción de configuración antes del deploy.
+
+      **4. Confirmado**: Lashes Valen permanece `enabled=false`. No se cambió, no
+      se propone cambiar como parte de esta tarea.
+
+      **5. Confirmado**: Camilabrandcol permanece fuera de alcance. No se tocó
+      ninguna de sus columnas.
+
+      **6. Confirmado**: no existe ningún cambio productivo pendiente que deba
+      ejecutarse antes del merge/deploy. La única acción que falta es la que
+      hace Esteban de forma exclusiva: mergear esta rama a `main` y disparar el
+      workflow de GitHub Actions con el SHA y `CONFIRMAR` (`CLAUDE.md`). El
+      asistente no dispara ese paso.
+
+      **Procedimiento exacto de activación** (para cuando Esteban decida seguir):
+      1. Revisar/aprobar el diff de la rama `003-backend-como-autoridad` contra
+         `main` (o abrir el PR ya disponible en GitHub).
+      2. Merge a `main`.
+      3. Esteban ejecuta el workflow "Deploy a producción" con el SHA completo
+         del merge commit y `CONFIRMAR`.
+      4. Verificar `/api/health` reporta ese commit (`scripts/deploy.sh` ya lo
+         valida; confirmar también a mano).
+      5. Desde ese momento, La Churra/Lis/MALIA usan el motor de operaciones de
+         Feature 003 — sin ningún paso adicional. Lashes Valen sigue igual hasta
+         que alguien la habilite. Camilabrandcol no se ve afectada.
+      6. T028 (verificación en vivo) se hace DESPUÉS de ese deploy, no antes —
+         no hay nada que verificar "en vivo" mientras el código nuevo no esté
+         corriendo en producción.
+
+      No se avanza a T028/T029/T030 hasta que Esteban decida sobre el merge/deploy.
 - [ ] T028 Verificación en vivo (Principio IX): ejercer al menos un turno real por
       negocio (agregar ítem/cambiar dato/confirmar, o agendar cita) y confirmar en la
       traza (`src/server/ai/traza.ts`) que el origen de la decisión de cierre es

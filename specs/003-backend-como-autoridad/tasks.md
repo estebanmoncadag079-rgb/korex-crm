@@ -93,7 +93,7 @@ solo necesitan T002/T003 respectivamente).
       memoria del estado guardado; si CUALQUIERA falla, descartar todo lo calculado y
       no llamar `guardarEstado` — el estado en la base no cambia (`data-model.md`
       sección 2, corregida 15-sep-2026: lote atómico, no persistencia parcial).
-- [ ] T008 [P] Compuerta 1 en `src/server/appointments/operaciones.ts` (depende de
+- [X] T008 [P] Compuerta 1 en `src/server/appointments/operaciones.ts` (depende de
       T003; en paralelo con TODA la cadena T004-T007 de arriba — archivo distinto,
       sin dependencia cruzada), análoga a T004.
 - [ ] T009 Compuerta 2 en `src/server/appointments/operaciones.ts` (depende de T008,

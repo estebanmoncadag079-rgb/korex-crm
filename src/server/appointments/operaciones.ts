@@ -124,16 +124,44 @@ export type ResultadoDeOperacion =
  * `buscarServicio`/`resolverEspecialistaMultiple` (por nombre) no cambian
  * este razonamiento — el `await` es por `disponibilidadRealMultiple`.
  *
- * ⚠️ Sin implementar todavía — las compuertas son T008 (existe/aplica al
- * vertical), T009 (resuelve contra datos reales) y T010 (el estado la
- * permite). Este es el paso T003: solo la firma.
+ * **Nota de implementación (T008), mismo criterio que `orders/operaciones.ts`
+ * T004:** la mitad de la Compuerta 1 —"¿existe la operación?"— no necesita
+ * chequeo en runtime: Zod la rechaza antes de que esta función se llame (T012/
+ * T013), y "¿aplica a este vertical?" la impone el propio TIPO — este archivo
+ * declara su propio `Operacion` sin `agregar_item`/`cambiar_cantidad`/
+ * `quitar_item`/`elegir_opcion`/`declinar_grupo`/`fijar_modalidad` (esos viven
+ * solo en `orders/operaciones.ts`), así que un negocio de citas no puede ni
+ * siquiera CONSTRUIR esas operaciones. Lo que queda, y es real: el `switch` de
+ * abajo cubre los 5 `tipo` uno por uno, con `default` exhaustivo comprobado
+ * por TypeScript.
+ *
+ * ⚠️ Compuertas 2 (T009) y 3 (T010) sin implementar todavía — cada `case`
+ * lanza mientras tanto.
  */
 export async function aplicarOperacion(
   _estadoActual: EstadoDelPedido,
-  _operacion: Operacion,
+  operacion: Operacion,
   _contexto: ContextoOperaciones
 ): Promise<ResultadoDeOperacion> {
-  throw new Error(
-    "aplicarOperacion: pendiente de implementar (T008-T010 de specs/003-backend-como-autoridad/tasks.md)"
-  );
+  switch (operacion.tipo) {
+    case "fijar_servicio":
+    case "fijar_horario":
+    case "fijar_especialista":
+    case "fijar_dato":
+    case "confirmar":
+      throw new Error(
+        `aplicarOperacion: "${operacion.tipo}" pendiente de T009-T010 de specs/003-backend-como-autoridad/tasks.md`
+      );
+    default: {
+      // Exhaustividad: si TypeScript se queja aquí de que `operacion` no es
+      // `never`, falta manejar un `tipo` nuevo arriba — es la señal a
+      // propósito, no un caso a silenciar.
+      const _exhaustivo: never = operacion;
+      return {
+        ok: false,
+        motivo: `operación desconocida: ${JSON.stringify(_exhaustivo)}`,
+        correccion: "Esa operación no existe. Usa una de las permitidas.",
+      };
+    }
+  }
 }

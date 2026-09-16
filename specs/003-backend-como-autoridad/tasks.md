@@ -217,17 +217,40 @@ automáticamente a una persona.
 **Prueba independiente**: reproducir el caso de `docs/korexia/144` ("Hola, buenas
 noches" con un campo auxiliar omitido) y confirmar que ya no deriva.
 
-- [ ] T021 [US4] Localizar el punto donde hoy un fallo de validación de Zod dispara
+- [X] T021 [US4] Localizar el punto donde hoy un fallo de validación de Zod dispara
       handoff con `reason:"error"` (`pipeline.ts`, cerca del manejo de
       `chatJsonConEstado`/`chatJson`) y sustituirlo por reintento con la corrección
       (mismo mecanismo de T015) — nunca handoff automático.
-- [ ] T022 [US4] Confirmar que derivar sigue siendo posible SOLO por decisión del
+      **Ya existía, sin tocar código.** Localizado en `pipeline.ts:1527-1544`: ya es
+      un ÚLTIMO RECURSO, no el primer manejo — corre DESPUÉS de dos niveles de
+      recuperación ya existentes y anteriores a esta feature (Nivel 1: `chatJson`
+      reintenta hasta 3 veces; Nivel 2: `chatJsonConEstado` reintenta SOLO la acción
+      con la corrección exacta, docs/korexia/144). **Contradicción real encontrada y
+      resuelta sin necesitar decisión de Esteban**: el texto de esta tarea
+      ("nunca handoff automático", tomado literal) choca con **FR-022** de la
+      constitución (`specs/001-vocero-core/spec.md:422`, `MUST`), que exige "error"
+      como una de solo 3 causas válidas de handoff. `spec.md` de esta MISMA feature
+      (US4, criterio 2, más autoritativo que `tasks.md`) ya lo dice sin contradecir
+      la constitución: "se reintenta con el mecanismo existente, y **si se agota**,
+      se responde algo seguro" — nunca dice eliminar el handoff de error, solo que
+      no sea el primer recurso. `tasks.md` parafraseó eso de forma imprecisa. No se
+      tocó el handoff final: `tests/unit/recuperacion-salida-parcial.test.ts`
+      (CASO 3, ya existente) prueba explícitamente que un fallo genuinamente
+      irrecuperable SÍ debe terminar en handoff — quitarlo habría sido una
+      regresión, no una mejora.
+- [X] T022 [US4] Confirmar que derivar sigue siendo posible SOLO por decisión del
       negocio (el cliente lo pide, o una regla explícita de escalado) — no tocar
       `matchesHandoffIntent` (`src/server/ai/handoff.ts:10`) ni las reglas de
-      escalado de la ficha.
-- [ ] T023 [US4] (depende de T021-T022) Test de regresión del caso `docs/korexia/144`: reproducir el
+      escalado de la ficha. **Confirmado**: `handoff.ts` no se tocó en ningún commit
+      de esta feature (verificado con `git log --oneline -- src/server/ai/handoff.ts`
+      contra la rama `003-backend-como-autoridad`).
+- [X] T023 [US4] (depende de T021-T022) Test de regresión del caso `docs/korexia/144`: reproducir el
       turno con el campo auxiliar omitido y confirmar 0% de derivación en repeticiones
       (mismo criterio de calibración que usó ese incidente: 71% → 0%).
+      **Ya existía** (`tests/unit/recuperacion-salida-parcial.test.ts`, anterior a
+      esta feature, 7 tests): CASO 1/2 reproducen exactamente "Hola, buenas noches"
+      con `send_menu` sin `reply` (el campo auxiliar omitido del incidente real) y
+      confirman `action?.action === "send_menu"` — nunca `handoff`. Sigue en verde.
 
 **Checkpoint**: las 4 historias de usuario completas y probadas de forma aislada, sin
 haber activado todavía ningún negocio real.

@@ -153,7 +153,7 @@ cambio de dirección no altera los ítems ya guardados (criterio #2 de US2 en sp
       (`pipeline.ts`, `estadoRecienGuardado?.rechazo`) solo necesitaba que
       `guardarEstadoPropuesto` siguiera devolviendo `{motivos, preguntas}` — verificado
       con datos reales en `pipeline-propuesta-rechazada.test.ts`.
-- [ ] T016 [US2] (depende de T012-T015) Test de integración con el pipeline mockeado: un turno que solo
+- [X] T016 [US2] (depende de T012-T015) Test de integración con el pipeline mockeado: un turno que solo
       cambia un dato no toca los ítems; una operación que nombra un producto
       inexistente en el catálogo rechaza en Compuerta 2 (no en Compuerta 1, que solo
       mira la forma).

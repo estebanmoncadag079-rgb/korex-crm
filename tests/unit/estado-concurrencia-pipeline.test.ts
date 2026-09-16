@@ -184,7 +184,12 @@ describe("conversation_state: token de concurrencia (Prioridad 3)", () => {
       data: {
         action: "reply",
         text: "¿Algo más?",
-        estado: { items: [], datos: {}, paso: "sin pedido", confirmado: false },
+        // Feature 003: `operaciones: []` significa "nada cambia" y ya no
+        // llama a `guardarEstado` (optimización correcta: no hay nada que
+        // escribir). Este test verifica el cableado de concurrencia
+        // (`versionEsperada`), así que necesita una operación real que sí
+        // dispare la escritura — `confirmar` no depende del catálogo.
+        operaciones: [{ tipo: "confirmar" }],
       },
     });
 
@@ -213,12 +218,10 @@ describe("conversation_state: token de concurrencia (Prioridad 3)", () => {
       data: {
         action: "reply",
         text: "¡Genial! ¿Necesitas algo más?",
-        estado: {
-          items: [{ ofrecible: "Porción Chocolate", cantidad: 1, opciones: [] }],
-          datos: {},
-          paso: "confirmado",
-          confirmado: true,
-        },
+        operaciones: [
+          { tipo: "agregar_item", ofrecible: "Porción Chocolate", opciones: [], cantidad: 1 },
+          { tipo: "confirmar" },
+        ],
       },
     });
 

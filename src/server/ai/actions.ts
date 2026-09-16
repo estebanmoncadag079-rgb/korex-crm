@@ -414,6 +414,18 @@ export function formatoDeRespuestaConEstado(estadoSchema: unknown): unknown {
 }
 
 /**
+ * T013 (feature 003-backend-como-autoridad) — el mismo contrato de
+ * `formatoDeRespuestaConEstado`, pero exigiendo `operaciones` (la lista
+ * cerrada de `Operacion`, `specs/003-backend-como-autoridad/data-model.md`
+ * sección 1) en vez del "estado completo". `operacionesSchema` lo pone quien
+ * conoce esa forma (`esquemaDeOperaciones`, `pipeline.ts`), no este archivo —
+ * mismo criterio que ya aplica `formatoDeRespuestaConEstado`.
+ */
+export function formatoDeRespuestaConOperaciones(operacionesSchema: unknown): unknown {
+  return formato("accion_con_operaciones", { operaciones: operacionesSchema });
+}
+
+/**
  * El mismo contrato, **sin** estado: para las llamadas que solo piden una
  * acción.
  *

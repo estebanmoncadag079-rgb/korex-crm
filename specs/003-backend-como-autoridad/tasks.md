@@ -133,17 +133,26 @@ cambio de dirección no altera los ítems ya guardados (criterio #2 de US2 en sp
       (`esquemaDeOperaciones`), sin tocar `esquemaDelEstado` — decisión
       explícita de Esteban para que T012 no dependa de tocar T013/T014 (ver
       commit). `esquemaDelEstado` sigue viva y en uso hasta T013.
-- [ ] T013 [US2] Modificar `chatJsonConEstado` (`pipeline.ts:4884`) para que el campo
+- [X] T013 [US2] Modificar `chatJsonConEstado` (`pipeline.ts:4884`) para que el campo
       que pide al proveedor sea `operaciones: Operacion[]` en vez del estado completo.
-- [ ] T014 [US2] Donde hoy se llama `validarPropuesta` tras `chatJsonConEstado`:
+      **Nota (16-sep-2026)**: implementada junto con T014 en el mismo commit — cambiar
+      lo que `chatJsonConEstado` devuelve rompe de inmediato su único llamador
+      (`guardarEstadoPropuesto`), así que las dos tareas son atómicas en la práctica.
+      `esquemaDelEstado` (la función vieja) se retiró: cero llamadores fuera de este
+      punto, nada más dependía de ella.
+- [X] T014 [US2] Donde hoy se llama `validarPropuesta` tras `chatJsonConEstado`:
       sustituir por `aplicarOperaciones` (T007/T010) sobre el estado leído con
       `leerEstadoConVersion` (`estado.ts:536`). **Lote atómico**: `guardarEstado`
       (`estado.ts:564`) se llama SOLO si el lote entero tuvo éxito; si cualquier
       operación falla, no se llama en absoluto y el estado en la base queda igual
       que antes del turno (`data-model.md` sección 2).
-- [ ] T015 [US2] Si el lote se detiene en un rechazo, encadenar la `correccion` de esa
+- [X] T015 [US2] Si el lote se detiene en un rechazo, encadenar la `correccion` de esa
       operación al mecanismo de reintento YA existente (el mismo patrón que usan los
       24 guardarraíles de `anuncio-de-cierre.ts`) — no crear un mecanismo nuevo.
+      **Confirmado sin cambios adicionales**: el mecanismo genérico ya existente
+      (`pipeline.ts`, `estadoRecienGuardado?.rechazo`) solo necesitaba que
+      `guardarEstadoPropuesto` siguiera devolviendo `{motivos, preguntas}` — verificado
+      con datos reales en `pipeline-propuesta-rechazada.test.ts`.
 - [ ] T016 [US2] (depende de T012-T015) Test de integración con el pipeline mockeado: un turno que solo
       cambia un dato no toca los ítems; una operación que nombra un producto
       inexistente en el catálogo rechaza en Compuerta 2 (no en Compuerta 1, que solo

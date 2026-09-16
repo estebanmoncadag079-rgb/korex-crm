@@ -8,10 +8,10 @@ import type { Requisito } from "@/server/ai/generador/ficha";
 
 /**
  * T012 (feature 003-backend-como-autoridad) — contrato del esquema JSON que
- * `esquemaDeOperaciones` construiría para el proveedor. **Esta función no
- * tiene llamador todavía** (T013 la conecta a `chatJsonConEstado`), así que
- * esto prueba el CONTRATO en aislamiento, no un turno real del pipeline —
- * eso es T016.
+ * `esquemaDeOperaciones` construye para el proveedor. Prueba el CONTRATO en
+ * aislamiento (llamando la función directo, sin pasar por `chatJsonConEstado`
+ * ni el resto del pipeline) — el turno real de punta a punta es T016.
+ * `chatJsonConEstado` ya la usa desde T013.
  *
  * Mismo mecanismo de "prueba de deriva" que ya protege `CAMPOS_DE_ACCION`
  * contra `AgentAction` (`tests/unit/esquema-json-de-accion.test.ts`): el
@@ -30,11 +30,14 @@ type JsonSchemaObjeto = {
 const REQUISITOS: Requisito[] = [{ id: "direccion", tipo: "direccion", etiqueta: "la dirección de entrega", obligatorio: true }];
 const MODALIDADES = ["domicilio", "recoger"];
 
-function itemSchema(vertical: "pedidos" | "citas"): JsonSchemaObjeto {
-  const raiz = esquemaDeOperaciones(REQUISITOS, vertical, vertical === "pedidos" ? MODALIDADES : []) as {
-    properties: { operaciones: { items: JsonSchemaObjeto } };
+function arraySchema(vertical: "pedidos" | "citas"): { items: JsonSchemaObjeto } {
+  return esquemaDeOperaciones(REQUISITOS, vertical, vertical === "pedidos" ? MODALIDADES : []) as {
+    items: JsonSchemaObjeto;
   };
-  return raiz.properties.operaciones.items;
+}
+
+function itemSchema(vertical: "pedidos" | "citas"): JsonSchemaObjeto {
+  return arraySchema(vertical).items;
 }
 
 /** El `enum` de `tipo` — siempre presente en este esquema, ver `esquemaDeOperaciones`. */
@@ -67,7 +70,7 @@ function completar(schema: JsonSchemaObjeto, parcial: Record<string, unknown>): 
   return { ...base, ...parcial };
 }
 
-describe("esquemaDeOperaciones (T012) — contrato aislado, sin llamador todavía", () => {
+describe("esquemaDeOperaciones (T012) — contrato en aislamiento, sin pasar por el pipeline", () => {
   describe("una operación válida por variante — pedidos", () => {
     const schema = itemSchema("pedidos");
     const casos: Record<string, unknown>[] = [
@@ -107,10 +110,8 @@ describe("esquemaDeOperaciones (T012) — contrato aislado, sin llamador todaví
   });
 
   it("`fijar_modalidad` no aparece en el esquema si el negocio solo ofrece una modalidad", () => {
-    const raiz = esquemaDeOperaciones(REQUISITOS, "pedidos", ["domicilio"]) as {
-      properties: { operaciones: { items: JsonSchemaObjeto } };
-    };
-    expect(enumDeTipo(raiz.properties.operaciones.items)).not.toContain("fijar_modalidad");
+    const { items } = esquemaDeOperaciones(REQUISITOS, "pedidos", ["domicilio"]) as { items: JsonSchemaObjeto };
+    expect(enumDeTipo(items)).not.toContain("fijar_modalidad");
   });
 
   it("varias operaciones: cada una se valida por separado, en cualquier combinación", () => {
@@ -143,14 +144,14 @@ describe("esquemaDeOperaciones (T012) — contrato aislado, sin llamador todaví
     expect(cumpleElEsquema(estadoVacio() as unknown as Record<string, unknown>, schema)).toBe(false);
   });
 
-  it("strict: additionalProperties:false en la raíz y en cada operación, y required cubre exactamente las propiedades declaradas", () => {
-    const raiz = esquemaDeOperaciones(REQUISITOS, "pedidos", MODALIDADES) as JsonSchemaObjeto & {
-      properties: { operaciones: JsonSchemaObjeto & { items: JsonSchemaObjeto } };
-    };
-    expect(raiz.additionalProperties).toBe(false);
-    expect(raiz.required).toEqual(["operaciones"]);
+  it("devuelve el esquema del VALOR de \"operaciones\" (un array), no un objeto envoltorio — mismo contrato que esquemaDelEstado devuelve para \"estado\"", () => {
+    const schema = esquemaDeOperaciones(REQUISITOS, "pedidos", MODALIDADES) as { type: string; items: unknown };
+    expect(schema.type).toBe("array");
+    expect(schema.items).toBeDefined();
+  });
 
-    const item = raiz.properties.operaciones.items;
+  it("strict: additionalProperties:false en cada operación, y required cubre exactamente las propiedades declaradas", () => {
+    const item = itemSchema("pedidos");
     expect(item.additionalProperties).toBe(false);
     expect([...item.required].sort()).toEqual(Object.keys(item.properties).sort());
   });

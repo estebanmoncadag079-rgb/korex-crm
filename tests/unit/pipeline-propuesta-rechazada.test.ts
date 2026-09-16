@@ -12,8 +12,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * el guardarraíl financiero lo frenó al cerrar — derivación y pedido perdido.
  *
  * Mismo scaffold de mocks que `subtotal-backend.test.ts`, con el catálogo
- * REAL de validación (`validarPropuesta` sin mockear): el rechazo lo produce
- * de verdad el backend, no un mock que lo simule.
+ * REAL de validación (`aplicarOperaciones`/`orders/operaciones.ts` sin
+ * mockear, feature 003 T007/T013/T014): el rechazo lo produce de verdad el
+ * backend, no un mock que lo simule.
  */
 
 const chatJson = vi.fn();
@@ -174,18 +175,14 @@ function queueTurnoBase() {
 const PROPUESTA_INVALIDA = {
   action: "reply",
   text: "¡Listo! Te anoto el Pavé Cremoso 8 oz de Oblea 🍮",
-  estado: {
-    items: [
-      {
-        ofrecible: "Pavé Cremoso 8 oz",
-        cantidad: 1,
-        opciones: [{ grupo: "Sabor", opcion: "Oblea" }],
-      },
-    ],
-    datos: {},
-    paso: "opciones",
-    confirmado: false,
-  },
+  operaciones: [
+    {
+      tipo: "agregar_item",
+      ofrecible: "Pavé Cremoso 8 oz",
+      cantidad: 1,
+      opciones: [{ grupo: "Sabor", opcion: "Oblea" }],
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -231,18 +228,14 @@ describe("Fase 8J: el rechazo del carrito llega al modelo antes de responderle a
     const valida = {
       action: "reply",
       text: "¡Listo! Pavé Cremoso 8 oz de Maracuyá 🍮",
-      estado: {
-        items: [
-          {
-            ofrecible: "Pavé Cremoso 8 oz",
-            cantidad: 1,
-            opciones: [{ grupo: "Sabor", opcion: "Maracuyá" }],
-          },
-        ],
-        datos: {},
-        paso: "opciones",
-        confirmado: false,
-      },
+      operaciones: [
+        {
+          tipo: "agregar_item",
+          ofrecible: "Pavé Cremoso 8 oz",
+          cantidad: 1,
+          opciones: [{ grupo: "Sabor", opcion: "Maracuyá" }],
+        },
+      ],
     };
     chatJson.mockResolvedValueOnce({ ok: true, data: valida, raw: JSON.stringify(valida) });
 

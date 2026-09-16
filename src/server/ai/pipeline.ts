@@ -2169,17 +2169,31 @@ export async function runAgentTurn(
    * Mismo criterio que el guardarraíl de producto, para la tarifa de
    * domicilio.
    *
-   * Las cifras que el texto puede mencionar legítimamente son TRES, no una:
-   * la tarifa verificada, el subtotal que el backend ya calculó sobre los
-   * ítems, y el total que el modelo declara en `reply`. Pasarlas todas es lo
-   * que evita el falso positivo del 13-sep-2026 —responder "$26.000 con
-   * domicilio a Ciudad 2000" no es inventarse una tarifa— sin dejar de
-   * atrapar una cifra que no corresponda a nada verificado.
+   * Las cifras que el texto puede mencionar legítimamente son CUATRO, no
+   * tres: la tarifa verificada, el subtotal que el backend ya calculó sobre
+   * los ítems, el total que el modelo declara en `reply`, y la SUMA de los
+   * ítems con el domicilio — la cifra más natural de decir al confirmar los
+   * dos juntos ("$12.000 + $8.000 de domicilio = $20.000"), y que hasta
+   * ahora no estaba en la lista salvo que el modelo, por su cuenta,
+   * *también* la hubiera copiado en su propio campo `totalCents`.
+   *
+   * Incidente real (MALIA, 16-sep-2026): domicilio a "San Nicolás"
+   * verificado en $8.000, ítems en $12.000. El modelo respondió el total
+   * combinado correcto ($20.000) cerca de la palabra "domicilio"; como
+   * $20.000 no estaba en la lista de cifras legítimas, el guardarraíl lo
+   * tomó por inventado, pidió corregir algo que ya estaba bien, y derivó.
+   * Mismo patrón que el falso positivo del 13-sep-2026 documentado arriba —
+   * "sigue vivo en los otros guardarraíles de la misma familia"
+   * (docs/korexia/170), y esta es esa recurrencia.
    */
+  const sumaItemsConDomicilio =
+    typeof estadoGuardado?.totalCents === "number" && resultadoZona?.status === "found"
+      ? estadoGuardado.totalCents + resultadoZona.zona.feeCents
+      : undefined;
   const cifrasLegitimasDelTurno =
     action.action === "reply"
-      ? [action.totalCents, estadoGuardado?.totalCents]
-      : [estadoGuardado?.totalCents];
+      ? [action.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
+      : [estadoGuardado?.totalCents, sumaItemsConDomicilio];
   if (
     resultadoZona?.status === "found" &&
     action.action === "reply" &&
@@ -2208,7 +2222,9 @@ export async function runAgentTurn(
           reintento.data.text,
           resultadoZona.zona.feeCents,
           // Las del REINTENTO: el modelo pudo declarar otro total al rehacer.
-          [reintento.data.totalCents, estadoGuardado?.totalCents]
+          // `sumaItemsConDomicilio` no cambia entre intentos: son los mismos
+          // ítems y la misma zona ya verificados antes del reintento.
+          [reintento.data.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
         )
       )
     ) {

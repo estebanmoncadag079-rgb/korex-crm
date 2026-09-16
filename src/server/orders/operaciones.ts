@@ -9,9 +9,10 @@
  * aplica, una por una, sobre el estado YA guardado (`estado.ts`).
  *
  * Ver `specs/003-backend-como-autoridad/data-model.md` — este archivo es su
- * traducción directa a código, sección 1 (el tipo) y sección 3 (las
- * compuertas). No se implementan las compuertas todavía (T004-T007 de
- * `tasks.md`): este es el paso T002, solo el tipo y la firma.
+ * traducción directa a código, secciones 1 (el tipo), 2 (el lote atómico) y 3
+ * (las compuertas) — las tres ya implementadas (T004-T007): `aplicarOperacion`
+ * cubre las tres compuertas por operación, `aplicarOperaciones` el lote
+ * completo.
  *
  * **Ninguna operación referencia por id.** Corrección de diseño del
  * 15-sep-2026: el diseño original de este archivo asumía ids que el backend
@@ -373,8 +374,8 @@ function resolverModificacionDeOpciones(
  *
  * Atómica para ESTA operación: pasa las tres o no cambia nada. La atomicidad
  * del LOTE completo (si una operación de varias falla, ninguna se persiste)
- * es responsabilidad de `aplicarOperaciones` (T007), que llama a esta función
- * repetidas veces.
+ * es responsabilidad de `aplicarOperaciones`, que llama a esta función
+ * repetidas veces — ver más abajo.
  *
  * **Nota de implementación (T004):** la mitad de la Compuerta 1 —"¿existe la
  * operación?"— ya no necesita un chequeo en runtime aquí. Zod la rechaza
@@ -565,4 +566,48 @@ export function aplicarOperacion(
       };
     }
   }
+}
+
+/** El veredicto de aplicar un LOTE completo — `data-model.md` sección 2. */
+export type ResultadoDelLote =
+  | { persistido: true; estadoFinal: EstadoDelPedido }
+  | {
+      persistido: false;
+      rechazo: Extract<ResultadoDeOperacion, { ok: false }>;
+      /** Índice, dentro del lote, de la operación que hizo fallar todo. */
+      operacionFallida: number;
+    };
+
+/**
+ * Aplica una lista de operaciones **en orden**, sobre una copia en memoria a
+ * partir del estado guardado — nunca escribe nada. Traducción directa del
+ * pseudocódigo de `data-model.md` sección 2 (corregida 15-sep-2026: lote
+ * atómico, no persistencia parcial). Gemelo síncrono de
+ * `appointments/operaciones.ts` (esa es `async` porque `aplicarOperacion` de
+ * citas consulta `disponibilidadRealMultiple`; aquí `aplicarOperacion` no
+ * toca la base, así que esta función tampoco).
+ *
+ * Si CUALQUIER operación falla, se descarta TODO lo calculado en memoria —ni
+ * siquiera las que pasaron antes que ella cuentan— y se devuelve
+ * `persistido: false` con el rechazo exacto y en qué posición del lote
+ * ocurrió. Si las `operaciones.length` pasan, se devuelve `persistido: true`
+ * con el estado final.
+ *
+ * **No llama a `guardarEstado`.** Esta función es pura: quien la invoque
+ * (T012/T013, `pipeline.ts`) decide cuándo y cómo persistir `estadoFinal`.
+ */
+export function aplicarOperaciones(
+  estadoGuardado: EstadoDelPedido,
+  operaciones: Operacion[],
+  contexto: ContextoOperaciones
+): ResultadoDelLote {
+  let estado = estadoGuardado;
+  for (let i = 0; i < operaciones.length; i++) {
+    const resultado = aplicarOperacion(estado, operaciones[i]!, contexto);
+    if (!resultado.ok) {
+      return { persistido: false, rechazo: resultado, operacionFallida: i };
+    }
+    estado = resultado.estado;
+  }
+  return { persistido: true, estadoFinal: estado };
 }

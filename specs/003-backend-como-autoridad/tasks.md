@@ -86,7 +86,7 @@ solo necesitan T002/T003 respectivamente).
       `normalizarPedido` (`src/server/orders/estado.ts:304`,
       `src/server/orders/normalizar.ts:751`) para validar UNA operación contra el
       estado actual, no un estado completo contra el catálogo.
-- [ ] T007 `aplicarOperacion` + `aplicarOperaciones` (lote, **atómico**) en
+- [X] T007 `aplicarOperacion` + `aplicarOperaciones` (lote, **atómico**) en
       `src/server/orders/operaciones.ts` (depende de T004-T006, mismo archivo — NO
       paralelo, y funcionalmente NECESITA que las tres compuertas ya existan porque
       las llama en secuencia para cada operación): fold en orden sobre una copia en

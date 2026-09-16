@@ -4775,9 +4775,24 @@ async function guardarEstadoPropuesto(entrada: {
 
   try {
     const estadoBase = entrada.estadoGuardado ?? estadoVacio();
+    /*
+     * Mismo saneo que ya recibe `accion` más abajo (`sinNulos`): el modo
+     * estricto del proveedor obliga a `esquemaDeOperaciones` a declarar
+     * CUALQUIER campo como `["tipo", "null"]`, con `null` significando "no
+     * aplica a esta operación" — pero el Zod real de varias operaciones
+     * (`cambiar_cantidad`/`quitar_item`/`elegir_opcion`/`declinar_grupo` en
+     * pedidos, `fijar_horario` en citas) declara ese mismo campo
+     * `.optional()`, que acepta AUSENTE, no `null`. Sin este saneo por
+     * elemento, un modelo que sigue al pie de la letra la convención del
+     * propio esquema hacía fallar la Compuerta 1 del LOTE ENTERO —
+     * encontrado en T028, en vivo contra La Churra en producción.
+     */
+    const operacionesSaneadas = entrada.operaciones.map((op) =>
+      op && typeof op === "object" && !Array.isArray(op) ? sinNulos(op as Record<string, unknown>) : op
+    );
 
     if (contrataCitas(entrada.vertical)) {
-      const parse = OperacionCitas.array().safeParse(entrada.operaciones);
+      const parse = OperacionCitas.array().safeParse(operacionesSaneadas);
       if (!parse.success) {
         // Compuerta 1: alguna operación no existe o no aplica a este
         // vertical — Zod la rechaza antes de que `aplicarOperacion` la vea.
@@ -4815,7 +4830,7 @@ async function guardarEstadoPropuesto(entrada: {
       return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
     }
 
-    const parse = OperacionPedidos.array().safeParse(entrada.operaciones);
+    const parse = OperacionPedidos.array().safeParse(operacionesSaneadas);
     if (!parse.success) {
       const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
       metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle}`);
@@ -5029,7 +5044,13 @@ export function esquemaDeOperaciones(
   };
 }
 
-/** Quita las claves en `null` que el modo estricto obliga a emitir. */
+/**
+ * Quita las claves en `null` que el modo estricto obliga a emitir.
+ *
+ * Dos llamadores: la `accion` completa (más abajo, `chatJsonConEstado`) y,
+ * desde T028, cada elemento del array `operaciones` (`guardarEstadoPropuesto`,
+ * arriba) — mismo problema en dos formas del mismo objeto plano.
+ */
 function sinNulos(objeto: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(objeto).filter(([, v]) => v !== null));
 }

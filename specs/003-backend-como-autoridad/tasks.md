@@ -127,8 +127,12 @@ operaciones, aplicadas sobre el estado guardado.
 **Prueba independiente**: con el pipeline mockeado, un turno que solo menciona un
 cambio de dirección no altera los ítems ya guardados (criterio #2 de US2 en spec.md).
 
-- [ ] T012 [US2] Sustituir `esquemaDelEstado` (`src/server/ai/pipeline.ts:4779-4869`)
+- [X] T012 [US2] Sustituir `esquemaDelEstado` (`src/server/ai/pipeline.ts:4779-4869`)
       por el esquema de `Operacion[]` de `data-model.md` sección 1.
+      **Corrección del 16-sep-2026**: implementado como función NUEVA
+      (`esquemaDeOperaciones`), sin tocar `esquemaDelEstado` — decisión
+      explícita de Esteban para que T012 no dependa de tocar T013/T014 (ver
+      commit). `esquemaDelEstado` sigue viva y en uso hasta T013.
 - [ ] T013 [US2] Modificar `chatJsonConEstado` (`pipeline.ts:4884`) para que el campo
       que pide al proveedor sea `operaciones: Operacion[]` en vez del estado completo.
 - [ ] T014 [US2] Donde hoy se llama `validarPropuesta` tras `chatJsonConEstado`:

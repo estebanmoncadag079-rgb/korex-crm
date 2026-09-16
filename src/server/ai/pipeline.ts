@@ -4868,6 +4868,145 @@ function esquemaDelEstado(
   };
 }
 
+/**
+ * T012 (feature 003-backend-como-autoridad, Principio 7) — el esquema JSON de
+ * `operaciones: Operacion[]` (`specs/003-backend-como-autoridad/data-model.md`
+ * sección 1), tal como se le exigiría al proveedor si `chatJsonConEstado` lo
+ * pidiera en vez del "estado completo" de `esquemaDelEstado` (arriba).
+ *
+ * ⚠️ **Todavía sin llamador.** Ninguna función de este archivo invoca
+ * `esquemaDeOperaciones` — `chatJsonConEstado` sigue pidiendo exactamente lo
+ * mismo que pedía antes de este cambio, sin ninguna diferencia de
+ * comportamiento para los 4 negocios reales. Conectar los dos (cambiar qué le
+ * pide `chatJsonConEstado` al proveedor) es T013, a propósito en un commit
+ * aparte: cada paso de esta migración debe poder revertirse solo, sin
+ * arrastrar el siguiente.
+ *
+ * Mismo estilo "plano a propósito" que `CAMPOS_DE_ACCION` (`actions.ts:347`)
+ * y que la propia `esquemaDelEstado`: el modo estricto del proveedor exige
+ * declarar TODA propiedad de TODAS las variantes en el mismo objeto, con
+ * `null` para las que no apliquen al `tipo` elegido — nunca un `oneOf`/unión
+ * real en el JSON-schema, aunque `Operacion` sí lo sea en Zod. No es una
+ * limitación: es el estilo que ya está medido y funcionando en producción
+ * contra `gemini-2.5-flash` (ver el comentario de `chatJson`, `lib/ai/index.ts`).
+ *
+ * **Los `tipo` reales, la única fuente de verdad, siguen siendo las uniones de
+ * Zod ya implementadas** (`orders/operaciones.ts` T002, `appointments/operaciones.ts`
+ * T003) — esta función no las deriva automáticamente. El proyecto no tiene
+ * `zod-to-json-schema` ni lo usa en ningún otro sitio: `CAMPOS_DE_ACCION` está
+ * escrito a mano con el mismo criterio, exactamente por la misma razón (`chatJson`
+ * solo acepta el JSON-schema como un `unknown` suelto, no algo derivable de un
+ * `z.ZodType`). Lo que SÍ reutiliza este archivo es el mecanismo que ya
+ * protege esa duplicación: `tests/unit/esquema-json-de-operaciones.test.ts`
+ * cruza estas propiedades contra las dos uniones de Zod, mismo patrón que
+ * `tests/unit/esquema-json-de-accion.test.ts` ya usa para `CAMPOS_DE_ACCION`.
+ */
+export function esquemaDeOperaciones(
+  requisitos: Requisito[],
+  vertical: Vertical,
+  modalidadesOfrecidas: readonly string[] = []
+): unknown {
+  /**
+   * `fijar_modalidad` solo se ofrece con más de una modalidad — mismo
+   * criterio que ya aplica `esquemaDelEstado` a la propiedad `modalidadDeEntrega`:
+   * con una sola no hay nada que elegir.
+   */
+  const tiposDePedidos = [
+    "agregar_item",
+    "cambiar_cantidad",
+    "quitar_item",
+    "elegir_opcion",
+    "declinar_grupo",
+    ...(modalidadesOfrecidas.length > 1 ? ["fijar_modalidad"] : []),
+    "fijar_dato",
+    "confirmar",
+  ];
+  const tiposDeCitas = ["fijar_servicio", "fijar_horario", "fijar_especialista", "fijar_dato", "confirmar"];
+  const tipos = contrataCitas(vertical) ? tiposDeCitas : tiposDePedidos;
+
+  /** Mismo `{grupo, opcion}` que ya usa `esquemaDelEstado` para `items[].opciones`. */
+  const opcionPropuesta = {
+    type: "object",
+    properties: {
+      grupo: { type: ["string", "null"] },
+      opcion: { type: ["string", "null"] },
+    },
+    required: ["grupo", "opcion"],
+    additionalProperties: false,
+  };
+
+  return {
+    type: "object",
+    properties: {
+      operaciones: {
+        type: "array",
+        description:
+          "Cero o más operaciones sobre el pedido/reserva EN CURSO — nunca el estado completo. " +
+          "Lo que el cliente no menciona en este turno no lleva ninguna operación.",
+        items: {
+          type: "object",
+          properties: {
+            tipo: { type: "string", enum: tipos },
+            ofrecible: {
+              type: ["string", "null"],
+              description: "El nombre tal como aparece en el catálogo del negocio — nunca un id.",
+            },
+            opciones: { type: ["array", "null"], items: opcionPropuesta },
+            cantidad: { type: ["number", "null"] },
+            grupo: { type: ["string", "null"] },
+            opcion: { type: ["string", "null"] },
+            /**
+             * Cerrado por `enum` contra lo que ESTE negocio ofrece — mismo
+             * criterio que `esquemaDelEstado` ya aplica a `modalidadDeEntrega`.
+             */
+            modalidad:
+              modalidadesOfrecidas.length > 1
+                ? { type: ["string", "null"], enum: [...modalidadesOfrecidas, null] }
+                : { type: ["string", "null"] },
+            /**
+             * `requisitoId` NO es una excepción a "nunca por id": es la clave
+             * que este mismo esquema JSON define fresca cada turno a partir
+             * de la ficha de ESTE negocio — el modelo no la recuerda de un
+             * turno anterior, la recibe de nuevo aquí (`data-model.md`
+             * sección 1). Cerrada por `enum` por la misma razón que `modalidad`.
+             */
+            requisitoId: { type: ["string", "null"], enum: [...requisitos.map((r) => r.id), null] },
+            valor: { type: ["string", "null"] },
+            servicio: {
+              type: ["string", "null"],
+              description: "El nombre del servicio tal como aparece en el catálogo de citas — nunca un id.",
+            },
+            fecha: { type: ["string", "null"] },
+            hora: { type: ["string", "null"] },
+            especialista: {
+              type: ["string", "null"],
+              description: "El nombre del especialista — nunca un id.",
+            },
+          },
+          required: [
+            "tipo",
+            "ofrecible",
+            "opciones",
+            "cantidad",
+            "grupo",
+            "opcion",
+            "modalidad",
+            "requisitoId",
+            "valor",
+            "servicio",
+            "fecha",
+            "hora",
+            "especialista",
+          ],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["operaciones"],
+    additionalProperties: false,
+  };
+}
+
 /** Quita las claves en `null` que el modo estricto obliga a emitir. */
 function sinNulos(objeto: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(objeto).filter(([, v]) => v !== null));

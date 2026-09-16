@@ -96,7 +96,7 @@ solo necesitan T002/T003 respectivamente).
 - [X] T008 [P] Compuerta 1 en `src/server/appointments/operaciones.ts` (depende de
       T003; en paralelo con TODA la cadena T004-T007 de arriba — archivo distinto,
       sin dependencia cruzada), análoga a T004.
-- [ ] T009 Compuerta 2 en `src/server/appointments/operaciones.ts` (depende de T008,
+- [X] T009 Compuerta 2 en `src/server/appointments/operaciones.ts` (depende de T008,
       mismo archivo — NO paralelo): resolver **por nombre**, nunca por id. Reutilizar
       `buscarServicio` (ya existe en el código — localizar su definición exacta antes
       de escribir; NO depende de crear `consultar_servicio`, que es un paso posterior

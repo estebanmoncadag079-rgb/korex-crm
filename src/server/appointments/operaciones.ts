@@ -11,8 +11,8 @@
  * `ProductoDelCatalogo`/`buscarProductos` en pedidos).
  *
  * Ver `specs/003-backend-como-autoridad/data-model.md` sección 1 (el tipo) y
- * sección 3 (las compuertas). Este es el paso T003: solo el tipo y la firma,
- * sin implementar las compuertas (T008-T010).
+ * sección 3 (las compuertas). Compuertas 1 (T008) y 2 (T009) ya
+ * implementadas; falta Compuerta 3 (`fijar_dato`/`confirmar`, T010).
  *
  * **Ninguna operación referencia por id** — mismo criterio que
  * `orders/operaciones.ts`: `fijar_servicio`/`fijar_especialista` llevan el
@@ -25,8 +25,9 @@
  * Se activa recién en T027, tras completar y probar T001-T026.
  */
 import { z } from "zod";
-import type { EstadoDelPedido } from "@/server/orders/estado";
-import type { ServiceRow, BusinessHours } from "./logic";
+import type { EstadoDelPedido, ItemDelPedido } from "@/server/orders/estado";
+import { buscarServicio, normalizarFecha, esFechaValida, type ServiceRow, type BusinessHours } from "./logic";
+import { resolverEspecialistaMultiple, disponibilidadRealMultiple, type StaffRow } from "./queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
 
 /**
@@ -103,6 +104,15 @@ export type Operacion = z.infer<typeof Operacion>;
 export type ContextoOperaciones = {
   organizationId: string;
   servicios: ServiceRow[];
+  /**
+   * El roster de especialistas de ESTA organización (`listStaff`, ya
+   * filtrado por organización). `resolverEspecialistaMultiple` solo
+   * devuelve el `id` resuelto, nunca el nombre — esta lista es lo que
+   * permite escribir el `recursoNombre` canónico en `reserva` sin tocar esa
+   * función (constraint explícito de este archivo, ver el comentario de la
+   * unión `Operacion` arriba).
+   */
+  staff: StaffRow[];
   requisitos: Requisito[];
   hours: BusinessHours;
   now?: Date;
@@ -114,13 +124,65 @@ export type ResultadoDeOperacion =
   | { ok: false; motivo: string; correccion: string };
 
 /**
+ * `fijar_especialista` y `fijar_horario` (cuando trae `especialista`)
+ * resuelven el mismo dato de la misma forma: por eso comparten esta función
+ * en vez de repetir la llamada a `resolverEspecialistaMultiple` y sus tres
+ * desenlaces en dos sitios.
+ *
+ * `serviceIds` son los servicios YA fijados en `estado.items` — sin al menos
+ * uno, no hay contra qué verificar quién atiende, así que ese caso rechaza
+ * antes de llegar aquí (ver los dos `case` que la llaman).
+ */
+async function resolverEspecialista(
+  contexto: ContextoOperaciones,
+  serviceIds: string[],
+  nombre: string
+): Promise<{ ok: true; id: string; nombre: string } | { ok: false; motivo: string; correccion: string }> {
+  const resuelto = await resolverEspecialistaMultiple(contexto.organizationId, serviceIds, nombre);
+  if (!resuelto.ok) {
+    return resuelto.opciones.length
+      ? {
+          ok: false,
+          motivo: `"${nombre}" no atiende esa combinación de servicios`,
+          correccion: `[SISTEMA] "${nombre}" no atiende esa combinación de servicios. Quienes sí: ${resuelto.opciones.join(", ")}.`,
+        }
+      : {
+          ok: false,
+          motivo: "nadie atiende esa combinación de servicios",
+          correccion: "[SISTEMA] Nadie atiende esa combinación de servicios a la vez. Ofrece agendarlos por separado.",
+        };
+  }
+  // `nombre` llega con `min(1)` desde el schema de `Operacion`, así que
+  // `resolverEspecialistaMultiple` siempre lo busca — `staffId: null` solo
+  // ocurre cuando el nombre viene vacío (ver su propia implementación,
+  // `appointments/queries.ts:519`). Este `if` es la señal de un invariante
+  // roto, no un caso de negocio a manejar.
+  if (!resuelto.staffId) {
+    return {
+      ok: false,
+      motivo: "resolverEspecialistaMultiple devolvió staffId nulo con un nombre no vacío",
+      correccion: "[SISTEMA] No pude confirmar ese especialista. Pregunta de nuevo con quién quiere la cita.",
+    };
+  }
+  const encontrado = contexto.staff.find((s) => s.id === resuelto.staffId);
+  if (!encontrado) {
+    return {
+      ok: false,
+      motivo: `staffId ${resuelto.staffId} resuelto pero ausente de contexto.staff`,
+      correccion: "[SISTEMA] No pude confirmar ese especialista. Pregunta de nuevo con quién quiere la cita.",
+    };
+  }
+  return { ok: true, id: encontrado.id, nombre: encontrado.name };
+}
+
+/**
  * Aplica UNA operación sobre el estado actual (`data-model.md` sección 3).
  *
  * **Asíncrona, a diferencia de la de pedidos** — no es una inconsistencia:
- * `disponibilidadRealMultiple` (T009) consulta la base para re-verificar que
- * un horario sigue libre en este instante, porque la disponibilidad de una
- * cita es un recurso disputado entre conversaciones concurrentes y no se
- * puede pre-cargar como un catálogo estático sin arriesgar doble reserva.
+ * `disponibilidadRealMultiple` consulta la base para re-verificar que un
+ * horario sigue libre en este instante, porque la disponibilidad de una cita
+ * es un recurso disputado entre conversaciones concurrentes y no se puede
+ * pre-cargar como un catálogo estático sin arriesgar doble reserva.
  * `buscarServicio`/`resolverEspecialistaMultiple` (por nombre) no cambian
  * este razonamiento — el `await` es por `disponibilidadRealMultiple`.
  *
@@ -135,22 +197,149 @@ export type ResultadoDeOperacion =
  * abajo cubre los 5 `tipo` uno por uno, con `default` exhaustivo comprobado
  * por TypeScript.
  *
- * ⚠️ Compuertas 2 (T009) y 3 (T010) sin implementar todavía — cada `case`
- * lanza mientras tanto.
+ * ⚠️ `fijar_dato`/`confirmar` (Compuerta 3, T010) siguen lanzando mientras
+ * tanto — mismo split que `orders/operaciones.ts` hizo entre T005 y T006.
  */
 export async function aplicarOperacion(
-  _estadoActual: EstadoDelPedido,
+  estadoActual: EstadoDelPedido,
   operacion: Operacion,
-  _contexto: ContextoOperaciones
+  contexto: ContextoOperaciones
 ): Promise<ResultadoDeOperacion> {
   switch (operacion.tipo) {
-    case "fijar_servicio":
-    case "fijar_horario":
-    case "fijar_especialista":
+    case "fijar_servicio": {
+      const servicio = buscarServicio(contexto.servicios, operacion.servicio);
+      if (!servicio) {
+        const nombresCatalogo = contexto.servicios.map((s) => s.name).join(", ") || "(sin servicios configurados)";
+        return {
+          ok: false,
+          motivo: `"${operacion.servicio}" no está en el catálogo de servicios`,
+          correccion: `[SISTEMA] No encontré "${operacion.servicio}" en el catálogo. Servicios reales: ${nombresCatalogo}.`,
+        };
+      }
+      const item: ItemDelPedido = {
+        ofrecible: { id: servicio.id, nombre: servicio.name },
+        cantidad: 1,
+        seleccion: [],
+        gruposDeclinados: [],
+        totalCents: servicio.priceCents,
+      };
+      return { ok: true, estado: { ...estadoActual, items: [...estadoActual.items, item] } };
+    }
+
+    case "fijar_especialista": {
+      const serviceIds = estadoActual.items
+        .map((i) => i.ofrecible.id)
+        .filter((id): id is string => id !== null);
+      if (serviceIds.length === 0) {
+        return {
+          ok: false,
+          motivo: "no hay servicio fijado todavía",
+          correccion: "[SISTEMA] Todavía no se ha elegido un servicio para esta cita. Pregunta primero cuál servicio quiere.",
+        };
+      }
+      const resuelto = await resolverEspecialista(contexto, serviceIds, operacion.especialista);
+      if (!resuelto.ok) return resuelto;
+      const reservaPrevia = estadoActual.reserva;
+      return {
+        ok: true,
+        estado: {
+          ...estadoActual,
+          reserva: {
+            fecha: reservaPrevia?.fecha ?? null,
+            hora: reservaPrevia?.hora ?? null,
+            duracionMin: reservaPrevia?.duracionMin ?? null,
+            recursoId: resuelto.id,
+            recursoNombre: resuelto.nombre,
+          },
+        },
+      };
+    }
+
+    case "fijar_horario": {
+      const serviciosElegidos = estadoActual.items
+        .map((i) => contexto.servicios.find((s) => s.id === i.ofrecible.id))
+        .filter((s): s is ServiceRow => s != null);
+      if (serviciosElegidos.length === 0) {
+        return {
+          ok: false,
+          motivo: "no hay servicio fijado todavía",
+          correccion: "[SISTEMA] Todavía no se ha elegido un servicio para esta cita. Pregunta primero cuál servicio quiere, antes de fijar fecha y hora.",
+        };
+      }
+
+      // Especialista para esta verificación: el que trae la propia operación
+      // (se resuelve de nuevo, igual que `fijar_especialista`), o si no, el
+      // que ya estaba fijado de un turno anterior — nunca se inventa uno
+      // nuevo aquí. Sin ninguno de los dos, se verifica que AL MENOS un
+      // especialista esté libre (`staffIdPreferido` ausente), y el recurso
+      // concreto se resuelve más adelante, igual que hoy hace
+      // `crearCitaMultiple` cuando `book_appointment` no trae especialista
+      // (`pipeline.ts:3759`, `staffIdPreferido: resuelto.staffId` con
+      // `staffId: null` es un caso ya válido y manejado, no nuevo aquí).
+      let especialistaResuelto: { id: string; nombre: string } | null = null;
+      if (operacion.especialista) {
+        const serviceIds = serviciosElegidos.map((s) => s.id);
+        const resuelto = await resolverEspecialista(contexto, serviceIds, operacion.especialista);
+        if (!resuelto.ok) return resuelto;
+        especialistaResuelto = resuelto;
+      } else if (estadoActual.reserva?.recursoId && estadoActual.reserva.recursoNombre) {
+        especialistaResuelto = { id: estadoActual.reserva.recursoId, nombre: estadoActual.reserva.recursoNombre };
+      }
+
+      const fecha = normalizarFecha(operacion.fecha) ?? operacion.fecha;
+      // `calcularDisponibilidad` (bajo `disponibilidadRealMultiple`) solo
+      // filtra por hora dentro del día — NO sabe qué días de la semana
+      // atiende el negocio ni descarta una fecha ya pasada (salvo hoy). Sin
+      // este chequeo, un día cerrado devolvería la grilla completa como si
+      // estuviera abierto: mismo orden de validación que ya usa
+      // `resolverConsultaDisponibilidad` (`pipeline.ts:544`) para la consulta,
+      // aplicado aquí para la re-verificación.
+      if (!esFechaValida(fecha, contexto.hours, contexto.now)) {
+        return {
+          ok: false,
+          motivo: `"${fecha}" no es una fecha agendable`,
+          correccion: `[SISTEMA] "${fecha}" no es una fecha agendable (ya pasó o el negocio no atiende ese día). Pídele otra fecha.`,
+        };
+      }
+      const disp = await disponibilidadRealMultiple({
+        organizationId: contexto.organizationId,
+        services: serviciosElegidos,
+        fecha,
+        staffIdPreferido: especialistaResuelto?.id,
+        hours: contexto.hours,
+        now: contexto.now,
+      });
+      if (!disp[operacion.hora]) {
+        const horas = Object.keys(disp).sort();
+        return {
+          ok: false,
+          motivo: `${fecha} ${operacion.hora} ya no está disponible`,
+          correccion: horas.length
+            ? `[SISTEMA] Ese horario ya no está disponible. Horarios reales disponibles el ${fecha}: ${horas.join(", ")}.`
+            : `[SISTEMA] No hay horarios disponibles el ${fecha} para este servicio. Ofrece otra fecha.`,
+        };
+      }
+
+      const duracionMin = serviciosElegidos.reduce((acc, s) => acc + s.durationMin, 0);
+      return {
+        ok: true,
+        estado: {
+          ...estadoActual,
+          reserva: {
+            fecha,
+            hora: operacion.hora,
+            duracionMin,
+            recursoId: especialistaResuelto?.id ?? null,
+            recursoNombre: especialistaResuelto?.nombre ?? null,
+          },
+        },
+      };
+    }
+
     case "fijar_dato":
     case "confirmar":
       throw new Error(
-        `aplicarOperacion: "${operacion.tipo}" pendiente de T009-T010 de specs/003-backend-como-autoridad/tasks.md`
+        `aplicarOperacion: "${operacion.tipo}" pendiente de T010 de specs/003-backend-como-autoridad/tasks.md`
       );
     default: {
       // Exhaustividad: si TypeScript se queja aquí de que `operacion` no es

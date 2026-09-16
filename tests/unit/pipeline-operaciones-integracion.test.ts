@@ -46,8 +46,9 @@ vi.mock("@/server/appointments/queries", () => ({
   limpiarOfrecidos: () => Promise.resolve(),
 }));
 
+const notifyTeamMock = vi.fn().mockResolvedValue({ sent: 0, failed: 0, detail: "prueba" });
 vi.mock("@/server/ai/notify-team", () => ({
-  notifyTeam: vi.fn().mockResolvedValue({ sent: 0, failed: 0, detail: "prueba" }),
+  notifyTeam: (...a: unknown[]) => notifyTeamMock(...a),
   contactPhoneOf: vi.fn().mockResolvedValue(null),
 }));
 
@@ -182,6 +183,7 @@ beforeEach(() => {
   guardarEstadoCalls.length = 0;
   guardarEstadoMock.mockClear();
   leerEstadoConVersionMock.mockClear();
+  notifyTeamMock.mockClear();
   estadoActual = null;
   versionActual = 0;
 });
@@ -261,5 +263,139 @@ describe("T016 — integración: un turno que solo cambia un dato no toca los í
     expect(chatJson).toHaveBeenCalledTimes(2);
     const correccion = (chatJson.mock.calls[1]![1] as { content: string }[]).at(-1)!.content;
     expect(correccion).toContain("Torta voladora");
+  });
+});
+
+/**
+ * T019 (feature 003-backend-como-autoridad) — el resumen que recibe el
+ * EQUIPO por WhatsApp lleva las cifras que calculó el backend, no las que
+ * escriba el modelo. No es código nuevo: `bloqueDeCifrasVerificadas`
+ * (`anuncio-de-cierre.ts`, Fase 11-C, anterior a esta feature) ya adjunta
+ * "Subtotal/Total" verificados al `summary` de `notify_order` — lo que
+ * faltaba era que usara el total de ESTE turno (`aplicarOperaciones`, T007),
+ * no uno leído antes de aplicar sus operaciones. Ese cableado quedó en
+ * T017/T018 (la reasignación de `estadoGuardado` tras `guardarEstadoPropuesto`
+ * en `pipeline.ts`). Esta prueba lo demuestra de punta a punta: el total que
+ * llega a `notifyTeam` sale de una operación `agregar_item` de ESTE MISMO
+ * turno, nunca de un mock pre-cargado.
+ */
+describe("T019 — el resumen al equipo lleva el total que calculó el backend en ESTE turno", () => {
+  it("agregar_item + confirmar + notify_order en un solo turno: notifyTeam recibe el total real, no el que diga el modelo", async () => {
+    // El guardarraíl "notify_order sin resumen previo" (anterior a esta
+    // feature, `elClienteVioUnTotal`) exige que el cliente ya haya VISTO un
+    // total en un mensaje saliente antes de cerrar — nada que ver con lo
+    // que este test prueba, así que se satisface con un mensaje previo.
+    // `runAgentTurn` invierte el orden (lee DESC): más nuevo primero aquí.
+    selectQueue.push(
+      [conversacion()],
+      [perfil()],
+      [
+        { id: "msg_1", direction: "in", text: "quiero un pavé de chocolate y confirmo", createdAt: new Date() },
+        { id: "msg_0", direction: "out", text: "Un pavé de chocolate. Total: $10.000", createdAt: new Date() },
+      ],
+      [],
+      [],
+      [],
+      []
+    );
+    chatJson.mockResolvedValueOnce({
+      ok: true,
+      raw: "{}",
+      data: {
+        action: "notify_order",
+        // El resumen del modelo no repite ninguna cifra: si el total llega
+        // a `notifyTeam`, solo puede venir de `cifrasDelBackend`.
+        summary: "Un pavé de chocolate para el cliente.",
+        subtotalCents: 1000000,
+        totalCents: 1000000,
+        operaciones: [
+          { tipo: "agregar_item", ofrecible: "Pavé chocolate", opciones: [], cantidad: 1 },
+          // T017: este fixture (`perfil()`) declara "direccion" como
+          // requisito obligatorio — sin esto, `puedeConfirmarPedido`
+          // rechazaría `confirmar` correctamente, pero no es lo que este
+          // test quiere demostrar.
+          { tipo: "fijar_dato", requisitoId: "direccion", valor: "Cra 1 # 2-3" },
+          { tipo: "confirmar" },
+        ],
+      },
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(notifyTeamMock).toHaveBeenCalledTimes(1);
+    const summaryEnviado = (notifyTeamMock.mock.calls[0]![0] as { summary: string }).summary;
+    // Las cifras verificadas, calculadas por aplicarOperacion en ESTE turno
+    // (Pavé chocolate = $10.000, sin domicilio) — nunca escritas por el
+    // modelo, que no las mencionó en su `summary`.
+    expect(summaryEnviado).toContain("Subtotal: $10.000");
+    expect(summaryEnviado).toContain("Total: $10.000");
+  });
+});
+
+/**
+ * T020 (feature 003-backend-como-autoridad) — `confirmar` con un requisito
+ * obligatorio sin cubrir no ejecuta `ejecutarConfirmacionDePedido` (ninguna
+ * notificación real al equipo, `notifyTeamMock` nunca se llama); el cliente
+ * recibe la pregunta pendiente en un `reply`, nunca una derivación. Mismo
+ * mecanismo de reintento YA existente (T015) que usa el rechazo de "pedido
+ * ya confirmado" — aquí el motivo es el nuevo de T017.
+ */
+describe("T020 — confirmar con un requisito obligatorio sin cubrir no cierra, y no deriva", () => {
+  it("notify_order sin la dirección: el retry pide la dirección, el cliente NUNCA es derivado ni notificado como cerrado", async () => {
+    selectQueue.push(
+      [conversacion()],
+      [perfil()],
+      [
+        { id: "msg_1", direction: "in", text: "quiero un pavé de chocolate, confirmo", createdAt: new Date() },
+        { id: "msg_0", direction: "out", text: "Un pavé de chocolate. Total: $10.000", createdAt: new Date() },
+      ],
+      [],
+      [],
+      [],
+      []
+    );
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        raw: "{}",
+        data: {
+          action: "notify_order",
+          summary: "Un pavé de chocolate para el cliente.",
+          subtotalCents: 1000000,
+          totalCents: 1000000,
+          // A propósito SIN fijar_dato de "direccion" — el requisito
+          // obligatorio de este negocio (ver `perfil()`) queda sin cubrir.
+          operaciones: [
+            { tipo: "agregar_item", ofrecible: "Pavé chocolate", opciones: [], cantidad: 1 },
+            { tipo: "confirmar" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        raw: "{}",
+        data: { action: "reply", text: "¿Me confirmas tu dirección de entrega?" },
+      });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    const action = await runAgentTurn("cv_1");
+
+    // El cliente recibe la pregunta pendiente — nunca una derivación.
+    expect(action?.action).toBe("reply");
+    expect(action?.action).not.toBe("handoff");
+    // ejecutarConfirmacionDePedido nunca corrió: para esta conversación de
+    // prueba (isTest:true) su único efecto observable es notifyTeam, y
+    // nunca se llama.
+    expect(notifyTeamMock).not.toHaveBeenCalled();
+    // Dos escrituras, ninguna es el cierre: la primera guarda el estado con
+    // `confirmado:true` (agregar_item + confirmar son OPERACIONES válidas;
+    // lo que la Policy bloquea es el CIERRE, no la escritura en memoria —
+    // `data-model.md` sección 4). La segunda es el guardarraíl YA existente
+    // "confirmado sin cierre" (`corregirConfirmadoSinCierre`,
+    // `pipeline-confirmado-sin-cierre.test.ts`) corrigiendo a `false` porque
+    // el turno terminó sin notificar al equipo — interactúa correctamente
+    // con el gate nuevo de T017 sin haber tocado ese mecanismo.
+    expect(guardarEstadoMock).toHaveBeenCalledTimes(2);
   });
 });

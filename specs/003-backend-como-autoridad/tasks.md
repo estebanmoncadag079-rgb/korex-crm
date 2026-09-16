@@ -189,11 +189,18 @@ ejecuta el cierre, y el backend devuelve qué falta (criterio #2 de US1).
       `reservas.length === 1`: el estado solo modela una reserva por
       conversación, así que `book_appointment` con varias personas sigue sin
       cambios.
-- [ ] T019 [US1] Componer el resumen al equipo (en el flujo de `notify_order`,
+- [X] T019 [US1] Componer el resumen al equipo (en el flujo de `notify_order`,
       `src/server/ai/notify-team.ts` y su punto de llamada) desde el estado guardado,
       no desde el `summary` de texto libre del modelo — mismo formato de mensaje de
       WhatsApp (decisión "déjalo como está"), cambia de dónde salen las cifras.
-- [ ] T020 [US1] (depende de T017) Test: `confirmar` con un requisito obligatorio sin cubrir no
+      **Ya existía** (`bloqueDeCifrasVerificadas`, Fase 11-C, anterior a esta
+      feature): adjunta "Subtotal/Total" verificados al `summary`/`farewell` de
+      `notify_order`, dejando el detalle de ítems y el tono al modelo — exactamente
+      el diseño que pedía esta tarea. Lo único que faltaba era que usara el total de
+      ESTE turno, resuelto con la reasignación de `estadoGuardado` de T017/T018.
+      `notify-team.ts` no necesitó cambios: reenvía el `summary` ya compuesto sin
+      tocarlo. Probado de punta a punta en `pipeline-operaciones-integracion.test.ts`.
+- [X] T020 [US1] (depende de T017) Test: `confirmar` con un requisito obligatorio sin cubrir no
       ejecuta `ejecutarConfirmacionDePedido`; el cliente recibe la pregunta
       pendiente, no una derivación.
 

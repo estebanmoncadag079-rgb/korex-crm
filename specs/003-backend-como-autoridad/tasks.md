@@ -268,14 +268,70 @@ salta ningún paso.
       compila y genera las 6 páginas estáticas sin error, suite completo 224
       archivos / 2278 tests / 0 fallos. Ejecutado localmente sobre la rama
       `003-backend-como-autoridad`, sin tocar `main` ni desplegar nada.
-- [ ] T025 `pnpm probar:estado`, `pnpm probar:escenarios`, `pnpm probar:citas` contra
+- [X] T025 `pnpm probar:estado`, `pnpm probar:escenarios`, `pnpm probar:citas` contra
       los 4 negocios reales — los tres en verde ANTES de tocar cualquier interruptor.
-- [ ] T026 Probar el apagado individual: con los 4 interruptores encendidos, apagar
+      **Contradicción real encontrada (16-sep-2026) y resuelta con Esteban, sin
+      rediseñar**: al consultar producción (solo lectura, vía el túnel documentado)
+      antes de ejecutar nada, La Churra/Lis/MALIA ya tenían `state_source='backend'`
+      — no apagado como asumía esta tarea. Decisión: no apagar/encender artificial
+      para reproducir la premisa original; el MERGE + DEPLOY es la activación
+      efectiva para esas tres. Lashes Valen queda con `state_source` preparado pero
+      `enabled=false` sin tocar (decisión independiente de si ese agente debe estar
+      operativo). Camilabrandcol NO es uno de los 4 negocios de esta feature — no
+      se toca (tiene además un problema aparte con Meta/YCloud).
+
+      Ejecutado con esa aclaración:
+      - `probar:estado`: mecanismo genérico (clientes efímeros), en verde. Los 2
+        "FALLAN" que reporta son una prueba desactualizada (asume que un cliente
+        nuevo nace en `'prompt'`; `arquitecturaAprobadaPara` ya aprueba `'backend'`
+        como default desde antes de esta feature) — no es una regresión de Feature
+        003 (confirmado con `git diff` que no se tocó `schema.ts`/`provisioning.ts`/
+        `arquitectura.ts`). Tarea de limpieza señalada aparte (`task_4fbfbb49`).
+      - `probar:escenarios <organizationId>` contra La Churra, Lis y MALIA (72
+        escenarios reales, contra el motor de operaciones nuevo, con LLM real,
+        conversaciones `is_test` — nunca tocan WhatsApp real): cada "falla"
+        investigada hasta la causa (REGLA DE ORO), ninguna es una regresión de
+        Feature 003. Causas reales: (a) el guion de escenarios usa vocabulario/
+        precios fijos que solo coinciden con el catálogo de Lis — contra La Churra/
+        MALIA el agente responde CORRECTAMENTE que esos productos no existen en SU
+        catálogo real; (b) el chequeo `noDebeDecir` del script escanea la
+        conversación ENTERA, no solo el turno final, así que marca en rojo un
+        precio dicho correctamente en un turno temprano; (c) un `provider_error`
+        transitorio real (infraestructura del proveedor, no código). Tarea de
+        limpieza señalada aparte (`task_d90ed039`).
+      - `probar:citas <organizationId>` contra Lashes Valen (`enabled=false`, no
+        bloquea el sandbox: `!conversation.isTest && !profile.enabled`, y
+        `is_test` es `true`): conversación completa, servicio resuelto
+        (`fijar_servicio`), total agregado calculado correctamente ($45.000,
+        confirma el fix de T017), y `consult_availability` devolvió horarios y
+        especialistas reales. Sin errores. El script necesitó
+        `APP_BASE_URL`/`META_WEBHOOK_VERIFY_TOKEN` por variable de entorno directa
+        (gap pre-existente del script, no de Feature 003 — señalado aparte,
+        `task_1912da73`).
+- [X] T026 Probar el apagado individual: con los 4 interruptores encendidos, apagar
       el de UNA organización y confirmar que las otras tres no se afectan (mitigación
       específica del riesgo aceptado del rollout simultáneo).
+      **Verificado sin alterar ningún flag productivo real** (decisión explícita:
+      no tiene sentido apagar/encender La Churra/Lis/MALIA solo para reproducir esto
+      de forma literal). En su lugar: `tests/unit/switch-aislamiento-organizacion.test.ts`
+      (nuevo) demuestra la propiedad exacta que pide esta tarea — dos organizaciones
+      en el mismo proceso, una con `state_source='backend'` y otra con `'prompt'`,
+      confirmando que cada `runAgentTurn` lee el perfil de SU PROPIA organización
+      (`profile` ya viene `scoped()` por `organizationId`, Principio III) sin ningún
+      estado compartido a nivel de módulo — apagar/encender una nunca toca a la
+      otra. Complementado con evidencia empírica de T025: 4 organizaciones reales
+      distintas, corridas en la misma sesión, sin ninguna contaminación observada
+      entre ellas.
 - [ ] T027 Activar `state_source`/`catalog_source` en los 4 negocios y los 2
       verticales a la vez, vía `arquitecturaAprobadaPara`/
       `validarConfiguracionArquitectonica` (`src/server/auth/arquitectura.ts`).
+      **Condición real que queda, según lo resuelto con Esteban**: para La Churra,
+      Lis y MALIA, `state_source='backend'` ya está activo en producción — el
+      MERGE + DEPLOY de esta rama a `main` ES la activación efectiva para esas
+      tres, no un paso de configuración aparte. Lashes Valen permanece con
+      `enabled=false` sin cambios (decisión independiente sobre si ese agente debe
+      estar operativo); su activación efectiva de Feature 003 queda pendiente de
+      que se habilite. Camilabrandcol no pertenece al alcance de esta feature.
 - [ ] T028 Verificación en vivo (Principio IX): ejercer al menos un turno real por
       negocio (agregar ítem/cambiar dato/confirmar, o agendar cita) y confirmar en la
       traza (`src/server/ai/traza.ts`) que el origen de la decisión de cierre es

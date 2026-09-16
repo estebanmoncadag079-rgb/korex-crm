@@ -171,13 +171,24 @@ el resumen al equipo se compone desde el estado.
 **Prueba independiente**: un intento de `confirmar` con el estado incompleto no
 ejecuta el cierre, y el backend devuelve qué falta (criterio #2 de US1).
 
-- [ ] T017 [US1] Ampliar `puedeConfirmarPedido` (`src/server/orders/policy.ts:93`)
+- [X] T017 [US1] Ampliar `puedeConfirmarPedido` (`src/server/orders/policy.ts:93`)
       para leer el estado guardado (ítems resueltos, total calculado, requisitos
       cubiertos) ADEMÁS de la verificación de idempotencia que ya tiene — sin
-      quitarla.
-- [ ] T018 [P] [US1] Crear el equivalente para citas: la reserva solo se agenda si el
+      quitarla. **Bug real encontrado y corregido en el camino (16-sep-2026)**:
+      `aplicarOperacion` (T004-T006/T008-T010) nunca recalculaba el `totalCents`
+      AGREGADO del pedido/reserva —solo el de cada línea—, así que confirmar
+      habría rechazado SIEMPRE. Corregido en `orders/operaciones.ts` y
+      `appointments/operaciones.ts` con un wrapper que recalcula el total tras
+      cada operación, para los dos verticales.
+- [X] T018 [P] [US1] Crear el equivalente para citas: la reserva solo se agenda si el
       backend tiene servicio resuelto, horario ofrecido por él y los requisitos
-      cubiertos, contra `appointment_booking_confirmation`.
+      cubiertos, contra `appointment_booking_confirmation`. Implementado como
+      `puedeConfirmarCita` (`appointments/policy.ts`, nuevo) — sin el chequeo de
+      idempotencia de pedidos (citas ya lo resuelve distinto, por lote de
+      mensajes disparadores, `registrarConfirmacionDeCita`). Acotado a
+      `reservas.length === 1`: el estado solo modela una reserva por
+      conversación, así que `book_appointment` con varias personas sigue sin
+      cambios.
 - [ ] T019 [US1] Componer el resumen al equipo (en el flujo de `notify_order`,
       `src/server/ai/notify-team.ts` y su punto de llamada) desde el estado guardado,
       no desde el `summary` de texto libre del modelo — mismo formato de mensaje de

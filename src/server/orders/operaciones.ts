@@ -404,6 +404,27 @@ export function aplicarOperacion(
   operacion: Operacion,
   contexto: ContextoOperaciones
 ): ResultadoDeOperacion {
+  const resultado = aplicarOperacionSinTotal(estadoActual, operacion, contexto);
+  if (!resultado.ok) return resultado;
+  // El total lo calcula el servidor, nunca el modelo (`normalizar.ts:52`) —
+  // cada `case` de abajo ya resuelve el `totalCents` de la LÍNEA que toca,
+  // pero ninguno recalculaba el agregado del pedido entero. Encontrado el
+  // 16-sep-2026 al llegar a T017: `confirmar` rechazaba SIEMPRE porque
+  // `estado.totalCents` se quedaba en `null` para siempre después de
+  // `estadoVacio()`, sin importar cuántos ítems tuviera el pedido. Un solo
+  // punto de recálculo, aquí, evita que un `case` futuro repita el olvido.
+  const totalCents =
+    resultado.estado.items.length === 0
+      ? null
+      : resultado.estado.items.reduce((suma, item) => suma + (item.totalCents ?? 0), 0);
+  return { ok: true, estado: { ...resultado.estado, totalCents } };
+}
+
+function aplicarOperacionSinTotal(
+  estadoActual: EstadoDelPedido,
+  operacion: Operacion,
+  contexto: ContextoOperaciones
+): ResultadoDeOperacion {
   switch (operacion.tipo) {
     case "agregar_item": {
       // Compuerta 2 + 3 combinadas (ver el comentario de `resolverAgregarItem`).

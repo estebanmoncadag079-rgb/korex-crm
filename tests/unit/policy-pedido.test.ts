@@ -24,6 +24,8 @@ vi.mock("@/server/ai/confirmacion-de-pedido", () => ({
 
 import { puedeConfirmarPedido } from "@/server/orders/policy";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
+import { estadoVacio, type EstadoDelPedido } from "@/server/orders/estado";
+import type { Requisito } from "@/server/ai/generador/ficha";
 
 const CATALOGO: ProductoDelCatalogo[] = [
   {
@@ -126,5 +128,101 @@ describe("puedeConfirmarPedido", () => {
     });
     expect(v.ok).toBe(true);
     expect(ultimaConfirmacionDeMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * T017 (feature 003-backend-como-autoridad) — ampliación aditiva: con
+ * `estadoGuardado` informado (solo pasa con `state_source='backend'`, ningún
+ * negocio real hoy), la Policy también exige que la hoja esté completa. Sin
+ * `estadoGuardado` (el caso real de los 4 negocios), estas reglas nunca se
+ * evalúan — ya cubierto por el describe de arriba, que no pasa ese campo.
+ */
+describe("puedeConfirmarPedido — T017: la hoja como autoridad (state_source='backend')", () => {
+  const REQUISITOS: Requisito[] = [
+    { id: "direccion", tipo: "direccion", etiqueta: "la dirección de entrega", obligatorio: true },
+  ];
+
+  beforeEach(() => {
+    ultimaConfirmacionDeMock.mockResolvedValue(null);
+  });
+
+  it("sin ítems: rechaza aunque no haya confirmación previa", async () => {
+    const estado: EstadoDelPedido = { ...estadoVacio(), totalCents: 0 };
+    const v = await puedeConfirmarPedido({
+      conversationId: "cv_1",
+      productosDelPedido: CATALOGO,
+      history: [],
+      estadoGuardado: estado,
+      requisitos: REQUISITOS,
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.motivo).toContain("no tiene ítems");
+  });
+
+  it("con ítems pero sin total calculado: rechaza — nunca inventa el total", async () => {
+    const estado: EstadoDelPedido = {
+      ...estadoVacio(),
+      items: [{ ofrecible: { id: "p1", nombre: "Pavé Cremoso 8 oz" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
+      totalCents: null,
+    };
+    const v = await puedeConfirmarPedido({
+      conversationId: "cv_1",
+      productosDelPedido: CATALOGO,
+      history: [],
+      estadoGuardado: estado,
+      requisitos: REQUISITOS,
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.motivo).toContain("total");
+  });
+
+  it("con ítems y total, pero falta un requisito obligatorio: rechaza y dice cuál", async () => {
+    const estado: EstadoDelPedido = {
+      ...estadoVacio(),
+      items: [{ ofrecible: { id: "p1", nombre: "Pavé Cremoso 8 oz" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
+      totalCents: 1000000,
+      datos: {},
+    };
+    const v = await puedeConfirmarPedido({
+      conversationId: "cv_1",
+      productosDelPedido: CATALOGO,
+      history: [],
+      estadoGuardado: estado,
+      requisitos: REQUISITOS,
+    });
+    expect(v.ok).toBe(false);
+    if (!v.ok) {
+      expect(v.motivo).toContain("direccion");
+      expect(v.correccion).toContain("dirección de entrega");
+    }
+  });
+
+  it("hoja completa: pasa", async () => {
+    const estado: EstadoDelPedido = {
+      ...estadoVacio(),
+      items: [{ ofrecible: { id: "p1", nombre: "Pavé Cremoso 8 oz" }, cantidad: 1, seleccion: [], totalCents: 1000000 }],
+      totalCents: 1000000,
+      datos: { direccion: "Cra 1 # 2-3" },
+    };
+    const v = await puedeConfirmarPedido({
+      conversationId: "cv_1",
+      productosDelPedido: CATALOGO,
+      history: [],
+      estadoGuardado: estado,
+      requisitos: REQUISITOS,
+    });
+    expect(v.ok).toBe(true);
+  });
+
+  it("sin estadoGuardado (state_source!='backend'): ninguna de estas reglas se evalúa", async () => {
+    const v = await puedeConfirmarPedido({
+      conversationId: "cv_1",
+      productosDelPedido: CATALOGO,
+      history: [],
+      requisitos: REQUISITOS,
+      // estadoGuardado ausente a propósito.
+    });
+    expect(v.ok).toBe(true);
   });
 });

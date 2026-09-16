@@ -128,6 +128,7 @@ import {
   puedeConfirmarPedido,
   ejecutarConfirmacionDePedido,
 } from "@/server/orders/policy";
+import { puedeConfirmarCita } from "@/server/appointments/policy";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import {
@@ -1500,6 +1501,20 @@ export async function runAgentTurn(
           versionEsperada: versionDeEstadoLeido,
         })
       : null;
+  /**
+   * T017-T019 (feature 003-backend-como-autoridad) — de aquí en adelante,
+   * `estadoGuardado` refleja lo que ESTE turno acaba de guardar (si guardó
+   * algo), nunca el que había al empezar. Los guardarraíles de más abajo
+   * (financiero, "el cliente ya vio un resumen", la Policy de `confirmar`)
+   * deciden sobre el CIERRE de este turno, y `confirmar` puede venir en el
+   * MISMO lote que acaba de completar el total/la modalidad/los ítems —
+   * decidir con el estado de ANTES de este turno sería mirar un dato viejo
+   * a propósito. Sin reasignar nada cuando este turno no guardó nada (sin
+   * propuesta, o rechazada): el valor de antes sigue siendo la verdad.
+   */
+  if (estadoRecienGuardado?.estadoFinal) {
+    estadoGuardado = estadoRecienGuardado.estadoFinal;
+  }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
   // son justo los que encarecen a un cliente sin que se note en ninguna parte.
   await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
@@ -2494,10 +2509,17 @@ export async function runAgentTurn(
   if (action.action === "notify_order") {
     // Fase 1 — la DECISIÓN vive en `orders/policy.ts`; reaccionar (reintentar
     // con el modelo, derivar, anotar la traza) sigue siendo del pipeline.
+    //
+    // T017 (feature 003-backend-como-autoridad): `estadoGuardado` ya refleja
+    // lo que este turno acaba de guardar (reasignado más arriba) — `null`
+    // cuando `state_source !== 'backend'` (los 4 negocios reales hoy), así
+    // que `puedeConfirmarPedido` no exige nada nuevo para ellos.
     const veredicto = await puedeConfirmarPedido({
       conversationId,
       productosDelPedido,
       history,
+      estadoGuardado,
+      requisitos,
     });
     if (!veredicto.ok) {
       console.warn(
@@ -3626,7 +3648,36 @@ export async function runAgentTurn(
         );
       }
 
+      /**
+       * T018 (feature 003-backend-como-autoridad) — con la hoja como
+       * autoridad (`state_source='backend'`), agendar exige que el backend
+       * YA tenga el servicio resuelto, un horario que él mismo verificó, y
+       * los requisitos obligatorios cubiertos (`puedeConfirmarCita`,
+       * `appointments/policy.ts`). Acotado a `reservas.length === 1`: el
+       * estado solo modela UNA reserva por conversación ("UNA sola para
+       * toda la visita", `estado.ts`) — con varias personas en el mismo
+       * `book_appointment` (`docs/korexia/108`), esta hoja no distingue a
+       * cuál corresponde, así que el chequeo nuevo no aplica y esas
+       * reservas siguen su camino de siempre, sin cambios.
+       *
+       * `estadoParaCita` es `null` para `state_source !== 'backend'` (todos
+       * los negocios de citas reales hoy) o cuando hay más de una reserva:
+       * `puedeConfirmarCita` devuelve `{ok:true}` de inmediato en ese caso,
+       * cero comportamiento nuevo. `estadoGuardado` ya refleja lo que este
+       * turno acaba de guardar (reasignado más arriba).
+       */
+      const estadoParaCita = action.reservas.length === 1 ? estadoGuardado : null;
+
       for (const reserva of action.reservas) {
+        const veredictoDeCita = puedeConfirmarCita({ estadoGuardado: estadoParaCita, requisitos });
+        if (!veredictoDeCita.ok) {
+          fallidas.push({
+            nombreVisita: reserva.servicios.join(" + "),
+            motivo: veredictoDeCita.motivo,
+          });
+          continue;
+        }
+
         // Uno o varios servicios en la MISMA visita de esta reserva — igual
         // que antes, todo o nada dentro de la propia reserva.
         const servicios: ServiceRow[] = [];
@@ -4684,6 +4735,15 @@ async function guardarEstadoPropuesto(entrada: {
 }): Promise<{
   guardadoConfirmadoTrue?: boolean;
   /**
+   * T017 (feature 003-backend-como-autoridad) — el estado tal como quedó
+   * DESPUÉS de aplicar el lote de este turno. `puedeConfirmarPedido` lo usa
+   * para decidir si `confirmar` puede ejecutarse de verdad (ítems resueltos,
+   * total calculado, requisitos cubiertos) — nunca el estado de ANTES de
+   * este turno, porque `confirmar` puede venir en el MISMO lote que
+   * completó lo que faltaba.
+   */
+  estadoFinal?: EstadoDelPedido;
+  /**
    * Fase 8J — por qué el backend NO aceptó el lote. Antes esto solo se
    * registraba en una métrica y se descartaba: el modelo seguía el turno
    * creyendo que su propuesta valía, y el cliente recibía una respuesta
@@ -4752,7 +4812,7 @@ async function guardarEstadoPropuesto(entrada: {
         return null;
       }
       metrica("guardado");
-      return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true };
+      return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
     }
 
     const parse = OperacionPedidos.array().safeParse(entrada.operaciones);
@@ -4791,7 +4851,7 @@ async function guardarEstadoPropuesto(entrada: {
       return null;
     }
     metrica("guardado");
-    return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true };
+    return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
   } catch (err) {
     metrica("error", (err as Error).message);
     return null;

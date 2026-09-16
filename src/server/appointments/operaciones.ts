@@ -208,6 +208,23 @@ export async function aplicarOperacion(
   operacion: Operacion,
   contexto: ContextoOperaciones
 ): Promise<ResultadoDeOperacion> {
+  const resultado = await aplicarOperacionSinTotal(estadoActual, operacion, contexto);
+  if (!resultado.ok) return resultado;
+  // Mismo olvido que en `orders/operaciones.ts` (encontrado el 16-sep-2026
+  // al llegar a T017/T018): `fijar_servicio` resuelve el `totalCents` de la
+  // LÍNEA, pero nada recalculaba el agregado del pedido/reserva entera.
+  const totalCents =
+    resultado.estado.items.length === 0
+      ? null
+      : resultado.estado.items.reduce((suma, item) => suma + (item.totalCents ?? 0), 0);
+  return { ok: true, estado: { ...resultado.estado, totalCents } };
+}
+
+async function aplicarOperacionSinTotal(
+  estadoActual: EstadoDelPedido,
+  operacion: Operacion,
+  contexto: ContextoOperaciones
+): Promise<ResultadoDeOperacion> {
   switch (operacion.tipo) {
     case "fijar_servicio": {
       const servicio = buscarServicio(contexto.servicios, operacion.servicio);

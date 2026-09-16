@@ -254,6 +254,13 @@ describe("conversation_state: 'confirmado:true' sin cierre real se corrige a fal
       data: {
         action: "notify_order",
         summary: "1 Porción Chocolate — $12.500. Total: $12.500",
+        // Feature 003: ahora que `aplicarOperacion` recalcula el total
+        // agregado (corregido el 16-sep-2026, ver operaciones.ts), el
+        // guardarraíl financiero (`inconsistenciaFinancieraDePedido`, ya
+        // existente, anterior a esta feature) sí tiene con qué comparar —
+        // declararlos aquí es completar el fixture, no una regla nueva.
+        subtotalCents: 1250000,
+        totalCents: 1250000,
         operaciones: [
           { tipo: "agregar_item", ofrecible: "Porción Chocolate", opciones: [], cantidad: 1 },
           { tipo: "confirmar" },

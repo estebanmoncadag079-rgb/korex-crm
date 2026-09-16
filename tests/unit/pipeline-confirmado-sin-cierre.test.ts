@@ -19,10 +19,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * Mismo patrón de mocks que recuperacion-salida-parcial.test.ts, con
  * `stateSource: "backend"` — pero mockeando `@/server/orders/estado` con
- * `importOriginal` para mantener `validarPropuesta` REAL (así la validación
- * de la propuesta es genuina) mientras se observan las llamadas a
- * `guardarEstado`/`leerEstado` sin depender del mock de bajo nivel de
- * `@/lib/db` (que no modela `onConflictDoUpdate`).
+ * `importOriginal` (`estadoVacio`/`conEntregaConservada` reales) y sin tocar
+ * `@/server/orders/operaciones` en absoluto, así que `aplicarOperaciones`
+ * (feature 003, T007) es GENUINA: la propuesta se aplica de verdad, no se
+ * finge. Se observan las llamadas a `guardarEstado`/`leerEstado` sin
+ * depender del mock de bajo nivel de `@/lib/db` (que no modela
+ * `onConflictDoUpdate`).
  */
 
 const chatJson = vi.fn();
@@ -207,12 +209,10 @@ describe("conversation_state: 'confirmado:true' sin cierre real se corrige a fal
       data: {
         action: "reply",
         text: "¡Genial! ¿Necesitas algo más?",
-        estado: {
-          items: [{ ofrecible: "Porción Chocolate", cantidad: 1, opciones: [] }],
-          datos: {},
-          paso: "confirmado",
-          confirmado: true,
-        },
+        operaciones: [
+          { tipo: "agregar_item", ofrecible: "Porción Chocolate", opciones: [], cantidad: 1 },
+          { tipo: "confirmar" },
+        ],
       },
     });
 
@@ -254,12 +254,17 @@ describe("conversation_state: 'confirmado:true' sin cierre real se corrige a fal
       data: {
         action: "notify_order",
         summary: "1 Porción Chocolate — $12.500. Total: $12.500",
-        estado: {
-          items: [{ ofrecible: "Porción Chocolate", cantidad: 1, opciones: [] }],
-          datos: {},
-          paso: "confirmado",
-          confirmado: true,
-        },
+        // Feature 003: ahora que `aplicarOperacion` recalcula el total
+        // agregado (corregido el 16-sep-2026, ver operaciones.ts), el
+        // guardarraíl financiero (`inconsistenciaFinancieraDePedido`, ya
+        // existente, anterior a esta feature) sí tiene con qué comparar —
+        // declararlos aquí es completar el fixture, no una regla nueva.
+        subtotalCents: 1250000,
+        totalCents: 1250000,
+        operaciones: [
+          { tipo: "agregar_item", ofrecible: "Porción Chocolate", opciones: [], cantidad: 1 },
+          { tipo: "confirmar" },
+        ],
       },
     });
 

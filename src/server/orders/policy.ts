@@ -49,7 +49,8 @@ import {
 import { onLeadWon } from "@/server/inbox/lead-activity";
 import { buscarProductos } from "@/server/catalog/buscar";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
-import { guardarEntregaVerificada } from "@/server/orders/estado";
+import { guardarEntregaVerificada, type EstadoDelPedido } from "@/server/orders/estado";
+import type { Requisito } from "@/server/ai/generador/ficha";
 
 /**
  * El veredicto de la Policy sobre una acción irreversible propuesta por el
@@ -89,31 +90,81 @@ export const CORRECCION_DE_PEDIDO_YA_CONFIRMADO =
  * catálogo real contra qué verificar, no hay forma de reconocer "pedido nuevo"
  * sin caer otra vez en comparar texto libre — hoy cubre a los tres negocios
  * reales que toman pedidos.
+ *
+ * **T017 (feature 003-backend-como-autoridad, Principio 7), ampliación
+ * aditiva:** además de la idempotencia de arriba (sin tocarla), si
+ * `estadoGuardado` viene informado —solo ocurre con `state_source='backend'`,
+ * ningún negocio real hoy— también exige que la HOJA esté completa: al menos
+ * un ítem resuelto, el total ya calculado por el backend, y todo requisito
+ * `obligatorio` con un valor. `data-model.md` sección 4: "`confirmar` no es
+ * una operación como las demás" — marca la intención en memoria, pero la
+ * AUTORIDAD sobre si eso cierra de verdad sigue siendo de esta Policy.
  */
 export async function puedeConfirmarPedido(input: {
   conversationId: string;
   productosDelPedido: ProductoDelCatalogo[];
   history: { direction: string; text: string | null; createdAt: Date }[];
+  /**
+   * El estado tal como quedó DESPUÉS de aplicar el lote de este turno
+   * (`pipeline.ts`, `guardarEstadoPropuesto`) — nunca el de antes, porque
+   * `confirmar` puede venir en el MISMO lote que completó lo que faltaba.
+   * `undefined`/`null` = `state_source !== 'backend'`: esta Policy no exige
+   * nada nuevo, se comporta exactamente como antes de esta feature.
+   */
+  estadoGuardado?: EstadoDelPedido | null;
+  /** Lo que ESTE negocio declaró para poder cerrar — para el chequeo de arriba. */
+  requisitos?: Requisito[];
 }): Promise<VeredictoDePedido> {
   if (input.productosDelPedido.length === 0) return { ok: true };
 
   const ultimaConfirmacion = await ultimaConfirmacionDe(input.conversationId);
-  if (!ultimaConfirmacion) return { ok: true };
+  if (ultimaConfirmacion) {
+    const huboPedidoNuevo = input.history.some(
+      (m) =>
+        m.direction === "in" &&
+        m.createdAt.getTime() > ultimaConfirmacion.createdAt.getTime() &&
+        Boolean(m.text) &&
+        buscarProductos(input.productosDelPedido, m.text!).status !== "not_found"
+    );
+    if (!huboPedidoNuevo) {
+      return {
+        ok: false,
+        motivo: `ya existe una confirmación (${ultimaConfirmacion.id}) y ningún mensaje del cliente desde entonces nombra un producto del catálogo`,
+        correccion: CORRECCION_DE_PEDIDO_YA_CONFIRMADO,
+      };
+    }
+  }
 
-  const huboPedidoNuevo = input.history.some(
-    (m) =>
-      m.direction === "in" &&
-      m.createdAt.getTime() > ultimaConfirmacion.createdAt.getTime() &&
-      Boolean(m.text) &&
-      buscarProductos(input.productosDelPedido, m.text!).status !== "not_found"
-  );
-  if (huboPedidoNuevo) return { ok: true };
+  if (input.estadoGuardado) {
+    const estado = input.estadoGuardado;
+    if (estado.items.length === 0) {
+      return {
+        ok: false,
+        motivo: "el pedido no tiene ítems resueltos",
+        correccion:
+          "[SISTEMA] Todavía no hay ningún producto en el pedido — pregúntale al cliente qué quiere pedir antes de confirmar.",
+      };
+    }
+    if (estado.totalCents === null) {
+      return {
+        ok: false,
+        motivo: "el total del pedido no está calculado",
+        correccion: "[SISTEMA] El pedido todavía no está resuelto del todo — no confirmes ni inventes un total.",
+      };
+    }
+    const faltantes = (input.requisitos ?? []).filter(
+      (r) => r.obligatorio && !estado.datos[r.id]?.trim()
+    );
+    if (faltantes.length > 0) {
+      return {
+        ok: false,
+        motivo: `faltan requisitos obligatorios: ${faltantes.map((r) => r.id).join(", ")}`,
+        correccion: `[SISTEMA] Todavía falta antes de confirmar: ${faltantes.map((r) => r.etiqueta).join(", ")}. Pregúntaselo al cliente.`,
+      };
+    }
+  }
 
-  return {
-    ok: false,
-    motivo: `ya existe una confirmación (${ultimaConfirmacion.id}) y ningún mensaje del cliente desde entonces nombra un producto del catálogo`,
-    correccion: CORRECCION_DE_PEDIDO_YA_CONFIRMADO,
-  };
+  return { ok: true };
 }
 
 /** Lo que este módulo necesita del pipeline para producir efectos. */

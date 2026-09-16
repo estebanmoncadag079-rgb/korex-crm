@@ -24,7 +24,7 @@ import { serializeMessage } from "@/server/inbox/ingest";
 import {
   AgentAction,
   degradeAction,
-  formatoDeRespuestaConEstado,
+  formatoDeRespuestaConOperaciones,
   formatoDeRespuestaDeAccion,
   resolveStage,
   type AgentActionType,
@@ -68,6 +68,22 @@ import {
   catalogoDePedidos as catalogoDePedidosQuery,
   type ProductoDelCatalogo,
 } from "@/server/catalog/queries";
+/**
+ * Feature 003-backend-como-autoridad, T013/T014 — el motor de operaciones
+ * (T001-T011, ya probado sin este archivo): un módulo por vertical, sin
+ * código compartido (decisión de `plan.md`), así que se importan los dos
+ * con alias en vez de fingir un tipo genérico que no existe.
+ */
+import {
+  aplicarOperaciones as aplicarOperacionesPedidos,
+  Operacion as OperacionPedidos,
+  type ContextoOperaciones as ContextoOperacionesPedidos,
+} from "@/server/orders/operaciones";
+import {
+  aplicarOperaciones as aplicarOperacionesCitas,
+  Operacion as OperacionCitas,
+  type ContextoOperaciones as ContextoOperacionesCitas,
+} from "@/server/appointments/operaciones";
 import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "@/server/catalog/menu";
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { buscarProductos, buscarOpciones } from "@/server/catalog/buscar";
@@ -104,17 +120,15 @@ import {
   leerEntregaVerificada,
   leerEstadoConVersion,
   registrarMetricaDeEstado,
-  validarPropuesta,
   type EntregaVerificada,
   type EstadoDelPedido,
-  type PropuestaDelModelo,
   conEntregaConservada,
 } from "@/server/orders/estado";
-import { MAX_ITEMS } from "@/server/orders/normalizar";
 import {
   puedeConfirmarPedido,
   ejecutarConfirmacionDePedido,
 } from "@/server/orders/policy";
+import { puedeConfirmarCita } from "@/server/appointments/policy";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import {
@@ -1460,29 +1474,47 @@ export async function runAgentTurn(
     : null;
   const msModelo = estadoEstructurado ? Date.now() - t0 : undefined;
   const result = conEstado ? conEstado.resultado : await chatJson(AgentAction, messages);
-  const propuestaDelTurno = conEstado?.propuesta;
+  const operacionesDelTurno = conEstado?.operaciones;
 
   /*
    * El modelo PROPONE; el backend valida y persiste.
    *
-   * Se hace después de la respuesta y **fuera de su camino**: si la propuesta no
+   * Se hace después de la respuesta y **fuera de su camino**: si el lote no
    * vale, se registra y se descarta, pero el cliente ya tiene su contestación.
-   * Un estado que no valida no puede convertirse en un turno perdido.
+   * Un lote que no valida no puede convertirse en un turno perdido.
    */
   const estadoRecienGuardado =
     estadoEstructurado && result.ok
       ? await guardarEstadoPropuesto({
           organizationId,
           conversationId: conversation.id,
-          propuesta: propuestaDelTurno,
+          operaciones: operacionesDelTurno,
           msModelo,
           requisitos,
           vertical,
           modalidadesOfrecidas,
+          servicios: contrataCitas(vertical) ? services : undefined,
+          hours,
+          now: opts?.now,
           entregaConocida: entregaPersistida,
+          estadoGuardado,
           versionEsperada: versionDeEstadoLeido,
         })
       : null;
+  /**
+   * T017-T019 (feature 003-backend-como-autoridad) — de aquí en adelante,
+   * `estadoGuardado` refleja lo que ESTE turno acaba de guardar (si guardó
+   * algo), nunca el que había al empezar. Los guardarraíles de más abajo
+   * (financiero, "el cliente ya vio un resumen", la Policy de `confirmar`)
+   * deciden sobre el CIERRE de este turno, y `confirmar` puede venir en el
+   * MISMO lote que acaba de completar el total/la modalidad/los ítems —
+   * decidir con el estado de ANTES de este turno sería mirar un dato viejo
+   * a propósito. Sin reasignar nada cuando este turno no guardó nada (sin
+   * propuesta, o rechazada): el valor de antes sigue siendo la verdad.
+   */
+  if (estadoRecienGuardado?.estadoFinal) {
+    estadoGuardado = estadoRecienGuardado.estadoFinal;
+  }
   // Se anota aunque el turno falle: los intentos fallidos también se pagan, y
   // son justo los que encarecen a un cliente sin que se note en ninguna parte.
   await registrarUsoIa(organizationId, result.usage, `conv:${conversationId}`);
@@ -2493,10 +2525,17 @@ export async function runAgentTurn(
   if (action.action === "notify_order") {
     // Fase 1 — la DECISIÓN vive en `orders/policy.ts`; reaccionar (reintentar
     // con el modelo, derivar, anotar la traza) sigue siendo del pipeline.
+    //
+    // T017 (feature 003-backend-como-autoridad): `estadoGuardado` ya refleja
+    // lo que este turno acaba de guardar (reasignado más arriba) — `null`
+    // cuando `state_source !== 'backend'` (los 4 negocios reales hoy), así
+    // que `puedeConfirmarPedido` no exige nada nuevo para ellos.
     const veredicto = await puedeConfirmarPedido({
       conversationId,
       productosDelPedido,
       history,
+      estadoGuardado,
+      requisitos,
     });
     if (!veredicto.ok) {
       console.warn(
@@ -3625,7 +3664,36 @@ export async function runAgentTurn(
         );
       }
 
+      /**
+       * T018 (feature 003-backend-como-autoridad) — con la hoja como
+       * autoridad (`state_source='backend'`), agendar exige que el backend
+       * YA tenga el servicio resuelto, un horario que él mismo verificó, y
+       * los requisitos obligatorios cubiertos (`puedeConfirmarCita`,
+       * `appointments/policy.ts`). Acotado a `reservas.length === 1`: el
+       * estado solo modela UNA reserva por conversación ("UNA sola para
+       * toda la visita", `estado.ts`) — con varias personas en el mismo
+       * `book_appointment` (`docs/korexia/108`), esta hoja no distingue a
+       * cuál corresponde, así que el chequeo nuevo no aplica y esas
+       * reservas siguen su camino de siempre, sin cambios.
+       *
+       * `estadoParaCita` es `null` para `state_source !== 'backend'` (todos
+       * los negocios de citas reales hoy) o cuando hay más de una reserva:
+       * `puedeConfirmarCita` devuelve `{ok:true}` de inmediato en ese caso,
+       * cero comportamiento nuevo. `estadoGuardado` ya refleja lo que este
+       * turno acaba de guardar (reasignado más arriba).
+       */
+      const estadoParaCita = action.reservas.length === 1 ? estadoGuardado : null;
+
       for (const reserva of action.reservas) {
+        const veredictoDeCita = puedeConfirmarCita({ estadoGuardado: estadoParaCita, requisitos });
+        if (!veredictoDeCita.ok) {
+          fallidas.push({
+            nombreVisita: reserva.servicios.join(" + "),
+            motivo: veredictoDeCita.motivo,
+          });
+          continue;
+        }
+
         // Uno o varios servicios en la MISMA visita de esta reserva — igual
         // que antes, todo o nada dentro de la propia reserva.
         const servicios: ServiceRow[] = [];
@@ -4625,7 +4693,15 @@ async function buscarCitaYaCreada(
 }
 
 /**
- * Valida la propuesta del modelo y la guarda si es válida.
+ * T014 (feature 003-backend-como-autoridad) — aplica el LOTE de operaciones
+ * propuesto y lo guarda si el lote entero tuvo éxito. Reemplaza a
+ * `validarPropuesta` (que sigue existiendo, sin tocar, para quien la use
+ * fuera de este camino): en vez de reconstruir el estado completo desde lo
+ * que el modelo escribió, aplica cada `Operacion` en orden sobre el estado YA
+ * guardado (`aplicarOperacionesPedidos`/`aplicarOperacionesCitas`, T007/T010)
+ * — atómico para el lote (`data-model.md` sección 2): si CUALQUIERA falla,
+ * `guardarEstado` no se llama en absoluto, ni siquiera para las operaciones
+ * que sí habían pasado antes de la que falló.
  *
  * **Nunca lanza**: esto corre después de que el cliente ya tenga su respuesta.
  * Un fallo aquí no puede convertirse en un turno perdido — se registra y el
@@ -4634,28 +4710,35 @@ async function buscarCitaYaCreada(
 async function guardarEstadoPropuesto(entrada: {
   organizationId: string;
   conversationId: string;
-  propuesta: PropuestaDelModelo | undefined;
+  /** Sin validar todavía — Compuerta 1 real (T001-T003) corre aquí dentro, contra la unión del vertical que corresponda. */
+  operaciones: unknown[] | undefined;
   msModelo?: number;
   requisitos?: Requisito[];
   vertical: Vertical;
-  /** Contra qué se resuelve la modalidad que proponga el modelo. */
+  /** Contra qué se resuelve la modalidad que proponga el modelo (pedidos). */
   modalidadesOfrecidas: readonly string[];
+  /** El catálogo de servicios YA cargado este turno (citas) — `ContextoOperaciones.servicios`. */
+  servicios?: CatalogEntry[];
+  /** Solo hace falta para citas (`disponibilidadRealMultiple`, Compuerta 2 de `fijar_horario`). */
+  hours?: BusinessHours;
+  now?: Date;
   /**
    * La verificación de domicilio conocida, para NO borrarla al guardar.
    *
-   * `validarPropuesta` reconstruye el estado desde lo que propone el modelo
-   * —items, datos, reserva, modalidad, total, paso— y **`entrega` no está en
-   * esa lista**. Como el campo es opcional en el tipo, TypeScript nunca se
-   * quejó: cada turno guardaba `entrega: undefined` y borraba la verificación
-   * del turno anterior.
+   * `aplicarOperaciones` reconstruye el estado desde el que ya estaba
+   * guardado más las operaciones del turno, y **`entrega` no es algo que
+   * ninguna `Operacion` toque** — sigue viviendo aparte
+   * (`Fase 10V-X`, `orders/estado.ts`). Sin esto, cada guardado la borraría.
    *
-   * Medido en producción el 9-sep-2026: de 101 conversaciones de MALIA con
-   * estado guardado, **solo 4 conservaban la entrega**. Las otras 97 llegaban
-   * al cierre sin zona verificada y el guardarraíl financiero las derivaba —
-   * cuatro clientes en un solo día (Carol, Michael, Laura, Karol), y cada una
-   * parecía un bug distinto.
+   * Medido en producción el 9-sep-2026 contra el camino viejo
+   * (`validarPropuesta`): de 101 conversaciones de MALIA con estado guardado,
+   * solo 4 conservaban la entrega. El motivo era el mismo tipo de olvido —
+   * un campo que el reconstructor de turno no toca y que hay que preservar
+   * a propósito.
    */
   entregaConocida?: EntregaVerificada | null;
+  /** El estado guardado con el que arrancó el turno (`leerEstadoConVersion`, ya leído antes de llamar al modelo). */
+  estadoGuardado: EstadoDelPedido | null;
   /**
    * Prioridad 3 (programa de mejora integral) — la versión leída al empezar
    * el turno. Si otra ejecución viva de `runAgentTurn` para la MISMA
@@ -4668,68 +4751,110 @@ async function guardarEstadoPropuesto(entrada: {
 }): Promise<{
   guardadoConfirmadoTrue?: boolean;
   /**
-   * Fase 8J — por qué el backend NO aceptó el carrito, en las mismas palabras
-   * que ya calcula `validarPropuesta`. Antes esto solo se registraba en una
-   * métrica y se descartaba: el modelo seguía el turno creyendo que su
-   * propuesta valía, y el cliente recibía una respuesta construida sobre un
-   * pedido que el sistema jamás iba a aceptar.
+   * T017 (feature 003-backend-como-autoridad) — el estado tal como quedó
+   * DESPUÉS de aplicar el lote de este turno. `puedeConfirmarPedido` lo usa
+   * para decidir si `confirmar` puede ejecutarse de verdad (ítems resueltos,
+   * total calculado, requisitos cubiertos) — nunca el estado de ANTES de
+   * este turno, porque `confirmar` puede venir en el MISMO lote que
+   * completó lo que faltaba.
+   */
+  estadoFinal?: EstadoDelPedido;
+  /**
+   * Fase 8J — por qué el backend NO aceptó el lote. Antes esto solo se
+   * registraba en una métrica y se descartaba: el modelo seguía el turno
+   * creyendo que su propuesta valía, y el cliente recibía una respuesta
+   * construida sobre un pedido que el sistema jamás iba a aceptar.
    */
   rechazo?: { motivos: string[]; preguntas: string[] };
 } | null> {
   // El reloj arranca antes del primer `await`: lo que se mide es lo que el
   // backend tarda de más por llevar el estado, y eso incluye leer el catálogo.
   const t0 = Date.now();
-  const metrica = (
-    resultado: "guardado" | "rechazado" | "sin_propuesta" | "error",
-    extra: { validacion?: ReturnType<typeof validarPropuesta>; detalle?: string } = {}
-  ) =>
+  const metrica = (resultado: "guardado" | "rechazado" | "sin_propuesta" | "error", detalle?: string) =>
     registrarMetricaDeEstado({
       organizationId: entrada.organizationId,
       conversationId: entrada.conversationId,
       resultado,
-      validacion: extra.validacion,
       msModelo: entrada.msModelo,
       msBackend: Date.now() - t0,
-      detalle: extra.detalle,
+      detalle,
     });
 
-  // Sin `estado` en la respuesta no hay nada que guardar: pasa cuando el agente
-  // deriva a una persona o no responde, y es legítimo. Se anota igual: si esto
-  // deja de ser raro, el modelo dejó de extraer y hay que enterarse.
-  if (!entrada.propuesta) {
+  // Sin `operaciones` en la respuesta no hay nada que guardar: pasa cuando el
+  // agente deriva a una persona o no responde, y es legítimo (mismo criterio
+  // que ya usaba `propuesta` antes de T013). Se anota igual: si esto deja de
+  // ser raro, el modelo dejó de proponer y hay que enterarse.
+  if (!entrada.operaciones || entrada.operaciones.length === 0) {
     metrica("sin_propuesta");
     return null;
   }
 
   try {
-    const productos = await catalogoDe(entrada.organizationId, entrada.vertical);
-    const v = validarPropuesta(
-      entrada.propuesta,
-      productos,
-      undefined,
-      entrada.requisitos,
-      entrada.modalidadesOfrecidas
-    );
-    if (!v.ok) {
-      metrica("rechazado", { validacion: v });
-      /*
-       * Fase 8J — se devuelve el porqué en vez de tragárselo. El llamador
-       * decide qué hacer con él (hoy: una corrección al modelo antes de que
-       * el cliente vea nada); aquí solo se deja de perder la información.
-       */
-      return {
-        rechazo: {
-          motivos: v.rechazos,
-          preguntas: v.dudas.map((d) => d.preguntar).filter(Boolean),
-        },
+    const estadoBase = entrada.estadoGuardado ?? estadoVacio();
+
+    if (contrataCitas(entrada.vertical)) {
+      const parse = OperacionCitas.array().safeParse(entrada.operaciones);
+      if (!parse.success) {
+        // Compuerta 1: alguna operación no existe o no aplica a este
+        // vertical — Zod la rechaza antes de que `aplicarOperacion` la vea.
+        const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
+        metrica("error", `operaciones no cumplen el esquema de citas: ${detalle}`);
+        return null;
+      }
+      const staff = await listStaff(entrada.organizationId);
+      const contexto: ContextoOperacionesCitas = {
+        organizationId: entrada.organizationId,
+        servicios: entrada.servicios ?? [],
+        staff,
+        requisitos: entrada.requisitos ?? [],
+        hours: entrada.hours ?? { open: null, close: null, days: null },
+        now: entrada.now,
       };
+      const lote = await aplicarOperacionesCitas(estadoBase, parse.data, contexto);
+      if (!lote.persistido) {
+        metrica("rechazado", `operación ${lote.operacionFallida}: ${lote.rechazo.motivo}`);
+        return { rechazo: { motivos: [lote.rechazo.motivo], preguntas: [lote.rechazo.correccion] } };
+      }
+      const resultado = await guardarEstado({
+        conversationId: entrada.conversationId,
+        organizationId: entrada.organizationId,
+        estado: conEntregaConservada(lote.estadoFinal, entrada.entregaConocida),
+        actor: "pipeline",
+        proceso: "runAgentTurn",
+        versionEsperada: entrada.versionEsperada,
+      });
+      if (!resultado.ok) {
+        metrica("error", "carrera de escritura perdida (versionEsperada obsoleta)");
+        return null;
+      }
+      metrica("guardado");
+      return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
+    }
+
+    const parse = OperacionPedidos.array().safeParse(entrada.operaciones);
+    if (!parse.success) {
+      const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
+      metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle}`);
+      return null;
+    }
+    const productos = await catalogoDe(entrada.organizationId, entrada.vertical);
+    const contexto: ContextoOperacionesPedidos = {
+      organizationId: entrada.organizationId,
+      catalogo: productos,
+      requisitos: entrada.requisitos ?? [],
+      modalidadesOfrecidas: entrada.modalidadesOfrecidas,
+    };
+    const lote = aplicarOperacionesPedidos(estadoBase, parse.data, contexto);
+    if (!lote.persistido) {
+      metrica("rechazado", `operación ${lote.operacionFallida}: ${lote.rechazo.motivo}`);
+      return { rechazo: { motivos: [lote.rechazo.motivo], preguntas: [lote.rechazo.correccion] } };
     }
     const resultado = await guardarEstado({
       conversationId: entrada.conversationId,
       organizationId: entrada.organizationId,
-      // La entrega verificada sobrevive al turno: la propuesta del modelo no
-      // la trae y sin esto se borraba sola (ver `conEntregaConservada`).
-      estado: conEntregaConservada(v.estado, entrada.entregaConocida),
+      // La entrega verificada sobrevive al turno: ninguna `Operacion` la
+      // toca, y sin esto se borraba sola (ver `conEntregaConservada`).
+      estado: conEntregaConservada(lote.estadoFinal, entrada.entregaConocida),
       actor: "pipeline",
       proceso: "runAgentTurn",
       versionEsperada: entrada.versionEsperada,
@@ -4738,13 +4863,13 @@ async function guardarEstadoPropuesto(entrada: {
       // Perdimos la carrera: no se escribió nada nuestro, así que no hay
       // nada que luego "corregir" — el estado de la otra ejecución queda
       // intacto, que es lo correcto.
-      metrica("error", { detalle: "carrera de escritura perdida (versionEsperada obsoleta)" });
+      metrica("error", "carrera de escritura perdida (versionEsperada obsoleta)");
       return null;
     }
-    metrica("guardado", { validacion: v });
-    return { guardadoConfirmadoTrue: v.estado.confirmado === true };
+    metrica("guardado");
+    return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
   } catch (err) {
-    metrica("error", { detalle: (err as Error).message });
+    metrica("error", (err as Error).message);
     return null;
   }
 }
@@ -4785,102 +4910,138 @@ async function corregirConfirmadoSinCierre(
 
 
 /**
- * Cómo debe venir el estado, descrito para el proveedor.
+ * T012-T013 (feature 003-backend-como-autoridad, Principio 7) — el esquema
+ * JSON de `operaciones: Operacion[]` (`specs/003-backend-como-autoridad/
+ * data-model.md` sección 1) que `chatJsonConEstado` le exige al proveedor.
  *
- * Se construye por turno porque depende del negocio: los `datos` son los
- * requisitos que ESE negocio declaró en su ficha, y la `reserva` solo existe
- * en el vertical de citas. Ni un nombre de cliente ni de producto aquí — la
- * forma es del núcleo, el contenido lo pone el catálogo de cada uno.
+ * Reemplaza a la antigua `esquemaDelEstado` ("estado completo": items/datos/
+ * paso/confirmado/reserva) — T012 la creó sin llamador, T013 la conectó y
+ * retiró la función vieja (cero usos fuera de ese punto; nada más dependía
+ * de ella).
+ *
+ * Mismo estilo "plano a propósito" que `CAMPOS_DE_ACCION` (`actions.ts:347`):
+ * el modo estricto del proveedor exige declarar TODA propiedad de TODAS las
+ * variantes en el mismo objeto, con `null` para las que no apliquen al
+ * `tipo` elegido — nunca un `oneOf`/unión real en el JSON-schema, aunque
+ * `Operacion` sí lo sea en Zod. No es una limitación: es el estilo que ya
+ * está medido y funcionando en producción contra `gemini-2.5-flash` (ver el
+ * comentario de `chatJson`, `lib/ai/index.ts`).
+ *
+ * **Los `tipo` reales, la única fuente de verdad, siguen siendo las uniones de
+ * Zod ya implementadas** (`orders/operaciones.ts` T002, `appointments/operaciones.ts`
+ * T003) — esta función no las deriva automáticamente. El proyecto no tiene
+ * `zod-to-json-schema` ni lo usa en ningún otro sitio: `CAMPOS_DE_ACCION` está
+ * escrito a mano con el mismo criterio, exactamente por la misma razón (`chatJson`
+ * solo acepta el JSON-schema como un `unknown` suelto, no algo derivable de un
+ * `z.ZodType`). Lo que SÍ reutiliza este archivo es el mecanismo que ya
+ * protege esa duplicación: `tests/unit/esquema-json-de-operaciones.test.ts`
+ * cruza estas propiedades contra las dos uniones de Zod, mismo patrón que
+ * `tests/unit/esquema-json-de-accion.test.ts` ya usa para `CAMPOS_DE_ACCION`.
  */
-function esquemaDelEstado(
+export function esquemaDeOperaciones(
   requisitos: Requisito[],
   vertical: Vertical,
   modalidadesOfrecidas: readonly string[] = []
 ): unknown {
-  const propiedades: Record<string, unknown> = {
-    items: {
-      type: "array",
-      description: "Una entrada por CADA cosa que pida el cliente, con sus propias opciones.",
-      items: {
-        type: "object",
-        properties: {
-          ofrecible: {
-            type: ["string", "null"],
-            description: "El nombre tal como aparece en el catálogo del negocio.",
-          },
-          cantidad: { type: ["number", "null"] },
-          opciones: {
-            type: "array",
-            description: "Una entrada por cada elección, en el orden en que las dijo.",
-            items: {
-              type: "object",
-              properties: {
-                grupo: { type: ["string", "null"] },
-                opcion: { type: ["string", "null"] },
-              },
-              required: ["grupo", "opcion"],
-              additionalProperties: false,
-            },
-          },
-          gruposDeclinados: {
-            type: "array",
-            description:
-              "Nombres de grupos OPCIONALES del catálogo que el cliente dijo explícitamente que NO quiere para esto (ej. \"sin toppings\"). No pongas aquí un grupo que simplemente no se ha mencionado todavía.",
-            items: { type: "string" },
-          },
-        },
-        required: ["ofrecible", "cantidad", "opciones", "gruposDeclinados"],
-        additionalProperties: false,
-      },
-    },
-    datos: {
-      type: "object",
-      description: "Lo que este negocio necesita para cerrar. Del pedido entero, no de cada cosa.",
-      properties: Object.fromEntries(
-        requisitos.map((r) => [r.id, { type: ["string", "null"], description: r.etiqueta }])
-      ),
-      required: requisitos.map((r) => r.id),
-      additionalProperties: false,
-    },
-    paso: { type: ["string", "number", "null"] },
-    confirmado: { type: ["boolean", "null"] },
-  };
-  /*
-   * Solo se declara si el negocio ofrece MÁS DE UNA: con una sola no hay nada
-   * que elegir, y pedírsela al modelo sería invitarle a inventar una decisión
-   * que el cliente nunca tomó.
-   *
-   * Va con `enum` a propósito, y no contradice la regla 4 (nada de enums
-   * cerrados): los valores no están escritos en el núcleo, salen de la ficha
-   * de cada negocio. Lo que se cierra es lo que puede DECIR el modelo sobre
-   * una decisión que ya tiene opciones conocidas — y aun así el backend lo
-   * vuelve a resolver contra la ficha antes de creérselo.
+  /**
+   * `fijar_modalidad` solo se ofrece con más de una modalidad: con una sola
+   * no hay nada que elegir (mismo criterio que ya aplicaba la vieja
+   * `esquemaDelEstado` a `modalidadDeEntrega`).
    */
-  if (modalidadesOfrecidas.length > 1) {
-    propiedades.modalidadDeEntrega = {
-      type: ["string", "null"],
-      enum: [...modalidadesOfrecidas, null],
-      description: "Cómo eligió el cliente recibir ESTE pedido. null si aún no lo ha dicho.",
-    };
-  }
-  if (contrataCitas(vertical)) {
-    propiedades.reserva = {
-      type: ["object", "null"],
-      description: "UNA sola para toda la visita, aunque lleve varios servicios.",
+  const tiposDePedidos = [
+    "agregar_item",
+    "cambiar_cantidad",
+    "quitar_item",
+    "elegir_opcion",
+    "declinar_grupo",
+    ...(modalidadesOfrecidas.length > 1 ? ["fijar_modalidad"] : []),
+    "fijar_dato",
+    "confirmar",
+  ];
+  const tiposDeCitas = ["fijar_servicio", "fijar_horario", "fijar_especialista", "fijar_dato", "confirmar"];
+  const tipos = contrataCitas(vertical) ? tiposDeCitas : tiposDePedidos;
+
+  /** Mismo `{grupo, opcion}` que ya usa `OpcionPropuesta` (`orders/normalizar.ts:34`). */
+  const opcionPropuesta = {
+    type: "object",
+    properties: {
+      grupo: { type: ["string", "null"] },
+      opcion: { type: ["string", "null"] },
+    },
+    required: ["grupo", "opcion"],
+    additionalProperties: false,
+  };
+
+  /**
+   * Devuelve el esquema del VALOR de la clave "operaciones" — mismo
+   * contrato que `esquemaDelEstado` (el esquema del valor de "estado"), no un
+   * objeto envoltorio. Es lo que permite conectarlo en T013 con el mismo
+   * mecanismo que ya usa `formatoDeRespuestaConEstado`
+   * (`actions.ts:412`): fusionar `{ operaciones: <esto> }` junto a
+   * `CAMPOS_DE_ACCION`, no anidarlo un nivel de más.
+   */
+  return {
+    type: "array",
+    description:
+      "Cero o más operaciones sobre el pedido/reserva EN CURSO — nunca el estado completo. " +
+      "Lo que el cliente no menciona en este turno no lleva ninguna operación.",
+    items: {
+      type: "object",
       properties: {
+        tipo: { type: "string", enum: tipos },
+        ofrecible: {
+          type: ["string", "null"],
+          description: "El nombre tal como aparece en el catálogo del negocio — nunca un id.",
+        },
+        opciones: { type: ["array", "null"], items: opcionPropuesta },
+        cantidad: { type: ["number", "null"] },
+        grupo: { type: ["string", "null"] },
+        opcion: { type: ["string", "null"] },
+        /**
+         * Cerrado por `enum` contra lo que ESTE negocio ofrece — mismo
+         * criterio que `esquemaDelEstado` ya aplica a `modalidadDeEntrega`.
+         */
+        modalidad:
+          modalidadesOfrecidas.length > 1
+            ? { type: ["string", "null"], enum: [...modalidadesOfrecidas, null] }
+            : { type: ["string", "null"] },
+        /**
+         * `requisitoId` NO es una excepción a "nunca por id": es la clave
+         * que este mismo esquema JSON define fresca cada turno a partir
+         * de la ficha de ESTE negocio — el modelo no la recuerda de un
+         * turno anterior, la recibe de nuevo aquí (`data-model.md`
+         * sección 1). Cerrada por `enum` por la misma razón que `modalidad`.
+         */
+        requisitoId: { type: ["string", "null"], enum: [...requisitos.map((r) => r.id), null] },
+        valor: { type: ["string", "null"] },
+        servicio: {
+          type: ["string", "null"],
+          description: "El nombre del servicio tal como aparece en el catálogo de citas — nunca un id.",
+        },
         fecha: { type: ["string", "null"] },
         hora: { type: ["string", "null"] },
-        especialista: { type: ["string", "null"] },
+        especialista: {
+          type: ["string", "null"],
+          description: "El nombre del especialista — nunca un id.",
+        },
       },
-      required: ["fecha", "hora", "especialista"],
+      required: [
+        "tipo",
+        "ofrecible",
+        "opciones",
+        "cantidad",
+        "grupo",
+        "opcion",
+        "modalidad",
+        "requisitoId",
+        "valor",
+        "servicio",
+        "fecha",
+        "hora",
+        "especialista",
+      ],
       additionalProperties: false,
-    };
-  }
-  return {
-    type: "object",
-    properties: propiedades,
-    required: Object.keys(propiedades),
-    additionalProperties: false,
+    },
   };
 }
 
@@ -4890,12 +5051,22 @@ function sinNulos(objeto: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
- * La llamada del agente pidiéndole ADEMÁS el estado del pedido.
+ * La llamada del agente pidiéndole ADEMÁS las operaciones sobre el pedido/
+ * reserva en curso.
  *
  * Devuelve la acción con su tipo de siempre —el resto del pipeline no se entera
- * de nada— y la propuesta aparte. Si el modelo manda una acción que no encaja
- * en `AgentAction`, se trata como salida inválida igual que antes: la Fase 2 no
+ * de nada— y las operaciones aparte, SIN validar (Compuerta 1 real de
+ * `aplicarOperaciones`, T014, contra la unión de Zod del vertical que
+ * corresponda — esta función no la conoce, solo la extrae, igual que antes
+ * extraía `estado` sin validarlo). Si el modelo manda una acción que no encaja
+ * en `AgentAction`, se trata como salida inválida igual que antes: esto no
  * puede relajar el contrato que ya funciona.
+ *
+ * T013 (feature 003-backend-como-autoridad): reemplaza el "estado completo"
+ * (`esquemaDelEstado`) por `operaciones: Operacion[]`
+ * (`esquemaDeOperaciones`, T012) — el modelo ya no reescribe el pedido/reserva
+ * entera cada turno, propone una lista cerrada de cambios sobre lo YA
+ * guardado.
  */
 async function chatJsonConEstado(
   messages: ChatMessage[],
@@ -4905,83 +5076,73 @@ async function chatJsonConEstado(
   modalidadesOfrecidas: readonly string[] = [],
   /** Para anotar el Nivel 2 de recuperación (docs/korexia/144/145) cuando se dispare. */
   traza?: TrazaDelTurno
-): Promise<{ resultado: ChatJsonResult<AgentActionType>; propuesta?: PropuestaDelModelo }> {
-  const EsquemaConEstado = z
-    .object({ estado: z.record(z.string(), z.unknown()).optional() })
+): Promise<{ resultado: ChatJsonResult<AgentActionType>; operaciones?: unknown[] }> {
+  const EsquemaConOperaciones = z
+    .object({ operaciones: z.array(z.unknown()).optional() })
     .passthrough();
 
-  // Solo memoria entre turnos (Fase 2): lo que de verdad reserva es la
-  // acción book_appointment con su propio "servicios[]", no este bloque —
-  // ver docs/korexia/88-AUDITORIA-SELECCION-MULTIPLE.md, sección 6 y 8.
-  const bloqueReserva =
-    vertical === "citas"
-      ? ' Si el negocio es de citas, añade también "reserva": {"fecha": …, "hora": …, ' +
-        '"especialista": …} con lo que el cliente haya dicho de cuándo y con quién — texto libre, ' +
-        "nunca inventes un id. Es UNA sola reserva para toda la visita, aunque \"items\" lleve varios " +
-        'servicios ("manos y pies" son dos items, una sola reserva).'
-      : "";
+  /*
+   * Sin ejemplos con nombres: los de un negocio concreto no entran en el
+   * prompt que comparten todos (regla 1 de 79-ARQUITECTURA-MULTIEMPRESA). El
+   * catálogo de cada negocio va aparte, y de ahí saca los suyos.
+   */
+  const instruccionesDePedidos =
+    'Usa "agregar_item" por cada cosa NUEVA que pida (con "ofrecible" del catálogo, sus "opciones" ' +
+    '[{"grupo":…,"opcion":…}] y "cantidad"). Usa "cambiar_cantidad" o "quitar_item" sobre algo que YA ' +
+    'está en el pedido — nómbralo ("ofrecible") igual que la primera vez. Usa "elegir_opcion" para ' +
+    "agregar una opción a algo ya pedido, y \"declinar_grupo\" cuando el cliente rechace explícitamente " +
+    'un grupo opcional ("sin toppings", "ninguno") — nunca lo declines solo porque no lo ha mencionado ' +
+    "todavía." +
+    (requisitos.length
+      ? ` Usa "fijar_dato" con "requisitoId" (uno de: ${requisitos.map((r) => r.id).join(", ")}) y "valor" cuando el cliente dé ese dato.`
+      : "") +
+    (modalidadesOfrecidas.length > 1
+      ? ` Usa "fijar_modalidad" con "modalidad" (uno de: ${modalidadesOfrecidas.join(", ")}) cuando diga cómo quiere recibirlo.`
+      : "") +
+    ' Usa "confirmar" cuando el cliente confirme que eso es todo.';
 
-  const bruto = await chatJson(EsquemaConEstado, [
+  const instruccionesDeCitas =
+    'Usa "fijar_servicio" con "servicio" (el nombre del catálogo) por cada servicio que el cliente ' +
+    'quiera para esta visita. Usa "fijar_horario" con "fecha", "hora" y, si lo dijo, "especialista" — ' +
+    "SOLO con una fecha y hora que el sistema haya ofrecido antes en esta conversación, nunca " +
+    'inventada. Usa "fijar_especialista" con "especialista" cuando el cliente elija con quién, por ' +
+    "separado de la fecha." +
+    (requisitos.length
+      ? ` Usa "fijar_dato" con "requisitoId" (uno de: ${requisitos.map((r) => r.id).join(", ")}) y "valor" cuando el cliente dé ese dato.`
+      : "") +
+    ' Usa "confirmar" cuando el cliente confirme la reserva.';
+
+  const bruto = await chatJson(EsquemaConOperaciones, [
     ...messages.slice(0, 1),
     {
       role: "system",
       content:
-        'Además de la acción, añade al MISMO objeto JSON una clave "estado" con el pedido tal como va: ' +
-        '{"items": [{"ofrecible": …, "cantidad": …, "opciones": [{"grupo": …, "opcion": …}]}], ' +
-        `"datos": {${requisitos.map((r) => `"${r.id}": …`).join(", ")}}, ` +
-        '"paso": …, "confirmado": false}.' +
-        bloqueReserva +
-        " " +
-        /*
-         * `items` es una LISTA porque un cliente pide varias cosas de una vez.
-         * Se insiste en el texto y no solo en el esquema: el primer cliente real
-         * que probó esto pidió dos cosas en un mensaje, y el agente acabó
-         * preguntando por separado las opciones de cada una.
-         *
-         * ⚠️ Y sin ejemplos con nombres: los de un negocio concreto no entran en
-         * el prompt que comparten todos (regla 1 de 79-ARQUITECTURA-MULTIEMPRESA).
-         * El catálogo de cada negocio va aparte, y de ahí saca los suyos.
-         */
-        'En "items" va UNA ENTRADA POR CADA COSA que pida, con sus propias opciones: ' +
-        "si pide dos cosas distintas en el mismo mensaje, son DOS entradas, cada una con lo suyo. " +
-        "Nunca juntes las opciones de dos cosas distintas en la misma entrada. " +
-        `Como mucho ${MAX_ITEMS}. ` +
-        (requisitos.length
-          ? `En "datos" va lo que este negocio necesita para cerrar: ` +
-            requisitos.map((r) => `${r.id} (${r.etiqueta})`).join(", ") +
-            ". Son del pedido entero: se piden UNA vez, aunque lleve varias cosas. "
-          : "") +
-        'En "opciones" va CADA cosa que el cliente eligió del catálogo para ESE item, una entrada por elección ' +
-        'y en el orden en que las dijo: si pide dos veces lo mismo, van DOS entradas. ' +
-        '"grupo" es el título bajo el que aparece esa opción en el catálogo: ' +
-        "ponlo siempre que puedas, porque el mismo nombre puede estar en dos grupos con precios distintos. " +
-        'En "gruposDeclinados" va el nombre de cada grupo OPCIONAL que el cliente rechazó explícitamente ' +
-        '("sin toppings", "sin salsa", "ninguno"): una vez que lo diga, NO vuelvas a preguntar por ese grupo ' +
-        "en los turnos siguientes. Si el cliente todavía no ha dicho nada de un grupo opcional, no lo pongas " +
-        "aquí — eso significa que sigue pendiente, no que lo rechazó. " +
-        (modalidadesOfrecidas.length > 1
-          ? `Añade también "modalidadDeEntrega" con CÓMO dijo el cliente que quiere recibirlo, ` +
-            `usando exactamente uno de estos valores: ${modalidadesOfrecidas.join(", ")}. ` +
-            "Es la elección del cliente para ESTE pedido, no lo que el negocio ofrece. " +
-            "Si todavía no lo ha dicho, va en null — no lo deduzcas ni lo des por supuesto. "
-          : "") +
-        "Lo que el cliente aún no haya dicho va en null (o lista vacía). No inventes nada.",
+        'Además de la acción, añade al MISMO objeto JSON una clave "operaciones": una lista de CERO ' +
+        "O MÁS cambios sobre el pedido/reserva EN CURSO — nunca el estado completo. Si este turno no " +
+        "cambia nada (el cliente solo pregunta algo, saluda, o repite lo mismo), la lista va vacía: []. " +
+        'Cada operación es un objeto con "tipo" y sus propios campos — los que no le correspondan van ' +
+        "en null. " +
+        (contrataCitas(vertical) ? instruccionesDeCitas : instruccionesDePedidos) +
+        ' Usa siempre el NOMBRE tal como aparece en el catálogo de este negocio — nunca inventes un ' +
+        "identificador ni lo recuerdes de un turno anterior si el cliente lo repite. No pongas una " +
+        "operación que no corresponda a algo que el cliente acaba de decir en ESTE turno.",
     },
       ...messages.slice(1),
     ],
     // Sin esto el modelo IGNORA la instrucción de arriba: medido el 19-ago-2026
     // sobre `gemini-2.5-flash`, 0 de 3 con el prompt pidiéndolo (incluso con un
     // prompt de tres líneas) contra 3 de 3 con el esquema exigido al proveedor.
+    // Vale igual para `operaciones` que para el `estado` que reemplaza.
     {
-      jsonSchema: formatoDeRespuestaConEstado(
-        esquemaDelEstado(requisitos, vertical, modalidadesOfrecidas)
+      jsonSchema: formatoDeRespuestaConOperaciones(
+        esquemaDeOperaciones(requisitos, vertical, modalidadesOfrecidas)
       ),
     }
   );
 
   if (!bruto.ok) return { resultado: bruto as ChatJsonResult<AgentActionType> };
 
-  const { estado, ...accion } = bruto.data as { estado?: unknown };
+  const { operaciones, ...accion } = bruto.data as { operaciones?: unknown[] };
   /*
    * El modo estricto obliga al modelo a emitir TODOS los campos declarados, así
    * que los que no son de esta acción llegan en `null`. Se quitan antes de
@@ -5004,7 +5165,7 @@ async function chatJsonConEstado(
      * como un fallo del proveedor.
      *
      * Hace falta AQUÍ y no basta con los reintentos que ya tiene `chatJson`
-     * (arriba, hasta 3): esa llamada valida contra `EsquemaConEstado`
+     * (arriba, hasta 3): esa llamada valida contra `EsquemaConOperaciones`
      * (`passthrough`, acepta cualquier cosa) y la da por buena — este
      * rechazo ocurre una capa más arriba, así que sin este reintento el
      * turno se perdía a la primera, sin la red que sí tienen los negocios
@@ -5030,12 +5191,12 @@ async function chatJsonConEstado(
       reintento.usage.costUsd += bruto.usage?.costUsd ?? 0;
     }
     if (traza) registrarRecuperacion(traza, 2, reintento.ok);
-    // Sin estado: se pierde la propuesta de ESTE turno (preferible a un
+    // Sin operaciones: se pierden las de ESTE turno (preferible a un
     // handoff) — el pedido se retoma con normalidad en el siguiente turno.
     return { resultado: reintento };
   }
   return {
     resultado: { ok: true, data: validada.data, raw: bruto.raw, usage: bruto.usage },
-    propuesta: estado as PropuestaDelModelo | undefined,
+    operaciones,
   };
 }

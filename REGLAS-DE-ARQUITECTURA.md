@@ -142,6 +142,40 @@ desarrollo de la clasificación completa está en la sección siguiente.
 
 ---
 
+### 7. El backend es la autoridad (15-sep-2026)
+
+El LLM interpreta intenciones. Korex orquesta operaciones seguras. El backend
+valida, calcula y guarda el estado real.
+
+Ningún dato que el backend conoce se le entrega al modelo para que lo recuerde
+o lo redacte. El modelo **no escribe hechos**: propone operaciones de un
+conjunto cerrado, y el backend las valida contra datos reales antes de
+aplicarlas. Si no validan, el estado no se toca y el backend devuelve el
+motivo.
+
+> **Pregunta de guardia:** ¿este cambio hace que el sistema dependa de que el
+> modelo escriba bien un hecho —una cifra, un nombre de producto, una
+> confirmación—? Si la respuesta es sí, el cambio no se implementa así.
+
+**De dónde sale.** La familia de fallos más cara de este proyecto tiene una
+sola forma: el backend sabe algo con certeza, el modelo lo menciona en una
+frase, y otro componente relee esa frase para verificarlo. Falla distinto cada
+semana porque cambia la redacción, no la causa. Un guardarraíl nuevo nace cada
+vez que el modelo encuentra una frase nueva para prometer algo que no hizo.
+
+**El propio código ya lo aplica donde funciona, y ahí no hay incidentes:** las
+zonas de domicilio nunca entran al prompt —se consultan, y el modelo no puede
+equivocarse en una tarifa porque nunca la vio—; la disponibilidad de citas la
+calcula el servidor; y `offered_slot` impide agendar un horario que el backend
+no haya ofrecido.
+
+**Cómo aplicarlo.** Ante cualquier dato nuevo, preguntar *quién tiene la
+autoridad sobre él*. Si el backend puede conocerlo, es suyo: el modelo lo
+consulta, no lo recuerda. Solo el tono, la redacción y la interpretación del
+lenguaje del cliente son del modelo.
+
+---
+
 ## Clasificación obligatoria de toda solicitud
 
 Cualquier solicitud debe clasificarse en una de estas categorías, y solo

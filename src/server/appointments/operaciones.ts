@@ -10,9 +10,10 @@
  * propia fuente de datos real (`ServiceRow`/`disponibilidadRealMultiple` aquí,
  * `ProductoDelCatalogo`/`buscarProductos` en pedidos).
  *
- * Ver `specs/003-backend-como-autoridad/data-model.md` sección 1 (el tipo) y
- * sección 3 (las compuertas). Compuertas 1 (T008) y 2 (T009) ya
- * implementadas; falta Compuerta 3 (`fijar_dato`/`confirmar`, T010).
+ * Ver `specs/003-backend-como-autoridad/data-model.md` secciones 1 (el tipo),
+ * 2 (el lote atómico) y 3 (las compuertas) — las tres ya implementadas
+ * (T008-T010): `aplicarOperacion` cubre las tres compuertas por operación,
+ * `aplicarOperaciones` el lote completo.
  *
  * **Ninguna operación referencia por id** — mismo criterio que
  * `orders/operaciones.ts`: `fijar_servicio`/`fijar_especialista` llevan el
@@ -197,8 +198,10 @@ async function resolverEspecialista(
  * abajo cubre los 5 `tipo` uno por uno, con `default` exhaustivo comprobado
  * por TypeScript.
  *
- * ⚠️ `fijar_dato`/`confirmar` (Compuerta 3, T010) siguen lanzando mientras
- * tanto — mismo split que `orders/operaciones.ts` hizo entre T005 y T006.
+ * Atómica para ESTA operación: pasa las tres compuertas o no cambia nada. La
+ * atomicidad del LOTE completo (si una operación de varias falla, ninguna se
+ * persiste) es responsabilidad de `aplicarOperaciones` (T010), que llama a
+ * esta función repetidas veces — ver más abajo.
  */
 export async function aplicarOperacion(
   estadoActual: EstadoDelPedido,
@@ -336,11 +339,46 @@ export async function aplicarOperacion(
       };
     }
 
-    case "fijar_dato":
+    case "fijar_dato": {
+      // Compuerta 2: el requisito existe en la ficha de este negocio — mismo
+      // criterio que `orders/operaciones.ts` (`requisitoId` no es un id que
+      // el modelo recuerde: es la clave que el propio esquema de este turno
+      // le inyecta fresca a partir de la ficha, `data-model.md` sección 1).
+      const requisito = contexto.requisitos.find((r) => r.id === operacion.requisitoId);
+      if (!requisito) {
+        return {
+          ok: false,
+          motivo: `"${operacion.requisitoId}" no es un requisito declarado por este negocio`,
+          correccion: "[SISTEMA] Ese dato no está entre lo que este negocio pide para cerrar.",
+        };
+      }
+      // Compuerta 3: sin reglas adicionales — cualquier texto no vacío vale
+      // (es prosa que lee una persona, ver `estructura-vs-prosa`).
+      if (!operacion.valor.trim()) {
+        return {
+          ok: false,
+          motivo: "valor vacío",
+          correccion: `[SISTEMA] Todavía falta ${requisito.etiqueta}.`,
+        };
+      }
+      return {
+        ok: true,
+        estado: { ...estadoActual, datos: { ...estadoActual.datos, [operacion.requisitoId]: operacion.valor } },
+      };
+    }
+
+    /**
+     * Mismo criterio que `orders/operaciones.ts` (`data-model.md` sección 4):
+     * `confirmar` solo marca la intención sobre el ESTADO EN MEMORIA — pone
+     * `confirmado: true` —; la AUTORIDAD real sobre si eso se ejecuta de
+     * verdad (hay servicio, fecha, hora y los requisitos obligatorios
+     * cubiertos) sigue siendo de la Policy existente
+     * (`appointment_booking_confirmation`), que corre DESPUÉS de guardado el
+     * lote — no se duplica esa validación aquí.
+     */
     case "confirmar":
-      throw new Error(
-        `aplicarOperacion: "${operacion.tipo}" pendiente de T010 de specs/003-backend-como-autoridad/tasks.md`
-      );
+      return { ok: true, estado: { ...estadoActual, confirmado: true } };
+
     default: {
       // Exhaustividad: si TypeScript se queja aquí de que `operacion` no es
       // `never`, falta manejar un `tipo` nuevo arriba — es la señal a
@@ -353,4 +391,48 @@ export async function aplicarOperacion(
       };
     }
   }
+}
+
+/** El veredicto de aplicar un LOTE completo — `data-model.md` sección 2. */
+export type ResultadoDelLote =
+  | { persistido: true; estadoFinal: EstadoDelPedido }
+  | {
+      persistido: false;
+      rechazo: Extract<ResultadoDeOperacion, { ok: false }>;
+      /** Índice, dentro del lote, de la operación que hizo fallar todo. */
+      operacionFallida: number;
+    };
+
+/**
+ * Aplica una lista de operaciones **en orden**, sobre una copia en memoria a
+ * partir del estado guardado — nunca escribe nada. Traducción directa del
+ * pseudocódigo de `data-model.md` sección 2 (corregida 15-sep-2026: lote
+ * atómico, no persistencia parcial).
+ *
+ * Si CUALQUIER operación falla, se descarta TODO lo calculado en memoria —ni
+ * siquiera las que pasaron antes que ella cuentan— y se devuelve
+ * `persistido: false` con el rechazo exacto y en qué posición del lote
+ * ocurrió. Si las `operaciones.length` pasan, se devuelve `persistido: true`
+ * con el estado final.
+ *
+ * **No llama a `guardarEstado`.** Esta función es pura, igual que
+ * `aplicarOperacion`: quien la invoque (T012/T013, `pipeline.ts`) decide
+ * cuándo y cómo persistir `estadoFinal` — el mismo límite que ya respeta
+ * `ContextoOperaciones` (este módulo recibe datos ya resueltos, nunca
+ * consulta ni escribe la base por su cuenta).
+ */
+export async function aplicarOperaciones(
+  estadoGuardado: EstadoDelPedido,
+  operaciones: Operacion[],
+  contexto: ContextoOperaciones
+): Promise<ResultadoDelLote> {
+  let estado = estadoGuardado;
+  for (let i = 0; i < operaciones.length; i++) {
+    const resultado = await aplicarOperacion(estado, operaciones[i]!, contexto);
+    if (!resultado.ok) {
+      return { persistido: false, rechazo: resultado, operacionFallida: i };
+    }
+    estado = resultado.estado;
+  }
+  return { persistido: true, estadoFinal: estado };
 }

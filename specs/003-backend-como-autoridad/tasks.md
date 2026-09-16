@@ -104,7 +104,7 @@ solo necesitan T002/T003 respectivamente).
       `src/server/appointments/queries.ts` (`disponibilidadRealMultiple`) para
       re-verificar que la tupla `fecha`/`hora`/`especialista?` de `fijar_horario`
       sigue siendo un horario real y disponible — nunca un id de `offered_slot`.
-- [ ] T010 Compuerta 3 + `aplicarOperacion`/`aplicarOperaciones` (lote, **atómico**)
+- [X] T010 Compuerta 3 + `aplicarOperacion`/`aplicarOperaciones` (lote, **atómico**)
       en `src/server/appointments/operaciones.ts` (depende de T009, mismo archivo —
       NO paralelo), análogo a T006-T007 para la reserva.
 - [ ] T011 Tests unitarios sin LLM (depende de T007 Y T010 — ambas cadenas completas):

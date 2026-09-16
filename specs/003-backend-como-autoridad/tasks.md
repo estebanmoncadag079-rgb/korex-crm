@@ -263,7 +263,11 @@ haber activado todavía ningún negocio real.
 compensación por no tener fase de observación previa con un solo cliente. No se
 salta ningún paso.
 
-- [ ] T024 Gate técnico completo: `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
+- [X] T024 Gate técnico completo: `pnpm typecheck && pnpm lint && pnpm build && pnpm test`.
+      Los cuatro en verde (16-sep-2026): typecheck limpio, lint limpio, `next build`
+      compila y genera las 6 páginas estáticas sin error, suite completo 224
+      archivos / 2278 tests / 0 fallos. Ejecutado localmente sobre la rama
+      `003-backend-como-autoridad`, sin tocar `main` ni desplegar nada.
 - [ ] T025 `pnpm probar:estado`, `pnpm probar:escenarios`, `pnpm probar:citas` contra
       los 4 negocios reales — los tres en verde ANTES de tocar cualquier interruptor.
 - [ ] T026 Probar el apagado individual: con los 4 interruptores encendidos, apagar

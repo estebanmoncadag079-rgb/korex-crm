@@ -88,6 +88,46 @@ describe("dijoOtroValorDeDomicilio", () => {
     expect(dijoOtroValorDeDomicilio(texto, 800000, [undefined, null])).toBe(false);
     expect(dijoOtroValorDeDomicilio("El domicilio son $26.000", 800000, [null])).toBe(true);
   });
+
+  /**
+   * EL INCIDENTE (MALIA, 16-sep-2026, conv cv_up9ul11vy8r22an9vnt1).
+   *
+   * Clienta pidió un Pavé con topping ($12.000 en ítems) y dio la dirección;
+   * el backend verificó la zona "San Nicolás" en $8.000. El modelo respondió
+   * el total combinado correcto —$20.000— cerca de "domicilio". Pero
+   * `cifrasLegitimasDelTurno` (pipeline.ts) solo pasaba el total que el
+   * modelo declarara en su PROPIO campo `totalCents` y el subtotal de
+   * ítems ($12.000) — nunca la SUMA de los dos, que es precisamente lo que
+   * se dice al confirmar ambos juntos. $20.000 no estaba en la lista,
+   * el guardarraíl lo tomó por inventado, y derivó sin que hubiera nada que
+   * corregir. Mismo patrón que el incidente de Ciudad 2000 de arriba —esta
+   * es la recurrencia que ese caso ya advertía como riesgo abierto
+   * (docs/korexia/170).
+   *
+   * El arreglo: `pipeline.ts` ahora agrega la suma
+   * (`estadoGuardado.totalCents + resultadoZona.zona.feeCents`) a la lista
+   * de cifras legítimas — se reproduce aquí pasándola directo, igual que el
+   * caso de Ciudad 2000 pasa el total ya calculado.
+   */
+  it("la SUMA de ítems + domicilio no es una tarifa inventada (incidente San Nicolás)", () => {
+    // Dos menciones de "domicilio", cada una con su cifra a menos de los 25
+    // caracteres que exige la ventana de detección — así se disparó en
+    // producción: la tarifa sola, y el total combinado justo después de la
+    // segunda mención.
+    const texto = "El domicilio son $8.000. Con domicilio, tu total es $20.000";
+    // Antes: solo se comparaba contra la tarifa ($8.000) → $20.000 quedaba
+    // como una tarifa inventada → falso positivo.
+    expect(dijoOtroValorDeDomicilio(texto, 800000)).toBe(true);
+    // Ahora, con la suma (ítems $12.000 + domicilio $8.000) en la lista.
+    expect(dijoOtroValorDeDomicilio(texto, 800000, [undefined, 1200000, 2000000])).toBe(false);
+  });
+
+  it("sigue atrapando una cifra que no corresponde ni a la tarifa, ni al subtotal, ni a su suma", () => {
+    // $15.000 no es la tarifa ($8.000), ni el subtotal ($12.000), ni la suma
+    // de los dos ($20.000): sigue siendo una tarifa inventada real.
+    const texto = "El domicilio son $8.000. Con domicilio, tu total es $15.000";
+    expect(dijoOtroValorDeDomicilio(texto, 800000, [undefined, 1200000, 2000000])).toBe(true);
+  });
 });
 
 /**

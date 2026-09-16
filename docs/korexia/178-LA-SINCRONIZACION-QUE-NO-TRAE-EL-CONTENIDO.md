@@ -61,10 +61,25 @@ Camilabrandcol y presionar **"Traer de YCloud"**. Eso sobrescribe
 incondicionalmente, sin importar si el estado de aprobación cambió— y deja el
 encabezado sin la variable, tal como está aprobado ahora.
 
-**Verificación pendiente en vivo** (regla de oro: no darlo por hecho sin
-verlo funcionar): tras correr la sincronización, reintentar el envío de
-`ventana_cerrada_23h` a un número real y confirmar que ya no aparece el
-`#132000`.
+**Verificado en vivo (15-sep-2026, 09:26 UTC):** tras correr la
+sincronización, se reintentó el envío de `ventana_cerrada_23h` a un contacto
+real (`CO.2231688914065633`). **El `#132000` no volvió a aparecer** — el
+mensaje se aceptó y se insertó (`msg_19vb8927p6217ojpokjz`). Confirmado
+leyendo `message.error` directo de producción (solo lectura, vía el túnel
+documentado en este archivo, sesión cerrada después de consultar): el arreglo
+de esta capa quedó probado.
+
+**Pero el mensaje terminó en `status: "failed"` por una causa totalmente
+distinta**, ajena a plantillas: `error = "Business account has been locked."`
+Meta bloqueó la cuenta de WhatsApp Business de Camilabrandcol. Esto:
+
+- No lo causa ni lo arregla nada de este documento ni del código de Korex.
+- No es un error de parámetros ni de sincronización — es un estado de cuenta
+  que solo se resuelve desde el Administrador comercial / WhatsApp Manager de
+  Meta (revisar motivo del bloqueo y apelar o corregir lo que Meta señale).
+- Confirma, de rebote, que el arreglo de esta sección SÍ funcionó: si el
+  header siguiera desincronizado, el error habría sido `#132000` de nuevo, no
+  uno de cuenta bloqueada.
 
 ## Arreglo de fondo (pendiente, NO implementado — para hacer después)
 

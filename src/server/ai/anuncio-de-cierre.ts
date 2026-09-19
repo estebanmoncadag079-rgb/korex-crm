@@ -447,8 +447,21 @@ export function bloqueDeCifrasVerificadas(input: {
   const lineas = [`Subtotal: ${enPesos(subtotalCents)}`];
 
   if (entrega?.tipo === "domicilio") {
-    // Un domicilio cuya tarifa no está verificada no puede escribirse como
-    // si lo estuviera: sin ella, este bloque no existe.
+    /**
+     * Un domicilio sin tarifa verificada no puede escribirse como si la
+     * tuviera: sin ella, este bloque no existe.
+     *
+     * ⚠️ Y devolver `null` aquí hace algo MÁS que callarse, por eso no se
+     * toca: `cifrasLasEscribeElBackend` queda en `false` y los chequeos de
+     * TEXTO del cierre siguen corriendo. Si este bloque existiera, se
+     * apagarían — y para un negocio CON tabla cuyo domicilio aún no resolvió
+     * (MALIA preguntando una zona), eso sería perder la verificación justo
+     * donde hace falta.
+     *
+     * La aclaración de "pendiente" que lee el cliente va por otro camino,
+     * `bloqueDeDomicilioPendiente`, precisamente para no activar este
+     * interruptor. Cazado por esta prueba en la auditoría del 19-sep-2026.
+     */
     if (typeof entrega.feeCents !== "number") return null;
     lineas.push(`Domicilio: ${enPesos(entrega.feeCents)}`);
     lineas.push(`Total: ${enPesos(subtotalCents + entrega.feeCents)}`);
@@ -461,6 +474,43 @@ export function bloqueDeCifrasVerificadas(input: {
   }
 
   return lineas.join("\n");
+}
+
+/**
+ * La aclaración que lee el CLIENTE cuando el domicilio está pendiente de
+ * cotización (Fase 8D, 19-sep-2026).
+ *
+ * Es deliberadamente OTRA función, y no una rama de
+ * `bloqueDeCifrasVerificadas`: aquel bloque significa "el backend ya dijo
+ * todas las cifras, los chequeos de texto sobran". Aquí no es así — el
+ * domicilio sigue sin verificar y el texto del modelo sigue mereciendo
+ * vigilancia. Fundirlas apagaría los chequeos justo donde más falta hacen.
+ *
+ * Qué problema resuelve: para La Churra y Lis el domicilio pendiente es el
+ * caso NORMAL (lo cotiza Uber, Yango o DiDi según la dirección), así que el
+ * cierre le llegaba al cliente con lo que redactara el modelo como única
+ * cifra. Ahora termina con una línea del backend que afirma solo lo cierto:
+ * cuánto valen los productos, y que el domicilio se confirma aparte.
+ *
+ * No bloquea ni rehace nada: solo añade texto a un cierre que ya pasó todas
+ * sus validaciones.
+ *
+ * `null` cuando no hay nada que aclarar — sin subtotal calculado, o cuando
+ * la tarifa SÍ está verificada (ese caso ya lo cubre
+ * `bloqueDeCifrasVerificadas`, que escribe el total completo).
+ */
+export function bloqueDeDomicilioPendiente(input: {
+  subtotalCents: number | null | undefined;
+  entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+}): string | null {
+  const { subtotalCents, entrega } = input;
+  if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
+  if (entrega?.tipo !== "domicilio") return null;
+  if (typeof entrega.feeCents === "number") return null;
+  return [
+    `Subtotal de productos: ${enPesos(subtotalCents)}`,
+    "Domicilio: pendiente de cotización — te confirmamos el valor aparte",
+  ].join("\n");
 }
 
 /**

@@ -182,6 +182,7 @@ import {
   CORRECCION_DE_DOMICILIO_YA_CONSULTADO,
   inconsistenciaFinancieraDePedido,
   bloqueDeCifrasVerificadas,
+  bloqueDeDomicilioPendiente,
   correccionDeInconsistenciaFinanciera,
   contradiceDatosDeCuenta,
   CORRECCION_DE_DATOS_DE_CUENTA,
@@ -2572,6 +2573,33 @@ export async function runAgentTurn(
           ? `${action.farewell}\n\n${cifrasDelBackend}`
           : action.farewell,
       };
+    } else if (action.action === "notify_order") {
+      /**
+       * Fase 8D — el cierre con el domicilio PENDIENTE.
+       *
+       * Sin tarifa verificada no hay bloque de cifras (y no debe haberlo:
+       * eso apagaria los chequeos de texto). Pero el cliente no puede
+       * quedarse solo con lo que redacto el modelo, que es exactamente lo
+       * que pasaba en La Churra y Lis, donde el domicilio pendiente es el
+       * caso normal.
+       *
+       * Se adjunta una aclaracion que solo afirma lo verificado: cuanto
+       * valen los productos, y que el domicilio se confirma aparte. No
+       * rehace ni bloquea el cierre — ya paso todas sus validaciones.
+       */
+      const pendiente = bloqueDeDomicilioPendiente({
+        subtotalCents: estadoGuardado?.totalCents,
+        entrega: entregaPersistida,
+      });
+      if (pendiente) {
+        action = {
+          ...action,
+          summary: `${action.summary}\n\n${pendiente}`,
+          farewell: action.farewell
+            ? `${action.farewell}\n\n${pendiente}`
+            : action.farewell,
+        };
+      }
     }
   }
 

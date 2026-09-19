@@ -447,8 +447,21 @@ export function bloqueDeCifrasVerificadas(input: {
   const lineas = [`Subtotal: ${enPesos(subtotalCents)}`];
 
   if (entrega?.tipo === "domicilio") {
-    // Un domicilio cuya tarifa no está verificada no puede escribirse como
-    // si lo estuviera: sin ella, este bloque no existe.
+    /**
+     * Un domicilio sin tarifa verificada no puede escribirse como si la
+     * tuviera: sin ella, este bloque no existe.
+     *
+     * ⚠️ Y devolver `null` aquí hace algo MÁS que callarse, por eso no se
+     * toca: `cifrasLasEscribeElBackend` queda en `false` y los chequeos de
+     * TEXTO del cierre siguen corriendo. Si este bloque existiera, se
+     * apagarían — y para un negocio CON tabla cuyo domicilio aún no resolvió
+     * (MALIA preguntando una zona), eso sería perder la verificación justo
+     * donde hace falta.
+     *
+     * La aclaración de "pendiente" que lee el cliente va por otro camino,
+     * `bloqueDeDomicilioPendiente`, precisamente para no activar este
+     * interruptor. Cazado por esta prueba en la auditoría del 19-sep-2026.
+     */
     if (typeof entrega.feeCents !== "number") return null;
     lineas.push(`Domicilio: ${enPesos(entrega.feeCents)}`);
     lineas.push(`Total: ${enPesos(subtotalCents + entrega.feeCents)}`);
@@ -461,6 +474,43 @@ export function bloqueDeCifrasVerificadas(input: {
   }
 
   return lineas.join("\n");
+}
+
+/**
+ * La aclaración que lee el CLIENTE cuando el domicilio está pendiente de
+ * cotización (Fase 8D, 19-sep-2026).
+ *
+ * Es deliberadamente OTRA función, y no una rama de
+ * `bloqueDeCifrasVerificadas`: aquel bloque significa "el backend ya dijo
+ * todas las cifras, los chequeos de texto sobran". Aquí no es así — el
+ * domicilio sigue sin verificar y el texto del modelo sigue mereciendo
+ * vigilancia. Fundirlas apagaría los chequeos justo donde más falta hacen.
+ *
+ * Qué problema resuelve: para La Churra y Lis el domicilio pendiente es el
+ * caso NORMAL (lo cotiza Uber, Yango o DiDi según la dirección), así que el
+ * cierre le llegaba al cliente con lo que redactara el modelo como única
+ * cifra. Ahora termina con una línea del backend que afirma solo lo cierto:
+ * cuánto valen los productos, y que el domicilio se confirma aparte.
+ *
+ * No bloquea ni rehace nada: solo añade texto a un cierre que ya pasó todas
+ * sus validaciones.
+ *
+ * `null` cuando no hay nada que aclarar — sin subtotal calculado, o cuando
+ * la tarifa SÍ está verificada (ese caso ya lo cubre
+ * `bloqueDeCifrasVerificadas`, que escribe el total completo).
+ */
+export function bloqueDeDomicilioPendiente(input: {
+  subtotalCents: number | null | undefined;
+  entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+}): string | null {
+  const { subtotalCents, entrega } = input;
+  if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
+  if (entrega?.tipo !== "domicilio") return null;
+  if (typeof entrega.feeCents === "number") return null;
+  return [
+    `Subtotal de productos: ${enPesos(subtotalCents)}`,
+    "Domicilio: pendiente de cotización — te confirmamos el valor aparte",
+  ].join("\n");
 }
 
 /**
@@ -730,7 +780,28 @@ function figurasDeDomicilioEnCents(texto: string): number[] {
     // primero que aparezca; la de antes, en el último.
     const despues = texto.slice(finKeyword, finKeyword + VENTANA).split("\n")[0]!;
     const antesCrudo = texto.slice(Math.max(0, m.index - VENTANA), m.index);
-    const antes = antesCrudo.slice(antesCrudo.lastIndexOf("\n") + 1);
+    /**
+     * La ventana hacia atrás tampoco cruza un FIN DE ORACIÓN, por la misma
+     * razón por la que no cruza un salto de línea: dos oraciones son dos
+     * hechos distintos.
+     *
+     * Lo obligó la Fase 8 (19-sep-2026), al extender el detector a los
+     * negocios sin tabla de zonas. "Los churros son $20.000. El domicilio se
+     * cotiza aparte" es la frase CORRECTA de La Churra, y se leía como "el
+     * domicilio cuesta $20.000": no hay cifra después de la palabra, así que
+     * miraba hacia atrás, se comía el punto y agarraba el precio de los
+     * productos. El mismo mecanismo del falso positivo de $64.000 del
+     * 9-sep-2026, con un punto en lugar de un salto de línea.
+     *
+     * El `\s` del patrón es lo que salva los miles: en "$20.000." el punto va
+     * pegado al dígito, no seguido de espacio, así que no parte el número.
+     */
+    const sinCruzarLinea = antesCrudo.slice(antesCrudo.lastIndexOf("\n") + 1);
+    const finDeOracion = [...sinCruzarLinea.matchAll(/[.!?]\s/g)].pop();
+    const antes =
+      finDeOracion?.index === undefined
+        ? sinCruzarLinea
+        : sinCruzarLinea.slice(finDeOracion.index + finDeOracion[0].length);
     const cifra = despues.match(/\$\s*([\d][\d.,]*)/) ?? antes.match(/\$\s*([\d][\d.,]*)/);
     if (cifra) resultado.push(pesosTextoACents(cifra[1]!));
   }
@@ -764,7 +835,20 @@ function figurasDeDomicilioEnCents(texto: string): number[] {
  */
 export function dijoOtroValorDeDomicilio(
   texto: string | null | undefined,
-  feeCentsVerificado: number,
+  /**
+   * La tarifa que el backend verificó contra `delivery_zone`, o **`null`
+   * cuando este negocio no tiene ninguna tarifa verificable** — el caso de
+   * `delivery_source='prompt'` (La Churra, Lis: su domicilio lo cotizan Uber,
+   * Yango o DiDi, y no hay tabla contra la que comparar).
+   *
+   * Con `null` la pregunta que hace el detector sigue siendo la misma —
+   * *"¿esta cifra corresponde a algo verificado?"*— solo que la lista de lo
+   * verificado no incluye ninguna tarifa, porque no existe. Cualquier cifra
+   * que el texto ponga junto a "domicilio" y que no sea el subtotal que
+   * calculó el backend, el total del propio cierre, o algo que YA dijo una
+   * persona del negocio en este chat, la inventó el modelo.
+   */
+  feeCentsVerificado: number | null,
   /**
    * Las demás cifras que el backend dio por buenas en este turno (el total
    * que el modelo declaró en `reply`, el subtotal de los ítems). Vacío
@@ -774,12 +858,27 @@ export function dijoOtroValorDeDomicilio(
   otrosValoresVerificados: readonly (number | null | undefined)[] = []
 ): boolean {
   if (!texto) return false;
-  const legitimas = new Set<number>([feeCentsVerificado]);
+  const legitimas = new Set<number>();
+  if (typeof feeCentsVerificado === "number") legitimas.add(feeCentsVerificado);
   for (const valor of otrosValoresVerificados) {
     if (typeof valor === "number" && Number.isFinite(valor)) legitimas.add(valor);
   }
   return figurasDeDomicilioEnCents(texto).some((c) => !legitimas.has(c));
 }
+
+/**
+ * La corrección para un negocio SIN tarifa verificable. Es un mensaje aparte
+ * a propósito: `CORRECCION_DE_DOMICILIO_CONTRADICHO` le ordena al modelo
+ * *"usa exactamente la tarifa verificada"*, y aquí **no hay ninguna tarifa
+ * que usar** — repetírsela lo mandaría a buscar un dato que no existe, que es
+ * justo el error del incidente del 10-sep-2026 (se le mandó el mensaje del
+ * caso equivocado, insistió, y el cliente se llevó una derivación).
+ *
+ * Lo que sí puede hacer es lo correcto para este negocio: decir el precio de
+ * los productos y dejar el domicilio como pendiente de cotización.
+ */
+export const CORRECCION_DE_DOMICILIO_SIN_TARIFA =
+  "ALTO. Este negocio NO tiene tarifas de domicilio fijas: cada domicilio lo cotiza una plataforma externa (Uber, Yango, DiDi) segun la direccion, y ese valor NO lo sabes tu. Tu respuesta menciona una cifra de domicilio que nadie ha confirmado. Quita esa cifra. Di el valor de los PRODUCTOS, y deja claro que el domicilio se cotiza aparte y que el negocio se lo confirma al cliente. Nunca inventes, estimes ni redondees un valor de domicilio, y nunca digas que es gratis. Responde UNICAMENTE el objeto JSON.";
 
 export const CORRECCION_DE_DOMICILIO_CONTRADICHO =
   "ALTO. Ya se verificó la tarifa REAL de domicilio para esta zona (consultar_domicilio) y tu respuesta menciona una cifra DISTINTA. Usa exactamente la tarifa verificada, no la cambies ni la redondees ni la inventes de nuevo. Responde ÚNICAMENTE el objeto JSON.";

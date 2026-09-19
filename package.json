@@ -50,7 +50,8 @@
     "comparar:modelos": "esbuild scripts/comparar-modelos.ts --bundle --platform=node --format=esm --outfile=.tmp-comparar-modelos.mjs --alias:@=./src --packages=external && node .tmp-comparar-modelos.mjs",
     "probar:bot": "esbuild scripts/probar-bot.ts --bundle --platform=node --format=esm --outfile=.tmp-probar-bot.mjs --alias:@=./src --packages=external && node .tmp-probar-bot.mjs",
     "cargar:zonas": "esbuild scripts/cargar-zonas.ts --bundle --platform=node --format=esm --outfile=.tmp-cargar-zonas.mjs --alias:@=./src --packages=external && node .tmp-cargar-zonas.mjs",
-    "tarifar:zonas": "esbuild scripts/tarifar-zonas.ts --bundle --platform=node --format=esm --outfile=.tmp-tarifar-zonas.mjs --alias:@=./src --packages=external && node .tmp-tarifar-zonas.mjs"
+    "tarifar:zonas": "esbuild scripts/tarifar-zonas.ts --bundle --platform=node --format=esm --outfile=.tmp-tarifar-zonas.mjs --alias:@=./src --packages=external && node .tmp-tarifar-zonas.mjs",
+    "auditar:arquitectura": "esbuild scripts/auditar-arquitectura.ts --bundle --platform=node --format=esm --outfile=.tmp-auditar-arquitectura.mjs --alias:@=./src --packages=external && node .tmp-auditar-arquitectura.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

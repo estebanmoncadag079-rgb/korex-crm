@@ -178,9 +178,11 @@ import {
   dijoOtroValorDeDomicilio,
   CORRECCION_DE_DOMICILIO_AGOTADO,
   CORRECCION_DE_DOMICILIO_CONTRADICHO,
+  CORRECCION_DE_DOMICILIO_SIN_TARIFA,
   CORRECCION_DE_DOMICILIO_YA_CONSULTADO,
   inconsistenciaFinancieraDePedido,
   bloqueDeCifrasVerificadas,
+  bloqueDeDomicilioPendiente,
   correccionDeInconsistenciaFinanciera,
   contradiceDatosDeCuenta,
   CORRECCION_DE_DATOS_DE_CUENTA,
@@ -2226,20 +2228,102 @@ export async function runAgentTurn(
     action.action === "reply"
       ? [action.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
       : [estadoGuardado?.totalCents, sumaItemsConDomicilio];
+  /**
+   * Fase 8 — el mismo guardarraíl, extendido al negocio que NO puede
+   * verificar ninguna tarifa.
+   *
+   * Hasta aquí solo se evaluaba con `resultadoZona.status === "found"`, y eso
+   * exige `delivery_source='tabla'`. La Churra y Lis están en `'prompt'`: su
+   * domicilio lo cotiza una plataforma externa según la dirección. Para ellas
+   * el detector nunca corría, así que el modelo podía decir "el domicilio son
+   * $5.000" y nada lo paraba — ni aquí, ni en
+   * `inconsistenciaFinancieraDePedido` (su candado vive tras
+   * `puedeVerificarDomicilio`, apagado a propósito desde Zahenz).
+   *
+   * **No repite el error de Zahenz.** Aquel exigía una PRUEBA imposible en
+   * todos los pedidos con domicilio y derivaba el 100%. Esto solo mira si el
+   * texto pone una cifra concreta junto a "domicilio" que no sea ninguna de
+   * las que ya son legítimas — así que un pedido que deja el domicilio
+   * pendiente, que es lo que se espera de estos negocios, no lo toca nunca.
+   */
+  const tarifaVerificadaCents =
+    resultadoZona?.status === "found" ? resultadoZona.zona.feeCents : null;
+  /**
+   * Las cifras que una PERSONA del negocio escribió en este chat. Sin tabla
+   * de zonas, cotizar a mano no es una anomalía: es EL flujo normal (el
+   * equipo mira Uber y dice el valor). Tratar esa cifra como inventada
+   * repetiría el incidente del 8 y 9-sep-2026, cuando el candado bloqueó un
+   * total que el propio equipo había dado y el cliente ya había pagado.
+   *
+   * Solo se calcula cuando hace falta: `direction='out'` + `ai_generated=false`
+   * es un filtro sobre el historial que ya está en memoria, pero no tiene
+   * sentido pagarlo en los turnos donde sí hay tarifa verificada.
+   */
+  /**
+   * ⚠️ NO es `!domicilioEstructurado`, y la diferencia importa.
+   *
+   * `domicilioEstructurado` ya es falso en TODO negocio de citas
+   * (`!contrataCitas(vertical) && deliverySource === "tabla"`), así que
+   * negarlo metía a los salones dentro de este guardarraíl. Un negocio de
+   * citas que ofrece servicio a domicilio —caso real del vertical— habría
+   * visto su turno rehecho por decir un precio perfectamente legítimo.
+   * Lashes Valen está fuera del alcance de esta fase y no debe notarla.
+   *
+   * La condición correcta es la del negocio que esta fase sí cubre: hace
+   * pedidos y NO tiene tabla de tarifas contra la que verificar.
+   */
+  const sinTarifaVerificable = !contrataCitas(vertical) && profile.deliverySource !== "tabla";
+  /**
+   * ⚠️ Sin tarifa verificable, `action.totalCents` **no cuenta como cifra
+   * legítima**, y esa exclusión es la mitad del guardarraíl.
+   *
+   * Ese campo lo rellena el MODELO. Con una tarifa verificada da igual
+   * —cualquier total que declare se contrasta contra una cifra que el backend
+   * calculó—, pero sin ella, aceptarlo dejaba la puerta abierta a lo único
+   * que esta fase quiere impedir: decir "el domicilio son $5.000" y poner
+   * `totalCents: 500000` en el mismo turno, validándose a sí mismo.
+   *
+   * Lo que queda son solo cifras que el modelo NO controla:
+   *   · `estadoGuardado.totalCents` — lo calculó el backend sobre el carrito.
+   *   · lo que escribió una persona del negocio — filas de `message` con
+   *     `ai_generated=false`, un hecho de la base.
+   *
+   * El riesgo de quedarse corto (marcar por inventada una cifra correcta) lo
+   * cubre la regla de fin de oración de `figurasDeDomicilioEnCents`: un total
+   * que vive en otra frase ya no se lee como tarifa de domicilio.
+   */
+  const cifrasLegitimasConCotizacionHumana = sinTarifaVerificable
+    ? [
+        estadoGuardado?.totalCents,
+        ...history
+          .filter((m) => m.direction === "out" && m.aiGenerated === false)
+          .flatMap((m) => cifrasEnPesosDelTexto(m.text)),
+      ]
+    : cifrasLegitimasDelTurno;
   if (
-    resultadoZona?.status === "found" &&
+    (resultadoZona?.status === "found" || sinTarifaVerificable) &&
     action.action === "reply" &&
     dijoOtroValorDeDomicilio(
       action.text,
-      resultadoZona.zona.feeCents,
-      cifrasLegitimasDelTurno
+      tarifaVerificadaCents,
+      cifrasLegitimasConCotizacionHumana
     )
   ) {
-    console.warn("[domicilio] contradijo la tarifa verificada; rehaciendo el turno");
+    console.warn(
+      tarifaVerificadaCents === null
+        ? "[domicilio] dijo una tarifa que nadie verificó y este negocio no tiene tabla; rehaciendo el turno"
+        : "[domicilio] contradijo la tarifa verificada; rehaciendo el turno"
+    );
     const reintento = await chatJson(AgentAction, [
       ...messages,
       { role: "assistant", content: result.raw },
-      { role: "user", content: CORRECCION_DE_DOMICILIO_CONTRADICHO },
+      {
+        role: "user",
+        content:
+          tarifaVerificadaCents === null
+            ? CORRECCION_DE_DOMICILIO_SIN_TARIFA
+            : CORRECCION_DE_DOMICILIO_CONTRADICHO,
+      },
     ]);
     await registrarUsoIa(
       organizationId,
@@ -2252,11 +2336,16 @@ export async function runAgentTurn(
         reintento.data.action === "reply" &&
         dijoOtroValorDeDomicilio(
           reintento.data.text,
-          resultadoZona.zona.feeCents,
+          tarifaVerificadaCents,
           // Las del REINTENTO: el modelo pudo declarar otro total al rehacer.
           // `sumaItemsConDomicilio` no cambia entre intentos: son los mismos
-          // ítems y la misma zona ya verificados antes del reintento.
-          [reintento.data.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
+          // ítems y la misma zona ya verificados antes del reintento. Las que
+          // dijo una persona tampoco cambian dentro del turno.
+          sinTarifaVerificable
+            ? // Mismo criterio que arriba: sin tarifa, el total que declara el
+              // modelo tampoco se acepta en el reintento.
+              cifrasLegitimasConCotizacionHumana
+            : [reintento.data.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
         )
       )
     ) {
@@ -2484,6 +2573,33 @@ export async function runAgentTurn(
           ? `${action.farewell}\n\n${cifrasDelBackend}`
           : action.farewell,
       };
+    } else if (action.action === "notify_order") {
+      /**
+       * Fase 8D — el cierre con el domicilio PENDIENTE.
+       *
+       * Sin tarifa verificada no hay bloque de cifras (y no debe haberlo:
+       * eso apagaria los chequeos de texto). Pero el cliente no puede
+       * quedarse solo con lo que redacto el modelo, que es exactamente lo
+       * que pasaba en La Churra y Lis, donde el domicilio pendiente es el
+       * caso normal.
+       *
+       * Se adjunta una aclaracion que solo afirma lo verificado: cuanto
+       * valen los productos, y que el domicilio se confirma aparte. No
+       * rehace ni bloquea el cierre — ya paso todas sus validaciones.
+       */
+      const pendiente = bloqueDeDomicilioPendiente({
+        subtotalCents: estadoGuardado?.totalCents,
+        entrega: entregaPersistida,
+      });
+      if (pendiente) {
+        action = {
+          ...action,
+          summary: `${action.summary}\n\n${pendiente}`,
+          farewell: action.farewell
+            ? `${action.farewell}\n\n${pendiente}`
+            : action.farewell,
+        };
+      }
     }
   }
 

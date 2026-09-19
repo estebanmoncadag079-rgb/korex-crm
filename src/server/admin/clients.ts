@@ -1,5 +1,11 @@
 import { and, count, desc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
+import {
+  diagnosticarConfiguracion,
+  type CampoArquitectura,
+  type ConfiguracionArquitectonica,
+  type EstadoArquitectura,
+} from "@/server/auth/arquitectura";
 
 /** Vista de un cliente (tenant) para el panel de agencia. */
 export type ClientSummary = {
@@ -17,6 +23,20 @@ export type ClientSummary = {
   ownAccount: boolean;
   /** true = vertical de citas (peluquería, estética…) en vez de pedidos. */
   appointmentsEnabled: boolean;
+  /**
+   * Fase 9 (19-sep-2026) — si la configuración de este cliente coincide con la
+   * arquitectura aprobada para su vertical.
+   *
+   * Aquí es donde el diagnóstico deja de ser un comando que alguien tiene que
+   * acordarse de correr: el superadmin lo ve al abrir el panel, junto al resto
+   * del estado del cliente. `validarConfiguracionArquitectonica` existía desde
+   * el programa de mejora y no la llamaba nadie más que los tests.
+   *
+   * `null` = el cliente no tiene `agent_profile` todavía (alta a medias).
+   */
+  arquitectura: EstadoArquitectura | null;
+  /** Qué mecanismos le faltan, para poder decir CUÁL sin abrir otra pantalla. */
+  arquitecturaFaltantes: CampoArquitectura[];
 };
 
 /**
@@ -26,6 +46,38 @@ export type ClientSummary = {
  * alcanza el superadmin de la plataforma (gate en la capa de API) y no expone
  * contenido de conversaciones, solo conteos.
  */
+/**
+ * El diagnóstico arquitectónico de una fila ya leída. Usa la parte PURA del
+ * validador (`diagnosticarConfiguracion`), así que la regla de qué es
+ * "arquitectura aprobada" sigue viviendo en un solo sitio: la matriz de
+ * `server/auth/arquitectura.ts`. Aquí no se repite ni un valor esperado.
+ *
+ * Sin `agent_profile` (LEFT JOIN vacío) no hay nada que diagnosticar: el alta
+ * quedó a medias y eso ya se ve en el resto de la fila.
+ */
+function diagnosticoDe(fila: {
+  appointmentsEnabled: boolean | null;
+  catalogSource: string | null;
+  stateSource: string | null;
+  paymentSource: string | null;
+  consultasVerificadasEnabled: boolean | null;
+}): { arquitectura: EstadoArquitectura | null; arquitecturaFaltantes: CampoArquitectura[] } {
+  if (fila.appointmentsEnabled === null || fila.stateSource === null) {
+    return { arquitectura: null, arquitecturaFaltantes: [] };
+  }
+  const diag = diagnosticarConfiguracion({
+    appointmentsEnabled: fila.appointmentsEnabled,
+    catalogSource: fila.catalogSource as ConfiguracionArquitectonica["catalogSource"],
+    stateSource: fila.stateSource as ConfiguracionArquitectonica["stateSource"],
+    paymentSource: fila.paymentSource as ConfiguracionArquitectonica["paymentSource"],
+    consultasVerificadasEnabled: fila.consultasVerificadasEnabled ?? false,
+  });
+  return {
+    arquitectura: diag.estado,
+    arquitecturaFaltantes: [...diag.faltantes, ...diag.incompatibles],
+  };
+}
+
 export async function listClients(): Promise<ClientSummary[]> {
   const db = getDb();
 
@@ -37,6 +89,12 @@ export async function listClients(): Promise<ClientSummary[]> {
       createdAt: schema.organization.createdAt,
       agentEnabled: schema.agentProfile.enabled,
       appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
+      // Fase 9: los cuatro mecanismos que decide `arquitecturaAprobadaPara`.
+      // Viajan en el JOIN que ya existía — ni una consulta más por cliente.
+      catalogSource: schema.agentProfile.catalogSource,
+      stateSource: schema.agentProfile.stateSource,
+      paymentSource: schema.agentProfile.paymentSource,
+      consultasVerificadasEnabled: schema.agentProfile.consultasVerificadasEnabled,
       phone: schema.metaCredentials.displayPhoneNumber,
       connectionStatus: schema.metaCredentials.status,
       // Señal de cuenta propia: el secreto de webhook solo se rellena cuando el
@@ -91,6 +149,7 @@ export async function listClients(): Promise<ClientSummary[]> {
     connectionStatus: o.connectionStatus,
     ownAccount: Boolean(o.ownAccountSecret),
     appointmentsEnabled: o.appointmentsEnabled ?? false,
+    ...diagnosticoDe(o),
   }));
 }
 

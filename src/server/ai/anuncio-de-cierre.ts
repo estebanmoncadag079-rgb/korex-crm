@@ -730,7 +730,28 @@ function figurasDeDomicilioEnCents(texto: string): number[] {
     // primero que aparezca; la de antes, en el último.
     const despues = texto.slice(finKeyword, finKeyword + VENTANA).split("\n")[0]!;
     const antesCrudo = texto.slice(Math.max(0, m.index - VENTANA), m.index);
-    const antes = antesCrudo.slice(antesCrudo.lastIndexOf("\n") + 1);
+    /**
+     * La ventana hacia atrás tampoco cruza un FIN DE ORACIÓN, por la misma
+     * razón por la que no cruza un salto de línea: dos oraciones son dos
+     * hechos distintos.
+     *
+     * Lo obligó la Fase 8 (19-sep-2026), al extender el detector a los
+     * negocios sin tabla de zonas. "Los churros son $20.000. El domicilio se
+     * cotiza aparte" es la frase CORRECTA de La Churra, y se leía como "el
+     * domicilio cuesta $20.000": no hay cifra después de la palabra, así que
+     * miraba hacia atrás, se comía el punto y agarraba el precio de los
+     * productos. El mismo mecanismo del falso positivo de $64.000 del
+     * 9-sep-2026, con un punto en lugar de un salto de línea.
+     *
+     * El `\s` del patrón es lo que salva los miles: en "$20.000." el punto va
+     * pegado al dígito, no seguido de espacio, así que no parte el número.
+     */
+    const sinCruzarLinea = antesCrudo.slice(antesCrudo.lastIndexOf("\n") + 1);
+    const finDeOracion = [...sinCruzarLinea.matchAll(/[.!?]\s/g)].pop();
+    const antes =
+      finDeOracion?.index === undefined
+        ? sinCruzarLinea
+        : sinCruzarLinea.slice(finDeOracion.index + finDeOracion[0].length);
     const cifra = despues.match(/\$\s*([\d][\d.,]*)/) ?? antes.match(/\$\s*([\d][\d.,]*)/);
     if (cifra) resultado.push(pesosTextoACents(cifra[1]!));
   }
@@ -764,7 +785,20 @@ function figurasDeDomicilioEnCents(texto: string): number[] {
  */
 export function dijoOtroValorDeDomicilio(
   texto: string | null | undefined,
-  feeCentsVerificado: number,
+  /**
+   * La tarifa que el backend verificó contra `delivery_zone`, o **`null`
+   * cuando este negocio no tiene ninguna tarifa verificable** — el caso de
+   * `delivery_source='prompt'` (La Churra, Lis: su domicilio lo cotizan Uber,
+   * Yango o DiDi, y no hay tabla contra la que comparar).
+   *
+   * Con `null` la pregunta que hace el detector sigue siendo la misma —
+   * *"¿esta cifra corresponde a algo verificado?"*— solo que la lista de lo
+   * verificado no incluye ninguna tarifa, porque no existe. Cualquier cifra
+   * que el texto ponga junto a "domicilio" y que no sea el subtotal que
+   * calculó el backend, el total del propio cierre, o algo que YA dijo una
+   * persona del negocio en este chat, la inventó el modelo.
+   */
+  feeCentsVerificado: number | null,
   /**
    * Las demás cifras que el backend dio por buenas en este turno (el total
    * que el modelo declaró en `reply`, el subtotal de los ítems). Vacío
@@ -774,12 +808,27 @@ export function dijoOtroValorDeDomicilio(
   otrosValoresVerificados: readonly (number | null | undefined)[] = []
 ): boolean {
   if (!texto) return false;
-  const legitimas = new Set<number>([feeCentsVerificado]);
+  const legitimas = new Set<number>();
+  if (typeof feeCentsVerificado === "number") legitimas.add(feeCentsVerificado);
   for (const valor of otrosValoresVerificados) {
     if (typeof valor === "number" && Number.isFinite(valor)) legitimas.add(valor);
   }
   return figurasDeDomicilioEnCents(texto).some((c) => !legitimas.has(c));
 }
+
+/**
+ * La corrección para un negocio SIN tarifa verificable. Es un mensaje aparte
+ * a propósito: `CORRECCION_DE_DOMICILIO_CONTRADICHO` le ordena al modelo
+ * *"usa exactamente la tarifa verificada"*, y aquí **no hay ninguna tarifa
+ * que usar** — repetírsela lo mandaría a buscar un dato que no existe, que es
+ * justo el error del incidente del 10-sep-2026 (se le mandó el mensaje del
+ * caso equivocado, insistió, y el cliente se llevó una derivación).
+ *
+ * Lo que sí puede hacer es lo correcto para este negocio: decir el precio de
+ * los productos y dejar el domicilio como pendiente de cotización.
+ */
+export const CORRECCION_DE_DOMICILIO_SIN_TARIFA =
+  "ALTO. Este negocio NO tiene tarifas de domicilio fijas: cada domicilio lo cotiza una plataforma externa (Uber, Yango, DiDi) segun la direccion, y ese valor NO lo sabes tu. Tu respuesta menciona una cifra de domicilio que nadie ha confirmado. Quita esa cifra. Di el valor de los PRODUCTOS, y deja claro que el domicilio se cotiza aparte y que el negocio se lo confirma al cliente. Nunca inventes, estimes ni redondees un valor de domicilio, y nunca digas que es gratis. Responde UNICAMENTE el objeto JSON.";
 
 export const CORRECCION_DE_DOMICILIO_CONTRADICHO =
   "ALTO. Ya se verificó la tarifa REAL de domicilio para esta zona (consultar_domicilio) y tu respuesta menciona una cifra DISTINTA. Usa exactamente la tarifa verificada, no la cambies ni la redondees ni la inventes de nuevo. Responde ÚNICAMENTE el objeto JSON.";

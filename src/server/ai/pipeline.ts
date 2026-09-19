@@ -178,6 +178,7 @@ import {
   dijoOtroValorDeDomicilio,
   CORRECCION_DE_DOMICILIO_AGOTADO,
   CORRECCION_DE_DOMICILIO_CONTRADICHO,
+  CORRECCION_DE_DOMICILIO_SIN_TARIFA,
   CORRECCION_DE_DOMICILIO_YA_CONSULTADO,
   inconsistenciaFinancieraDePedido,
   bloqueDeCifrasVerificadas,
@@ -2226,20 +2227,70 @@ export async function runAgentTurn(
     action.action === "reply"
       ? [action.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
       : [estadoGuardado?.totalCents, sumaItemsConDomicilio];
+  /**
+   * Fase 8 — el mismo guardarraíl, extendido al negocio que NO puede
+   * verificar ninguna tarifa.
+   *
+   * Hasta aquí solo se evaluaba con `resultadoZona.status === "found"`, y eso
+   * exige `delivery_source='tabla'`. La Churra y Lis están en `'prompt'`: su
+   * domicilio lo cotiza una plataforma externa según la dirección. Para ellas
+   * el detector nunca corría, así que el modelo podía decir "el domicilio son
+   * $5.000" y nada lo paraba — ni aquí, ni en
+   * `inconsistenciaFinancieraDePedido` (su candado vive tras
+   * `puedeVerificarDomicilio`, apagado a propósito desde Zahenz).
+   *
+   * **No repite el error de Zahenz.** Aquel exigía una PRUEBA imposible en
+   * todos los pedidos con domicilio y derivaba el 100%. Esto solo mira si el
+   * texto pone una cifra concreta junto a "domicilio" que no sea ninguna de
+   * las que ya son legítimas — así que un pedido que deja el domicilio
+   * pendiente, que es lo que se espera de estos negocios, no lo toca nunca.
+   */
+  const tarifaVerificadaCents =
+    resultadoZona?.status === "found" ? resultadoZona.zona.feeCents : null;
+  /**
+   * Las cifras que una PERSONA del negocio escribió en este chat. Sin tabla
+   * de zonas, cotizar a mano no es una anomalía: es EL flujo normal (el
+   * equipo mira Uber y dice el valor). Tratar esa cifra como inventada
+   * repetiría el incidente del 8 y 9-sep-2026, cuando el candado bloqueó un
+   * total que el propio equipo había dado y el cliente ya había pagado.
+   *
+   * Solo se calcula cuando hace falta: `direction='out'` + `ai_generated=false`
+   * es un filtro sobre el historial que ya está en memoria, pero no tiene
+   * sentido pagarlo en los turnos donde sí hay tarifa verificada.
+   */
+  const sinTarifaVerificable = !domicilioEstructurado;
+  const cifrasLegitimasConCotizacionHumana = sinTarifaVerificable
+    ? [
+        ...cifrasLegitimasDelTurno,
+        ...history
+          .filter((m) => m.direction === "out" && m.aiGenerated === false)
+          .flatMap((m) => cifrasEnPesosDelTexto(m.text)),
+      ]
+    : cifrasLegitimasDelTurno;
   if (
-    resultadoZona?.status === "found" &&
+    (resultadoZona?.status === "found" || sinTarifaVerificable) &&
     action.action === "reply" &&
     dijoOtroValorDeDomicilio(
       action.text,
-      resultadoZona.zona.feeCents,
-      cifrasLegitimasDelTurno
+      tarifaVerificadaCents,
+      cifrasLegitimasConCotizacionHumana
     )
   ) {
-    console.warn("[domicilio] contradijo la tarifa verificada; rehaciendo el turno");
+    console.warn(
+      tarifaVerificadaCents === null
+        ? "[domicilio] dijo una tarifa que nadie verificó y este negocio no tiene tabla; rehaciendo el turno"
+        : "[domicilio] contradijo la tarifa verificada; rehaciendo el turno"
+    );
     const reintento = await chatJson(AgentAction, [
       ...messages,
       { role: "assistant", content: result.raw },
-      { role: "user", content: CORRECCION_DE_DOMICILIO_CONTRADICHO },
+      {
+        role: "user",
+        content:
+          tarifaVerificadaCents === null
+            ? CORRECCION_DE_DOMICILIO_SIN_TARIFA
+            : CORRECCION_DE_DOMICILIO_CONTRADICHO,
+      },
     ]);
     await registrarUsoIa(
       organizationId,
@@ -2252,11 +2303,17 @@ export async function runAgentTurn(
         reintento.data.action === "reply" &&
         dijoOtroValorDeDomicilio(
           reintento.data.text,
-          resultadoZona.zona.feeCents,
+          tarifaVerificadaCents,
           // Las del REINTENTO: el modelo pudo declarar otro total al rehacer.
           // `sumaItemsConDomicilio` no cambia entre intentos: son los mismos
-          // ítems y la misma zona ya verificados antes del reintento.
-          [reintento.data.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
+          // ítems y la misma zona ya verificados antes del reintento. Las que
+          // dijo una persona tampoco cambian dentro del turno.
+          [
+            reintento.data.totalCents,
+            estadoGuardado?.totalCents,
+            sumaItemsConDomicilio,
+            ...(sinTarifaVerificable ? cifrasLegitimasConCotizacionHumana : []),
+          ]
         )
       )
     ) {

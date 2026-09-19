@@ -47,6 +47,12 @@ export async function cargarConBaseDePruebas() {
   const catalogoProductos = await import("@/server/catalog/productos");
   const catalogoOpciones = await import("@/server/catalog/opciones");
   const estado = await import("@/server/orders/estado");
+  // Imágenes de producto (0043/0044): lo que hay que demostrar es el
+  // `ON DELETE SET NULL (product_id)` y el índice único de etiqueta, que no
+  // existen fuera de Postgres.
+  const catalogoImagenes = await import("@/server/catalog/imagenes");
+  const mediaAssets = await import("@/server/media/assets");
+  const fotos = await import("@/server/ai/fotos");
   return {
     ...db,
     cola,
@@ -69,6 +75,9 @@ export async function cargarConBaseDePruebas() {
     catalogoProductos,
     catalogoOpciones,
     estado,
+    catalogoImagenes,
+    mediaAssets,
+    fotos,
   };
 }
 

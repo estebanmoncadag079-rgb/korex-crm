@@ -302,6 +302,20 @@
       "when": 1789800000000,
       "tag": "0042_tipo_de_confirmacion_de_cita",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789900000000,
+      "tag": "0043_imagen_del_producto",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1789910000000,
+      "tag": "0044_imagen_del_producto_on_delete",
+      "breakpoints": true
     }
   ]
 }

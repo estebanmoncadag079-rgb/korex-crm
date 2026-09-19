@@ -3471,7 +3471,14 @@ export async function runAgentTurn(
       // esquema): se acepta cualquiera de los dos y, si no viene ninguno, se
       // trata como una foto que no existe — es decir, se responde con texto.
       const pedida = action.etiqueta ?? action.label ?? "";
-      const foto = pedida ? await fotoPorEtiqueta(organizationId, pedida) : null;
+      // Fase 4 (imágenes de productos del catálogo) — `productosDelPedido`
+      // ya está en memoria desde el principio del turno (mismo criterio que
+      // el resto del pipeline: nunca repetir una consulta que ya se hizo).
+      // Vacío para citas o `catalog_source='prompt'`: `resolverFoto` se
+      // comporta ahí exactamente como antes de esta fase.
+      const foto = pedida
+        ? await fotoPorEtiqueta(organizationId, pedida, productosDelPedido)
+        : null;
 
       /*
        * Cómo se entrega lo decide el RECURSO, no el modelo ni el código: el

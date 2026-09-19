@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { gruposAmbiguos, obligaAPagarUnExtra, opcionesAmbiguas } from "@/lib/catalogo-ambiguedad";
 import { repeticionObligatoria } from "@/lib/catalogo-repeticion";
+import { comprimirImagen } from "@/lib/comprimir-imagen";
 
 /**
  * El catálogo completo de un negocio de PEDIDOS — productos, sus grupos de
@@ -428,6 +429,8 @@ function TarjetaProducto({
       <CardContent className="space-y-2">
         {error && <p className="text-sm text-[#a2504c]">{error}</p>}
 
+        <ImagenDelProducto productoId={producto.id} />
+
         {grupos.map((g) => (
           <FilaDeGrupo key={g.id} grupo={g} onCambio={onCambio} />
         ))}
@@ -441,6 +444,160 @@ function TarjetaProducto({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+type ImagenProducto = { id: string; mimeType: string | null; tamano: number | null; createdAt: string };
+
+/**
+ * Fase 6 (imágenes de productos del catálogo) — esta pantalla solo
+ * administra CUÁL es la imagen de un producto (sube/reemplaza/elimina). El
+ * agente decide CUÁNDO mandarla, y solo bajo demanda (`send_image`,
+ * `fotos.ts`): esta pantalla nunca envía nada, solo configura.
+ */
+function ImagenDelProducto({ productoId }: { productoId: string }) {
+  const [imagen, setImagen] = useState<ImagenProducto | null | undefined>(undefined);
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * Cuando la misma imagen la usa además una campaña o una plantilla, no se
+   * destruye: se suelta del producto y se conserva. El producto se queda sin
+   * imagen igual, pero decir "eliminada" sería mentira — y el negocio tiene
+   * derecho a saber que ese archivo sigue en su cuenta.
+   */
+  const [avisoAlQuitar, setAvisoAlQuitar] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    const res = await fetch(`/api/catalogo/productos/${productoId}/imagen`).catch(() => null);
+    if (!res?.ok) {
+      setImagen(null);
+      return;
+    }
+    const data = (await res.json()) as { imagen: ImagenProducto | null };
+    setImagen(data.imagen);
+  }, [productoId]);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  async function subir(archivo: File) {
+    setError(null);
+    setSubiendo(true);
+    try {
+      const base64 = await comprimirImagen(archivo);
+      const res = await fetch(`/api/catalogo/productos/${productoId}/imagen`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ base64, mimeType: "image/jpeg" }),
+      });
+      if (!res.ok) {
+        // El servidor sabe POR QUÉ (el nombre ya lo usa otro recurso, el tipo
+        // de archivo): mostrarlo tal cual es lo único que le dice al negocio
+        // qué hacer. "No se pudo" a secas deja a alguien reintentando a ciegas.
+        const cuerpo = (await res.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        setError(cuerpo?.error?.message ?? "No se pudo subir la imagen.");
+        return;
+      }
+      await refetch();
+    } catch {
+      setError("No pudimos leer esa imagen. Prueba con otra.");
+    } finally {
+      setSubiendo(false);
+    }
+  }
+
+  async function eliminar() {
+    setError(null);
+    setAvisoAlQuitar(null);
+    const res = await fetch(`/api/catalogo/productos/${productoId}/imagen`, {
+      method: "DELETE",
+    }).catch(() => null);
+    if (!res?.ok) {
+      setError("No se pudo eliminar la imagen.");
+      return;
+    }
+    const data = (await res.json().catch(() => null)) as {
+      accion?: string;
+      referencias?: { tipo: string; nombre: string }[];
+    } | null;
+    if (data?.accion === "desvinculada") {
+      const usos = (data.referencias ?? [])
+        .map((r) => `${r.tipo === "campana" ? "la campaña" : "la plantilla"} «${r.nombre}»`)
+        .join(", ");
+      setAvisoAlQuitar(
+        `Se quitó del producto, pero la imagen sigue guardada en Recursos porque ${usos} la usa. ` +
+          "Si la borras ahí, eso dejará de funcionar."
+      );
+    }
+    await refetch();
+  }
+
+  // `undefined` = todavía cargando: no parpadea "sin imagen" antes de saber.
+  if (imagen === undefined) return null;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-3 rounded-md border p-2">
+        {imagen ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/media/${imagen.id}`}
+              alt="Imagen del producto"
+              className="h-14 w-14 rounded object-cover"
+            />
+            <span className="flex-1 text-[13px] text-muted-foreground">
+              El agente la manda solo si el cliente la pide.
+            </span>
+            <label
+              className={`rounded-md border px-2.5 py-1 text-[13px] ${
+                subiendo ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-accent"
+              }`}
+            >
+              {subiendo ? "Subiendo…" : "Reemplazar"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={subiendo}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void subir(f);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            <Button size="sm" variant="outline" onClick={() => void eliminar()}>
+              Eliminar
+            </Button>
+          </>
+        ) : (
+          <label
+            className={`inline-flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-[13px] ${
+              subiendo ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-accent"
+            }`}
+          >
+            {subiendo ? "Subiendo…" : "+ Imagen (el agente la manda solo si el cliente la pide)"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={subiendo}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void subir(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        )}
+      </div>
+      {error && <p className="text-[13px] text-[#a2504c]">{error}</p>}
+      {avisoAlQuitar && <p className="text-[13px] text-muted-foreground">{avisoAlQuitar}</p>}
+    </div>
   );
 }
 

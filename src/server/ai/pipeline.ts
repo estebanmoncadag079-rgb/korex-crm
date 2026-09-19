@@ -2259,9 +2259,28 @@ export async function runAgentTurn(
    * sentido pagarlo en los turnos donde sí hay tarifa verificada.
    */
   const sinTarifaVerificable = !domicilioEstructurado;
+  /**
+   * ⚠️ Sin tarifa verificable, `action.totalCents` **no cuenta como cifra
+   * legítima**, y esa exclusión es la mitad del guardarraíl.
+   *
+   * Ese campo lo rellena el MODELO. Con una tarifa verificada da igual
+   * —cualquier total que declare se contrasta contra una cifra que el backend
+   * calculó—, pero sin ella, aceptarlo dejaba la puerta abierta a lo único
+   * que esta fase quiere impedir: decir "el domicilio son $5.000" y poner
+   * `totalCents: 500000` en el mismo turno, validándose a sí mismo.
+   *
+   * Lo que queda son solo cifras que el modelo NO controla:
+   *   · `estadoGuardado.totalCents` — lo calculó el backend sobre el carrito.
+   *   · lo que escribió una persona del negocio — filas de `message` con
+   *     `ai_generated=false`, un hecho de la base.
+   *
+   * El riesgo de quedarse corto (marcar por inventada una cifra correcta) lo
+   * cubre la regla de fin de oración de `figurasDeDomicilioEnCents`: un total
+   * que vive en otra frase ya no se lee como tarifa de domicilio.
+   */
   const cifrasLegitimasConCotizacionHumana = sinTarifaVerificable
     ? [
-        ...cifrasLegitimasDelTurno,
+        estadoGuardado?.totalCents,
         ...history
           .filter((m) => m.direction === "out" && m.aiGenerated === false)
           .flatMap((m) => cifrasEnPesosDelTexto(m.text)),
@@ -2308,12 +2327,11 @@ export async function runAgentTurn(
           // `sumaItemsConDomicilio` no cambia entre intentos: son los mismos
           // ítems y la misma zona ya verificados antes del reintento. Las que
           // dijo una persona tampoco cambian dentro del turno.
-          [
-            reintento.data.totalCents,
-            estadoGuardado?.totalCents,
-            sumaItemsConDomicilio,
-            ...(sinTarifaVerificable ? cifrasLegitimasConCotizacionHumana : []),
-          ]
+          sinTarifaVerificable
+            ? // Mismo criterio que arriba: sin tarifa, el total que declara el
+              // modelo tampoco se acepta en el reintento.
+              cifrasLegitimasConCotizacionHumana
+            : [reintento.data.totalCents, estadoGuardado?.totalCents, sumaItemsConDomicilio]
         )
       )
     ) {

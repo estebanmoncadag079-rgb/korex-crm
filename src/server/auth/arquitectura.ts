@@ -122,6 +122,61 @@ export type DiagnosticoArquitectura = {
 };
 
 /**
+ * La parte PURA del diagnóstico: dada una configuración ya leída, dice si
+ * está alineada con la arquitectura aprobada de su vertical.
+ *
+ * Separada de la consulta (Fase 9, 19-sep-2026) para que el panel de agencia
+ * pueda clasificar a TODOS los clientes con el JOIN que ya hace `listClients`,
+ * sin una consulta por organización. La regla no se duplica: sigue viviendo
+ * en `REGLAS`, y tanto esta función como `validarConfiguracionArquitectonica`
+ * leen de ahí.
+ */
+export function diagnosticarConfiguracion(
+  actual: ConfiguracionArquitectonica
+): Omit<DiagnosticoArquitectura, "organizationId"> {
+  const vertical = verticalDe(actual.appointmentsEnabled);
+  const reglas = REGLAS[vertical];
+  const esperada = arquitecturaAprobadaPara(vertical);
+
+  const alineados: CampoArquitectura[] = [];
+  const faltantes: CampoArquitectura[] = [];
+  const advertencias: CampoArquitectura[] = [];
+  const incompatibles: CampoArquitectura[] = [];
+
+  for (const campo of Object.keys(reglas) as CampoArquitectura[]) {
+    const regla = reglas[campo];
+    const coincide = actual[campo] === regla.esperado;
+
+    if (!regla.aplica) {
+      if (!coincide) incompatibles.push(campo);
+      continue;
+    }
+
+    if (coincide) alineados.push(campo);
+    else if (regla.severidad === "core") faltantes.push(campo);
+    else advertencias.push(campo);
+  }
+
+  const estado: EstadoArquitectura =
+    faltantes.length > 0 || incompatibles.length > 0
+      ? "INCONSISTENTE"
+      : advertencias.length > 0
+        ? "ADVERTENCIA"
+        : "ALINEADO";
+
+  return {
+    vertical,
+    configuracionActual: actual,
+    configuracionEsperada: esperada,
+    alineados,
+    faltantes,
+    advertencias,
+    incompatibles,
+    estado,
+  };
+}
+
+/**
  * Diagnóstico de SOLO LECTURA: compara la fila real de `agent_profile` contra
  * la matriz aprobada para su vertical. Nunca escribe, nunca "arregla" nada —
  * es el mismo principio que ya usa el resto del proyecto para separar
@@ -157,47 +212,5 @@ export async function validarConfiguracionArquitectonica(
     consultasVerificadasEnabled: fila.consultasVerificadasEnabled,
   };
 
-  const vertical = verticalDe(actual.appointmentsEnabled);
-  const reglas = REGLAS[vertical];
-  const esperada = arquitecturaAprobadaPara(vertical);
-
-  const alineados: CampoArquitectura[] = [];
-  const faltantes: CampoArquitectura[] = [];
-  const advertencias: CampoArquitectura[] = [];
-  const incompatibles: CampoArquitectura[] = [];
-
-  for (const campo of Object.keys(reglas) as CampoArquitectura[]) {
-    const regla = reglas[campo];
-    const coincide = actual[campo] === regla.esperado;
-
-    if (!regla.aplica) {
-      // No es un mecanismo de este vertical: solo es noticia si alguien lo
-      // encendió de todos modos (dato suelto de otro vertical).
-      if (!coincide) incompatibles.push(campo);
-      continue;
-    }
-
-    if (coincide) alineados.push(campo);
-    else if (regla.severidad === "core") faltantes.push(campo);
-    else advertencias.push(campo);
-  }
-
-  const estado: EstadoArquitectura =
-    faltantes.length > 0 || incompatibles.length > 0
-      ? "INCONSISTENTE"
-      : advertencias.length > 0
-        ? "ADVERTENCIA"
-        : "ALINEADO";
-
-  return {
-    organizationId,
-    vertical,
-    configuracionActual: actual,
-    configuracionEsperada: esperada,
-    alineados,
-    faltantes,
-    advertencias,
-    incompatibles,
-    estado,
-  };
+  return { organizationId, ...diagnosticarConfiguracion(actual) };
 }

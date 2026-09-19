@@ -111,6 +111,17 @@ detecta exactamente lo que debía:
 No escribe nada: corregir es una decisión humana con su propio comando, igual
 que `fase2`/`migrar:catalogo` sin `--aplicar`.
 
+**Y un comando no basta.** El problema que se estaba arreglando era
+precisamente que nadie ejecuta lo que hay que acordarse de ejecutar. Así que
+el diagnóstico va también donde el superadmin ya mira: el panel `/admin`
+muestra una etiqueta "Arquitectura incompleta" en el cliente afectado, con los
+mecanismos ausentes en el tooltip.
+
+Para eso se extrajo la parte pura del validador (`diagnosticarConfiguracion`),
+de modo que el panel clasifique a todos los clientes con el JOIN que
+`listClients` ya hacía — sin una consulta por cliente. La regla sigue en un
+solo sitio: la matriz `REGLAS` de `server/auth/arquitectura.ts`.
+
 ## Lo que NO se tocó
 
 Las 3 compuertas, la atomicidad, Policy, la normalización del catálogo, los
@@ -120,6 +131,101 @@ guardarraíl de domicilio.
 
 Ningún cambio conoce a La Churra ni a Lis por su nombre: la condición es
 `delivery_source`, una capacidad del negocio.
+
+## El agujero que quedaba: la cifra que se avalaba sola
+
+La primera versión aceptaba `action.totalCents` como cifra legítima también
+sin tarifa verificable. Ese campo **lo rellena el modelo**: bastaba decir "el
+domicilio son $5.000" y declarar `totalCents: 500000` en el mismo turno para
+que la invención se validara a sí misma.
+
+Con tarifa verificada no importa —hay una cifra del backend contra la que
+contrastar—, pero sin ella sí. Ahora, sin tarifa, solo cuentan cifras que el
+modelo **no controla**:
+
+- `estadoGuardado.totalCents`, que calculó el backend sobre el carrito;
+- lo que escribió una persona del negocio (filas de `message` con
+  `ai_generated=false`).
+
+El riesgo de quedarse corto lo cubre la regla de fin de oración: un total que
+vive en otra frase ya no se lee como tarifa de domicilio. Hay una prueba
+dedicada (`NO puede validarse a si mismo poniendo la cifra inventada en
+totalCents`).
+
+## Fase 7 · El domicilio pendiente ya se sabía representar
+
+Antes de diseñar nada se revisó si existía una estructura reutilizable, como
+pedía el plan. **Existe**, en `orders/estado.ts:141-146`:
+
+```
+tipo: "domicilio" | "recogida";
+feeCents: number | null;   // null = pendiente de verificar
+```
+
+Y distingue explícitamente `null` (pendiente) de `0` (una zona que de verdad
+es gratis). El CASO C del plan —una persona del negocio cotiza por fuera—
+también tiene mecanismo: `totalesDichosPorUnaPersona`, comprobado contra filas
+de `message`, no contra lo que diga el modelo.
+
+No se creó ninguna estructura nueva.
+
+## Fase 4 · No hay catálogo duplicado que eliminar
+
+Verificado contra producción, no supuesto:
+
+- Ni La Churra ni Lis mencionan precios en `agent_profile.instructions`
+  (comprobado con una expresión regular de precios sobre el texto real).
+- El `flujo.menu` de Lis (210 caracteres) es la configuración del **menú
+  interactivo de WhatsApp** ("Ver menú y precios", "Hacer un pedido"…), es
+  decir UX, no datos de productos.
+
+No se borró nada porque no había nada duplicado. Los 14.016 y 17.020
+caracteres de `instructions` son comportamiento (tono, reglas, escalado), que
+el plan prohíbe tocar.
+
+## MALIA · Fuera de alcance, y por qué
+
+El auditor la marca 🔴 por `state_source='prompt'`. **No se migró.** No es una
+regresión: `ARCHITECTURE-REGRESSION-AUDIT.md` (16-sep) la documenta junto a
+Lis como **contención temporal** del rollout — ambas nacen en `backend` y se
+bajaron a mano con `fase2 --apagar`. El plan aprobado tiene alcance explícito
+sobre La Churra y Lis; ampliarlo a MALIA sería una decisión de negocio que
+nadie ha tomado.
+
+Queda una consecuencia que conviene mirar: cuando Lis se migre, MALIA seguirá
+dando `FAIL` en `auditar:arquitectura` por una decisión deliberada. Un
+validador que grita por algo que alguien decidió a propósito acaba
+ignorándose. Hoy **no hay forma de distinguirlo en los datos**: el registro de
+cambios (`conRegistro`) escribe a `console.log`, no a una tabla, así que no
+queda rastro consultable de que alguien bajó la bandera a propósito.
+
+Mitigación disponible sin tocar el esquema: el comando acepta la lista de
+contenciones por parámetro, nunca escrita en el código. La solución completa
+—registrar el motivo y la fecha de una contención— es una decisión
+arquitectónica que se reporta, no se improvisa.
+
+## Fase 10 · Versionado de `state_source` — DETENIDO Y REPORTADO
+
+El problema es real: `state_source='backend'` no tiene versión semántica. Si
+se despliega un commit anterior donde esa bandera significaba otra cosa (por
+ejemplo, sin las tres compuertas), la columna sigue diciendo `backend` y el
+comportamiento cambia **en silencio**.
+
+No se implementó, y es deliberado. Cualquier solución real exige:
+
+1. **Persistir una versión** de arquitectura por organización (columna o tabla
+   nueva) — cambio de esquema, justo lo que el plan pide no hacer en grande.
+2. **Decidir qué pasa cuando no coincide**: ¿se apaga el mecanismo?, ¿se
+   bloquea el turno?, ¿solo se avisa? Eso no es una elección técnica: define
+   qué le ocurre a un cliente real en mitad de un rollback.
+
+El punto 2 es una decisión de arquitectura y de negocio que el plan no define,
+así que aplica su REGLA DE DETENCIÓN.
+
+Lo que sí existe hoy y cubre parte del riesgo: `/api/health` reporta el commit
+desplegado, y `migrate.mjs` verifica que el esquema tenga cada columna que el
+código espera. Ninguno de los dos liga `state_source` a una versión de
+arquitectura.
 
 ## Pendiente de autorización (cambios de configuración en producción)
 

@@ -202,6 +202,36 @@ describe("negocio sin tabla de zonas: el modelo no puede inventar una tarifa", (
     expect(textoSaliente()).toContain("7.000");
   });
 
+  it("NO puede validarse a si mismo poniendo la cifra inventada en totalCents", async () => {
+    // El agujero que quedaba tras la primera version de la Fase 8: el modelo
+    // dice "$5.000 de domicilio" Y declara totalCents=500000. Si el total que
+    // el propio modelo rellena contara como cifra legitima, la invencion se
+    // avalaria sola. Sin tarifa verificable solo valen las cifras que el
+    // modelo NO controla: las del backend y las de una persona.
+    queueTurno(PREGUNTA);
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        raw: "{}",
+        data: {
+          action: "reply",
+          text: "El domicilio son $5.000",
+          totalCents: 500000,
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        raw: "{}",
+        data: { action: "reply", text: "El domicilio se cotiza aparte y te confirmamos." },
+      });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(chatJson).toHaveBeenCalledTimes(2);
+    expect(textoSaliente()).not.toContain("5.000");
+  });
+
   it("si insiste en inventar tras el reintento, lo toma una persona", async () => {
     queueTurno(PREGUNTA);
     chatJson

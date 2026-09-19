@@ -40,6 +40,9 @@ type Client = {
   ownAccount: boolean;
   connectionStatus: "connected" | "reconnect_required" | null;
   appointmentsEnabled: boolean;
+  /** Fase 9 — ver `diagnosticoDe` en `server/admin/clients.ts`. */
+  arquitectura: "ALINEADO" | "ADVERTENCIA" | "INCONSISTENTE" | null;
+  arquitecturaFaltantes: string[];
 };
 
 type Account = {
@@ -399,6 +402,27 @@ function ClientCard({
                 <Badge variant="outline" className="gap-1">
                   <CalendarClock className="h-3 w-3" strokeWidth={1.7} />
                   Citas
+                </Badge>
+              )}
+              {/*
+                Fase 9 — el diagnóstico arquitectónico, donde alguien lo va a
+                ver. Antes vivía en una función que solo llamaban los tests: un
+                cliente podía quedarse con un mecanismo apagado durante semanas
+                sin que nada lo dijera (le pasó a Malía en agosto). Solo se
+                muestra cuando hay algo que mirar.
+              */}
+              {client.arquitectura === "INCONSISTENTE" && (
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-[#ecd4d2] bg-[#faf1f0] text-[#a2504c]"
+                  title={`Mecanismo(s) ausente(s): ${client.arquitecturaFaltantes.join(", ")}`}
+                >
+                  Arquitectura incompleta
+                </Badge>
+              )}
+              {client.arquitectura === null && (
+                <Badge variant="outline" className="gap-1" title="Este cliente no tiene agent_profile todavía">
+                  Sin configurar
                 </Badge>
               )}
             </p>

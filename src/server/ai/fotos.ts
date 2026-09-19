@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { getEnv } from "@/lib/env";
+import { buscarProductos } from "@/server/catalog/buscar";
+import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 
 /**
  * Las fotos que el agente puede mandar, y cómo elegir la que le piden.
@@ -31,10 +33,18 @@ export type FotoDisponible = {
   url: string | null;
 };
 
+/**
+ * Fase 4 (imágenes de productos del catálogo) — con la relación real del
+ * 0043_imagen_del_producto, un recurso vinculado a un producto trae su id.
+ * `null` = recurso sin producto (`carta`/`otro`), o un `producto` todavía
+ * sin vincular — en los dos casos, `resolverFoto` cae a `etiqueta`.
+ */
+export type FotoConProducto = FotoDisponible & { productId: string | null };
+
 /** Lo que el negocio tiene cargado, para listárselo al agente en su prompt. */
 export async function fotosDeLaOrganizacion(
   organizationId: string
-): Promise<FotoDisponible[]> {
+): Promise<FotoConProducto[]> {
   const db = getDb();
   return db
     .select({
@@ -44,6 +54,7 @@ export async function fotosDeLaOrganizacion(
       mimeType: schema.mediaAsset.mimeType,
       entrega: schema.mediaAsset.entrega,
       url: schema.mediaAsset.url,
+      productId: schema.mediaAsset.productId,
     })
     .from(schema.mediaAsset)
     .where(eq(schema.mediaAsset.organizationId, organizationId));
@@ -117,16 +128,80 @@ export function elegirFoto<T extends { etiqueta: string }>(
 }
 
 /**
+ * Fase 4 (imágenes de productos del catálogo) — la resolución real, en dos
+ * prioridades:
+ *
+ * 1. **`product_id`**: si `etiqueta` resuelve a UN producto real e
+ *    inequívoco del catálogo (mismo buscador que ya usa
+ *    `consultar_producto`, `buscarProductos`), y ese producto tiene una
+ *    imagen vinculada, es esa — sin importar si el texto de su `etiqueta`
+ *    coincide. Ambiguo (`multiple_matches`) o `not_found` nunca intenta
+ *    adivinar por producto: cae directo a la 2.
+ * 2. **`etiqueta`** (`elegirFoto`): el comportamiento histórico, para
+ *    recursos sin producto (`carta`/`otro`) o un `producto` todavía sin
+ *    vincular.
+ *
+ *    Con UNA restricción, y solo cuando la 1 ya identificó el producto de
+ *    forma inequívoca y ese producto resultó no tener imagen: entonces el
+ *    respaldo se limita a recursos `kind === "producto"`. Si el agente
+ *    pregunta por un artículo REAL del catálogo, lo único que puede
+ *    contestarle legítimamente es la foto de un producto — la carta del
+ *    negocio o una foto del local nunca son "la foto de ese artículo".
+ *
+ *    Esto es lo que impide que una imagen recién quitada de un producto
+ *    reaparezca por la puerta de atrás: al desvincularla se la demota a
+ *    `otro` (`desvincularMediaAssetDeProducto`), y renombrarla no bastaba —
+ *    la tercera pasada de `elegirFoto` es "una contiene a la otra", así que
+ *    «Amor y Amistad (sin producto · med_x)» seguiría encajando con «Amor y
+ *    Amistad».
+ *
+ *    No hay regresión: las fotos que sube el onboarding y las del catálogo
+ *    son siempre `kind: "producto"`. Y cuando `buscarProductos` NO identifica
+ *    nada (`not_found`, `multiple_matches`) o no hay catálogo, el respaldo
+ *    sigue siendo el histórico completo, sin filtrar — "muéstrame la carta"
+ *    y "una foto del local" funcionan igual que siempre.
+ *
+ * Pura a propósito, mismo criterio que `elegirFoto`: se prueba con fixtures
+ * en memoria, sin mocks de Postgres. `catalogo` ausente o vacío (negocio en
+ * `catalog_source='prompt'`, o vertical de citas) se comporta EXACTAMENTE
+ * como antes de esta fase.
+ */
+export function resolverFoto(
+  fotos: FotoConProducto[],
+  etiqueta: string,
+  catalogo?: ProductoDelCatalogo[]
+): FotoConProducto | null {
+  if (catalogo && catalogo.length > 0) {
+    const resultado = buscarProductos(catalogo, etiqueta);
+    if (resultado.status === "found") {
+      const porProducto = fotos.find((f) => f.productId === resultado.producto.id);
+      if (porProducto) return porProducto;
+      return elegirFoto(
+        fotos.filter((f) => f.kind === "producto"),
+        etiqueta
+      );
+    }
+  }
+  return elegirFoto(fotos, etiqueta);
+}
+
+/**
  * El archivo por id, para servirlo o enviarlo. Incluye `mimeType`: es lo que
  * decide si se manda como imagen o como documento — quien pide "el catálogo"
  * no dice de qué tipo es, y el archivo mismo ya lo sabe.
+ *
+ * `catalogo`, si se pasa, habilita la Prioridad 1 de `resolverFoto` — el
+ * único llamador de hoy (`pipeline.ts`, `case "send_image"`) ya tiene
+ * `productosDelPedido` cargado en memoria para este turno, así que esto no
+ * agrega ninguna consulta nueva a la base.
  */
 export async function fotoPorEtiqueta(
   organizationId: string,
-  etiqueta: string
-): Promise<FotoDisponible | null> {
+  etiqueta: string,
+  catalogo?: ProductoDelCatalogo[]
+): Promise<FotoConProducto | null> {
   const fotos = await fotosDeLaOrganizacion(organizationId);
-  return elegirFoto(fotos, etiqueta);
+  return resolverFoto(fotos, etiqueta, catalogo);
 }
 
 /**

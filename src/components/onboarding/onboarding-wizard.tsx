@@ -16,6 +16,7 @@ import { ExpandableInput } from "@/components/ui/expandable-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { comprimirImagen } from "@/lib/comprimir-imagen";
 
 /**
  * La configuración inicial, contestada por el propio dueño del negocio.
@@ -276,28 +277,6 @@ function FotosDeProductos() {
     void recargar();
   }, [recargar]);
 
-  /** Reduce la foto a 1280 px de lado mayor y la pasa a JPEG. */
-  async function comprimir(archivo: File): Promise<string> {
-    const url = URL.createObjectURL(archivo);
-    try {
-      const img = await new Promise<HTMLImageElement>((ok, fail) => {
-        const i = new Image();
-        i.onload = () => ok(i);
-        i.onerror = () => fail(new Error("imagen ilegible"));
-        i.src = url;
-      });
-      const max = 1280;
-      const escala = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.width * escala);
-      c.height = Math.round(img.height * escala);
-      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
-      return c.toDataURL("image/jpeg", 0.82).split(",")[1] ?? "";
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
   async function subir(archivo: File) {
     if (!etiqueta.trim()) {
       setError("Primero escribe de qué es la foto.");
@@ -306,7 +285,7 @@ function FotosDeProductos() {
     setError(null);
     setSubiendo(true);
     try {
-      const base64 = await comprimir(archivo);
+      const base64 = await comprimirImagen(archivo);
       const res = await fetch("/api/media", {
         method: "POST",
         headers: { "content-type": "application/json" },

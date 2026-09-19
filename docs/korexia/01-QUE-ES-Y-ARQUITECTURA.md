@@ -33,7 +33,7 @@ como remoto `upstream`.
 - **PostgreSQL 16** con **Drizzle ORM**
 - **Better Auth** para cuentas, sesiones y organizaciones
 - **Docker** (imagen multi-etapa, salida *standalone*)
-- IA vía **OpenRouter** (hoy `google/gemini-2.5-flash`)
+- IA vía **OpenRouter** (verificado en el contenedor real el 16-sep-2026: `google/gemini-3.7-flash` — ver `specs/003-backend-como-autoridad/handoff-cambio-modelo.md`)
 - WhatsApp vía **YCloud** → Meta Cloud API
 
 Gestor de paquetes: `corepack pnpm`. Comandos útiles:
@@ -119,6 +119,38 @@ YCloud → Meta → llega al cliente
 
 Cada paso está detallado en [03-WHATSAPP-Y-YCLOUD.md](03-WHATSAPP-Y-YCLOUD.md)
 y [04-AGENTE-IA.md](04-AGENTE-IA.md).
+
+## Desde Feature 003 (16-sep-2026): la autoridad sobre pedidos y citas
+
+El diagrama de arriba sigue siendo correcto, pero incompleto para los
+negocios con `state_source=backend` (hoy: La Churra). El paso "OpenRouter →
+el modelo devuelve UNA acción en JSON" esconde, para esos negocios, una capa
+completa que decide quién manda sobre el estado del pedido o la cita:
+
+```
+... (igual que arriba, hasta "se arma el prompt") ...
+        ↓
+OpenRouter → el modelo devuelve UNA acción JSON + (si aplica) una lista
+             de Operacion[] — nunca el pedido/reserva completos
+        ↓
+El backend valida cada operación contra 3 compuertas, resuelve todo nombre
+contra catálogo/agenda reales, calcula precios y totales, y persiste el
+estado de forma atómica (todo el lote o nada)
+        ↓
+Se ejecuta la acción: responder con lo que el backend ya decidió,
+mover el lead, avisar del pedido o pasar a un humano
+        ↓
+YCloud → Meta → llega al cliente
+```
+
+El modelo **nunca** decide un precio, un total, una disponibilidad ni si un
+pedido puede cerrarse — eso es autoridad exclusiva del backend. Ver
+**[REGLAS-DE-ARQUITECTURA.md](../../REGLAS-DE-ARQUITECTURA.md)**, sección
+"Arquitectura oficial de Korex", y
+`specs/003-backend-como-autoridad/data-model.md` para el detalle técnico
+completo. Esta es la **arquitectura oficial vigente** — no una alternativa a
+lo descrito arriba, sino lo que ya corre en producción para los negocios
+migrados.
 
 ## Dónde vive cada cosa en el código
 

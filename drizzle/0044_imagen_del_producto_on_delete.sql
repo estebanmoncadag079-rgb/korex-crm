@@ -1,0 +1,87 @@
+-- Corrección de la 0043 (auditoría independiente, 19-sep-2026).
+--
+-- ── El defecto ────────────────────────────────────────────────────────────
+-- La 0043 dejó la FK compuesta así:
+--
+--   FOREIGN KEY ("organization_id","product_id")
+--     REFERENCES "product"("organization_id","id")
+--     ON DELETE set null
+--
+-- En PostgreSQL, `ON DELETE SET NULL` SIN lista de columnas afecta a TODAS
+-- las columnas de la FK. Al borrarse un `product`, el motor intentaría:
+--
+--   media_asset.organization_id -> NULL   ← y esa columna es NOT NULL
+--   media_asset.product_id      -> NULL
+--
+-- Resultado: la operación que dispara el borrado falla entera. No corrompe
+-- datos ni cruza organizaciones (falla cerrando, no abriendo), pero BLOQUEA
+-- una operación legítima.
+--
+-- Y el camino es alcanzable hoy: `DELETE /api/admin/clients/[id]`
+-- (`src/app/api/admin/clients/[id]/route.ts:167`) borra la organización, y
+-- `product.organization_id` tiene ON DELETE CASCADE hacia `organization` —
+-- así que borrar un cliente cascadea el borrado de sus productos, y ahí se
+-- dispara este conflicto si alguno tenía imagen vinculada.
+--
+-- ── La corrección ─────────────────────────────────────────────────────────
+-- PostgreSQL 15+ permite limitar la acción a un subconjunto de columnas:
+-- `ON DELETE SET NULL (product_id)`. Este proyecto declara PostgreSQL 16
+-- (`docker-compose.yml:29`, `docker-compose.dev.yml:7`,
+-- `docs/korexia/01-QUE-ES-Y-ARQUITECTURA.md:33`), así que la sintaxis está
+-- disponible.
+--
+-- Verificada contra la documentación oficial de PostgreSQL 16 (no de memoria):
+--
+--   · sql-altertable.html — la gramática de la acción referencial:
+--       { NO ACTION | RESTRICT | CASCADE
+--         | SET NULL [ ( column_name [, ... ] ) ]
+--         | SET DEFAULT [ ( column_name [, ... ] ) ] }
+--
+--   · ddl-constraints.html — el ejemplo canónico es EXACTAMENTE este caso,
+--     una FK compuesta multi-tenant donde la columna del tenant no puede
+--     quedar nula:
+--       FOREIGN KEY (tenant_id, author_id) REFERENCES users
+--         ON DELETE SET NULL (author_id)
+--     con la nota: *"useful when certain columns are part of a primary key
+--     and must remain populated"*.
+--
+-- ⚠️ NO VERIFICADO: la versión de PostgreSQL que corre HOY en el VPS de
+-- producción. Los ficheros de arriba declaran 16, pero korex.ia no despliega
+-- con docker compose (ver CLAUDE.md, «Producción real»), así que eso es una
+-- declaración del repo, no una comprobación del servidor. Antes de aplicar
+-- esta migración en producción hay que confirmarlo con `SELECT version();`
+-- — en PostgreSQL 14 o anterior este statement falla con error de sintaxis
+-- (falla limpio, sin dejar la tabla a medias: el ALTER es transaccional).
+--
+-- Con la corrección aplicada:
+--
+--   organization_id -> INTACTO (sigue NOT NULL, sigue aislando)
+--   product_id      -> NULL    (la imagen queda desvinculada, no destruida)
+--
+-- que es exactamente la semántica que la 0043 pretendía y no expresó.
+--
+-- ⚠️ `schema.ts` NO puede expresar la lista de columnas: el `.onDelete("set
+-- null")` de Drizzle solo genera la forma sin lista. La autoridad sobre esta
+-- semántica es ESTA migración, y así queda anotado en el comentario de
+-- `mediaAsset.productId` en `schema.ts`.
+--
+-- ── Alternativas descartadas ──────────────────────────────────────────────
+-- · FK de una sola columna (`product_id` -> `product.id`): resolvía el
+--   SET NULL, pero PERDÍA la garantía de aislamiento a nivel de base (una
+--   imagen de la organización A podría apuntar a un producto de la B).
+--   Se descartó: el aislamiento estructural es el motivo por el que la FK
+--   es compuesta.
+-- · `ON DELETE CASCADE`: destruiría el `media_asset` al borrar el producto,
+--   justo lo contrario de lo que pide la auditoría (el recurso puede estar
+--   compartido con una campaña).
+-- · `ON DELETE NO ACTION`: bloquearía el borrado de la organización en vez
+--   de desvincular. Peor que el defecto que corrige.
+--
+-- No se ejecutó contra ninguna base real (sin TEST_DATABASE_URL en este
+-- entorno): verificada de forma estática, statement por statement, contra
+-- `schema.ts` y la 0043.
+--
+-- No toca ninguna otra tabla, ninguna otra restricción, ningún dato.
+
+ALTER TABLE "media_asset" DROP CONSTRAINT "media_asset_product_fk";--> statement-breakpoint
+ALTER TABLE "media_asset" ADD CONSTRAINT "media_asset_product_fk" FOREIGN KEY ("organization_id","product_id") REFERENCES "public"."product"("organization_id","id") ON DELETE SET NULL ("product_id") ON UPDATE no action;

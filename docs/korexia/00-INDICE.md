@@ -24,7 +24,38 @@ producción, qué se cambió y qué quedó pendiente.
 > negocio va en el CRM, nunca en código. **Toda solicitud se clasifica antes de
 > implementarse** en una de cuatro categorías (config. de un cliente ·
 > capacidad de un vertical · capacidad global del CRM · cambio arquitectónico).
-> Léelo antes de tocar nada.
+> Léelo antes de tocar nada. **Desde el 16-sep-2026 también contiene la
+> sección "Arquitectura oficial de Korex"** — la fuente canónica sobre quién
+> decide qué (backend vs. LLM), con su Architecture Checkpoint obligatorio.
+
+---
+
+## 🏛️ ARQUITECTURA VIGENTE
+
+**La arquitectura oficial de Korex es "Backend como autoridad".** Antes de
+leer cualquier documento numerado de esta carpeta para entender cómo decide
+o responde el agente, empieza aquí:
+
+1. **[REGLAS-DE-ARQUITECTURA.md](../../REGLAS-DE-ARQUITECTURA.md)** (raíz del repo) — Principio 7 + sección "Arquitectura oficial de Korex": la fuente canónica, gana ante cualquier otro documento.
+2. **[`specs/003-backend-como-autoridad/`](../../specs/003-backend-como-autoridad/)** — la implementación técnica de esa arquitectura: `spec.md`, `data-model.md`, `tasks.md`, `t029-medicion-operacional.md` (medición real post-deploy) y `handoff-cambio-modelo.md` (estado verificado de producción, incluido el modelo real configurado).
+3. **[ARCHITECTURE-REGRESSION-AUDIT.md](ARCHITECTURE-REGRESSION-AUDIT.md)** — el mapa completo de qué es vigente, qué es histórico, y por qué no pueden confundirse.
+
+`01-QUE-ES-Y-ARQUITECTURA.md` y `04-AGENTE-IA.md` (abajo) siguen siendo
+correctos en lo que describen, pero **no mencionaban Feature 003** hasta que
+se les agregó una sección propia — sección "Desde Feature 003" en cada uno.
+
+## 🗄️ HISTÓRICO — NO USAR PARA IMPLEMENTACIÓN
+
+Estos documentos describen diseños **anteriores** a la arquitectura oficial
+actual. Se conservan por trazabilidad — explican cómo funcionaba Korex antes
+— pero **ninguno es una alternativa vigente**: no implementar ni restaurar
+lo que describen.
+
+- [111-LIS-EN-LA-ARQUITECTURA-NUEVA.md](111-LIS-EN-LA-ARQUITECTURA-NUEVA.md) — la migración de Fase 2 de agosto-2026 (catálogo en tablas + estado backend con reescritura completa del pedido). Es la arquitectura que Feature 003 reemplazó, no la actual.
+- [121-PENDIENTES-20AGO.md](121-PENDIENTES-20AGO.md) — "empieza por aquí" para el estado **operativo** día a día (qué falta, qué se rompió), NO para arquitectura: es del 20-ago-2026, un mes antes de Feature 003.
+- El resto de la bitácora cronológica de abajo (docs 62-120 en general) documenta el camino hacia la Fase 2 pre-Feature-003 — válida como historia, no como referencia para implementar algo nuevo hoy.
+
+---
 
 ## Cómo está organizado
 
@@ -119,6 +150,8 @@ producción, qué se cambió y qué quedó pendiente.
 | [70-PENDIENTES-16AGO.md](70-PENDIENTES-16AGO.md) | ⚪ *Superado por [121](121-PENDIENTES-20AGO.md).* Lo pendiente **al 16-ago**: las tres decisiones que entonces bloqueaban la Fase 2 — hoy encendida en toda la flota |
 
 | [98-BITACORA-CATALOGO-EN-PDF.md](98-BITACORA-CATALOGO-EN-PDF.md) | **El agente ya puede enviar catálogos en PDF, no solo fotos**: `send_image` decide imagen o documento por el `mimeType` real, sin que el modelo sepa la diferencia. `ycloudSendDocument`/`sendDocument` nuevos, `pnpm subir:media` como puente hasta que exista una pantalla de fotos post-onboarding. El catálogo de Lashes Valen (36 MB) se comprimió a 1,5 MB antes de subirlo — la base entera pesa ~16 MB |
+
+| [178-LA-FOTO-QUE-NO-ERA-SOLO-DEL-PRODUCTO.md](178-LA-FOTO-QUE-NO-ERA-SOLO-DEL-PRODUCTO.md) | 🔑 **Cada producto del catálogo puede tener su imagen, con relación real (`media_asset.product_id`) en vez de coincidencia de texto.** Y los tres defectos que encontró la auditoría independiente, todos del mismo tipo — código que se leía bien y en PostgreSQL real hacía otra cosa: (1) `ON DELETE SET NULL` sin lista de columnas anula TAMBIÉN `organization_id`, que es NOT NULL, y habría reventado el borrado de un cliente desde `/admin` (corregido en la migración 0044, sintaxis verificada contra la documentación oficial de PostgreSQL 16); (2) "Eliminar la imagen" destruía físicamente un `media_asset` que una plantilla aprobada podía estar usando como header — JSONB sin FK, nadie lo protegía— y el archivo no se puede recuperar; ahora se desvincula y se conserva; (3) subir la imagen de un producto podía apropiarse de la carta del negocio si se llamaban igual, o **robarle la imagen a otro producto homónimo** — `product` no tiene índice único sobre el nombre. **Validado contra PostgreSQL 16.14 real** (contenedor desechable en el VPS, aparte del de producción): 17 pruebas de integración en verde y la restricción confirmada en el catálogo del sistema como `ON DELETE SET NULL (product_id)`. Producción corre 16.14 — comprobado leyendo el binario del contenedor, sin conectar a la base. Hallazgo aparte, preexistente: los comprobantes de pago que mandan los clientes **no se ven en la bandeja** (`/api/media/<id de mensaje>` da 404 siempre) |
 
 | [167-GARANTIA-DE-ESQUEMA-POST-MIGRACION.md](167-GARANTIA-DE-ESQUEMA-POST-MIGRACION.md) | 🔑 **Cierra el hueco real del 166**: `migrate.mjs` ya no confía en "no lanzó una excepción" como evidencia de que el esquema está listo — tras cada `migrate()`, verifica que Postgres tenga cada tabla/columna que `schema.ts` declara (introspección de Drizzle, sin lista a mano). Si falta algo, sale con error antes de que `server.js` arranque, y la política de Swarm ya construida (Fase 3, `start-first` + `pause`) deja el contenedor viejo sirviendo. Probado con Postgres real: reproducido el incidente exacto con los timestamps originales rotos (ahora falla, `exit 1`, como debía) y con los corregidos (aplica y pasa, `exit 0`) — mismo `migrate.mjs`, misma base, sin tocar producción |
 | [166-MIGRACIONES-SALTADAS-POR-TIMESTAMP-INVERTIDO.md](166-MIGRACIONES-SALTADAS-POR-TIMESTAMP-INVERTIDO.md) | 🔴 **Incidente real: el primer deploy del "Programa de mejora integral" tumbó la cola de mensajes** — `migrate.mjs` reportó éxito pero `agent_job.generation`/`conversation_state.version`/`appointment_booking_confirmation` nunca se crearon. Causa raíz verificada leyendo el código real de Drizzle empaquetado en la imagen: el migrador solo compara contra la ÚLTIMA fila de `__drizzle_migrations`, y la migración `0041` (ya aplicada antes) tenía un `"when"` mayor que `0038-0040` (escritos a mano, no con `drizzle-kit generate`) — las tres se saltaron en silencio. Rollback inmediato a `007002b`, confirmado. Corrección (3 timestamps) probada en una base Postgres real aislada con el mismo Drizzle: 0041 no se repite, las tres migraciones nuevas se aplican y el esquema queda correcto |

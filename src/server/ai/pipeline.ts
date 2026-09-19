@@ -3487,7 +3487,14 @@ export async function runAgentTurn(
       // esquema): se acepta cualquiera de los dos y, si no viene ninguno, se
       // trata como una foto que no existe — es decir, se responde con texto.
       const pedida = action.etiqueta ?? action.label ?? "";
-      const foto = pedida ? await fotoPorEtiqueta(organizationId, pedida) : null;
+      // Fase 4 (imágenes de productos del catálogo) — `productosDelPedido`
+      // ya está en memoria desde el principio del turno (mismo criterio que
+      // el resto del pipeline: nunca repetir una consulta que ya se hizo).
+      // Vacío para citas o `catalog_source='prompt'`: `resolverFoto` se
+      // comporta ahí exactamente como antes de esta fase.
+      const foto = pedida
+        ? await fotoPorEtiqueta(organizationId, pedida, productosDelPedido)
+        : null;
 
       /*
        * Cómo se entrega lo decide el RECURSO, no el modelo ni el código: el
@@ -4791,15 +4798,41 @@ async function guardarEstadoPropuesto(entrada: {
 
   try {
     const estadoBase = entrada.estadoGuardado ?? estadoVacio();
+    /*
+     * Mismo saneo que ya recibe `accion` más abajo (`sinNulos`): el modo
+     * estricto del proveedor obliga a `esquemaDeOperaciones` a declarar
+     * CUALQUIER campo como `["tipo", "null"]`, con `null` significando "no
+     * aplica a esta operación" — pero el Zod real de varias operaciones
+     * (`cambiar_cantidad`/`quitar_item`/`elegir_opcion`/`declinar_grupo` en
+     * pedidos, `fijar_horario` en citas) declara ese mismo campo
+     * `.optional()`, que acepta AUSENTE, no `null`. Sin este saneo por
+     * elemento, un modelo que sigue al pie de la letra la convención del
+     * propio esquema hacía fallar la Compuerta 1 del LOTE ENTERO —
+     * encontrado en T028, en vivo contra La Churra en producción.
+     */
+    const operacionesSaneadas = entrada.operaciones.map((op) =>
+      op && typeof op === "object" && !Array.isArray(op) ? sinNulos(op as Record<string, unknown>) : op
+    );
 
     if (contrataCitas(entrada.vertical)) {
-      const parse = OperacionCitas.array().safeParse(entrada.operaciones);
+      const parse = OperacionCitas.array().safeParse(operacionesSaneadas);
       if (!parse.success) {
         // Compuerta 1: alguna operación no existe o no aplica a este
         // vertical — Zod la rechaza antes de que `aplicarOperacion` la vea.
         const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
         metrica("error", `operaciones no cumplen el esquema de citas: ${detalle}`);
-        return null;
+        // T030-A (auditoría 16-sep-2026): antes devolvía `null` sin señal, y
+        // el cliente recibía el texto que el modelo ya había escrito dando
+        // por hecho un cambio que el backend nunca guardó — ver el mismo
+        // caso para pedidos, más abajo.
+        return {
+          rechazo: {
+            motivos: [`la propuesta de cambios no tiene un formato válido: ${detalle}`],
+            preguntas: [
+              "Vuelve a proponer SOLO operaciones del tipo permitido para citas, con los campos exactos de cada una. No repitas la operación inválida ni des por hecho ningún cambio.",
+            ],
+          },
+        };
       }
       const staff = await listStaff(entrada.organizationId);
       const contexto: ContextoOperacionesCitas = {
@@ -4824,18 +4857,40 @@ async function guardarEstadoPropuesto(entrada: {
         versionEsperada: entrada.versionEsperada,
       });
       if (!resultado.ok) {
+        // T030-A: perdimos la carrera de escritura — otra ejecución viva de
+        // esta misma conversación ya guardó una versión más nueva. No hay
+        // nada nuestro que "corregir" en el estado (el de la otra ejecución
+        // queda intacto, que es lo correcto), pero el modelo SÍ necesita
+        // saber que su propuesta no se guardó: si no se le avisa, el texto
+        // que ya redactó (que asumía que su propuesta valía) sale igual.
         metrica("error", "carrera de escritura perdida (versionEsperada obsoleta)");
-        return null;
+        return {
+          rechazo: {
+            motivos: ["la reserva cambió al mismo tiempo por otro mensaje del cliente, así que tu propuesta no se guardó"],
+            preguntas: [
+              "No confirmes ni des por hecho ningún cambio que acabas de proponer. Continúa la conversación con naturalidad a partir de lo que el cliente acaba de decir.",
+            ],
+          },
+        };
       }
       metrica("guardado");
       return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
     }
 
-    const parse = OperacionPedidos.array().safeParse(entrada.operaciones);
+    const parse = OperacionPedidos.array().safeParse(operacionesSaneadas);
     if (!parse.success) {
       const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
       metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle}`);
-      return null;
+      // T030-A (auditoría 16-sep-2026): antes devolvía `null` sin señal —
+      // ver el comentario simétrico arriba, en la rama de citas.
+      return {
+        rechazo: {
+          motivos: [`la propuesta de cambios no tiene un formato válido: ${detalle}`],
+          preguntas: [
+            "Vuelve a proponer SOLO operaciones del tipo permitido para pedidos, con los campos exactos de cada una. No repitas la operación inválida ni des por hecho ningún cambio.",
+          ],
+        },
+      };
     }
     const productos = await catalogoDe(entrada.organizationId, entrada.vertical);
     const contexto: ContextoOperacionesPedidos = {
@@ -4861,10 +4916,19 @@ async function guardarEstadoPropuesto(entrada: {
     });
     if (!resultado.ok) {
       // Perdimos la carrera: no se escribió nada nuestro, así que no hay
-      // nada que luego "corregir" — el estado de la otra ejecución queda
-      // intacto, que es lo correcto.
+      // nada que luego "corregir" en el ESTADO — el de la otra ejecución
+      // queda intacto, que es lo correcto. Pero el modelo sí necesita
+      // enterarse de que su propuesta no se guardó (T030-A, ver el
+      // comentario simétrico en la rama de citas, arriba).
       metrica("error", "carrera de escritura perdida (versionEsperada obsoleta)");
-      return null;
+      return {
+        rechazo: {
+          motivos: ["el pedido cambió al mismo tiempo por otro mensaje del cliente, así que tu propuesta no se guardó"],
+          preguntas: [
+            "No confirmes ni des por hecho ningún cambio que acabas de proponer. Continúa la conversación con naturalidad a partir de lo que el cliente acaba de decir.",
+          ],
+        },
+      };
     }
     metrica("guardado");
     return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
@@ -5045,7 +5109,13 @@ export function esquemaDeOperaciones(
   };
 }
 
-/** Quita las claves en `null` que el modo estricto obliga a emitir. */
+/**
+ * Quita las claves en `null` que el modo estricto obliga a emitir.
+ *
+ * Dos llamadores: la `accion` completa (más abajo, `chatJsonConEstado`) y,
+ * desde T028, cada elemento del array `operaciones` (`guardarEstadoPropuesto`,
+ * arriba) — mismo problema en dos formas del mismo objeto plano.
+ */
 function sinNulos(objeto: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(objeto).filter(([, v]) => v !== null));
 }

@@ -1540,8 +1540,40 @@ export const mediaAsset = pgTable(
      * Con qué se relaciona, en palabras del negocio ("Volumen Ruso",
      * "catálogo de diseños"). Es lo que el agente compara para decidir qué
      * mandar, así que se guarda tal como el cliente nombra sus cosas.
+     *
+     * Sigue siendo obligatoria y sigue siendo el respaldo de resolución
+     * (Prioridad 2, ver `productId`): un recurso sin producto (`carta`,
+     * `otro`) solo tiene esto para identificarse, y uno CON `productId`
+     * la conserva para el día que se desvincule del producto.
      */
     etiqueta: text("etiqueta").notNull(),
+    /**
+     * Relación real con el catálogo (Prioridad 1 de resolución) — antes de
+     * esto, un producto y su foto solo se conectaban por texto (`etiqueta`
+     * contra `product.name`), sin ninguna garantía si el negocio renombraba
+     * el producto. `null` = recurso sin producto (`carta`/`otro`), o un
+     * `producto` todavía sin vincular — en ambos casos cae a `etiqueta`.
+     *
+     * FK compuesta con `organizationId` (no solo `productId` suelto): así la
+     * base RECHAZA de raíz que un recurso apunte a un producto de OTRO
+     * negocio, el mismo patrón que ya usa `productOption` contra
+     * `productOptionGroup` más arriba en este archivo — no es una
+     * comprobación que dependa de que el código la recuerde hacer.
+     *
+     * `onDelete: "set null"`, nunca `"cascade"`: si se borra el producto, la
+     * foto no debe desaparecer en silencio — queda huérfana y visible para
+     * que alguien decida, no perdida.
+     *
+     * ⚠️ La semántica REAL de ese `set null` la fija `drizzle/0044_imagen_del
+     * _producto_on_delete.sql`, no esta línea. En PostgreSQL un `ON DELETE SET
+     * NULL` sin lista de columnas anula TODAS las de la FK — incluida
+     * `organizationId`, que es NOT NULL, así que el borrado del producto
+     * fallaría entero. La 0044 lo limita a `ON DELETE SET NULL (product_id)`
+     * (PostgreSQL 15+), sintaxis que Drizzle no sabe expresar todavía. Si
+     * algún día se regenera este esquema con `db:generate`, hay que volver a
+     * aplicar esa corrección a mano.
+     */
+    productId: text("product_id"),
     /**
      * Cómo se le entrega al cliente. Es lo ÚNICO que el núcleo sabe de la
      * forma de un recurso — no sabe si detrás hay un menú, un catálogo, un
@@ -1581,6 +1613,19 @@ export const mediaAsset = pgTable(
     index("media_org_idx").on(t.organizationId),
     // Un negocio no debe tener dos fotos para lo mismo: subir otra reemplaza.
     uniqueIndex("media_org_etiqueta_uq").on(t.organizationId, t.etiqueta),
+    index("media_product_idx").on(t.productId),
+    // Mismo patrón que `product_option_group_fk`: la FK compuesta impide en
+    // la base, no solo en el código, que un recurso apunte al producto de
+    // otra organización.
+    //
+    // ⚠️ El `.onDelete("set null")` de aquí es una aproximación: en la base
+    // real la acción está limitada a `product_id` por la migración 0044 (ver
+    // el comentario de `productId` arriba). Drizzle no puede escribirlo.
+    foreignKey({
+      columns: [t.organizationId, t.productId],
+      foreignColumns: [product.organizationId, product.id],
+      name: "media_asset_product_fk",
+    }).onDelete("set null"),
   ]
 );
 

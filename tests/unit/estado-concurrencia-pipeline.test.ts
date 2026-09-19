@@ -212,18 +212,28 @@ describe("conversation_state: token de concurrencia (Prioridad 3)", () => {
     // Simula que OTRA ejecución viva ya escribió una versión más nueva
     // mientras este turno seguía en curso: la escritura se descarta.
     guardarEstadoMock.mockResolvedValue({ ok: false });
-    chatJson.mockResolvedValueOnce({
-      ok: true,
-      raw: "{}",
-      data: {
-        action: "reply",
-        text: "¡Genial! ¿Necesitas algo más?",
-        operaciones: [
-          { tipo: "agregar_item", ofrecible: "Porción Chocolate", opciones: [], cantidad: 1 },
-          { tipo: "confirmar" },
-        ],
-      },
-    });
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        raw: "{}",
+        data: {
+          // El modelo ya daba por hecho el cierre ANTES de saber que su
+          // propuesta no se guardó — T030-A (auditoría 16-sep-2026) corrige
+          // que esto se le avise antes de responder, igual que un rechazo
+          // de negocio (Fase 8J).
+          action: "reply",
+          text: "¡Genial, quedó confirmado! ¿Necesitas algo más?",
+          operaciones: [
+            { tipo: "agregar_item", ofrecible: "Porción Chocolate", opciones: [], cantidad: 1 },
+            { tipo: "confirmar" },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        raw: "{}",
+        data: { action: "reply", text: "Dame un segundo, ¿me repites qué quieres pedir?" },
+      });
 
     const { runAgentTurn } = await import("@/server/ai/pipeline");
     const action = await runAgentTurn(conv.id);
@@ -237,5 +247,10 @@ describe("conversation_state: token de concurrencia (Prioridad 3)", () => {
     // nada nuestro que corregir, la fila es de la otra ejecución. Una sola
     // llamada, no dos.
     expect(guardarEstadoMock).toHaveBeenCalledTimes(1);
+    // T030-A: pero SÍ se le avisa al modelo antes de responder, y lo que
+    // sale es la respuesta corregida — nunca la que daba el cierre por
+    // hecho sobre un estado que en realidad no se guardó.
+    expect(chatJson).toHaveBeenCalledTimes(2);
+    expect((action as { text: string }).text).not.toContain("confirmado");
   });
 });

@@ -129,7 +129,7 @@ fábrica ya causó incidentes.
 |---|---|---|
 | **Despliegue** | Coolify / docker compose | **GitHub Actions** (`workflow_dispatch` manual) → `scripts/deploy.sh` → wrapper root verificado en el VPS `2.25.159.117`. El dueño dispara el workflow con el SHA y `CONFIRMAR`; el asistente nunca lo hace (ver más abajo) |
 | **Canal WhatsApp** | Meta Cloud API directa (`src/lib/meta/`) | **YCloud** (`src/lib/ycloud/client.ts`), que envuelve a Meta. `src/lib/meta/` sigue existiendo debajo |
-| **Modelo LLM** | `anthropic/claude-sonnet-4.5` | **`google/gemini-2.5-flash`**, con Sonnet 4.5 como `OPENROUTER_FALLBACK_MODEL` |
+| **Modelo LLM** | `anthropic/claude-sonnet-4.5` | **`google/gemini-3.7-flash`** — verificado en el contenedor real el 16-sep-2026; `OPENROUTER_FALLBACK_MODEL`/`OPENROUTER_JUDGE_MODEL` apuntan hoy al mismo modelo que el principal, sin diversidad real de salvavidas (ver `specs/003-backend-como-autoridad/handoff-cambio-modelo.md` sección A) |
 | **Instancia** | "una instancia = un negocio" (`README.md`) | Multi-cliente. Tres negocios vivos |
 
 ### ⚠️ Desplegar es por GitHub Actions — nunca a mano, salvo emergencia real
@@ -214,9 +214,10 @@ Ver `.env.example` (cada una con guía inline). Las claves: `APP_BASE_URL`,
 
 ```bash
 OPENROUTER_API_TOKEN=sk-or-...
-OPENROUTER_MODEL=google/gemini-2.5-flash              # lo que corre HOY en korex.ia
-OPENROUTER_JUDGE_MODEL=anthropic/claude-haiku-4.5     # opcional: juez más barato
-OPENROUTER_FALLBACK_MODEL=anthropic/claude-sonnet-4.5 # rescate si el barato no da JSON usable
+OPENROUTER_MODEL=google/gemini-3.7-flash          # verificado en el contenedor real, 16-sep-2026
+OPENROUTER_JUDGE_MODEL=google/gemini-3.7-flash    # opcional: si se omite, cae en OPENROUTER_MODEL. Hoy en prod = el mismo modelo, sin diversidad
+OPENROUTER_FALLBACK_MODEL=google/gemini-3.7-flash   # salvavidas 1: entra si el principal agota 3 intentos sin dar nada usable. Hoy en prod = el mismo modelo (ídem)
+OPENROUTER_FALLBACK_MODEL_2=                        # salvavidas 2, opcional, mismo criterio. Su valor real en prod NO está verificado en `handoff-cambio-modelo.md` (solo se comprobaron MODEL/JUDGE/FALLBACK) — confirmar con `docker exec <contenedor> printenv | grep OPENROUTER` antes de asumir
 ```
 
 > 🔴 **Sin saldo en OpenRouter el agente enmudece con un 402**, y es la primera

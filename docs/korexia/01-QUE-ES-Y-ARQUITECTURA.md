@@ -33,7 +33,7 @@ como remoto `upstream`.
 - **PostgreSQL 16** con **Drizzle ORM**
 - **Better Auth** para cuentas, sesiones y organizaciones
 - **Docker** (imagen multi-etapa, salida *standalone*)
-- IA vía **OpenRouter** (hoy `google/gemini-2.5-flash`)
+- IA vía **OpenRouter** (verificado en el contenedor real el 16-sep-2026: `google/gemini-3.7-flash` — ver `specs/003-backend-como-autoridad/handoff-cambio-modelo.md`)
 - WhatsApp vía **YCloud** → Meta Cloud API
 
 Gestor de paquetes: `corepack pnpm`. Comandos útiles:

@@ -72,24 +72,50 @@ persona no le escribió al negocio ese día, **el aviso falla**.
 
 ## Los modelos
 
-En producción hay **un solo modelo: `google/gemini-2.5-flash`**. Es el mismo
-para todos los clientes y también el que hace de juez en el Laboratorio (la
-variable `OPENROUTER_JUDGE_MODEL` existe pero no está configurada, así que cae
-en el principal).
+### Estado actual (verificado el 16-sep-2026 contra el contenedor real y el código — ver `specs/003-backend-como-autoridad/handoff-cambio-modelo.md` sección A)
 
-El cambio a Gemini bajó el costo por pedido un **92 %** y además es más rápido.
+- **Modelo principal**: `google/gemini-3.7-flash` (no `gemini-2.5-flash`: ese
+  fue el modelo hasta que se cambió, ver "Historia" más abajo). Es el mismo
+  para todos los clientes.
+- **`OPENROUTER_JUDGE_MODEL` SÍ está configurada** en producción, apuntando
+  hoy al mismo modelo que el principal (`google/gemini-3.7-flash`).
+- **SÍ existe modelo de respaldo, con código real detrás.** `chatJson`
+  (`src/lib/ai/index.ts`) arma una cadena `[modelo, OPENROUTER_FALLBACK_MODEL,
+  OPENROUTER_FALLBACK_MODEL_2]`: si el primero agota sus tres intentos sin
+  devolver nada usable, escala al siguiente de la cadena — hasta dos
+  salvavidas. Esto es **código vigente hoy**, reinstalado el 9-sep-2026 (ver
+  "Historia" abajo) — no es una variable muerta.
+- **En producción, `OPENROUTER_FALLBACK_MODEL` y `OPENROUTER_JUDGE_MODEL`
+  apuntan hoy al mismo modelo que el principal** (`google/gemini-3.7-flash`
+  los tres). El mecanismo de respaldo funciona, pero sin diversidad real:
+  si el modelo falla, reintenta contra sí mismo dos veces más, no contra un
+  proveedor distinto.
+- **El juez del Laboratorio SÍ tiene red.** `judgeCase` (`src/server/lab/
+  judge.ts`) llama a `chatJson` con `judge:true`, que pasa por la misma
+  cadena de salvavidas de arriba. Solo si el modelo del juez **y** los dos
+  salvavidas fallan, el caso queda `judge_failed`.
+- Agotada la cadena entera: fuera del Laboratorio la conversación pasa a una
+  persona (ver más abajo); dentro del Laboratorio el caso queda
+  `judge_failed` y el reporte lo muestra sin calificar. El rescate humano
+  sigue siendo el último escalón — los salvavidas se meten antes, nunca en
+  su lugar.
 
-### NO hay modelo de respaldo, y ya no puede volver por descuido
+El cambio de Sonnet a Gemini como modelo principal bajó el costo por pedido un
+**92 %** y además es más rápido.
 
-Si Gemini agota sus tres intentos, **la conversación pasa a una persona**. No se
-gasta una llamada en otro modelo. Decisión del dueño, y el razonamiento es
-sensato: si el modelo principal no logra resolver una conversación, lo que
-necesita ese cliente no es otro modelo, es **una persona**.
+### Historia: dos retiros del modelo de respaldo y su reposición
 
-> 🔑 **Se tomó dos veces, y la primera no se cumplió.** El 31-jul-2026 se retiró
-> la variable `OPENROUTER_FALLBACK_MODEL`… **del `.env` de `/opt/korex-crm/`**,
-> dejándola puesta en las variables del servicio de EasyPanel. Como el código
-> seguía soportándola, `anthropic/claude-sonnet-4.5` **siguió entrando en las
+Esta sección explica **cómo se llegó** al estado de arriba — no describe el
+comportamiento actual, que es el bloque anterior.
+
+**31-jul-2026 y 13-ago-2026 — se retiró el respaldo, dos veces.** Decisión
+del dueño en su momento: si el modelo principal no logra resolver una
+conversación, lo que necesita ese cliente no es otro modelo, es una persona.
+
+> 🔑 **La primera vez no se cumplió.** El 31-jul-2026 se retiró la variable
+> `OPENROUTER_FALLBACK_MODEL`… **del `.env` de `/opt/korex-crm/`**, dejándola
+> puesta en las variables del servicio de EasyPanel. Como el código seguía
+> soportándola, `anthropic/claude-sonnet-4.5` **siguió entrando en las
 > conversaciones dos semanas** mientras este documento afirmaba que se había
 > quitado. Se descubrió el 13-ago probando el salón, al ver en el log
 > `[ia] google/gemini-2.5-flash no devolvió una respuesta usable; reintentando
@@ -101,16 +127,19 @@ necesita ese cliente no es otro modelo, es **una persona**.
 > contenedor. Para ver qué hay de verdad:
 > `docker exec <contenedor> printenv | grep OPENROUTER`.
 
-El 13-ago-2026 se eliminó **el código del respaldo**, no solo la variable.
-Definir `OPENROUTER_FALLBACK_MODEL` ya no hace nada: `chatJson` llama a un único
-modelo y devuelve su resultado. (Conviene borrarla igualmente del servicio en
-EasyPanel, por no dejar mentiras a la vista.)
+El 13-ago-2026 sí se eliminó **el código del respaldo**, no solo la variable:
+`chatJson` llamaba a un único modelo y devolvía su resultado, sin cadena.
+Efecto secundario aceptado en su momento: el juez del Laboratorio tampoco
+tenía red.
 
-**Efecto secundario, aceptado a sabiendas**: el juez del Laboratorio tampoco
-tiene red. Si no devuelve un veredicto legible, ese caso queda en `judge_failed`
-y el reporte lo muestra sin calificar. Es preferible un hueco visible a un
-veredicto emitido por otro modelo — y en el Laboratorio no hay ningún cliente
-esperando respuesta.
+**9-sep-2026 — el dueño se retractó** y pidió reponer el respaldo, esta vez
+con dos escalones (`OPENROUTER_FALLBACK_MODEL` y `OPENROUTER_FALLBACK_MODEL_2`),
+para medir si ayudan antes de decidir el modelo de diario (commit `0ef1a58`,
+`src/lib/ai/index.ts`). Con esa reposición, el juez del Laboratorio recuperó
+la misma red automáticamente, porque pasa por la misma función `chatJson`
+(commit `517f27c`, anterior al primer retiro, dejó ya conectado ese camino).
+Esto es lo que corrigió el estado descrito arriba: la sección de "Estado
+actual" ya no es la de este apartado histórico.
 
 > ⚠️ **Nunca cambiar de modelo sin probar una conversación completa hasta el
 > aviso al equipo.** Una prueba de un solo mensaje da 4/4 a casi cualquier

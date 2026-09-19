@@ -2258,7 +2258,20 @@ export async function runAgentTurn(
    * es un filtro sobre el historial que ya está en memoria, pero no tiene
    * sentido pagarlo en los turnos donde sí hay tarifa verificada.
    */
-  const sinTarifaVerificable = !domicilioEstructurado;
+  /**
+   * ⚠️ NO es `!domicilioEstructurado`, y la diferencia importa.
+   *
+   * `domicilioEstructurado` ya es falso en TODO negocio de citas
+   * (`!contrataCitas(vertical) && deliverySource === "tabla"`), así que
+   * negarlo metía a los salones dentro de este guardarraíl. Un negocio de
+   * citas que ofrece servicio a domicilio —caso real del vertical— habría
+   * visto su turno rehecho por decir un precio perfectamente legítimo.
+   * Lashes Valen está fuera del alcance de esta fase y no debe notarla.
+   *
+   * La condición correcta es la del negocio que esta fase sí cubre: hace
+   * pedidos y NO tiene tabla de tarifas contra la que verificar.
+   */
+  const sinTarifaVerificable = !contrataCitas(vertical) && profile.deliverySource !== "tabla";
   /**
    * ⚠️ Sin tarifa verificable, `action.totalCents` **no cuenta como cifra
    * legítima**, y esa exclusión es la mitad del guardarraíl.

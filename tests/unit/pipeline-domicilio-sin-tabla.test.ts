@@ -99,6 +99,22 @@ const PROFILE_SIN_TABLA = {
   hoursDays: "1,2,3,4,5,6,7",
 };
 
+/**
+ * Un negocio de CITAS (Lashes Valen) — fuera del alcance de esta fase.
+ * `appointmentsEnabled: true` ya hace que `domicilioEstructurado` sea false,
+ * asi que una condicion escrita como `!domicilioEstructurado` lo arrastraria
+ * dentro del guardarrail sin querer.
+ */
+const PROFILE_CITAS = { ...PROFILE_SIN_TABLA, appointmentsEnabled: true };
+
+function queueTurnoCon(
+  perfil: Record<string, unknown>,
+  history: Array<Record<string, unknown>>
+) {
+  const copia = history.map((m) => ({ ...m })).reverse();
+  selectQueue.push([CONVERSATION], [perfil], copia, [], [], []);
+}
+
 function queueTurno(history: Array<Record<string, unknown>>) {
   const copia = history.map((m) => ({ ...m })).reverse();
   selectQueue.push([CONVERSATION], [PROFILE_SIN_TABLA], copia, [], [], []);
@@ -230,6 +246,34 @@ describe("negocio sin tabla de zonas: el modelo no puede inventar una tarifa", (
 
     expect(chatJson).toHaveBeenCalledTimes(2);
     expect(textoSaliente()).not.toContain("5.000");
+  });
+
+  it("un negocio de CITAS no entra en este guardarrail (fuera de alcance)", async () => {
+    // Cazado en la auditoria del 19-sep-2026: la primera version uso
+    // `!domicilioEstructurado`, y eso es cierto para TODO negocio de citas.
+    // Un salon que ofrece servicio a domicilio —caso real del vertical—
+    // habria visto su turno rehecho por decir un precio legitimo.
+    queueTurnoCon(PROFILE_CITAS, [
+      {
+        id: "m1",
+        direction: "in",
+        text: "hacen pestanas a domicilio?",
+        aiGenerated: false,
+        createdAt: new Date(),
+      },
+    ]);
+    chatJson.mockResolvedValueOnce({
+      ok: true,
+      raw: "{}",
+      data: { action: "reply", text: "Si! El servicio a domicilio tiene un costo de $30.000" },
+    });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    // Una sola llamada: el guardarrail no lo toco.
+    expect(chatJson).toHaveBeenCalledTimes(1);
+    expect(textoSaliente()).toContain("30.000");
   });
 
   it("si insiste en inventar tras el reintento, lo toma una persona", async () => {

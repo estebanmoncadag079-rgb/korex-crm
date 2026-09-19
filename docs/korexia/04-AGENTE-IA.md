@@ -19,6 +19,31 @@ Las acciones posibles:
 | `handoff` | Pasar la conversación a una persona |
 | `none` | No responder nada |
 
+## Con Feature 003 (negocios `state_source=backend`, hoy: La Churra)
+
+Todo lo de arriba sigue siendo cierto — la acción sigue siendo el contrato
+con el que el pipeline ejecuta cosas de verdad. Lo que cambia es
+`notify_order`: para estos negocios, **"el cliente confirmó un pedido" no
+basta para cerrar por sí solo**.
+
+En el mismo turno, el modelo propone además una lista de `Operacion[]`
+(`agregar_item`, `cambiar_cantidad`, `quitar_item`, `elegir_opcion`,
+`declinar_grupo`, `fijar_dato`, `fijar_modalidad`, `confirmar` en pedidos;
+sus equivalentes de `fijar_servicio`/`fijar_horario`/`fijar_especialista` en
+citas) — nunca el pedido completo. El **backend**, no el modelo, decide:
+
+- si cada operación es válida y resuelve contra el catálogo/agenda real;
+- el precio y el total (el modelo nunca los calcula ni los escribe);
+- si el pedido/reserva está completo para poder cerrarse de verdad
+  (`puedeConfirmarPedido`).
+
+`notify_order` solo ejecuta el cierre real cuando el backend, leyendo el
+estado que él mismo guardó, confirma que hay ítems resueltos, total
+calculado y los requisitos del negocio cubiertos — nunca porque el modelo
+"dijo" que el cliente confirmó. Detalle completo:
+**[REGLAS-DE-ARQUITECTURA.md](../../REGLAS-DE-ARQUITECTURA.md)**, sección
+"Arquitectura oficial de Korex", y `specs/003-backend-como-autoridad/`.
+
 ## Qué se le manda al modelo en cada turno
 
 1. **Quién es y cómo debe comportarse** → `agent_profile.instructions`

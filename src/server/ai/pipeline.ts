@@ -4798,7 +4798,18 @@ async function guardarEstadoPropuesto(entrada: {
         // vertical — Zod la rechaza antes de que `aplicarOperacion` la vea.
         const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
         metrica("error", `operaciones no cumplen el esquema de citas: ${detalle}`);
-        return null;
+        // T030-A (auditoría 16-sep-2026): antes devolvía `null` sin señal, y
+        // el cliente recibía el texto que el modelo ya había escrito dando
+        // por hecho un cambio que el backend nunca guardó — ver el mismo
+        // caso para pedidos, más abajo.
+        return {
+          rechazo: {
+            motivos: [`la propuesta de cambios no tiene un formato válido: ${detalle}`],
+            preguntas: [
+              "Vuelve a proponer SOLO operaciones del tipo permitido para citas, con los campos exactos de cada una. No repitas la operación inválida ni des por hecho ningún cambio.",
+            ],
+          },
+        };
       }
       const staff = await listStaff(entrada.organizationId);
       const contexto: ContextoOperacionesCitas = {
@@ -4823,8 +4834,21 @@ async function guardarEstadoPropuesto(entrada: {
         versionEsperada: entrada.versionEsperada,
       });
       if (!resultado.ok) {
+        // T030-A: perdimos la carrera de escritura — otra ejecución viva de
+        // esta misma conversación ya guardó una versión más nueva. No hay
+        // nada nuestro que "corregir" en el estado (el de la otra ejecución
+        // queda intacto, que es lo correcto), pero el modelo SÍ necesita
+        // saber que su propuesta no se guardó: si no se le avisa, el texto
+        // que ya redactó (que asumía que su propuesta valía) sale igual.
         metrica("error", "carrera de escritura perdida (versionEsperada obsoleta)");
-        return null;
+        return {
+          rechazo: {
+            motivos: ["la reserva cambió al mismo tiempo por otro mensaje del cliente, así que tu propuesta no se guardó"],
+            preguntas: [
+              "No confirmes ni des por hecho ningún cambio que acabas de proponer. Continúa la conversación con naturalidad a partir de lo que el cliente acaba de decir.",
+            ],
+          },
+        };
       }
       metrica("guardado");
       return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };
@@ -4834,7 +4858,16 @@ async function guardarEstadoPropuesto(entrada: {
     if (!parse.success) {
       const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
       metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle}`);
-      return null;
+      // T030-A (auditoría 16-sep-2026): antes devolvía `null` sin señal —
+      // ver el comentario simétrico arriba, en la rama de citas.
+      return {
+        rechazo: {
+          motivos: [`la propuesta de cambios no tiene un formato válido: ${detalle}`],
+          preguntas: [
+            "Vuelve a proponer SOLO operaciones del tipo permitido para pedidos, con los campos exactos de cada una. No repitas la operación inválida ni des por hecho ningún cambio.",
+          ],
+        },
+      };
     }
     const productos = await catalogoDe(entrada.organizationId, entrada.vertical);
     const contexto: ContextoOperacionesPedidos = {
@@ -4860,10 +4893,19 @@ async function guardarEstadoPropuesto(entrada: {
     });
     if (!resultado.ok) {
       // Perdimos la carrera: no se escribió nada nuestro, así que no hay
-      // nada que luego "corregir" — el estado de la otra ejecución queda
-      // intacto, que es lo correcto.
+      // nada que luego "corregir" en el ESTADO — el de la otra ejecución
+      // queda intacto, que es lo correcto. Pero el modelo sí necesita
+      // enterarse de que su propuesta no se guardó (T030-A, ver el
+      // comentario simétrico en la rama de citas, arriba).
       metrica("error", "carrera de escritura perdida (versionEsperada obsoleta)");
-      return null;
+      return {
+        rechazo: {
+          motivos: ["el pedido cambió al mismo tiempo por otro mensaje del cliente, así que tu propuesta no se guardó"],
+          preguntas: [
+            "No confirmes ni des por hecho ningún cambio que acabas de proponer. Continúa la conversación con naturalidad a partir de lo que el cliente acaba de decir.",
+          ],
+        },
+      };
     }
     metrica("guardado");
     return { guardadoConfirmadoTrue: lote.estadoFinal.confirmado === true, estadoFinal: lote.estadoFinal };

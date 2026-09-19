@@ -1,36 +1,93 @@
 # korex.ia (sobre Vocero CRM) — Guía para Claude
 
-> ## 📚 LA FUENTE DE VERDAD ES `docs/korexia/`
+> ## 🔒 ARCHITECTURE GUARD — LEER ANTES DE MODIFICAR CÓDIGO
+>
+> Korex tiene **una única arquitectura oficial vigente: BACKEND COMO
+> AUTORIDAD** (Principio 7 y "Arquitectura oficial de Korex" en
+> [REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md) — fuente canónica,
+> gana ante cualquier otro documento en caso de contradicción).
+>
+> La documentación de `docs/korexia/` anterior a septiembre-2026 puede
+> describir diseños previos (el modelo recibía el estado completo o
+> "manejaba" el flujo de pedidos). **Esos diseños son exclusivamente
+> históricos, nunca una arquitectura alternativa disponible para elegir.**
+>
+> - **NO** implementar ni restaurar arquitectura histórica.
+> - **NO** restaurar `state_source=prompt` como arquitectura (solo existe
+>   como contención operativa puntual y documentada, nunca como diseño).
+> - **NO** devolverle al LLM la autoridad sobre el estado.
+> - **NO** hacer que el LLM calcule precios, totales o disponibilidad.
+> - **NO** reconstruir el pedido/reserva completo desde el modelo como
+>   fuente de verdad.
+> - **NO** introducir excepciones arquitectónicas pensadas para un solo
+>   cliente.
+>
+> Antes de tocar el flujo de pedidos, citas, precios, estado o
+> confirmación, ejecutar el **Architecture Checkpoint** de
+> [REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md) y obtener
+> autorización explícita si alguna respuesta indica regresión.
+
+> ## 📚 `docs/korexia/` documenta el estado operativo de esta instalación
 >
 > Este archivo describe el **repositorio**. Cómo funciona esta instalación **de
 > verdad en producción** está en [docs/korexia/](docs/korexia/), 120+ documentos.
 >
-> - **Al retomar**, lee [`docs/korexia/00-INDICE.md`](docs/korexia/00-INDICE.md).
->   El último [121](docs/korexia/121-PENDIENTES-20AGO.md) es del 20-ago-2026 —
->   verifica si ya existe un "pendientes" más reciente antes de darlo por
->   vigente; si no, el documento de mayor número en el índice es el estado más
->   actual disponible.
+> - **Al retomar**, lee [`docs/korexia/00-INDICE.md`](docs/korexia/00-INDICE.md)
+>   — empieza por su sección "ARQUITECTURA VIGENTE", no por la tabla
+>   cronológica. Para pendientes operativos día a día, el último
+>   [121](docs/korexia/121-PENDIENTES-20AGO.md) es del 20-ago-2026 — verifica
+>   si ya existe un "pendientes" más reciente antes de darlo por vigente.
 > - **Al cambiar algo**, actualízalo en el **mismo commit**: código + pruebas +
 >   documento + cómo revertir, o el cambio no está terminado
 >   ([75-COMO-SE-DOCUMENTA.md](docs/korexia/75-COMO-SE-DOCUMENTA.md)).
 > - **Antes de tocar nada**, el filtro obligatorio:
->   [REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md).
-> - **Cuando este archivo y `docs/korexia/` se contradigan, manda
->   `docs/korexia/`** — y arregla este archivo.
+>   [REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md) — es la fuente
+>   canónica de arquitectura, por encima de `docs/korexia/` en esa materia
+>   (ver "Jerarquía documental" abajo: son dos tipos de autoridad distintos,
+>   nunca se mezclan).
 
-## Jerarquía documental (Fase 4, 8-sep-2026)
+## Jerarquía documental (Fase 5, 16-sep-2026 — revisa la de Fase 4, 8-sep-2026)
 
 `specs/` (Spec Kit) llegó con el template de Vocero y sirvió para construir el
 producto base (`specs/001-vocero-core`, `specs/002-diseno-atlas-white-label`) —
 pero korex.ia, desde que existe como instalación real, se gobierna con otros
-documentos, y así se queda: no se retoma `specs/` para el trabajo normal.
-Jerarquía vigente, de mayor a menor autoridad:
+documentos para lo operativo, y así se queda.
 
-1. **Constitución** ([.specify/memory/constitution.md](.specify/memory/constitution.md)) — principios del producto, no negociables.
-2. **[REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md)** — filtro operativo: clasifica toda solicitud en configuración de cliente, capacidad de vertical, capacidad global o cambio arquitectónico.
-3. **`docs/korexia/`** — fuente de verdad del estado real de esta instalación (autoridad descriptiva: qué es cierto hoy y por qué).
-4. **`specs/`** — reservado para la categoría "cambio arquitectónico" de `REGLAS-DE-ARQUITECTURA.md` (ver su Paso 5): ahí sí se escribe un `spec.md` antes de implementar. El resto de solicitudes (configuración, capacidad de vertical, capacidad global, incidentes) NO pasa por `specs/` — se resuelve y documenta directo en `docs/korexia/`, como ya viene ocurriendo.
-5. **Este archivo** — índice que conecta los cuatro anteriores; si describe algo distinto a lo que el repo realmente hace, es este archivo el que está desactualizado.
+**Dos tipos de autoridad distintos — nunca se mezclan:**
+
+- **Autoridad arquitectónica** (quién decide cómo funciona la plataforma:
+  quién manda entre el LLM y el backend, qué contratos existen, qué se
+  puede tocar sin romper el núcleo). Jerarquía, de mayor a menor autoridad:
+
+  1. **Constitución** ([.specify/memory/constitution.md](.specify/memory/constitution.md)) — principios del producto, no negociables.
+  2. **[REGLAS-DE-ARQUITECTURA.md](REGLAS-DE-ARQUITECTURA.md)** — fuente canónica de arquitectura. Ante cualquier contradicción arquitectónica, **esta gana**, sin excepción — incluida cualquier sección de `docs/korexia/` que diga otra cosa.
+  3. **Este archivo (`CLAUDE.md`)** — repite y señala hacia la fuente canónica (Architecture Guard, al inicio); no define arquitectura por su cuenta.
+  4. **`docs/korexia/` — solo sus secciones marcadas como "ARQUITECTURA VIGENTE"** (ver `00-INDICE.md`).
+  5. **`specs/`** — implementación técnica de un cambio arquitectónico ya aprobado (ver Paso 5 de `REGLAS-DE-ARQUITECTURA.md`).
+  6. **Documentación histórica** (`docs/korexia/` marcada explícitamente como histórica, o fechada y superada) — explica cómo funcionaba antes; nunca es instrucción para implementar algo nuevo.
+
+- **Autoridad descriptiva del estado operativo** (qué está configurado hoy,
+  qué cliente tiene qué flag, qué falta por hacer). Aquí manda
+  **`docs/korexia/`** — pero solo como la mejor aproximación documentada:
+  si hay duda o la fecha del documento es vieja, **se verifica contra la
+  realidad** (la base de datos, el contenedor en producción, el log), nunca
+  se asume que un documento —ni siquiera `docs/korexia/`— sigue vigente sin
+  comprobarlo. El caso real que lo exige: `docs/korexia/16` y `01` decían
+  `gemini-2.5-flash` como modelo de producción; verificado en el contenedor
+  real el 16-sep-2026, es `gemini-3.7-flash`. Ningún documento —tampoco este
+  archivo— es sustituto de mirar el sistema real cuando la pregunta es "qué
+  está pasando ahora".
+
+**`specs/`** se reserva para la categoría "cambio arquitectónico" de
+`REGLAS-DE-ARQUITECTURA.md` (ver su Paso 5): ahí sí se escribe un `spec.md`
+antes de implementar. El resto de solicitudes (configuración, capacidad de
+vertical, capacidad global, incidentes) NO pasa por `specs/` — se resuelve y
+documenta directo en `docs/korexia/`, como ya viene ocurriendo.
+
+**Este archivo** conecta a los demás; si describe algo operativo distinto a
+lo que el repo realmente hace, es este archivo el que está desactualizado
+— pero si describe algo arquitectónico, la autoridad sigue siendo
+`REGLAS-DE-ARQUITECTURA.md`, nunca `docs/korexia/` por defecto.
 
 Vocero es un CRM de WhatsApp open source (MIT), self-hosted, con agente de IA y
 Laboratorio de auto-evaluación. **korex.ia** es la instalación de agencia que

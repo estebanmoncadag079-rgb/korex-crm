@@ -24,7 +24,38 @@ producción, qué se cambió y qué quedó pendiente.
 > negocio va en el CRM, nunca en código. **Toda solicitud se clasifica antes de
 > implementarse** en una de cuatro categorías (config. de un cliente ·
 > capacidad de un vertical · capacidad global del CRM · cambio arquitectónico).
-> Léelo antes de tocar nada.
+> Léelo antes de tocar nada. **Desde el 16-sep-2026 también contiene la
+> sección "Arquitectura oficial de Korex"** — la fuente canónica sobre quién
+> decide qué (backend vs. LLM), con su Architecture Checkpoint obligatorio.
+
+---
+
+## 🏛️ ARQUITECTURA VIGENTE
+
+**La arquitectura oficial de Korex es "Backend como autoridad".** Antes de
+leer cualquier documento numerado de esta carpeta para entender cómo decide
+o responde el agente, empieza aquí:
+
+1. **[REGLAS-DE-ARQUITECTURA.md](../../REGLAS-DE-ARQUITECTURA.md)** (raíz del repo) — Principio 7 + sección "Arquitectura oficial de Korex": la fuente canónica, gana ante cualquier otro documento.
+2. **[`specs/003-backend-como-autoridad/`](../../specs/003-backend-como-autoridad/)** — la implementación técnica de esa arquitectura: `spec.md`, `data-model.md`, `tasks.md`, `t029-medicion-operacional.md` (medición real post-deploy) y `handoff-cambio-modelo.md` (estado verificado de producción, incluido el modelo real configurado).
+3. **[ARCHITECTURE-REGRESSION-AUDIT.md](ARCHITECTURE-REGRESSION-AUDIT.md)** — el mapa completo de qué es vigente, qué es histórico, y por qué no pueden confundirse.
+
+`01-QUE-ES-Y-ARQUITECTURA.md` y `04-AGENTE-IA.md` (abajo) siguen siendo
+correctos en lo que describen, pero **no mencionaban Feature 003** hasta que
+se les agregó una sección propia — sección "Desde Feature 003" en cada uno.
+
+## 🗄️ HISTÓRICO — NO USAR PARA IMPLEMENTACIÓN
+
+Estos documentos describen diseños **anteriores** a la arquitectura oficial
+actual. Se conservan por trazabilidad — explican cómo funcionaba Korex antes
+— pero **ninguno es una alternativa vigente**: no implementar ni restaurar
+lo que describen.
+
+- [111-LIS-EN-LA-ARQUITECTURA-NUEVA.md](111-LIS-EN-LA-ARQUITECTURA-NUEVA.md) — la migración de Fase 2 de agosto-2026 (catálogo en tablas + estado backend con reescritura completa del pedido). Es la arquitectura que Feature 003 reemplazó, no la actual.
+- [121-PENDIENTES-20AGO.md](121-PENDIENTES-20AGO.md) — "empieza por aquí" para el estado **operativo** día a día (qué falta, qué se rompió), NO para arquitectura: es del 20-ago-2026, un mes antes de Feature 003.
+- El resto de la bitácora cronológica de abajo (docs 62-120 en general) documenta el camino hacia la Fase 2 pre-Feature-003 — válida como historia, no como referencia para implementar algo nuevo hoy.
+
+---
 
 ## Cómo está organizado
 

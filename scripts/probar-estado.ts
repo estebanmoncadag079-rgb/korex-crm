@@ -401,7 +401,11 @@ try {
     .select({ stateSource: schema.agentProfile.stateSource })
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, orgPedidos));
-  comprobar("la bandera nace y sigue en 'prompt'", perfilA?.stateSource === "prompt");
+  // T030-B (16-sep-2026): desde el 29-ago-2026 `provisionOrganization`
+  // aplica `arquitecturaAprobadaPara`, que fija `state_source='backend'`
+  // para todo cliente nuevo — esta aserción esperaba el valor viejo
+  // (`'prompt'`) y habría reportado un falso 🔴 desde entonces.
+  comprobar("la bandera nace y sigue en 'backend'", perfilA?.stateSource === "backend");
 
   const delFuturo: EstadoDelPedido = { ...estadoVacio(), schema_version: 99 };
   await guardarEstado({ conversationId: convPedidos, organizationId: orgPedidos, estado: delFuturo, actor: "script:probar-estado", proceso: "probar:estado" });

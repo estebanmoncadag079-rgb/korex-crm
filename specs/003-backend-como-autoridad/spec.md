@@ -214,6 +214,18 @@ explicación y pueda seguir — no un "te comunico con una persona".
 
 ## Cómo se revierte
 
+> **⚠️ PLAN ORIGINAL / HISTÓRICO — no es una instrucción operativa vigente.**
+> Todo lo que sigue en esta sección y en "Decisiones" (más abajo) describe
+> la decisión de rollout tomada el 15-sep-2026, **antes** de ejecutarlo. El
+> rollout real que se ejecutó fue **distinto y progresivo**: solo La Churra
+> en Fase 1, con Lis y MALIA mantenidas deliberadamente en
+> `state_source='prompt'` como contención temporal, y Lashes Valen sin
+> activar. Esta sección no debe leerse ni usarse como instrucción para un
+> despliegue futuro — **para el estado real y verificado de producción,
+> ver [tasks.md](tasks.md) (T025-T030) y
+> [t029-medicion-operacional.md](t029-medicion-operacional.md)**. Se
+> conserva sin reescribir por trazabilidad de la decisión original.
+
 Interruptor por organización, como todos los mecanismos de fase de este proyecto: al
 apagarlo, esa organización vuelve al comportamiento actual sin migración de datos.
 
@@ -236,6 +248,11 @@ criterio de "Corrections" del proyecto: se sigue tal cual, y se compensa con:
 ---
 
 ## Decisiones (resueltas 15-sep-2026)
+
+> **⚠️ PLAN ORIGINAL / HISTÓRICO** — ver la nota completa en "Cómo se
+> revierte", arriba. El punto 1 de esta lista NO describe lo que se
+> desplegó de verdad; consultar `tasks.md` y `t029-medicion-operacional.md`
+> para el rollout real.
 
 1. **Cliente de arranque: todos.** Los 4 negocios (La Churra, Lis, Lashes Valen,
    MALIA) reciben el cambio en el mismo despliegue.

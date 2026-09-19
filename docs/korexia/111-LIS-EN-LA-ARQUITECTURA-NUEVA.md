@@ -1,3 +1,20 @@
+> ## 🗄️ HISTÓRICO — NO VIGENTE
+>
+> Este documento describe una arquitectura **anterior** de Korex: la
+> migración de Fase 2 de agosto-2026 (catálogo en tablas + `state_source`
+> en el backend, pero con el modelo **reescribiendo el pedido completo**
+> cada turno). Se conserva únicamente por trazabilidad histórica.
+>
+> **NO representa la arquitectura actual.** La arquitectura oficial vigente
+> es "Backend como autoridad" (Feature 003, 15-sep-2026 en adelante) — ver
+> [REGLAS-DE-ARQUITECTURA.md](../../REGLAS-DE-ARQUITECTURA.md), sección
+> "Arquitectura oficial de Korex".
+>
+> **NO debe utilizarse como referencia para implementar cambios nuevos.**
+> **NO debe restaurarse ni reproducirse en producción.** El título de este
+> documento usa "arquitectura nueva" en el sentido de agosto-2026 — hoy ya
+> no es la más nueva.
+
 # Lis entra en la arquitectura nueva
 
 > **Dentro:** Por qué estaba fuera · El "92" que no era comparable · Los tres

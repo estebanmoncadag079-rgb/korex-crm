@@ -30,6 +30,15 @@ LLM por turno.
   individual, pero no se usa como fase de observación previa: la verificación de los
   4 en verde ocurre ANTES de activar cualquiera, no progresivamente después.
 
+  > **⚠️ PLAN ORIGINAL / HISTÓRICO — no es una instrucción operativa vigente.**
+  > Esto describe la decisión previa a ejecutar el rollout. Lo que ocurrió de
+  > verdad fue un rollout progresivo (solo La Churra en Fase 1; Lis y MALIA
+  > mantenidas en `state_source='prompt'` como contención temporal; Lashes
+  > Valen sin activar). No usar este párrafo como instrucción para un
+  > despliegue futuro — ver [tasks.md](tasks.md) T025-T030 y
+  > [t029-medicion-operacional.md](t029-medicion-operacional.md) para el
+  > estado real.
+
 ## Constitution Check
 
 | Principio | Evaluación |
@@ -52,6 +61,14 @@ advertido del precedente de MALIA (`auth/arquitectura.ts:6-12`). Queda registrad
 aquí y en `spec.md` para que quien implemente no reintroduzca por su cuenta un
 despliegue escalonado que ya no es lo acordado, ni tampoco omita la compensación de
 la fila IX de arriba.
+
+> **⚠️ Esta nota es PLAN ORIGINAL / HISTÓRICO.** El rollout real terminó
+> siendo exactamente lo que este párrafo advertía no reintroducir: un
+> despliegue escalonado (decisión posterior y explícita del dueño, no un
+> error de quien implementó). Ninguna IA debe leer este párrafo como
+> instrucción vigente para "corregir" el rollout actual hacia la
+> simultaneidad original — el estado real y autorizado es el progresivo,
+> documentado en `tasks.md` T025-T030.
 
 ## Estructura del proyecto (rutas reales)
 

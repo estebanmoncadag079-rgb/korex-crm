@@ -61,12 +61,29 @@ const borradorSchema = z
     queVende: z.string(),
     ubicacion: z.string(),
     horario: z.object({
+      /*
+       * EL CANÓNICO. Sin declararlo aquí, zod lo descarta EN SILENCIO —el
+       * mismo fallo que ya se documentó con `duracionTipicaMin` tres líneas
+       * más abajo— y el horario que la persona marca día a día en su
+       * pantalla no llegaría nunca a la base. Los campos de abajo son sus
+       * derivados y los recalcula el servidor al guardar.
+       */
+      porDia: z.record(z.string(), z.object({
+      abre: z.string(),
+      cierra: z.string(),
+    })).optional(),
       dias: z.array(z.number().int().min(1).max(7)),
       abre: z.string(),
       cierra: z.string(),
       abreDomingo: z.string().optional(),
       cierraDomingo: z.string().optional(),
     }),
+    /*
+     * Contexto libre sobre el horario. Sin declararlo, zod lo descarta EN
+     * SILENCIO y lo que el negocio escriba no llega nunca — el mismo fallo
+     * que ya costó `duracionTipicaMin` y `porDia`.
+     */
+    observacionesHorario: z.string().max(2000).optional(),
     vertical: z.enum(["pedidos", "citas"]),
     catalogo: z.string(),
     // Solo citas. Sin declararla aquí, zod la descarta en silencio y todos los

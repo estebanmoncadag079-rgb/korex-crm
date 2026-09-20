@@ -27,6 +27,7 @@ import * as schema from "@/lib/db/schema";
 import type { Fila } from "@/server/ai/generador/comparar-fila";
 import { conRegistro } from "@/server/registro-de-cambios";
 import { generarPerfil } from "@/server/ai/generador/generar";
+import { opcionesDeGeneracion } from "@/server/ai/generador/fuentes";
 import { leerFicha, serializarComoEstaba } from "@/server/ai/generador/leer-ficha";
 import {
   MODALIDAD_DOMICILIO,
@@ -68,6 +69,9 @@ const filas = await db
     // la comparación de abajo recompila un prompt con el menú dentro y
     // "detecta" un cambio que no existe.
     catalogSource: schema.agentProfile.catalogSource,
+    paymentSource: schema.agentProfile.paymentSource,
+    deliverySource: schema.agentProfile.deliverySource,
+    menuMode: schema.agentProfile.menuMode,
   })
   .from(schema.agentProfile)
   .innerJoin(schema.organization, eq(schema.organization.id, schema.agentProfile.organizationId));
@@ -121,7 +125,7 @@ for (const fila of filas) {
    * turno—, así que lo esperable es que sean idénticos. Si no lo son, algo más
    * se coló aquí y hay que parar.
    */
-  const opciones = { catalogoEnTabla: fila.catalogSource === "tabla" };
+  const opciones = opcionesDeGeneracion(fila);
   const antes = generarPerfil(ficha, opciones);
   const despues = generarPerfil(fichaNueva, opciones);
   const promptIgual = antes.instructions === despues.instructions;

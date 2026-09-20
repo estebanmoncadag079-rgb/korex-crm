@@ -22,6 +22,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { generarPerfil } from "@/server/ai/generador/generar";
+import { opcionesDeGeneracion } from "@/server/ai/generador/fuentes";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
 import {
   aSecciones,
@@ -65,6 +66,9 @@ const perfiles = await db
     greeting: schema.agentProfile.greeting,
     escalationRules: schema.agentProfile.escalationRules,
     catalogSource: schema.agentProfile.catalogSource,
+    paymentSource: schema.agentProfile.paymentSource,
+    deliverySource: schema.agentProfile.deliverySource,
+    menuMode: schema.agentProfile.menuMode,
   })
   .from(schema.agentProfile)
   .innerJoin(
@@ -126,7 +130,7 @@ for (const p of perfiles) {
   }
 
   // 2) ¿El prompt recompilado es idéntico al guardado? (la prueba de fuego)
-  const opciones = { catalogoEnTabla: p.catalogSource === "tabla" };
+  const opciones = opcionesDeGeneracion(p);
   let recompilado;
   try {
     recompilado = generarPerfil(aplanar(v2), opciones);

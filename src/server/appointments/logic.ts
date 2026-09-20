@@ -11,6 +11,7 @@
  */
 
 import { horaAMinutos } from "@/lib/hora";
+import { franjaDelDia, type FranjaDelDia, type HorarioSemanal } from "@/server/horario";
 
 const BUSINESS_TIMEZONE = "America/Bogota";
 
@@ -22,19 +23,22 @@ export type ServiceRow = {
   durationMin: number;
 };
 
-export type BusinessHours = {
-  open: string | null;
-  close: string | null;
-  days: string | null;
-  /**
-   * Horario propio del domingo (opcional), solo leído por `businessStatus` /
-   * `abreMasTardeHoy` en @/server/ai/prompts — el motor de citas de este
-   * archivo lo ignora, el domingo sigue funcionando aquí como cualquier otro
-   * día de `days`.
-   */
-  openSunday?: string | null;
-  closeSunday?: string | null;
-};
+/**
+ * El horario del negocio, **en su forma canónica** (ver `@/server/horario`).
+ *
+ * Hasta el 20-sep-2026 esto era `{ open, close, days, openSunday, closeSunday }`:
+ * una franja común para toda la semana, una lista de días por su lado y el
+ * domingo como caso aparte. Tenía dos consecuencias, y las dos se pagaron:
+ *
+ *   - los días y las franjas podían contradecirse (el incidente de Lis), y
+ *   - **un negocio no podía tener horarios distintos por día** — algo que la
+ *     agenda de citas necesita de verdad: sábado hasta las 14:00 es lo normal
+ *     en un salón, y aquí se ofrecían huecos hasta las 19:00.
+ *
+ * Ahora es un alias del modelo por día. Se conserva el nombre porque es el
+ * que atraviesa todo el motor de citas y renombrarlo no añadiría nada.
+ */
+export type BusinessHours = HorarioSemanal;
 
 /** Una cita existente, ya reducida a minutos-desde-medianoche en hora de Colombia. */
 export type CitaDelDia = { recursoId: string; startMin: number; endMin: number };
@@ -207,12 +211,12 @@ export function normalizarFecha(texto: string): string | null {
   return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
 }
 
-function diasHabiles(hours: BusinessHours): number[] {
-  return (hours.days ?? "1,2,3,4,5,6,7")
-    .split(",")
-    .map((d) => Number(d.trim()))
-    .filter((d) => d >= 1 && d <= 7);
-}
+/*
+ * `diasHabiles` desaparece: era la tercera copia de "qué días abre este
+ * negocio" —había otra en `prompts.ts` y otra en `businessStatus`— y cada
+ * copia con su propio criterio para el domingo. Ahora se pregunta a
+ * `diasAbiertos`/`franjaDelDia`, que es el único sitio que lo sabe.
+ */
 
 /** Año/mes/día/día-de-semana (1=lunes…7=domingo) de una fecha, en hora de Colombia. */
 export function partesEnNegocio(
@@ -275,7 +279,9 @@ export function esFechaValida(
   const p = partesDeFecha(fecha);
   if (!p) return false;
   const dow = diaDeSemana(fecha);
-  if (dow === null || !diasHabiles(hours).includes(dow)) return false;
+  // Un día sin franja está cerrado. No hay lista de días que consultar aparte:
+  // esa separación es la que dejó a Lis abierta un domingo desmarcado.
+  if (dow === null || !franjaDelDia(hours, dow)) return false;
 
   const hoy = partesEnNegocio(now);
   if (p.y < hoy.y) return false;
@@ -365,20 +371,28 @@ export function calcularDisponibilidad(input: {
   recursoIds: string[];
   citas: CitaDelDia[];
   duracionMin: number;
-  hours: BusinessHours;
+  /**
+   * La franja **de ese día concreto**, ya resuelta, o `null` si está cerrado.
+   *
+   * Antes esto recibía el horario entero y usaba su franja común para
+   * cualquier día — así que un negocio con sábado corto ofrecía huecos hasta
+   * la hora de cierre entre semana. La resuelve quien conoce la fecha
+   * (`disponibilidadReal`), que es quien puede.
+   */
+  franja: FranjaDelDia | null;
   esHoy: boolean;
   minutosAhoraSiEsHoy?: number;
 }): Record<string, string[]> {
-  if (!input.hours.open || !input.hours.close) return {};
-  const open = horaAMin(input.hours.open);
-  const close = horaAMin(input.hours.close);
+  if (!input.franja) return {};
+  const open = horaAMin(input.franja.abre);
+  const close = horaAMin(input.franja.cierra);
   // Un horario que no se entiende no puede pasar por "sin huecos": es
   // indistinguible de una agenda llena, y así se rechazaron citas durante dos
   // días con el salón vacío. Sin huecos que ofrecer no hay nada que hacer, pero
   // que quede dicho en el log en vez de fingir normalidad.
   if (open === null || close === null) {
     console.warn(
-      `[citas] horario ilegible (abre "${input.hours.open}", cierra "${input.hours.close}"): no se puede calcular disponibilidad`
+      `[citas] horario ilegible (abre "${input.franja.abre}", cierra "${input.franja.cierra}"): no se puede calcular disponibilidad`
     );
     return {};
   }

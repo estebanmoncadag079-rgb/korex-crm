@@ -21,6 +21,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { generarPerfil } from "@/server/ai/generador/generar";
+import { opcionesDeGeneracion } from "@/server/ai/generador/fuentes";
 import {
   aSecciones,
   camposSinDueño,
@@ -71,6 +72,12 @@ async function estado() {
       enabled: schema.agentProfile.enabled,
       appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
       catalogSource: schema.agentProfile.catalogSource,
+      // Todas las fuentes, no solo el catálogo: si este script recompila con
+      // menos de las que el cliente tiene encendidas, "detecta" una
+      // diferencia que no existe y aborta una conversión sana.
+      paymentSource: schema.agentProfile.paymentSource,
+      deliverySource: schema.agentProfile.deliverySource,
+      menuMode: schema.agentProfile.menuMode,
     })
     .from(schema.agentProfile)
     .innerJoin(
@@ -114,9 +121,7 @@ if (revertir) {
   const despues = await estado();
   const igualFicha = despues!.ficha === original;
   const fichaRestaurada = leerFicha(despues!.ficha);
-  const perfil = generarPerfil(fichaRestaurada!, {
-    catalogoEnTabla: despues!.catalogSource === "tabla",
-  });
+  const perfil = generarPerfil(fichaRestaurada!, opcionesDeGeneracion(despues!));
   const igualPrompt = perfil.instructions === antes.instructions;
 
   console.log(`\nficha restaurada byte a byte : ${igualFicha ? "✅" : "🔴"}`);
@@ -149,9 +154,7 @@ const contenidoIgual =
   JSON.stringify(fichaDespues, Object.keys(fichaAntes).sort());
 
 // Regla 1: el prompt COMPLETO, no su longitud.
-const perfil = generarPerfil(fichaDespues, {
-  catalogoEnTabla: antes.catalogSource === "tabla",
-});
+const perfil = generarPerfil(fichaDespues, opcionesDeGeneracion(antes));
 const comprobacion = verificarAntesDeMigrar(
   {
     instructions: antes.instructions,
@@ -216,9 +219,7 @@ await db
 // Y se vuelve a comprobar leyendo de la base, que es lo único que cuenta.
 const despues = await estado();
 const releida = leerFicha(despues!.ficha)!;
-const perfilFinal = generarPerfil(releida, {
-  catalogoEnTabla: despues!.catalogSource === "tabla",
-});
+const perfilFinal = generarPerfil(releida, opcionesDeGeneracion(despues!));
 const finalOk =
   perfilFinal.instructions === antes.instructions &&
   despues!.instructions === antes.instructions &&

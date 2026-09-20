@@ -43,12 +43,20 @@ type Ficha = {
   ubicacion?: string;
   vertical?: "pedidos" | "citas";
   horario?: {
+    /**
+     * CANÓNICO: un día está abierto si —y solo si— tiene su franja aquí.
+     * Ver `@/server/horario`. El resto de campos son su proyección y los
+     * recalcula el servidor al guardar; esta pantalla no los escribe.
+     */
+    porDia?: Record<string, { abre: string; cierra: string }>;
     dias: number[];
     abre: string;
     cierra: string;
     abreDomingo?: string;
     cierraDomingo?: string;
   };
+  /** Contexto libre sobre el horario. No decide nada (ver `@/server/horario`). */
+  observacionesHorario?: string;
   catalogo?: string;
   /** Solo citas: duración por defecto de los servicios que no traigan la suya. */
   duracionTipicaMin?: number;
@@ -88,6 +96,8 @@ type Ficha = {
    */
   cierre?: { requisitos?: { id: string }[]; pagoAntesDeLaCita?: boolean };
 };
+
+const NOMBRE_LARGO = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
 const DIAS = [
   { n: 1, nombre: "Lun" },
@@ -441,6 +451,95 @@ export function OnboardingWizard() {
     setGuardando(false);
   }, []);
 
+  /**
+   * El horario, en su forma canónica: un día está abierto si tiene franja.
+   *
+   * Se lee de `porDia` y, mientras queden fichas sin migrar, se deriva de los
+   * campos viejos — así un cliente que abra su cuestionario antes de la
+   * migración ve sus días marcados igual.
+   */
+  const porDia: Record<string, { abre: string; cierra: string }> = (() => {
+    const h = ficha.horario;
+    if (!h) return {};
+    if (h.porDia) return h.porDia;
+    const comun = { abre: h.abre ?? "", cierra: h.cierra ?? "" };
+    const domingo =
+      h.abreDomingo && h.cierraDomingo
+        ? { abre: h.abreDomingo, cierra: h.cierraDomingo }
+        : null;
+    const salida: Record<string, { abre: string; cierra: string }> = {};
+    for (const d of h.dias ?? []) {
+      // Ojo: la franja de domingo solo cuenta si el domingo está entre los
+      // días. Al revés fue el fallo que originó todo esto.
+      salida[String(d)] = d === 7 ? (domingo ?? comun) : comun;
+    }
+    return salida;
+  })();
+
+  const diasMarcados = DIAS.map((d) => d.n).filter((n) => porDia[String(n)]);
+
+  /**
+   * Días marcados a los que les falta la hora, o la tienen ilegible.
+   *
+   * Sin esto el día se marcaba, se guardaba y **desaparecía en silencio**: el
+   * servidor descarta una franja que no sabe leer, así que el negocio se
+   * quedaba cerrado ese día creyendo que lo había configurado (H-1 de la
+   * auditoría del 20-sep-2026). El servidor ya lo rechaza; aquí se ve antes,
+   * que es donde se puede arreglar.
+   */
+  const horaLegible = (v: string) => /^\s*\d{1,2}\s*:\s*\d{2}\s*$/.test(v);
+  const diasSinHora = diasMarcados.filter((n) => {
+    const f = porDia[String(n)];
+    return !f || !horaLegible(f.abre) || !horaLegible(f.cierra);
+  });
+
+  /** Escribe el canónico. Los derivados los recalcula el servidor al guardar. */
+  const guardarPorDia = (nuevo: Record<string, { abre: string; cierra: string }>) => {
+    const dias = DIAS.map((d) => d.n).filter((n) => nuevo[String(n)]);
+    const primero = dias[0] ? nuevo[String(dias[0])] : undefined;
+    set({
+      horario: {
+        porDia: nuevo,
+        // Se mandan también los derivados para que un servidor que todavía no
+        // conozca `porDia` no reciba una ficha a medias. Al guardar se
+        // recalculan desde el canónico, así que nunca mandan.
+        dias,
+        abre: primero?.abre ?? "",
+        cierra: primero?.cierra ?? "",
+      },
+    });
+  };
+
+  /**
+   * Marcar o desmarcar un día. Desmarcar BORRA su franja: no queda un horario
+   * huérfano que luego abra el día por su cuenta.
+   */
+  const alternarDia = (n: number) => {
+    const copia = { ...porDia };
+    if (copia[String(n)]) {
+      delete copia[String(n)];
+    } else {
+      const modelo = diasMarcados[0] ? porDia[String(diasMarcados[0])] : undefined;
+      copia[String(n)] = { abre: modelo?.abre ?? "", cierra: modelo?.cierra ?? "" };
+    }
+    guardarPorDia(copia);
+  };
+
+  const ponerFranja = (n: number, cambio: { abre?: string; cierra?: string }) => {
+    const actual = porDia[String(n)];
+    if (!actual) return;
+    guardarPorDia({ ...porDia, [String(n)]: { ...actual, ...cambio } });
+  };
+
+  const copiarFranjaATodos = () => {
+    const modelo = diasMarcados[0] ? porDia[String(diasMarcados[0])] : undefined;
+    if (!modelo) return;
+    const copia: Record<string, { abre: string; cierra: string }> = {};
+    for (const n of diasMarcados) copia[String(n)] = { ...modelo };
+    guardarPorDia(copia);
+  };
+
+
   const etapas = [
     {
       titulo: "Tu negocio",
@@ -500,71 +599,94 @@ export function OnboardingWizard() {
     },
     {
       titulo: "Tu horario",
-      subtitulo: "El asistente no ofrece nada fuera de tu horario.",
+      subtitulo: "Marca los días que atiendes y a qué hora. El asistente no ofrece nada fuera de esto.",
       contenido: (
         <>
-          <Campo titulo="¿Qué días atiendes?">
-            <div className="flex flex-wrap gap-2">
+          <Campo
+            titulo="¿Qué días atiendes y en qué horario?"
+            ayuda="Un día sin marcar está CERRADO: el asistente no tomará pedidos ni citas ese día. Cada día puede tener su propio horario."
+          >
+            <div className="space-y-2">
               {DIAS.map((d) => {
-                const activos = ficha.horario?.dias ?? [];
-                const on = activos.includes(d.n);
+                const franja = porDia[String(d.n)];
+                const abierto = Boolean(franja);
                 return (
-                  <Button
+                  <div
                     key={d.n}
-                    type="button"
-                    size="sm"
-                    variant={on ? "default" : "outline"}
-                    onClick={() =>
-                      set({
-                        horario: {
-                          ...(ficha.horario ?? { dias: [], abre: "", cierra: "" }),
-                          dias: on
-                            ? activos.filter((x) => x !== d.n)
-                            : [...activos, d.n].sort(),
-                        },
-                      })
-                    }
+                    className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 px-3 py-2"
                   >
-                    {d.nombre}
-                  </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={abierto ? "default" : "outline"}
+                      className="w-[104px] justify-start"
+                      aria-pressed={abierto}
+                      onClick={() => alternarDia(d.n)}
+                    >
+                      {abierto ? "☑" : "☐"} {d.nombre}
+                    </Button>
+                    {franja ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          className={`w-[92px] ${horaLegible(franja.abre) ? "" : "border-destructive"}`}
+                          placeholder="10:00"
+                          aria-label={`Hora de apertura del ${d.nombre}`}
+                          aria-invalid={!horaLegible(franja.abre)}
+                          value={franja.abre}
+                          onChange={(e) => ponerFranja(d.n, { abre: e.target.value })}
+                        />
+                        <span className="text-muted-foreground text-[13px]">a</span>
+                        <Input
+                          className={`w-[92px] ${horaLegible(franja.cierra) ? "" : "border-destructive"}`}
+                          placeholder="19:00"
+                          aria-label={`Hora de cierre del ${d.nombre}`}
+                          aria-invalid={!horaLegible(franja.cierra)}
+                          value={franja.cierra}
+                          onChange={(e) => ponerFranja(d.n, { cierra: e.target.value })}
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-[13px] text-muted-foreground">Cerrado</span>
+                    )}
+                  </div>
                 );
               })}
             </div>
           </Campo>
-          <div className="grid grid-cols-2 gap-4">
-            <Campo titulo="Abres a las" ejemplo="09:00">
-              <Input
-                placeholder="09:00"
-                value={ficha.horario?.abre ?? ""}
-                onChange={(e) =>
-                  set({
-                    horario: {
-                      ...(ficha.horario ?? { dias: [], abre: "", cierra: "" }),
-                      abre: e.target.value,
-                    },
-                  })
-                }
-              />
-            </Campo>
-            <Campo titulo="Cierras a las" ejemplo="19:00">
-              <Input
-                placeholder="19:00"
-                value={ficha.horario?.cierra ?? ""}
-                onChange={(e) =>
-                  set({
-                    horario: {
-                      ...(ficha.horario ?? { dias: [], abre: "", cierra: "" }),
-                      cierra: e.target.value,
-                    },
-                  })
-                }
-              />
-            </Campo>
-          </div>
+          {diasSinHora.length ? (
+            <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              Falta la hora de:{" "}
+              {diasSinHora.map((n) => NOMBRE_LARGO[n - 1]).join(", ")}. Escríbela como
+              10:00 y 19:00, o desmarca el día si ese día no atiendes — un día marcado
+              sin hora no se puede guardar.
+            </p>
+          ) : null}
+          {diasMarcados.length > 1 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={copiarFranjaATodos}
+            >
+              Aplicar el horario del {NOMBRE_LARGO[diasMarcados[0]! - 1]} a todos los días marcados
+            </Button>
+          ) : null}
           <p className="text-[13px] text-muted-foreground">
-            ¿El domingo tienes un horario distinto? Déjalo en la última etapa, en
-            &ldquo;algo más que debamos saber&rdquo;.
+            ¿El domingo abres a otra hora? Márcalo y ponle su horario aquí mismo — ya no
+            hay que escribirlo en ningún otro sitio.
           </p>
+          <Campo
+            titulo="Información adicional sobre tus horarios (opcional)"
+            ayuda="Para lo que las casillas de arriba no saben decir. Esto lo puede contar el asistente, pero NO cambia cuándo atiende: eso lo deciden los días y horas marcados arriba."
+            ejemplo="Recibimos pedidos por WhatsApp desde las 10:00, pero el local abre al público a la 1:00 p. m."
+          >
+            <Textarea
+              rows={3}
+              placeholder="Ej: el local abre más tarde que el WhatsApp; los festivos cerramos antes…"
+              value={ficha.observacionesHorario ?? ""}
+              onChange={(e) => set({ observacionesHorario: e.target.value })}
+            />
+          </Campo>
         </>
       ),
     },
@@ -1090,7 +1212,11 @@ export function OnboardingWizard() {
           )}
         </Button>
         {ultima ? (
-          <Button type="button" onClick={() => void terminar()} disabled={guardando}>
+          <Button
+            type="button"
+            onClick={() => void terminar()}
+            disabled={guardando || diasSinHora.length > 0}
+          >
             {guardando ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -1101,6 +1227,13 @@ export function OnboardingWizard() {
         ) : (
           <Button
             type="button"
+            /*
+             * No se avanza con un día marcado sin hora. Guardar el borrador
+             * así no rompe nada —es un avance a medias—, pero dejar pasar la
+             * etapa hace que la persona se olvide, y al terminar el servidor
+             * rechaza con un mensaje que ya no sabe a qué día pertenece.
+             */
+            disabled={diasSinHora.length > 0}
             onClick={() => {
               void guardar(ficha);
               setEtapa((e) => e + 1);

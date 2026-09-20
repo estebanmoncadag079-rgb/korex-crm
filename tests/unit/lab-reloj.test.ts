@@ -13,15 +13,16 @@ import { describe, expect, it } from "vitest";
  */
 
 import { businessStatus, horaHabilDePrueba } from "@/server/ai/prompts";
+import { horarioSemanalDesdeLegacy } from "@/server/horario";
 
 /** Churrería: abre todos los días de 12:30 a 20:30 (hora de Bogotá). */
-const DIURNO = { open: "12:30", close: "20:30", days: "1,2,3,4,5,6,7" };
+const DIURNO = horarioSemanalDesdeLegacy({ abre: "12:30", cierra: "20:30", dias: "1,2,3,4,5,6,7" });
 
 /** Bar: cruza la medianoche, 18:00 → 02:00. */
-const NOCTURNO = { open: "18:00", close: "02:00", days: "1,2,3,4,5,6,7" };
+const NOCTURNO = horarioSemanalDesdeLegacy({ abre: "18:00", cierra: "02:00", dias: "1,2,3,4,5,6,7" });
 
 /** Solo de lunes a viernes: el sábado hay que saltar hasta el lunes. */
-const ENTRE_SEMANA = { open: "09:00", close: "17:00", days: "1,2,3,4,5" };
+const ENTRE_SEMANA = horarioSemanalDesdeLegacy({ abre: "09:00", cierra: "17:00", dias: "1,2,3,4,5" });
 
 /** Instante UTC a partir de una hora local de Bogotá (UTC-5, sin DST). */
 function bogota(iso: string): Date {
@@ -77,7 +78,8 @@ describe("horaHabilDePrueba", () => {
 
   it("sin horario configurado devuelve el ahora tal cual", () => {
     const ahora = bogota("2026-07-28T03:00:00");
-    const sinHorario = { open: null, close: null, days: null };
+    // Sin ningún día con franja: eso ES "sin horario configurado".
+    const sinHorario = {};
     expect(horaHabilDePrueba(sinHorario, ahora)).toBe(ahora);
   });
 });

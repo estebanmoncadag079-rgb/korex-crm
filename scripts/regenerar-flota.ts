@@ -28,6 +28,7 @@ import * as schema from "@/lib/db/schema";
 import type { Fila } from "@/server/ai/generador/comparar-fila";
 import { conRegistro } from "@/server/registro-de-cambios";
 import { generarPerfil } from "@/server/ai/generador/generar";
+import { opcionesDeGeneracion } from "@/server/ai/generador/fuentes";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 
 function envVar(name: string): string | undefined {
@@ -74,10 +75,20 @@ const perfiles = await db
     nombre: schema.organization.name,
     ficha: schema.agentProfile.ficha,
     instructions: schema.agentProfile.instructions,
-    // Quien ya tiene su catálogo en tablas NO debe llevarlo también en el
-    // prompt: serían dos fuentes del mismo dato y la primera en quedarse vieja.
+    /*
+     * Las columnas que deciden qué puede ir en el prompt, TODAS.
+     *
+     * Aquí faltaban `payment_source` y `delivery_source`, y ese olvido es lo
+     * que convertía este script en el que deshacía las migraciones: La Churra
+     * quedó en 13.837 caracteres tras `migrar:pago` y regenerar la devolvía a
+     * 14.023, reponiendo el bloque de pago que ya inyecta el pipeline.
+     * Traducirlas es cosa de `opcionesDeGeneracion`, no de este script.
+     */
     catalogSource: schema.agentProfile.catalogSource,
+    paymentSource: schema.agentProfile.paymentSource,
+    deliverySource: schema.agentProfile.deliverySource,
     menuMode: schema.agentProfile.menuMode,
+    appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
   })
   .from(schema.agentProfile)
   .innerJoin(
@@ -133,10 +144,7 @@ for (const p of perfiles) {
 
   let perfil;
   try {
-    perfil = generarPerfil(ficha, {
-      catalogoEnTabla: p.catalogSource === "tabla",
-      menuGuiado: p.menuMode === "guiado",
-    });
+    perfil = generarPerfil(ficha, opcionesDeGeneracion(p));
   } catch (err) {
     // `faltantesDeLaFicha` frena antes de romper: mejor dejar el prompt viejo
     // que escribir uno al que le falta lo esencial.

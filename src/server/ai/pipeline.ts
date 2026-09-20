@@ -68,6 +68,7 @@ import {
   catalogoDePedidos as catalogoDePedidosQuery,
   type ProductoDelCatalogo,
 } from "@/server/catalog/queries";
+import { horarioDeLaFila } from "@/server/horario";
 /**
  * Feature 003-backend-como-autoridad, T013/T014 — el motor de operaciones
  * (T001-T011, ya probado sin este archivo): un módulo por vertical, sin
@@ -1036,13 +1037,13 @@ export async function runAgentTurn(
 
   // El estado se calcula UNA vez y sirve para dos cosas: curar el historial que
   // ve el agente y comprobar después lo que quiere responder.
-  const hours: BusinessHours = {
-    open: profile.hoursOpen,
-    close: profile.hoursClose,
-    days: profile.hoursDays,
-    openSunday: profile.hoursOpenSunday,
-    closeSunday: profile.hoursCloseSunday,
-  };
+  /*
+   * El horario CANÓNICO de este negocio: la ficha manda y las columnas
+   * `hours_*` solo se miran cuando no hay ficha (ver `@/server/horario`).
+   * Leerlo aquí una vez es lo que hace que el prompt, el motor de citas y el
+   * estado del negocio no puedan discrepar entre sí.
+   */
+  const hours: BusinessHours = horarioDeLaFila(profile);
   const estado = businessStatus(hours, opts?.now);
 
   /**
@@ -4956,7 +4957,9 @@ async function guardarEstadoPropuesto(entrada: {
         servicios: entrada.servicios ?? [],
         staff,
         requisitos: entrada.requisitos ?? [],
-        hours: entrada.hours ?? { open: null, close: null, days: null },
+        // Sin horario = ningún día abierto: el motor rechaza la fecha en
+        // vez de agendar a ciegas.
+        hours: entrada.hours ?? {},
         now: entrada.now,
       };
       const lote = await aplicarOperacionesCitas(estadoBase, parse.data, contexto);

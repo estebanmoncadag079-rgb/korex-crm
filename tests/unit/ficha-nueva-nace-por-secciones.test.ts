@@ -23,6 +23,7 @@ const FICHA: Required<FichaDelNegocio> = {
   queVende: "Vende cosas.",
   ubicacion: "Una dirección",
   horario: { abre: "09:00", cierra: "18:00", dias: [1, 2, 3, 4, 5] },
+  observacionesHorario: "El local abre una hora más tarde que el WhatsApp.",
   vertical: "pedidos",
   catalogo: "Algo — $10.000",
   duracionTipicaMin: 30,

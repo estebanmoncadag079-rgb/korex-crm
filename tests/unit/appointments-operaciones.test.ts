@@ -4,6 +4,7 @@ import { estadoVacio, type EstadoDelPedido } from "@/server/orders/estado";
 import type { ServiceRow, BusinessHours } from "@/server/appointments/logic";
 import type { StaffRow } from "@/server/appointments/queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
+import { horarioSemanalDesdeLegacy } from "@/server/horario";
 
 /**
  * T011 — feature 003-backend-como-autoridad. Sin LLM y sin base real:
@@ -32,7 +33,7 @@ const STAFF = [VALENTINA, CAMILA];
 // `aplicarOperacion`/`aplicarOperaciones`, no `esFechaValida` (función pura,
 // ya existente, sin cambios) — abrir siempre evita que la fecha elegida para
 // cada test dependa de en qué día de la semana cae.
-const HOURS: BusinessHours = { open: "09:00", close: "18:00", days: "1,2,3,4,5,6,7" };
+const HOURS: BusinessHours = horarioSemanalDesdeLegacy({ abre: "09:00", cierra: "18:00", dias: "1,2,3,4,5,6,7" });
 const AHORA = new Date("2026-01-01T15:00:00.000Z");
 const FECHA_FUTURA = "15/01/2026";
 

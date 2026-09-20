@@ -18,6 +18,12 @@
  */
 
 import { normalizarHora } from "@/lib/hora";
+import {
+  diasDeclaradosSinHoraValida,
+  horarioCanonico,
+  NOMBRE_DEL_DIA,
+  sinHorarioConfigurado,
+} from "@/server/horario";
 
 /**
  * Un dato que el negocio necesita reunir antes de cerrar.
@@ -196,12 +202,47 @@ export type Pago = {
   compruebaUnaPersona: boolean;
 };
 
-/** Cuándo atiende. Los días son 1=lunes … 7=domingo. */
+/**
+ * Cuándo atiende. Los días son 1=lunes … 7=domingo.
+ *
+ * ## `porDia` es el CANÓNICO; el resto son derivados suyos
+ *
+ * Hasta el 20-sep-2026 esto eran dos datos sueltos —una lista de días y una
+ * franja común, más la de domingo aparte— y **podían contradecirse**. Le pasó
+ * a Lis: desmarcó el domingo (`dias` sin el 7) y su franja de domingo se
+ * quedó puesta; el resolutor miraba la franja antes que los días y el bot
+ * siguió ofreciendo servicio el domingo. Desmarcar el día no desmarcaba nada.
+ *
+ * Ahora cada día **es** su franja, o no está:
+ *
+ * ```json
+ * "porDia": { "1": {"abre":"10:00","cierra":"19:00"}, "7": {"abre":"14:00","cierra":"19:00"} }
+ * ```
+ *
+ * Un "domingo cerrado con horario de domingo" ya no es representable.
+ *
+ * `dias`, `abre`, `cierra`, `abreDomingo` y `cierraDomingo` **siguen aquí y
+ * siguen siendo obligatorios**, pero como PROYECCIÓN: los reescribe entero
+ * `horarioNormalizado()` en cada guardado, desde `porDia`. Existen para que el
+ * código ya desplegado —que no conoce `porDia`— siga leyendo algo coherente
+ * mientras dura la migración. Nunca se leen como autoridad: `horarioCanonico()`
+ * los ignora en cuanto hay `porDia`, y `pnpm auditar:arquitectura` marca FAIL
+ * si discrepan (ver `@/server/horario`).
+ */
 export type Horario = {
+  /**
+   * CANÓNICO. Clave = día (1=lunes … 7=domingo) en texto, porque esto viaja
+   * como JSON. **Un día ausente está CERRADO.** Opcional solo mientras queden
+   * fichas sin migrar; en cuanto se guarda, siempre está.
+   */
+  porDia?: Record<string, { abre: string; cierra: string }>;
+  /** DERIVADO de `porDia`. Los días abiertos. */
   dias: number[];
+  /** DERIVADO de `porDia`. La franja más repetida. */
   abre: string;
+  /** DERIVADO de `porDia`. */
   cierra: string;
-  /** Si el domingo (u otro día) tiene horario propio. */
+  /** DERIVADO de `porDia`. Solo si el domingo abre Y su franja es distinta. */
   abreDomingo?: string;
   cierraDomingo?: string;
 };
@@ -221,6 +262,22 @@ export type FichaDelNegocio = {
   /** Ciudad, barrio y dirección si aplica. */
   ubicacion?: string;
   horario: Horario;
+  /**
+   * Lo que el negocio quiera explicar sobre sus horarios y que `horario` no
+   * sabe expresar. **Contexto para el cliente, nunca una regla.**
+   *
+   * El caso que lo pidió (Lis): *"Atendemos pedidos por WhatsApp desde las
+   * 10:00 a. m., pero el punto físico abre al público desde la 1:00 p. m."*.
+   * Su horario operativo es el de WhatsApp —es el canal que atiende el
+   * agente— y el del local no cabe en `porDia` sin inventar un segundo
+   * horario estructurado que luego pediría un tercero y un cuarto.
+   *
+   * ⚠️ **Vive aquí y no dentro de `horario` a propósito**: `horarioNormalizado`
+   * reescribe ese objeto entero en cada guardado, así que un campo hermano
+   * suyo se borraría solo. Y `businessStatus` no puede leerlo ni queriendo:
+   * solo acepta `HorarioSemanal` (ver `@/server/horario`).
+   */
+  observacionesHorario?: string;
 
   /**
    * El vertical. Cambia qué puede hacer el agente:
@@ -345,9 +402,25 @@ export function faltantesDeLaFicha(ficha: Partial<FichaDelNegocio>): string[] {
   if (!ficha.nombre?.trim()) faltan.push("el nombre del negocio");
   if (!ficha.queVende?.trim()) faltan.push("qué vende o qué servicio ofrece");
   if (!ficha.tono?.trim()) faltan.push("el tono con el que habla");
-  if (!ficha.horario?.dias?.length) faltan.push("los días que atiende");
+  /*
+   * Se valida sobre el CANÓNICO, no sobre los derivados: una ficha ya migrada
+   * trae `porDia` y podría traer los campos viejos vacíos sin que eso sea un
+   * error. `horarioCanonico` entiende las dos formas.
+   */
+  const horarioDeLaFicha = horarioCanonico(ficha.horario);
+  if (sinHorarioConfigurado(horarioDeLaFicha)) {
+    faltan.push("los días que atiende");
+  }
+  /*
+   * Un día marcado al que le faltan las horas se NOMBRA, no se descarta.
+   * Antes desaparecía en silencio y el negocio se quedaba cerrado ese día
+   * creyendo que lo había configurado (H-1, auditoría del 20-sep-2026).
+   */
+  for (const d of diasDeclaradosSinHoraValida(ficha.horario)) {
+    faltan.push(`las horas del ${NOMBRE_DEL_DIA[d]} (está marcado pero sin horario legible)`);
+  }
   if (!ficha.horario?.abre || !ficha.horario?.cierra) {
-    faltan.push("el horario");
+    if (sinHorarioConfigurado(horarioDeLaFicha)) faltan.push("el horario");
   } else if (
     // Una hora que el servidor no sabe leer es peor que no tenerla: con las
     // citas encendidas, la agenda queda vacía de huecos y el agente rechaza

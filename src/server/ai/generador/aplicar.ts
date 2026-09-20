@@ -2,7 +2,13 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
-import { normalizarHora } from "@/lib/hora";
+import {
+  columnasDesdeHorario,
+  horarioCanonico,
+  horarioNormalizado,
+  horarioSemanalDesdeLegacy,
+  sinHorarioConfigurado,
+} from "@/server/horario";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "./ficha";
 import { verticalDe } from "@/server/vertical";
 import {
@@ -12,6 +18,7 @@ import {
   type Seccion,
 } from "./leer-ficha";
 import { generarPerfil } from "./generar";
+import { opcionesDeGeneracion, type OpcionesDeGeneracion } from "./fuentes";
 import type { Fila } from "./comparar-fila";
 import { conRegistro, type Actor } from "@/server/registro-de-cambios";
 
@@ -167,6 +174,33 @@ export async function leerBorrador(
 }
 
 /**
+ * Las fuentes de autoridad de un cliente, ya traducidas a opciones del
+ * generador.
+ *
+ * Existe para que **la vista previa de /admin enseñe el prompt que de verdad
+ * se va a guardar**. Hasta el 20-sep-2026 la vista previa solo pasaba el
+ * vertical: a un cliente con `catalog_source='tabla'` le mostraba un prompt
+ * con la carta dentro que después no se guardaba así. Un sitio donde se
+ * revisa un prompt antes de aplicarlo es justo donde no puede mentir.
+ */
+export async function fuentesDelCliente(
+  organizationId: string
+): Promise<OpcionesDeGeneracion> {
+  const [fila] = await getDb()
+    .select({
+      catalogSource: schema.agentProfile.catalogSource,
+      paymentSource: schema.agentProfile.paymentSource,
+      deliverySource: schema.agentProfile.deliverySource,
+      menuMode: schema.agentProfile.menuMode,
+      appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
+    })
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId))
+    .limit(1);
+  return opcionesDeGeneracion(fila ?? {});
+}
+
+/**
  * Aplica la ficha sobre una organización que ya existe.
  *
  * La organización y su dueño se crean antes con `createClientWithOwner`, que ya
@@ -230,19 +264,26 @@ export async function aplicarFicha(
   const guardada = await db
     .select({
       ficha: schema.agentProfile.ficha,
+      // Las cuatro columnas que deciden qué puede escribirse en el prompt. Se
+      // leen JUNTAS y se traducen en un solo sitio (`opcionesDeGeneracion`):
+      // leerlas sueltas es lo que dejó a `payment_source` ignorado durante
+      // semanas mientras `migrar:pago` limpiaba y el generador reponía.
       catalogSource: schema.agentProfile.catalogSource,
+      paymentSource: schema.agentProfile.paymentSource,
+      deliverySource: schema.agentProfile.deliverySource,
       menuMode: schema.agentProfile.menuMode,
+      // Las columnas del horario, para NO borrarlas si la ficha fusionada se
+      // quedara sin él (ver `canonico` más abajo).
+      hoursDays: schema.agentProfile.hoursDays,
       hoursOpen: schema.agentProfile.hoursOpen,
       hoursClose: schema.agentProfile.hoursClose,
+      hoursOpenSunday: schema.agentProfile.hoursOpenSunday,
+      hoursCloseSunday: schema.agentProfile.hoursCloseSunday,
     })
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
   const fichaCruda = guardada[0]?.ficha ?? null;
-  /** Con horario ya puesto, esto es un reenvío: no se toca. */
-  const horarioYaConfigurado = Boolean(
-    guardada[0]?.hoursOpen?.trim() && guardada[0]?.hoursClose?.trim()
-  );
 
   const { ficha: fichaFusionada, conservadas } = fusionarFicha(
     fichaCruda,
@@ -280,12 +321,55 @@ export async function aplicarFicha(
       ? undefined
       : `La ficha decía «${fichaFusionada.vertical}» y este negocio tiene contratado «${contratado}». ` +
         "Manda lo contratado: se corrigió la ficha. Si es un error, cámbialo en /admin.";
-  /** La ficha con su copia del vertical ya corregida. */
-  const ficha = { ...fichaFusionada, vertical: contratado };
+  /**
+   * La ficha con su copia del vertical corregida **y el horario normalizado**.
+   *
+   * Normalizar aquí, en cada guardado, es lo que impide que el canónico
+   * (`horario.porDia`) y sus derivados (`dias`, `abre`, `abreDomingo`) se
+   * separen. Antes eran datos independientes y se separaron: Lis desmarcó el
+   * domingo y su franja de domingo se quedó puesta, abriendo un día que ella
+   * había cerrado (ver `@/server/horario`).
+   */
+  /*
+   * El horario canónico que se va a guardar.
+   *
+   * Si la ficha fusionada se quedara SIN horario, no se borra el que el
+   * negocio ya tenía: se conserva el de las columnas. La combinación que lo
+   * exige es real aunque rara — un llamante que no puede escribir la sección
+   * `negocio` hereda el horario guardado, y si ese estuviera vacío mientras
+   * las columnas sí tienen datos, recalcular a ciegas dejaría al cliente sin
+   * horario y al agente creyendo que siempre está abierto. Borrar un horario
+   * tiene que ser un acto explícito, nunca el efecto colateral de guardar
+   * otra cosa.
+   */
+  const deLaFicha = horarioCanonico(fichaFusionada.horario);
+  /*
+   * H-4 de la auditoría: la ficha que YA declaró su canónico manda, aunque
+   * declare cero días. `porDia: {}` es "cierro toda la semana", no un hueco
+   * — la misma semántica que `horarioDeLaFila`, y tenerla distinta aquí era
+   * una contradicción esperando a que alguien permitiera cerrar los 7 días.
+   */
+  const fichaYaDeclaroSuCanonico =
+    (fichaFusionada.horario as { porDia?: unknown } | undefined)?.porDia !== undefined;
+  const canonico = !fichaYaDeclaroSuCanonico && sinHorarioConfigurado(deLaFicha)
+    ? horarioSemanalDesdeLegacy({
+        dias: guardada[0]?.hoursDays ?? "",
+        abre: guardada[0]?.hoursOpen,
+        cierra: guardada[0]?.hoursClose,
+        abreDomingo: guardada[0]?.hoursOpenSunday,
+        cierraDomingo: guardada[0]?.hoursCloseSunday,
+      })
+    : deLaFicha;
+  const ficha = {
+    ...fichaFusionada,
+    vertical: contratado,
+    horario: horarioNormalizado(canonico),
+  };
 
   const perfil = generarPerfil(ficha, {
-    catalogoEnTabla: guardada[0]?.catalogSource === "tabla",
-    menuGuiado: guardada[0]?.menuMode === "guiado",
+    ...opcionesDeGeneracion(guardada[0] ?? {}),
+    // El vertical ya se resolvió arriba contra lo CONTRATADO, que es lo que
+    // manda; no hace falta que lo vuelva a derivar la traducción.
     vertical: contratado,
   });
 
@@ -323,10 +407,14 @@ export async function aplicarFicha(
         "ficha",
         "notifyPhones",
         "updatedAt",
-        // Solo en el alta; en un reenvío no deben cambiar y saltará la alarma.
-        ...(horarioYaConfigurado
-          ? []
-          : ["hoursDays", "hoursOpen", "hoursClose", "hoursOpenSunday", "hoursCloseSunday"]),
+        // Derivados del horario canónico: cambian cuando cambia la ficha, y
+        // eso es lo esperado. Si cambiaran SIN que cambie la ficha, saltaría
+        // la alarma — que es justo lo que hay que vigilar ahora.
+        "hoursDays",
+        "hoursOpen",
+        "hoursClose",
+        "hoursOpenSunday",
+        "hoursCloseSunday",
       ],
       proceso: "aplicarFicha",
       actor: opciones?.actor ?? "script:desconocido",
@@ -342,34 +430,26 @@ export async function aplicarFicha(
         escalationRules: perfil.escalationRules,
         greeting: perfil.greeting,
         /*
-         * EL HORARIO SOLO SE ESCRIBE EN EL ALTA.
+         * LAS COLUMNAS `hours_*` SE REESCRIBEN SIEMPRE, PORQUE YA NO MANDAN.
          *
-         * Las columnas `hours*` son la fuente canónica: las leen el pipeline,
-         * el prompt y el motor de citas. `ficha.horario` es lo que el cliente
-         * respondió el día del alta — un registro histórico, no un dato
-         * operativo.
+         * Hasta el 20-sep-2026 era al revés: las columnas eran la fuente y la
+         * ficha "un registro histórico", así que aquí había que congelarlas
+         * —reescribirlas en cada reenvío del cuestionario revirtió el horario
+         * del salón el 15-ago a las 19:46:41, de 9:30–18:30 a 9:00–20:00, sin
+         * que nada avisara—.
          *
-         * Reescribirlas en cada reenvío del cuestionario revirtió el horario
-         * del salón el 15-ago a las 19:46:41: alguien lo había corregido a
-         * 9:30–18:30 y volvió a 9:00–20:00 sin que nada avisara. El agente
-         * habría ofrecido citas a las 19:00 con el salón cerrado.
+         * Ese congelado resolvía el síntoma y dejaba la causa: dos sitios con
+         * el mismo dato. Ahora la autoridad es `ficha.horario.porDia`, que es
+         * lo que el negocio edita en su pantalla, y estas columnas son una
+         * proyección suya. Una proyección no se congela: se recalcula, o se
+         * queda vieja y vuelve a contradecir a su fuente — que es exactamente
+         * lo que pasó con el domingo de Lis.
          *
-         * En el alta sí se escriben —si no, un negocio nuevo nace sin horario y
-         * el agente cree que siempre está abierto—, y a partir de ahí solo las
-         * cambia su dueño.
+         * Lo que protegía el congelado sigue protegido por otra vía: quien
+         * corrige el horario lo corrige EN LA FICHA, no en una columna suelta,
+         * y `fusionarFicha` ya impide que un llamante pise la sección de otro.
          */
-        ...(horarioYaConfigurado
-          ? {}
-          : {
-              hoursDays: ficha.horario.dias.join(","),
-              // Normalizado a "HH:MM": el cliente escribe "9 AM" y el motor de
-              // citas necesita "09:00". El texto crudo dejaba la agenda sin un
-              // solo hueco, en silencio (ver `lib/hora.ts`).
-              hoursOpen: normalizarHora(ficha.horario.abre) ?? ficha.horario.abre,
-              hoursClose: normalizarHora(ficha.horario.cierra) ?? ficha.horario.cierra,
-              hoursOpenSunday: normalizarHora(ficha.horario.abreDomingo) ?? null,
-              hoursCloseSunday: normalizarHora(ficha.horario.cierraDomingo) ?? null,
-            }),
+        ...columnasDesdeHorario(canonico),
         // Vacío es una decisión válida y hay que poder expresarla: Lis pidió
         // expresamente que no se avisara a ningún número, ni al suyo.
         //

@@ -28,6 +28,8 @@ export const SECCIONES = {
     "queVende",
     "ubicacion",
     "horario",
+    // Contexto libre sobre el horario: es del cliente, como el horario mismo.
+    "observacionesHorario",
     "vertical",
     "catalogo",
     "duracionTipicaMin",

@@ -25,6 +25,7 @@ import {
   type ServicioDelCatalogo,
 } from "@/server/lab/personas";
 import type { TranscriptLine } from "@/lib/types";
+import { horarioDeLaFila, type HorarioSemanal } from "@/server/horario";
 
 /**
  * Runner del Laboratorio (FR-030/FR-034): corrida en segundo plano DENTRO del
@@ -139,13 +140,9 @@ async function runAllCases(
    * de producción una corrida nocturna medía otra cosa — el agente reagendaba
    * para el día siguiente, con razón, y el juez lo leía como desvío.
    */
-  const horario = {
-    open: profile?.hoursOpen ?? null,
-    close: profile?.hoursClose ?? null,
-    days: profile?.hoursDays ?? null,
-    openSunday: profile?.hoursOpenSunday ?? null,
-    closeSunday: profile?.hoursCloseSunday ?? null,
-  };
+  // El mismo horario canónico que ve el agente en producción: si el
+  // Laboratorio leyera otro, mediría un negocio que no existe.
+  const horario = horarioDeLaFila(profile ?? {});
   const labNow = horaHabilDePrueba(horario);
 
   // El juez necesita el mismo catálogo que vio el agente, o lee un
@@ -275,10 +272,7 @@ async function runAllCases(
  * leía "reagendamos para mañana" como un desvío cuando era obediencia a un
  * "EL NEGOCIO ESTÁ CERRADO" que él no veía.
  */
-function estadoParaElJuez(
-  horario: { open: string | null; close: string | null; days: string | null },
-  now: Date
-): string {
+function estadoParaElJuez(horario: HorarioSemanal, now: Date): string {
   const estado = businessStatus(horario, now);
   const hora = `ESTADO DEL NEGOCIO durante la simulación: ${nowForBusiness(now)} (formato 24 h)`;
   if (!estado) return `${hora}. Sin horario configurado.`;

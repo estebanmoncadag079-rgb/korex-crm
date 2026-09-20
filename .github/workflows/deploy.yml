@@ -133,11 +133,114 @@ jobs:
           ref: ${{ inputs.commit_sha }}
           fetch-depth: 0
 
+      # Node y pnpm los necesita el paso de auditoría de abajo. `deploy.sh` no
+      # los usa (todo el trabajo pesado ocurre en el servidor), pero instalarlos
+      # aquí es barato y evita un job aparte solo para leer una tabla.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.5.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
       - name: Configurar la llave SSH (nunca se imprime, solo se escribe a un archivo con permisos 600)
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY_CONTENT" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
+      # ── H-2: la arquitectura se audita ANTES de tocar producción ────────
+      #
+      # El gate de `build-test` (typecheck, lint, tests, build) mira el
+      # CÓDIGO. No mira los DATOS, y el incidente que originó todo esto no
+      # fue un bug de código: fue una fila incoherente —el domingo desmarcado
+      # con su franja de domingo puesta— que llevaba semanas ahí sin que nada
+      # la mirara. Un despliegue no debería poder pasar por encima de eso en
+      # silencio.
+      #
+      # Por qué aquí y no en `build-test`: el auditor necesita la base real,
+      # y la base no es pública. Se llega por un túnel SSH con la MISMA llave
+      # de despliegue que ya usa el paso siguiente — sin abrir ningún camino
+      # nuevo al servidor.
+      #
+      # Por qué se salta sin el secreto: `DEPLOY_DB_URL` mete credenciales de
+      # base de datos en CI, y eso amplía lo que se pierde si CI se
+      # compromete. Es una decisión del dueño, no del workflow. Sin el
+      # secreto el paso avisa y no bloquea; con él, bloquea de verdad.
+      # ── H-2: la arquitectura se audita ANTES de tocar producción ────────
+      #
+      # El gate de `build-test` (typecheck, lint, tests, build) mira el
+      # CÓDIGO. No mira los DATOS, y el incidente que originó todo esto no
+      # fue un bug de código: fue una fila incoherente —el domingo desmarcado
+      # con su franja de domingo puesta— que llevaba semanas ahí sin que nada
+      # la mirara. Un despliegue no puede pasar por encima de eso.
+      #
+      # ⚠️ ESTE PASO NO TIENE CAMINO FAIL-OPEN, Y ES DELIBERADO.
+      #
+      # La primera versión hacía `exit 0` cuando faltaba `DEPLOY_DB_URL`:
+      # "aviso y dejo pasar". Eso convertía una auditoría obligatoria en una
+      # sugerencia, y bastaba con borrar un secreto —o no crearlo nunca— para
+      # desactivar el guardarraíl sin que nadie se enterara. Un gate que se
+      # apaga solo no es un gate.
+      #
+      # Ahora, TODO lo que impida completar la auditoría detiene el
+      # despliegue: falta el secreto, no se abre el túnel, no responde la
+      # base, o el auditor encuentra una incoherencia. La única forma de
+      # seguir es que la auditoría corra entera y pase.
+      #
+      # Por qué el túnel: el auditor necesita la base real y la base no es
+      # pública. Se llega con la MISMA llave de despliegue que usa el paso
+      # siguiente — sin abrir ningún camino nuevo al servidor.
+      - name: Auditar la coherencia de la arquitectura (H-2)
+        env:
+          DEPLOY_DB_URL: ${{ secrets.DEPLOY_DB_URL }}
+        run: |
+          # `-e` aborta a la primera; `-u` convierte una variable sin definir
+          # en error en vez de en cadena vacía; `pipefail` impide que un
+          # fallo se pierda dentro de una tubería. Los tres cierran caminos
+          # por los que un error se volvería silencioso.
+          set -euo pipefail
+
+          if [ -z "${DEPLOY_DB_URL:-}" ]; then
+            echo "::error title=Auditoría de arquitectura no ejecutable::Falta el secreto DEPLOY_DB_URL. La auditoría de coherencia es OBLIGATORIA antes de desplegar y sin acceso de solo lectura a la base no se puede ejecutar. Esto DETIENE el despliegue a propósito: un gate que se desactiva por una variable ausente no protege de nada. Configura DEPLOY_DB_URL (cadena de conexión de solo lectura) en los secretos del Environment 'production'."
+            exit 1
+          fi
+
+          # Socket de control: cerrar el túnel deja de depender de adivinar un
+          # PID con pgrep, que acierta hasta el día que hay dos procesos.
+          SOCKET=/tmp/korex-auditoria-ssh.sock
+          cerrar_tunel() { ssh -S "$SOCKET" -O exit "$DEPLOY_SERVER" 2>/dev/null || true; }
+          trap cerrar_tunel EXIT
+
+          if ! ssh -i ~/.ssh/deploy_key \
+                   -o StrictHostKeyChecking=accept-new \
+                   -o ExitOnForwardFailure=yes \
+                   -o ServerAliveInterval=15 \
+                   -M -S "$SOCKET" -f -N -L 15433:172.16.1.1:5433 "$DEPLOY_SERVER"; then
+            echo "::error title=Auditoría de arquitectura no ejecutable::No se pudo abrir el túnel a la base. No se despliega sin auditar."
+            exit 1
+          fi
+
+          # Esperar a que el puerto acepte, sin depender de que `nc` exista.
+          # Si nunca acepta, se DETIENE: no se despliega a ciegas.
+          abierto=""
+          for _ in $(seq 1 15); do
+            if (exec 3<>/dev/tcp/127.0.0.1/15433) 2>/dev/null; then abierto="si"; break; fi
+            sleep 1
+          done
+          if [ -z "$abierto" ]; then
+            echo "::error title=Auditoría de arquitectura no ejecutable::El túnel se abrió pero la base no respondió en 15 s. No se despliega sin auditar."
+            exit 1
+          fi
+
+          # El auditor es SOLO LECTURA: detecta, informa y devuelve 1 si algo
+          # está incoherente. Nunca escribe, nunca "repara", nunca migra.
+          # Su código de salida es el de este paso: si falla, no hay deploy.
+          DATABASE_URL="$DEPLOY_DB_URL" pnpm auditar:arquitectura
 
       - name: Ejecutar scripts/deploy.sh
         run: |

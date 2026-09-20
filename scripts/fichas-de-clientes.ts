@@ -22,6 +22,7 @@ import * as schema from "@/lib/db/schema";
 import type { Fila } from "@/server/ai/generador/comparar-fila";
 import { conRegistro } from "@/server/registro-de-cambios";
 import { generarPerfil } from "@/server/ai/generador/generar";
+import { opcionesDeGeneracion, type FilaDeFuentes } from "@/server/ai/generador/fuentes";
 import type { FichaDelNegocio } from "@/server/ai/generador/ficha";
 import {
   fusionarFicha,
@@ -459,26 +460,36 @@ for (const p of pausados) {
  * que se queda viejo. Se consulta `catalog_source` en vez de asumirlo, porque la
  * bandera se enciende por cliente y desde otro script.
  */
-const catalogSourcePorOrg = new Map<string, string>();
+const fuentesPorOrg = new Map<string, FilaDeFuentes>();
 {
   const sqlTmp = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
   const dbTmp = drizzle(sqlTmp, { schema });
   for (const fila of await dbTmp
     .select({
       organizationId: schema.agentProfile.organizationId,
+      // TODAS las fuentes, no solo el catálogo: este script ESCRIBE
+      // `instructions` con --aplicar, así que derivar de menos columnas de las
+      // que el cliente tiene encendidas le repone bloques que su pipeline ya
+      // inyecta (docs/korexia/183).
       catalogSource: schema.agentProfile.catalogSource,
+      paymentSource: schema.agentProfile.paymentSource,
+      deliverySource: schema.agentProfile.deliverySource,
+      menuMode: schema.agentProfile.menuMode,
+      appointmentsEnabled: schema.agentProfile.appointmentsEnabled,
     })
     .from(schema.agentProfile)) {
-    catalogSourcePorOrg.set(fila.organizationId, fila.catalogSource);
+    const { organizationId, ...fuentes } = fila;
+    fuentesPorOrg.set(organizationId, fuentes);
   }
   await sqlTmp.end();
 }
 
 const generados = CLIENTES.filter((c) => !c.pausado || incluirPausados).map((c) => ({
   ...c,
-  perfil: generarPerfil(c.ficha, {
-    catalogoEnTabla: catalogSourcePorOrg.get(c.organizationId) === "tabla",
-  }),
+  perfil: generarPerfil(
+    c.ficha,
+    opcionesDeGeneracion(fuentesPorOrg.get(c.organizationId) ?? {})
+  ),
 }));
 for (const g of generados) {
   console.log(

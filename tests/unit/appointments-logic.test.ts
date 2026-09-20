@@ -23,6 +23,7 @@ import {
   utcAFechaHoraBogota,
   type ServiceRow,
 } from "@/server/appointments/logic";
+import { franjaDelDia, horarioSemanalDesdeLegacy } from "@/server/horario";
 
 const SERVICIOS: ServiceRow[] = [
   { id: "svc_1", name: "Semipermanente", category: "unas", priceCents: 4000000, durationMin: 45 },
@@ -202,7 +203,7 @@ describe("día de la semana y validez de fecha", () => {
     expect(diaDeSemana("2026-07-28")).toBeNull();
   });
 
-  const LUNES_A_SABADO = { open: "09:00", close: "18:00", days: "1,2,3,4,5,6" };
+  const LUNES_A_SABADO = horarioSemanalDesdeLegacy({ abre: "09:00", cierra: "18:00", dias: "1,2,3,4,5,6" });
 
   it("rechaza un día que el negocio no atiende", () => {
     // 26-jul-2026 es domingo.
@@ -250,7 +251,14 @@ describe("Bogotá ⇄ UTC (Bogotá es UTC-5 fijo, sin horario de verano)", () =>
 });
 
 describe("calcularDisponibilidad", () => {
-  const HOURS = { open: "09:00", close: "17:00", days: "1,2,3,4,5,6,7" };
+  const HOURS = horarioSemanalDesdeLegacy({ abre: "09:00", cierra: "17:00", dias: "1,2,3,4,5,6,7" });
+  /*
+   * La franja de UN día concreto: es lo que `calcularDisponibilidad` recibe
+   * ahora. Antes recibía el horario entero y usaba su franja común para
+   * cualquier fecha, así que un negocio con el sábado corto ofrecía huecos
+   * hasta la hora de cierre de entre semana.
+   */
+  const FRANJA = franjaDelDia(HOURS, 1);
 
   /**
    * 13-ago-2026: el salón tenía su horario escrito "9 AM"/"8 PM". `Number("9
@@ -263,7 +271,12 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
-      hours: { open: "9 AM", close: "5 PM", days: "1,2,3,4,5,6,7" },
+      // La franja ya resuelta del día que se consulta: "9 AM" se normaliza a
+      // "09:00" al construir el horario canónico.
+      franja: franjaDelDia(
+        horarioSemanalDesdeLegacy({ abre: "9 AM", cierra: "5 PM", dias: "1,2,3,4,5,6,7" }),
+        1
+      ),
       esHoy: false,
     });
     expect(disp["09:00"]).toEqual(["laura"]);
@@ -275,7 +288,7 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
-      hours: { open: "por la mañana", close: "tardecito", days: "1,2,3" },
+      franja: { abre: "por la mañana", cierra: "tardecito" },
       esHoy: false,
     });
     expect(disp).toEqual({});
@@ -286,7 +299,7 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: false,
     });
     expect(disp["09:00"]).toEqual(["laura"]);
@@ -307,7 +320,7 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [{ recursoId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00
       duracionMin: 60,
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: false,
     });
     expect(disp["09:00"]).toEqual(["laura"]); // no se solapa
@@ -320,7 +333,7 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [{ recursoId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00
       duracionMin: 60,
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: false,
     });
     // 11:00 no es múltiplo raro de la grilla de 30, pero SÍ es el fin exacto de
@@ -333,7 +346,7 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: true,
       minutosAhoraSiEsHoy: 630, // 10:30
     });
@@ -347,7 +360,7 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura", "hilary"],
       citas: [{ recursoId: "laura", startMin: 600, endMin: 660 }], // 10:00–11:00, solo Laura
       duracionMin: 60,
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: false,
     });
     expect(disp["10:00"]).toEqual(["hilary"]);
@@ -358,7 +371,8 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: [],
       duracionMin: 60,
-      hours: { open: null, close: null, days: null },
+      // Día cerrado = sin franja. Es la única forma de decirlo.
+      franja: null,
       esHoy: false,
     });
     expect(Object.keys(disp)).toHaveLength(0);
@@ -379,14 +393,14 @@ describe("calcularDisponibilidad", () => {
       recursoIds: ["laura"],
       citas: citaExistente,
       duracionMin: 45,
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: false,
     });
     const dosServicios = calcularDisponibilidad({
       recursoIds: ["laura"],
       citas: citaExistente,
       duracionMin: 45 + 45, // "manos y pies": dos servicios de 45 min
-      hours: HOURS,
+      franja: FRANJA,
       esHoy: false,
     });
     expect(unServicio["14:00"]).toEqual(["laura"]); // 45 min: termina 14:45, libre

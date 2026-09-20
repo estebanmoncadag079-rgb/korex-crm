@@ -25,6 +25,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { normalizarHora } from "@/lib/hora";
+import { diasAbiertos, horarioCanonico, horarioNormalizado } from "@/server/horario";
 import { compararFila, explicar, type Fila } from "@/server/ai/generador/comparar-fila";
 import { leerFicha, aSecciones, esPorSecciones } from "@/server/ai/generador/leer-ficha";
 
@@ -127,11 +128,25 @@ if (!ficha) {
 // La ficha guarda lo que escribiría una persona; las columnas, lo normalizado.
 const fichaNueva = {
   ...(ficha as unknown as Record<string, unknown>),
-  horario: {
-    ...((ficha as unknown as { horario?: Record<string, unknown> }).horario ?? {}),
-    abre,
-    cierra,
-  },
+  /*
+   * El horario se escribe SIEMPRE por el canónico (20-sep-2026).
+   *
+   * Antes aquí se ponían `abre`/`cierra` directamente sobre el horario viejo.
+   * Desde el rediseño eso dejaría `porDia` —que es lo que de verdad manda—
+   * con el horario anterior, y el arreglo no serviría de nada: el mismo tipo
+   * de contradicción que este script nació para reparar.
+   *
+   * Los días NO se tocan: este script cambia la franja, no qué días abre.
+   */
+  horario: horarioNormalizado(
+    Object.fromEntries(
+      diasAbiertos(
+        horarioCanonico(
+          (ficha as unknown as { horario?: Record<string, unknown> }).horario ?? {}
+        )
+      ).map((d) => [d, { abre: abreNorm, cierra: cierraNorm }])
+    )
+  ),
 };
 const eraPorSecciones = esPorSecciones(JSON.parse(antes.ficha as string));
 const fichaSerializada = JSON.stringify(
@@ -140,7 +155,7 @@ const fichaSerializada = JSON.stringify(
 
 console.log(`\nse pondría:`);
 console.log(`  columnas : ${abreNorm} – ${cierraNorm}`);
-console.log(`  ficha    : "${abre}" / "${cierra}"  (el dato tal como lo diría una persona)`);
+console.log(`  ficha    : ${JSON.stringify((fichaNueva as { horario: { porDia: unknown } }).horario.porDia)}`);
 console.log(`\ncampos DECLARADOS: hoursOpen, hoursClose, ficha, updatedAt`);
 
 if (!aplicar) {

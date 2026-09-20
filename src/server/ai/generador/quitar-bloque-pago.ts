@@ -8,6 +8,18 @@
  * Extraída de `scripts/migrar-pago.ts` (30-ago-2026) para poder probarla:
  * los scripts en `scripts/` no tienen tests, y esta función necesitaba uno
  * después de un bug real (ver más abajo).
+ *
+ * ## Qué es y qué YA NO es (20-sep-2026)
+ *
+ * Esto **nunca debió ser** lo que impedía que el prompt llevara los datos de
+ * pago: es un limpiador de una pasada, y el generador reconstruía el bloque
+ * en la siguiente regeneración (docs/korexia/183). Esa decisión vive ahora
+ * donde corresponde, en el generador (`fuentes.ts` → `pagosEnFicha`).
+ *
+ * **No está obsoleta, y no se borra.** Sigue siendo la única forma de
+ * limpiar un prompt YA ESCRITO cuando ese cliente no puede regenerarse:
+ * los negocios sin `ficha` guardada (prompt escrito a mano) no tienen de
+ * dónde recompilar, y para ellos este recorte es el único camino.
  */
 export function quitarPagoDuplicado(
   instructions: string,

@@ -119,7 +119,10 @@ function otrosCanales(ficha: FichaDelNegocio): string | null {
 }
 
 /** Cómo recibe el cliente lo que pidió. */
-function comoRecibe(ficha: FichaDelNegocio): string | null {
+function comoRecibe(
+  ficha: FichaDelNegocio,
+  opciones?: { domicilioEnTabla?: boolean }
+): string | null {
   const { entrega } = ficha;
   const partes: string[] = [];
 
@@ -127,16 +130,45 @@ function comoRecibe(ficha: FichaDelNegocio): string | null {
     const detalle: string[] = [];
     if (entrega.como?.trim()) detalle.push(entrega.como.trim());
     if (entrega.restricciones?.trim()) detalle.push(entrega.restricciones.trim());
+    const quienPaga = entrega.quienPagaElDomicilio?.trim();
+    /*
+     * CON LA TARIFA EN TABLAS, EL DINERO DEL DOMICILIO LO ESCRIBE EL BACKEND.
+     *
+     * `delivery_source='tabla'` significa que la tarifa sale de
+     * `delivery_zone`, verificada por `consultar_domicilio`, y que el cierre
+     * lleva adjunto el desglose que calculó el servidor —Subtotal /
+     * Domicilio / Total— en vez del que redacte el modelo
+     * (`bloqueDeCifrasVerificadas`, y `CONTRATO_DE_CONSULTA_DE_DOMICILIO`:
+     * *"NO escribas el desglose... el servidor lo añade al final"*).
+     *
+     * Forzar ADEMÁS una frase de la ficha dentro de ese mismo resumen, en
+     * negrita y "SIEMPRE", pone dos versiones del dinero del domicilio en el
+     * mismo mensaje — y la del modelo sin nada que la respalde. Es el caso
+     * real de MALIA (350 zonas cargadas, agente encendido): su ficha ordena
+     * meter *"el domicilio... debe pagarlo junto con todo el pedido antes de
+     * despachar"* mientras el backend afirma un único Total ya sumado.
+     *
+     * Lo que se retira es la ORDEN de citarla literal en el resumen, no la
+     * política: cuándo y a quién se paga el domicilio no está en ninguna
+     * tabla —`delivery_zone` solo guarda zona y tarifa—, así que el prompt
+     * sigue siendo su única fuente y borrarla dejaría al agente sin saberlo.
+     */
+    if (quienPaga && opciones?.domicilioEnTabla) detalle.push(quienPaga);
     partes.push(
       bloques(
         "**Domicilio.**",
-        detalle.join(" ") || null,
+        detalle.join(" ") ||
+          // Sin una sola línea debajo, el encabezado queda huérfano. Hoy no
+          // pasa (la ficha exige `quienPagaElDomicilio` para quien reparte),
+          // pero con la tarifa en tablas ese campo deja de ir en negrita y
+          // podría no quedar nada.
+          (opciones?.domicilioEnTabla ? "Sí hacemos domicilios." : null),
         // El dato que más caro sale si se omite: el cliente cree que el total
         // lo incluye y acaba discutiendo con el repartidor. En NEGRITA y con el
         // hecho por delante, porque en cursiva WhatsApp lo pinta tenue y pasa
         // desapercibido — se aprendió con Lis el 12-ago-2026.
-        entrega.quienPagaElDomicilio?.trim()
-          ? `⚠️ Esta línea va SIEMPRE en el resumen del pedido, en negrita y con el hecho primero — nunca la resumas con tus propias palabras ni la des solo de palabra en mitad de la charla:\n"🛵 *${entrega.quienPagaElDomicilio.trim()}*"`
+        quienPaga && !opciones?.domicilioEnTabla
+          ? `⚠️ Esta línea va SIEMPRE en el resumen del pedido, en negrita y con el hecho primero — nunca la resumas con tus propias palabras ni la des solo de palabra en mitad de la charla:\n"🛵 *${quienPaga}*"`
           : null
       )
     );
@@ -166,7 +198,11 @@ function comoRecibe(ficha: FichaDelNegocio): string | null {
 }
 
 /** Cómo le pagan. */
-function comoPagan(ficha: FichaDelNegocio, vertical: Vertical): string {
+function comoPagan(
+  ficha: FichaDelNegocio,
+  vertical: Vertical,
+  opciones?: { pagosEnFicha?: boolean }
+): string | null {
   const { pago } = ficha;
   // Un salón no tiene "pedidos" que dejar en firme, tiene citas. El vocabulario
   // de pedidos colándose en el vertical de citas ya se había visto en las
@@ -191,15 +227,40 @@ function comoPagan(ficha: FichaDelNegocio, vertical: Vertical): string {
     vertical === "citas"
       ? pago.compruebaUnaPersona && pagoAntesDeLaCitaDe(ficha)
       : pago.compruebaUnaPersona;
+  /*
+   * CON `payment_source='ficha'`, LOS DATOS DE PAGO NO VAN AQUÍ.
+   *
+   * El pipeline los lee de `ficha.pago` y los inyecta frescos en cada turno
+   * (`pagoDePedidosParaElPrompt`, bajo "MÉTODOS DE PAGO ACEPTADOS"), con su
+   * propio contrato `consultar_medio_pago`. Escribirlos TAMBIÉN aquí es la
+   * doble fuente de siempre: dos copias del mismo número de cuenta, y la del
+   * texto es la que se queda vieja el día que el negocio cambia de banco.
+   *
+   * Es el mismo patrón que ya usaba `catalogoEnTabla` desde la Fase 1 — lo
+   * que faltaba era que el generador lo aplicara también a pagos, en vez de
+   * dejárselo a `migrar:pago`, que corre una vez y la siguiente regeneración
+   * deshace (ver `fuentes.ts`).
+   *
+   * La frase del comprobante SÍ se queda: es conducta ("tú nunca das un pago
+   * por bueno"), no un dato de `ficha.pago`, y no la inyecta nadie más. Es el
+   * mismo corte que ya hacía `quitarPagoDuplicado`, que se detenía justo
+   * antes de ella.
+   */
+  const comprobante = pideComprobante
+    ? `Pídele la foto del comprobante para dejar ${loQueSeDejaEnFirme} en firme. **Tú nunca das un pago por bueno**: lo revisa una persona del equipo.`
+    : null;
+  if (opciones?.pagosEnFicha) {
+    // Sin datos y sin conducta no hay sección: un "## Cómo te pagan" vacío
+    // solo le dice al modelo que mire un sitio donde no hay nada.
+    return comprobante ? bloques("## Cómo te pagan", comprobante) : null;
+  }
   return bloques(
     "## Cómo te pagan",
     `Formas de pago: ${pago.formas.trim()}`,
     pago.datosDeCuenta?.trim()
       ? `Datos para el pago (cópialos TAL CUAL, sin cambiar ni un dígito, y solo DESPUÉS de que confirme):\n${pago.datosDeCuenta.trim()}`
       : null,
-    pideComprobante
-      ? `Pídele la foto del comprobante para dejar ${loQueSeDejaEnFirme} en firme. **Tú nunca das un pago por bueno**: lo revisa una persona del equipo.`
-      : null
+    comprobante
   );
 }
 
@@ -219,6 +280,24 @@ export function generarPerfil(
    */
   opciones?: {
     catalogoEnTabla?: boolean;
+    /**
+     * `true` = `agent_profile.payment_source='ficha'`: el pipeline inyecta
+     * las formas de pago y los datos de cuenta frescos en cada turno, así que
+     * el prompt NO debe llevarlos. La conducta del comprobante sí se queda.
+     *
+     * Lo mismo que `catalogoEnTabla` hace con el catálogo. Hasta el
+     * 20-sep-2026 esta decisión no existía aquí: la tomaba `migrar:pago` por
+     * fuera, y cada regeneración la deshacía (ver `fuentes.ts`).
+     */
+    pagosEnFicha?: boolean;
+    /**
+     * `true` = `agent_profile.delivery_source='tabla'`: la tarifa sale de
+     * `delivery_zone`, la verifica `consultar_domicilio` y el desglose del
+     * cierre lo escribe el backend. El prompt deja entonces de forzar la
+     * frase de la ficha dentro del resumen del pedido — la política de quién
+     * paga se conserva como contexto, que eso no vive en ninguna tabla.
+     */
+    domicilioEnTabla?: boolean;
     /**
      * `true` = este negocio tiene `agent_profile.menu_mode='guiado'`: el
      * agente ofrece el menú guiado de WhatsApp en vez de texto libre. Igual
@@ -262,11 +341,11 @@ export function generarPerfil(
     // En un salón no hay nada que entregar: el bloque de domicilios acababa
     // diciéndole "no hacemos domicilios, ofrécele recoger" a quien viene a que
     // le hagan las pestañas.
-    vertical === "citas" ? null : comoRecibe(ficha),
+    vertical === "citas" ? null : comoRecibe(ficha, opciones),
     // Fuera del bloque de entrega y SIN filtrar por vertical: un salón también
     // puede agendar por otra plataforma (ver `CanalExterno`).
     otrosCanales(ficha),
-    comoPagan(ficha, vertical),
+    comoPagan(ficha, vertical, opciones),
     ficha.regalos?.trim()
       ? bloques(
           "## Regalos",

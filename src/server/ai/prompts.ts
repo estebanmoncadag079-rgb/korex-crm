@@ -2,6 +2,15 @@ import type { schema } from "@/lib/db";
 import { horaAMinutos } from "@/lib/hora";
 import type { TranscriptLine } from "@/lib/types";
 import { partesEnNegocio, type ServiceRow } from "@/server/appointments/logic";
+import {
+  diasAbiertos,
+  DIAS_DE_LA_SEMANA,
+  franjaDelDia,
+  horarioDeLaFila,
+  observacionesDeHorario,
+  sinHorarioConfigurado,
+  type HorarioSemanal,
+} from "@/server/horario";
 
 type AgentProfile = typeof schema.agentProfile.$inferSelect;
 type KbEntry = typeof schema.kbEntry.$inferSelect;
@@ -98,25 +107,13 @@ function diaDeLaSemana(now: Date, timeZone: string): number {
   return ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].indexOf(weekday) + 1;
 }
 
-/**
- * Resuelve qué apertura/cierre rige para el día de la semana dado (1=lunes …
- * 7=domingo): el propio de domingo si el negocio lo tiene configurado
- * distinto, o el genérico para cualquier otro día.
+/*
+ * `rangoDelDia` vivía aquí y **era el fallo de Lis**: miraba la franja de
+ * domingo ANTES de comprobar si el domingo estaba entre los días abiertos, así
+ * que una franja huérfana abría el negocio un día que su dueña había
+ * desmarcado. Lo sustituye `franjaDelDia` de `@/server/horario`, donde un día
+ * cerrado sencillamente no existe y no hay ninguna rama para el domingo.
  */
-function rangoDelDia(
-  hours: {
-    open: string | null;
-    close: string | null;
-    openSunday?: string | null;
-    closeSunday?: string | null;
-  },
-  dia: number
-): { open: string | null; close: string | null } {
-  if (dia === 7 && hours.openSunday && hours.closeSunday) {
-    return { open: hours.openSunday, close: hours.closeSunday };
-  }
-  return { open: hours.open, close: hours.close };
-}
 
 const DIAS_CORTOS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
@@ -130,13 +127,7 @@ const DIAS_CORTOS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sáb
  * dichos con total seguridad.
  */
 export function horarioLegible(
-  hours: {
-    open: string | null;
-    close: string | null;
-    days: string | null;
-    openSunday?: string | null;
-    closeSunday?: string | null;
-  },
+  horario: HorarioSemanal,
   /**
    * true = esta organización tiene el vertical de citas encendido.
    *
@@ -150,32 +141,47 @@ export function horarioLegible(
    */
   citas = false
 ): string {
-  const dias = (hours.days ?? "")
-    .split(",")
-    .map((d) => Number(d.trim()))
-    .filter((d) => d >= 1 && d <= 6)
-    .sort((a, b) => a - b);
+  const abiertos = diasAbiertos(horario);
+  if (abiertos.length === 0) return "";
 
-  const partes: string[] = [];
-  if (dias.length && hours.open && hours.close) {
-    // Rango corrido (1,2,3,4,5,6) → "lunes a sábado"; si no, se listan.
-    const corrido =
-      dias.length > 1 && dias[dias.length - 1]! - dias[0]! === dias.length - 1;
-    const cuando = corrido
-      ? `${DIAS_CORTOS[dias[0]! - 1]} a ${DIAS_CORTOS[dias[dias.length - 1]! - 1]}`
-      : dias.map((d) => DIAS_CORTOS[d - 1]).join(", ");
-    partes.push(`${cuando} de ${hours.open} a ${hours.close}`);
+  /*
+   * Los días se agrupan por franja, y los consecutivos con la MISMA franja se
+   * dicen como rango ("lunes a sábado de 10:00 a 19:00"). Así un horario
+   * distinto por día se lee entero y sin inventar nada, y el domingo aparece
+   * como un día más — o no aparece, y entonces se dice que cierra.
+   */
+  const tramos: { desde: number; hasta: number; abre: string; cierra: string }[] = [];
+  for (const d of abiertos) {
+    const f = horario[d]!;
+    const ultimo = tramos[tramos.length - 1];
+    if (ultimo && ultimo.hasta === d - 1 && ultimo.abre === f.abre && ultimo.cierra === f.cierra) {
+      ultimo.hasta = d;
+    } else {
+      tramos.push({ desde: d, hasta: d, abre: f.abre, cierra: f.cierra });
+    }
   }
 
-  if (hours.openSunday && hours.closeSunday) {
-    partes.push(`domingo de ${hours.openSunday} a ${hours.closeSunday}`);
-  } else if ((hours.days ?? "").split(",").map((d) => d.trim()).includes("7")) {
-    if (hours.open && hours.close) partes.push(`domingo de ${hours.open} a ${hours.close}`);
-  } else {
-    partes.push("domingo CERRADO");
-  }
+  const partes = tramos.map((t) => {
+    const cuando =
+      t.desde === t.hasta
+        ? DIAS_CORTOS[t.desde - 1]
+        : t.hasta === t.desde + 1
+          ? `${DIAS_CORTOS[t.desde - 1]} y ${DIAS_CORTOS[t.hasta - 1]}`
+          : `${DIAS_CORTOS[t.desde - 1]} a ${DIAS_CORTOS[t.hasta - 1]}`;
+    return `${cuando} de ${t.abre} a ${t.cierra}`;
+  });
 
-  if (!partes.length) return "";
+  /*
+   * Los días cerrados se DICEN, no se dejan a que el modelo los deduzca de la
+   * ausencia. El incidente de Lis terminó con el bot ofreciendo servicio un
+   * domingo: callar un día cerrado es exactamente lo que no se puede hacer.
+   */
+  const cerrados = DIAS_DE_LA_SEMANA.filter((d) => !horario[d]);
+  if (cerrados.length) {
+    partes.push(
+      `${cerrados.map((d) => DIAS_CORTOS[d - 1]).join(", ")} CERRADO (no ofrezcas nada esos días)`
+    );
+  }
 
   const base = `HORARIO DEL NEGOCIO (di exactamente esto si te preguntan, no lo redondees ni lo cambies): ${partes.join(" · ")}.`;
   if (!citas) return base;
@@ -184,16 +190,13 @@ export function horarioLegible(
 }
 
 export function businessStatus(
-  hours: {
-    open: string | null;
-    close: string | null;
-    days: string | null;
-    openSunday?: string | null;
-    closeSunday?: string | null;
-  },
+  horario: HorarioSemanal,
   now: Date = new Date(),
   timeZone = BUSINESS_TIMEZONE
 ): "abierto" | "cerrado" | null {
+  // Sin horario configurado no se afirma nada: ni abierto ni cerrado.
+  if (sinHorarioConfigurado(horario)) return null;
+
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     hour: "2-digit",
@@ -204,20 +207,18 @@ export function businessStatus(
   const ahora = Number(get("hour")) * 60 + Number(get("minute"));
   const dia = diaDeLaSemana(now, timeZone);
 
-  const rango = rangoDelDia(hours, dia);
-  const open = toMinutes(rango.open);
-  const close = toMinutes(rango.close);
-  if (open === null || close === null) return null;
+  /*
+   * UNA sola pregunta, sin excepciones por día: ¿qué franja rige hoy? Si no
+   * hay, está cerrado. Antes esto eran tres pasos —franja de domingo, franja
+   * común, lista de días— con un atajo (`tieneDomingoPropio`) que se saltaba
+   * adrede la comprobación de días, y por ese atajo se coló el incidente.
+   */
+  const franja = franjaDelDia(horario, dia);
+  if (!franja) return "cerrado";
 
-  // El domingo con horario propio abre aunque el 7 no esté en `days`.
-  const tieneDomingoPropio = dia === 7 && Boolean(hours.openSunday && hours.closeSunday);
-  if (!tieneDomingoPropio) {
-    const dias = (hours.days ?? "1,2,3,4,5,6,7")
-      .split(",")
-      .map((d) => Number(d.trim()))
-      .filter((d) => d >= 1 && d <= 7);
-    if (dias.length > 0 && !dias.includes(dia)) return "cerrado";
-  }
+  const open = toMinutes(franja.abre);
+  const close = toMinutes(franja.cierra);
+  if (open === null || close === null) return null;
 
   // Un cierre "menor" que la apertura cruza la medianoche (ej. 18:00–02:00).
   const dentro =
@@ -242,28 +243,22 @@ export function businessStatus(
  * cualquier horario que abra al menos un día; si no abre ninguno, `now`.
  */
 export function horaHabilDePrueba(
-  hours: {
-    open: string | null;
-    close: string | null;
-    days: string | null;
-    openSunday?: string | null;
-    closeSunday?: string | null;
-  },
+  horario: HorarioSemanal,
   now: Date = new Date(),
   timeZone = BUSINESS_TIMEZONE
 ): Date {
-  if (businessStatus(hours, now, timeZone) === null) return now;
+  if (businessStatus(horario, now, timeZone) === null) return now;
 
   const PASO_MS = 15 * 60 * 1000;
   const PASOS = (7 * 24 * 60) / 15;
   for (let i = 0; i <= PASOS; i++) {
     const candidato = new Date(now.getTime() + i * PASO_MS);
-    if (businessStatus(hours, candidato, timeZone) !== "abierto") continue;
+    if (businessStatus(horario, candidato, timeZone) !== "abierto") continue;
     // Una hora de holgura dentro de la franja, cuando la franja da para ello:
     // justo en el minuto de apertura, "¿me lo traen ya?" es un caso borde que
     // el Laboratorio no está tratando de medir.
     const holgura = new Date(candidato.getTime() + 60 * 60 * 1000);
-    return businessStatus(hours, holgura, timeZone) === "abierto"
+    return businessStatus(horario, holgura, timeZone) === "abierto"
       ? holgura
       : candidato;
   }
@@ -286,17 +281,28 @@ function toMinutes(hhmm: string | null | undefined): number | null {
  * minutos que faltan para abrir HOY, o null si hoy ya no abre.
  */
 export function abreMasTardeHoy(
-  hours: {
-    open: string | null;
-    close: string | null;
-    days: string | null;
-    openSunday?: string | null;
-    closeSunday?: string | null;
-  },
+  horario: HorarioSemanal,
   now: Date = new Date(),
   timeZone = BUSINESS_TIMEZONE
 ): number | null {
-  if (businessStatus(hours, now, timeZone) !== "cerrado") return null;
+  if (businessStatus(horario, now, timeZone) !== "cerrado") return null;
+
+  const dia = diaDeLaSemana(now, timeZone);
+  /*
+   * Un día que el negocio NO abre nunca "abre más tarde hoy". Antes esto
+   * necesitaba repetir la comprobación de días con su propia excepción de
+   * domingo; ahora es la misma pregunta de siempre y no hay nada que repetir:
+   * si el día está cerrado, no hay franja.
+   */
+  const franja = franjaDelDia(horario, dia);
+  if (!franja) return null;
+
+  const open = toMinutes(franja.abre);
+  const close = toMinutes(franja.cierra);
+  if (open === null || close === null) return null;
+  // Una jornada que cruza medianoche no tiene "más tarde hoy": ya está dentro
+  // o el siguiente tramo pertenece a otro día.
+  if (close <= open) return null;
 
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -305,27 +311,6 @@ export function abreMasTardeHoy(
     hour12: false,
   }).formatToParts(now);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const dia = diaDeLaSemana(now, timeZone);
-
-  const rango = rangoDelDia(hours, dia);
-  const open = toMinutes(rango.open);
-  const close = toMinutes(rango.close);
-  if (open === null || close === null) return null;
-  // Una jornada que cruza medianoche no tiene "más tarde hoy": ya está dentro
-  // o el siguiente tramo pertenece a otro día.
-  if (close <= open) return null;
-
-  // Un domingo que el negocio no abre también cae "antes de las 12:30": sin
-  // esta comprobación le prometía al cliente una apertura que no iba a pasar.
-  const tieneDomingoPropio = dia === 7 && Boolean(hours.openSunday && hours.closeSunday);
-  if (!tieneDomingoPropio) {
-    const dias = (hours.days ?? "1,2,3,4,5,6,7")
-      .split(",")
-      .map((d) => Number(d.trim()))
-      .filter((d) => d >= 1 && d <= 7);
-    if (dias.length > 0 && !dias.includes(dia)) return null;
-  }
-
   const ahora = Number(get("hour")) * 60 + Number(get("minute"));
   return ahora < open ? open - ahora : null;
 }
@@ -336,32 +321,42 @@ function estadoDelNegocio(
   now: Date = new Date(),
   citas = false
 ): string {
-  const hours = {
-    open: profile.hoursOpen,
-    close: profile.hoursClose,
-    days: profile.hoursDays,
-    openSunday: profile.hoursOpenSunday,
-    closeSunday: profile.hoursCloseSunday,
-  };
+  /*
+   * El horario sale de la FICHA (canónico) y solo cae a las columnas cuando
+   * ese negocio no tiene ficha. Las columnas son derivadas: leerlas como
+   * autoridad es lo que dejó a Lis abierta un domingo que estaba cerrado.
+   */
+  const horario = horarioDeLaFila(profile);
+  /*
+   * Lo que el negocio explicó a mano sobre sus horarios (Lis: el local abre
+   * más tarde que el WhatsApp). Va DETRÁS del horario y con el aviso de que
+   * no decide nada: es para que el agente pueda contarlo, no para que lo
+   * interprete. Quien decide abierto/cerrado es `businessStatus`, que ni
+   * siquiera puede recibir este texto — solo acepta el horario por día.
+   */
+  const observaciones = observacionesDeHorario(profile);
   // El horario va SIEMPRE, abierto o cerrado: sin él el modelo se lo inventa.
   const hora = [
     `Ahora mismo es ${nowForBusiness(now)} en Colombia (formato 24 h).`,
-    horarioLegible(hours, citas),
+    horarioLegible(horario, citas),
+    observaciones
+      ? `ACLARACIONES DEL NEGOCIO SOBRE SU HORARIO (las escribió el negocio y puedes contárselas al cliente si vienen a cuento; esto NO decide si se atiende ni cambia el horario de arriba — lo de arriba manda siempre): ${observaciones}`
+      : null,
   ]
     .filter(Boolean)
     .join(" ");
-  const estado = businessStatus(hours, now);
+  const estado = businessStatus(horario, now);
   if (!estado) return hora;
   if (estado === "abierto") {
     return `${hora} EL NEGOCIO ESTÁ ABIERTO ahora mismo: atiende con normalidad y NO menciones reagendar.`;
   }
-  const faltan = abreMasTardeHoy(hours, now);
+  const faltan = abreMasTardeHoy(horario, now);
   if (faltan !== null) {
     // La hora de apertura del MENSAJE debe ser la del día real (domingo
     // propio incluido) — mostrar siempre `hoursOpen` aquí decía "abre a las
     // 10:00" en domingo aunque el negocio abriera a las 14:00 ese día.
     const dia = diaDeLaSemana(now, BUSINESS_TIMEZONE);
-    const horaApertura = rangoDelDia(hours, dia).open;
+    const horaApertura = franjaDelDia(horario, dia)?.abre ?? null;
     return `${hora} EL NEGOCIO TODAVÍA NO HA ABIERTO HOY: abre a las ${horaApertura} (dato para TI, para que sepas que abre hoy y no mañana — faltan ${faltan} minutos, pero esa cifra en minutos NUNCA se la dices al cliente así). NO digas que "ya cerramos" ni reagendes para mañana — el pedido sale HOY. Dile la hora de apertura en palabras normales ("abrimos a las ${horaApertura}"), nunca en minutos, tómale el pedido y avísale que se lo preparan apenas abran.`;
   }
   return `${hora} EL NEGOCIO ESTÁ CERRADO ahora mismo y HOY YA NO ABRE: aplica la regla de pedidos fuera del horario.`;
@@ -443,16 +438,11 @@ export const CONTRATO_DE_ACCIONES = [
  * cerrado ni mande al servidor una fecha que va a rechazar.
  */
 export function calendarioProximosDias(
-  hours: { days: string | null },
+  horario: HorarioSemanal,
   now: Date = new Date(),
   dias = 14
 ): string {
-  const habiles = new Set(
-    (hours.days ?? "1,2,3,4,5,6,7")
-      .split(",")
-      .map((d) => Number(d.trim()))
-      .filter((d) => d >= 1 && d <= 7)
-  );
+  const habiles = new Set<number>(diasAbiertos(horario));
   const hoy = partesEnNegocio(now);
   const base = Date.UTC(hoy.y, hoy.m - 1, hoy.d);
   const nombres = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
@@ -591,14 +581,8 @@ function recordatorioDelEstado(
    */
   citas = false
 ): string | null {
-  const hours = {
-    open: profile.hoursOpen,
-    close: profile.hoursClose,
-    days: profile.hoursDays,
-    openSunday: profile.hoursOpenSunday,
-    closeSunday: profile.hoursCloseSunday,
-  };
-  const estado = businessStatus(hours, now);
+  const horario = horarioDeLaFila(profile);
+  const estado = businessStatus(horario, now);
   if (!estado) return null;
   if (estado === "abierto") {
     const base =
@@ -606,12 +590,12 @@ function recordatorioDelEstado(
     if (!citas) return base;
     return `${base} Con el negocio ABIERTO, tienes PROHIBIDO decir que "ya es más tarde" que la hora de cierre, que "ya pasó" el horario para agendar hoy, o cualquier frase equivalente: la hora real es la de "Ahora mismo es..." de arriba, y mientras el negocio esté abierto se puede agendar cualquier horario libre de HOY, incluida la hora exacta de cierre.`;
   }
-  const faltan = abreMasTardeHoy(hours, now);
+  const faltan = abreMasTardeHoy(horario, now);
   if (faltan === null) {
     return "RECORDATORIO FINAL — EL NEGOCIO ESTÁ CERRADO AHORA MISMO Y HOY YA NO ABRE. Aplica la regla de pedidos fuera del horario que te dieron arriba.";
   }
   const dia = diaDeLaSemana(now, BUSINESS_TIMEZONE);
-  const horaApertura = rangoDelDia(hours, dia).open;
+  const horaApertura = franjaDelDia(horario, dia)?.abre ?? null;
   return `RECORDATORIO FINAL — EL NEGOCIO AÚN NO ABRE HOY: abre a las ${horaApertura}, faltan ${faltan} minutos. Tienes PROHIBIDO decir "ya cerramos" o reagendar para mañana: eso espanta a un cliente que puede comer HOY. Dile a qué hora abren, tómale el pedido y confírmale que se lo preparan apenas abran.`;
 }
 
@@ -829,10 +813,7 @@ export function buildAgentSystemPrompt(input: {
     input.estadoDelPedido ?? null,
     // Solo donde hace falta contar días: los clientes de pedidos no agendan.
     input.appointments
-      ? calendarioProximosDias(
-          { days: profile.hoursDays },
-          input.now
-        )
+      ? calendarioProximosDias(horarioDeLaFila(profile), input.now)
       : null,
     `Etapas del pipeline disponibles: ${stageNames}`,
     fotosDisponibles(input.fotos),

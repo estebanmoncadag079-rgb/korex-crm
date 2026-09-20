@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { apiError, parseBody, withPlatformAdmin } from "@/lib/api";
-import { aplicarFicha } from "@/server/ai/generador/aplicar";
+import { aplicarFicha, fuentesDelCliente } from "@/server/ai/generador/aplicar";
 import { faltantesDeLaFicha } from "@/server/ai/generador/ficha";
-import { appointmentsEnabledFor } from "@/server/appointments/queries";
-import { verticalDe } from "@/server/vertical";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import { findOrganization } from "@/server/admin/clients";
 
@@ -22,6 +20,22 @@ export const dynamic = "force-dynamic";
  */
 
 const horario = z.object({
+  /*
+   * EL CANÓNICO: día (1=lunes … 7=domingo) → su franja. Un día que no está
+   * aquí está CERRADO (ver `@/server/horario`). Sin declararlo, zod lo
+   * descartaría en silencio y el horario por día no llegaría nunca.
+   */
+  porDia: z
+    .record(
+      z.string().regex(/^[1-7]$/, "el día va de 1 (lunes) a 7 (domingo)"),
+      z.object({
+        abre: z.string().regex(/^\d{1,2}:\d{2}$/, "usa el formato HH:MM"),
+        cierra: z.string().regex(/^\d{1,2}:\d{2}$/, "usa el formato HH:MM"),
+      })
+    )
+    .optional(),
+  // Derivados de `porDia`. Se siguen exigiendo mientras queden fichas sin
+  // migrar; el servidor los recalcula desde el canónico al guardar.
   dias: z.array(z.number().int().min(1).max(7)).min(1),
   abre: z.string().regex(/^\d{1,2}:\d{2}$/, "usa el formato HH:MM"),
   cierra: z.string().regex(/^\d{1,2}:\d{2}$/, "usa el formato HH:MM"),
@@ -34,6 +48,12 @@ const fichaSchema = z.object({
   queVende: z.string().min(1),
   ubicacion: z.string().optional(),
   horario,
+  /**
+   * Texto libre del negocio sobre sus horarios. No valida formato a
+   * propósito: es una explicación para una persona, no una regla. Lo que
+   * decide abierto/cerrado es `horario.porDia`, y esto no puede tocarlo.
+   */
+  observacionesHorario: z.string().max(2000).optional(),
   vertical: z.enum(["pedidos", "citas"]),
   catalogo: z.string().optional(),
   /** Solo citas: duración de los servicios que no traigan la suya en la lista. */
@@ -101,9 +121,10 @@ export const POST = withPlatformAdmin(
      * donde se revisa un prompt es justo donde no puede mentir.
      */
     if (new URL(req.url).searchParams.get("vistaPrevia")) {
-      const perfil = generarPerfil(body.data.ficha, {
-        vertical: verticalDe(await appointmentsEnabledFor(id)),
-      });
+      // Con las MISMAS fuentes con las que se va a guardar (el vertical
+      // contratado incluido): si la vista previa usa otras, enseña un prompt
+      // que no existe.
+      const perfil = generarPerfil(body.data.ficha, await fuentesDelCliente(id));
       return Response.json({ vistaPrevia: true, perfil });
     }
 

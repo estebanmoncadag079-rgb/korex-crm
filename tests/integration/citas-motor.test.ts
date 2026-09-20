@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { cargarConBaseDePruebas, hayBase } from "./_db";
+import { columnasDesdeHorario, horarioSemanalDesdeLegacy } from "@/server/horario";
 
 /**
  * El motor de citas contra Postgres de verdad: crear, mover y cancelar.
@@ -32,7 +33,7 @@ const F = {
 };
 
 /** 09:00–20:00, lunes a sábado: el horario real de Lashen Valen. */
-const HOURS = { open: "09:00", close: "20:00", days: "1,2,3,4,5,6" };
+const HOURS = horarioSemanalDesdeLegacy({ abre: "09:00", cierra: "20:00", dias: "1,2,3,4,5,6" });
 
 /**
  * Un día laborable futuro, en formato DD/MM/AAAA.
@@ -41,11 +42,28 @@ const HOURS = { open: "09:00", close: "20:00", days: "1,2,3,4,5,6" };
  * slots ya vencidos, lo que haría que la prueba pasara o fallara según la hora
  * a la que se ejecute.
  */
-function fechaHabilFutura(diasVista: number): string {
+/**
+ * El **N-ésimo día hábil** a partir de mañana (el salón no atiende domingo).
+ *
+ * Antes era «hoy + N, y si cae domingo lo corro al lunes», y eso hacía que
+ * dos N distintos pudieran dar LA MISMA FECHA: con hoy domingo, N=7 cae en
+ * domingo y se corre al lunes, que es exactamente donde ya caía N=8. La
+ * prueba «moverla a otro día también libera el día viejo» movía entonces la
+ * cita al mismo día y a la misma hora, y después exigía que ese hueco
+ * estuviera libre — imposible, con cualquier implementación.
+ *
+ * Resultado: **esta suite llevaba rota todos los domingos** y solo los
+ * domingos. Se descubrió el 20-sep-2026, que era uno. Contar días hábiles en
+ * vez de empujar el domingo garantiza que dos N distintos den dos fechas
+ * distintas, siempre.
+ */
+function fechaHabilFutura(nEsimoDiaHabil: number): string {
   const base = new Date();
-  base.setUTCDate(base.getUTCDate() + diasVista);
-  // Domingo (0) no se atiende: se corre al lunes.
-  if (base.getUTCDay() === 0) base.setUTCDate(base.getUTCDate() + 1);
+  let contados = 0;
+  while (contados < nEsimoDiaHabil) {
+    base.setUTCDate(base.getUTCDate() + 1);
+    if (base.getUTCDay() !== 0) contados++;
+  }
   const dd = String(base.getUTCDate()).padStart(2, "0");
   const mm = String(base.getUTCMonth() + 1).padStart(2, "0");
   return `${dd}/${mm}/${base.getUTCFullYear()}`;
@@ -85,9 +103,9 @@ d("motor de citas (Postgres real)", () => {
       id: "ap_citas_motor",
       organizationId: ORG,
       appointmentsEnabled: true,
-      hoursOpen: HOURS.open,
-      hoursClose: HOURS.close,
-      hoursDays: HOURS.days,
+      // Las columnas son DERIVADAS del horario canónico: se escriben con el
+      // mismo proyector que usa `aplicarFicha`, no a mano.
+      ...columnasDesdeHorario(HOURS),
     });
     await db.insert(schema.contact).values([
       { id: F.contacto, organizationId: ORG, phone: "573000000001", name: "Ana" },

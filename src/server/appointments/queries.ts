@@ -5,6 +5,7 @@ import { newId } from "@/lib/db/ids";
 import {
   bogotaAUtc,
   calcularDisponibilidad,
+  diaDeSemana,
   esFechaValida,
   esHoy as esFechaDeHoy,
   partesEnNegocio,
@@ -13,6 +14,12 @@ import {
   type CitaDelDia,
   type ServiceRow,
 } from "./logic";
+import {
+  franjaDelDia,
+  horarioDeLaFila,
+  sinHorarioConfigurado,
+  type FranjaDelDia,
+} from "@/server/horario";
 
 /**
  * Capa que toca la base de datos para el vertical de citas. La lógica pura
@@ -587,6 +594,17 @@ async function citasDelDiaDeRecursos(
   return { inicio, citas };
 }
 
+/**
+ * La franja que rige una fecha concreta, o `null` si ese día el negocio
+ * cierra. Existe porque la disponibilidad es **de un día**, no de la semana:
+ * con el modelo viejo se calculaban los huecos de un sábado corto usando la
+ * hora de cierre de entre semana.
+ */
+function franjaDelDiaDeLaFecha(hours: BusinessHours, fecha: string): FranjaDelDia | null {
+  const dow = diaDeSemana(fecha);
+  return dow === null ? null : franjaDelDia(hours, dow);
+}
+
 export async function disponibilidadReal(input: {
   organizationId: string;
   service: ServiceRow;
@@ -615,7 +633,7 @@ export async function disponibilidadReal(input: {
     recursoIds: staffIds,
     citas: dia.citas,
     duracionMin: input.service.durationMin,
-    hours: input.hours,
+    franja: franjaDelDiaDeLaFecha(input.hours, input.fecha),
     esHoy: esFechaDeHoy(input.fecha, now),
     minutosAhoraSiEsHoy: partesEnNegocio(now).minutos,
   });
@@ -659,7 +677,7 @@ export async function disponibilidadRealMultiple(input: {
     recursoIds: staffIds,
     citas: dia.citas,
     duracionMin,
-    hours: input.hours,
+    franja: franjaDelDiaDeLaFecha(input.hours, input.fecha),
     esHoy: esFechaDeHoy(input.fecha, now),
     minutosAhoraSiEsHoy: partesEnNegocio(now).minutos,
   });
@@ -1677,16 +1695,21 @@ export async function horarioDeLaOrganizacion(
   const db = getDb();
   const rows = await db
     .select({
-      open: schema.agentProfile.hoursOpen,
-      close: schema.agentProfile.hoursClose,
-      days: schema.agentProfile.hoursDays,
-      openSunday: schema.agentProfile.hoursOpenSunday,
-      closeSunday: schema.agentProfile.hoursCloseSunday,
+      // La FICHA es la autoridad; las columnas solo se miran si no hay ficha
+      // (ver `horarioDeLaFila`). El panel debe ver exactamente el mismo
+      // horario que el agente, o la agenda y el bot ofrecen días distintos.
+      ficha: schema.agentProfile.ficha,
+      hoursDays: schema.agentProfile.hoursDays,
+      hoursOpen: schema.agentProfile.hoursOpen,
+      hoursClose: schema.agentProfile.hoursClose,
+      hoursOpenSunday: schema.agentProfile.hoursOpenSunday,
+      hoursCloseSunday: schema.agentProfile.hoursCloseSunday,
     })
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
-  return rows[0] ?? null;
+  if (!rows[0]) return null;
+  return horarioDeLaFila(rows[0]);
 }
 
 /**
@@ -1820,7 +1843,7 @@ export async function moverCita(input: {
   const hours = await horarioDeLaOrganizacion(input.organizationId);
   // Sin horario no se puede saber si la hora nueva cae dentro: mejor decirlo
   // que agendar a ciegas (es lo que dejó una agenda entera sin huecos el 12-ago).
-  if (!hours?.open || !hours.close) return { ok: false, reason: "sin_horario" };
+  if (!hours || sinHorarioConfigurado(hours)) return { ok: false, reason: "sin_horario" };
 
   return reprogramarCita({
     organizationId: input.organizationId,

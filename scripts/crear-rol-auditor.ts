@@ -37,7 +37,26 @@
  *   pnpm crear:rol-auditor             -> SIMULACRO: hace todo y hace ROLLBACK
  *   pnpm crear:rol-auditor --aplicar   -> escribe de verdad (idempotente)
  *
- * Rollback:  DROP ROLE korex_h2_auditor;   (comprobar dependencias antes)
+ * ## Rollback
+ *
+ * **De una ampliación de permisos** (el caso normal: el rol ya existía y solo
+ * se le añadieron columnas). Solo revoca lo añadido, el rol sigue vivo:
+ *
+ *   REVOKE SELECT (organization_id, name, price_cents, available, archived_at)
+ *     ON public.product FROM korex_h2_auditor;
+ *
+ * **Del rol entero.** `DROP ROLE` a secas **NO funciona** —los GRANT son
+ * dependencias y Postgres lo rechaza con *"cannot be dropped because some
+ * objects depend on it"*—. Ensayado el 20-sep dentro de una transacción
+ * deshecha; la secuencia que sí funciona es:
+ *
+ *   REVOKE ALL ON ALL TABLES IN SCHEMA public FROM korex_h2_auditor;
+ *   REVOKE ALL ON SCHEMA public            FROM korex_h2_auditor;
+ *   REVOKE ALL ON DATABASE vocero          FROM korex_h2_auditor;
+ *   DROP ROLE korex_h2_auditor;
+ *
+ * Es seguro: el rol no es propietario de ningún objeto ni pertenece a otro,
+ * así que borrarlo no pierde un solo dato.
  */
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";

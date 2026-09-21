@@ -139,12 +139,58 @@ Sin capacidad de precios por volumen y sin validación de pago por modalidad:
 el negocio dijo que no hacen falta. Construirlas "por si acaso" habría sido
 código sin dueño.
 
+## El Laboratorio · 31 de 31
+
+Postgres 16.14 desechable (el mismo minor que producción), en RAM, con la
+configuración **real** de MALIA copiada en solo lectura: su ficha ya migrada,
+sus 3 productos vivos, sus 7 grupos con 51 opciones y sus **350 zonas
+activas**. `state_source=backend` + `delivery_source=tabla` encendidos.
+
+No hay LLM: el modelo es una constante. Lo que se prueba no es si el modelo
+acierta, sino si el backend decide bien **pase lo que pase** con lo que
+proponga — que es lo que significa "backend como autoridad".
+
+| Bloque | Resultado |
+|---|---|
+| Cifras del catálogo (1×8oz, 2×8oz, 1×16oz, con topping, ×20, inexistente) | 7/7 |
+| Tarifa desde la tabla (2 zonas reales con tarifas distintas + 3 sin cobertura) | 5/5 |
+| Dirección: obligatoria en domicilio, NO en recogida | 3/3 |
+| **Pedido mínimo de $18.000** | 5/5 |
+| Persistencia real en Postgres + bloque de estado | 6/6 |
+| Cierre de punta a punta | 4/4 |
+| Limpieza sin huérfanos | 1/1 |
+
+Lo que más importa de esa lista:
+
+```
+1 pavé 8 oz a domicilio ($10.000)         → RECHAZADO, faltan $8.000
+1 pavé 16 oz ($18.000), iguala el mínimo  → ACEPTADO
+1 pavé 8 oz PARA RECOGER ($10.000)        → ACEPTADO, el mínimo no aplica
+$10.000 producto + $10.000 tarifa         → RECHAZADO: la tarifa no cuenta
+20 pavés → $200.000 del catálogo, NO los $160.000 del mayorista en prosa
+sin dirección en domicilio → no cierra · sin dirección para recoger → sí cierra
+```
+
+**Rollback probado en los dos sentidos** (`fase2 --apagar` y `--encender`), y
+**regeneración estable**: 15.762 → 15.235 caracteres en la primera pasada, y
+"sin cambios" en la segunda. Ocho sondas sobre el prompt regenerado
+confirman que salió lo que tenía que salir (el mayorista, el mínimo en prosa,
+la lista de ciudades, el horario) y se quedó lo que tenía que quedarse (la
+conducta de Chipichape, el formato de opciones, pedir el barrio).
+
+El auditor contra el laboratorio: **MALIA 🟢 alineada, cero hallazgos**.
+
+### Un hallazgo del propio Laboratorio
+
+`Arequipe`, `Milo` y `Leche Klim` existen **en los dos grupos** del mismo
+producto: son sabor Y topping. Cuando el cliente dice solo "arequipe", el
+backend **no adivina** — lo declara como duda y hace que el agente pregunte
+*"¿arequipe como sabor o como topping?"*. Es la conducta correcta, y en el
+catálogo de MALIA va a pasar a menudo. Queda fijada como escenario.
+
 ## Qué queda
 
-1. **Laboratorio**: MALIA real con `state_source=backend` contra una base
-   desechable. Es el paso que falta antes de producción, y el único que
-   ejercita el camino `estadoGuardado.entrega` de verdad.
-2. **`migrar:malia --aplicar` + `fase2 --encender`**, juntos y en ese orden,
+1. **`migrar:malia --aplicar` + `fase2 --encender`**, juntos y en ese orden,
    después del deploy.
 3. **Lis cambió su horario el 21-sep a las 20:18**: el domingo ya no está
    cerrado, abre 14:00–19:00. Lo hizo ella desde la pantalla y `porDia` y las

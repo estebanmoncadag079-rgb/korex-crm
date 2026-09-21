@@ -55,7 +55,9 @@
     "migrar:horario": "tsx scripts/migrar-horario.ts",
     "mover:regla": "tsx scripts/mover-regla-a-observaciones.ts",
     "crear:rol-auditor": "tsx scripts/crear-rol-auditor.ts",
-    "migrar:malia": "tsx scripts/migrar-malia.ts"
+    "migrar:malia": "tsx scripts/migrar-malia.ts",
+    "lab:malia": "tsx scripts/lab-malia.ts",
+    "lab:escenarios": "tsx scripts/lab-escenarios-malia.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

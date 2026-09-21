@@ -70,6 +70,19 @@ const COLUMNAS: Record<string, string[]> = {
     "payment_source",
     "consultas_verificadas_enabled",
   ],
+  /*
+   * Añadida el 21-sep-2026, después de que el despliegue se detuviera con
+   * `permission denied for table product`.
+   *
+   * El auditor había estrenado una comprobación nueva —productos ofrecibles
+   * sin precio— y nadie amplió este rol. En local y en el laboratorio se
+   * corre como `postgres`, que es superusuario: ninguno de los dos podía
+   * cazarlo. Solo lo cazó el gate, contra la base real y con el rol real,
+   * que es exactamente para lo que existe.
+   *
+   * `tests/unit/rol-auditor-cubre-lo-que-lee.test.ts` impide que se repita.
+   */
+  product: ["organization_id", "name", "price_cents", "available", "archived_at"],
 };
 
 const aplicar = process.argv.includes("--aplicar");

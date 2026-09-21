@@ -208,3 +208,44 @@ catálogo de MALIA va a pasar a menudo. Queda fijada como escenario.
 - Datos: `migrar:malia` deja `agent_profile_bk_malia_<fecha>` antes de
   escribir; restaurar la columna `ficha` desde ahí.
 - Bandera: `pnpm fase2 org_kf1suh8q9dtbmcq3f3ba --apagar --aplicar`.
+
+## El despliegue que el gate detuvo (21-sep-2026)
+
+El merge de `12386b5` se desplegó y **H-2 lo paró en seco**, antes de
+`scripts/deploy.sh`:
+
+```
+PostgresError: permission denied for table product   (42501)
+```
+
+El auditor estrenaba en ese mismo commit una comprobación nueva —productos
+ofrecibles sin precio— que consulta `product`. El rol `korex_h2_auditor`,
+creado el 20-sep, solo tenía `organization` y `agent_profile`.
+
+**Por qué no lo cazó nada antes, y es lo interesante:** en local y en el
+Laboratorio el auditor corre como `postgres`, que es superusuario y pasa por
+encima de cualquier permiso. **Las dos formas de probarlo eran ciegas al
+problema por construcción.** Solo el gate —contra la base real, con el rol
+real— podía verlo. Y lo vio.
+
+Al documentar los permisos por columna en [186](186-EL-AUDITOR-YA-NO-ENTRA-COMO-SUPERUSUARIO.md)
+escribí que el coste era *«si algún día el auditor lee una COLUMNA nueva,
+fallará en el gate»*. Era una **tabla** nueva, y esa variante no estaba atada
+a nada.
+
+| | |
+|---|---|
+| Producción | **intacta** — `/api/health` siguió en `a470093`, las 6 fichas con el mismo md5 |
+| `deploy.sh` | no llegó a ejecutarse |
+| Coste | un despliegue perdido |
+| Lo que evitó | desplegar con la auditoría de datos rota y no enterarse |
+
+### El guardarraíl que faltaba
+
+`tests/unit/rol-auditor-cubre-lo-que-lee.test.ts` recorre el árbol de módulos
+que el auditor alcanza, extrae cada `schema.<tabla>.<columna>` y exige que
+esté concedida en `crear-rol-auditor.ts`. Probado quitándole `product` al
+rol —el estado de ayer—: **5 pruebas en rojo**, nombrando las cinco columnas.
+
+Ampliar el rol en producción es `pnpm crear:rol-auditor --aplicar`, que es
+idempotente: si el rol existe, solo pone los permisos al día.

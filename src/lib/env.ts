@@ -51,6 +51,27 @@ const envSchema = z.object({
   OPENROUTER_API_TOKEN: z.string().optional(),
   OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api"),
   OPENROUTER_MODEL: z.string().optional(),
+  /**
+   * El modelo que LEE MEDIOS: notas de voz, imágenes y cartas de catálogo.
+   * Separado del conversacional desde el 21-sep-2026.
+   *
+   * ## Por qué existe
+   *
+   * Hasta esa fecha `OPENROUTER_MODEL` mandaba sobre las cuatro cosas a la
+   * vez, así que no se podía cambiar el modelo que conversa sin cambiar
+   * también el que oye. Y el candidato para conversar —`openai/gpt-5-mini`,
+   * elegido por costo— **no acepta audio**: su registro declara
+   * `entrada: text, image, file`. Cambiar la variable habría dejado sin
+   * entender 805 audios al mes en cinco negocios, sin un solo error
+   * visible en el CRM.
+   *
+   * Cubre audio, imágenes y catálogo porque las tres convierten algo que no
+   * es texto conversacional en texto para el backend, y ninguna habla con el
+   * cliente. Ver `src/lib/ai/modelos.ts`.
+   *
+   * Vacía = se usa `OPENROUTER_MODEL`, igual que antes, pero avisando por log.
+   */
+  OPENROUTER_TRANSCRIPTION_MODEL: z.string().optional(),
   OPENROUTER_JUDGE_MODEL: z.string().optional(),
   /**
    * Los modelos salvavidas, en orden. Vacíos = sin salvavidas.

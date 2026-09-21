@@ -1,4 +1,6 @@
 import { getEnv, isAiConfigured } from "@/lib/env";
+import { modeloQueLeeMedios } from "@/lib/ai/modelos";
+import { registrarUsoIa } from "@/server/usage";
 
 /**
  * Sacar el catálogo de una foto de la carta, en vez de teclearlo producto a
@@ -70,16 +72,19 @@ export async function extraerCatalogoDeImagen(input: {
   /** La imagen en base64, sin el prefijo `data:`. */
   base64: string;
   mimeType: string;
+  /** Para anotar el gasto. Sin él la lectura funciona igual, pero no se mide. */
+  organizationId?: string;
 }): Promise<ResultadoExtraccion> {
   if (!isAiConfigured()) return { ok: false, motivo: "sin_ia" };
-  const env = getEnv();
-  const modelo = env.OPENROUTER_MODEL;
+  // Leer una carta es percepción, igual que oír un audio o mirar un
+  // comprobante: va con el modelo que lee medios, no con el que conversa.
+  const modelo = modeloQueLeeMedios();
   if (!modelo) return { ok: false, motivo: "sin_ia" };
 
   const mime = input.mimeType.split(";")[0]?.trim() || "image/jpeg";
   const dataUrl = `data:${mime};base64,${input.base64}`;
 
-  return pedirCatalogo(modelo, [
+  return pedirCatalogo(modelo, input.organizationId, "catalogo:imagen", [
     {
       role: "user",
       content: [
@@ -93,6 +98,9 @@ export async function extraerCatalogoDeImagen(input: {
 /** La llamada al modelo y el parseo de su respuesta, común a foto y a texto. */
 async function pedirCatalogo(
   modelo: string,
+  organizationId: string | undefined,
+  /** Qué lectura fue, para distinguirlas en `usage_event`. */
+  ref: string,
   messages: unknown[]
 ): Promise<ResultadoExtraccion> {
   const env = getEnv();
@@ -109,7 +117,16 @@ async function pedirCatalogo(
         // Temperatura 0: aquí no se quiere creatividad, se quiere el precio que
         // pone en la carta. Es el mismo criterio que en el resto del proyecto
         // para lo que se lee de un documento.
+        //
+        // ⚠️ No todos los modelos la admiten: `openai/gpt-5-mini` la declara
+        // como no soportada y el gateway la DESCARTA (comprobado: responde
+        // 200, no falla). Es decir, con un modelo así la lectura sigue
+        // funcionando pero deja de ser determinista. Otra razón para que el
+        // catálogo vaya con el modelo que lee medios y no con el que conversa.
         temperature: 0,
+        // Sin esto el proveedor no devuelve el costo y este gasto queda
+        // invisible, que es como estaba hasta el 21-sep-2026.
+        usage: { include: true },
       }),
     });
 
@@ -120,7 +137,22 @@ async function pedirCatalogo(
 
     const json = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
+
+    // Se anota aunque la extracción salga mal: se pagó igual.
+    if (organizationId) {
+      await registrarUsoIa(
+        organizationId,
+        {
+          model: modelo,
+          tokensIn: json.usage?.prompt_tokens ?? 0,
+          tokensOut: json.usage?.completion_tokens ?? 0,
+          costUsd: json.usage?.cost ?? 0,
+        },
+        ref
+      );
+    }
     const raw = json.choices?.[0]?.message?.content;
     if (!raw?.trim()) return { ok: false, motivo: "sin_texto" };
 
@@ -169,11 +201,11 @@ async function pedirCatalogo(
  * modelo, y sale mucho más barato que mirar la imagen.
  */
 export async function extraerCatalogoDeTexto(
-  texto: string
+  texto: string,
+  organizationId?: string
 ): Promise<ResultadoExtraccion> {
   if (!isAiConfigured()) return { ok: false, motivo: "sin_ia" };
-  const env = getEnv();
-  const modelo = env.OPENROUTER_MODEL;
+  const modelo = modeloQueLeeMedios();
   if (!modelo) return { ok: false, motivo: "sin_ia" };
   if (!texto.trim()) return { ok: false, motivo: "sin_texto" };
 
@@ -190,7 +222,9 @@ export async function extraerCatalogoDeTexto(
     texto.slice(0, 20_000),
   ].join("\n");
 
-  return pedirCatalogo(modelo, [{ role: "user", content: instruccion }]);
+  return pedirCatalogo(modelo, organizationId, "catalogo:texto", [
+    { role: "user", content: instruccion },
+  ]);
 }
 
 /**

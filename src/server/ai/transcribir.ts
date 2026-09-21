@@ -1,4 +1,5 @@
 import { getEnv, isAiConfigured } from "@/lib/env";
+import { modeloQueLeeMedios } from "@/lib/ai/modelos";
 import { esOrigenPermitido } from "@/server/whatsapp/media-origen";
 import { registrarUsoIa } from "@/server/usage";
 
@@ -61,7 +62,9 @@ export async function transcribirAudio(input: {
   const audio = descarga.datos;
 
   const env = getEnv();
-  const modelo = env.OPENROUTER_MODEL;
+  // El modelo que OYE, que no tiene por qué ser el que conversa: el
+  // conversacional puede no aceptar audio (ver `@/lib/ai/modelos`).
+  const modelo = modeloQueLeeMedios();
   if (!modelo) return { texto: null, motivo: "sin_ia" };
 
   try {
@@ -269,7 +272,9 @@ export async function describirImagen(input: {
   if (!descarga.ok) return { texto: null, motivo: descarga.motivo };
 
   const env = getEnv();
-  const modelo = env.OPENROUTER_MODEL;
+  // El modelo que MIRA. Va con el del audio y no con el que conversa:
+  // describir un comprobante es percepción, no diálogo.
+  const modelo = modeloQueLeeMedios();
   if (!modelo) return { texto: null, motivo: "sin_ia" };
 
   const mime = input.mimeType?.split(";")[0]?.trim() || "image/jpeg";

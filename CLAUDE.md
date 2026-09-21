@@ -228,6 +228,7 @@ externas: el trabajo en segundo plano (agente, Laboratorio) es in-process.
 | Quieres cambiar… | Toca… |
 |---|---|
 | El cerebro/proveedor LLM | `src/lib/ai/` (adaptador OpenRouter-compatible, `chatJson<T>`) |
+| **Qué modelo hace cada trabajo** | `src/lib/ai/modelos.ts` — el ÚNICO sitio. ⚠️ Conversar y leer medios (audio, imágenes, cartas) son papeles SEPARADOS desde el 21-sep-2026: no todo modelo oye |
 | **La conducta del agente, para TODOS los clientes** | `src/server/ai/generador/conducta.ts` — ⚠️ escribir aquí **no entrega nada**: hay que `pnpm regenerar:flota --aplicar` |
 | **Lo que sabe el agente de UN negocio** | su `agent_profile.ficha` (dato, no código). El prompt se **compila** con `generador/generar.ts` |
 | El armazón del prompt y el contrato del turno | `src/server/ai/prompts.ts` |
@@ -271,7 +272,8 @@ Ver `.env.example` (cada una con guía inline). Las claves: `APP_BASE_URL`,
 
 ```bash
 OPENROUTER_API_TOKEN=sk-or-...
-OPENROUTER_MODEL=google/gemini-3.7-flash          # verificado en el contenedor real, 16-sep-2026
+OPENROUTER_MODEL=google/gemini-3.7-flash          # el que CONVERSA. Verificado en el contenedor real, 16-sep-2026
+OPENROUTER_TRANSCRIPTION_MODEL=                     # el que LEE MEDIOS: audio, imágenes y cartas. Vacío = usa el conversacional (avisando)
 OPENROUTER_JUDGE_MODEL=google/gemini-3.7-flash    # opcional: si se omite, cae en OPENROUTER_MODEL. Hoy en prod = el mismo modelo, sin diversidad
 OPENROUTER_FALLBACK_MODEL=google/gemini-3.7-flash   # salvavidas 1: entra si el principal agota 3 intentos sin dar nada usable. Hoy en prod = el mismo modelo (ídem)
 OPENROUTER_FALLBACK_MODEL_2=                        # salvavidas 2, opcional, mismo criterio. Su valor real en prod NO está verificado en `handoff-cambio-modelo.md` (solo se comprobaron MODEL/JUDGE/FALLBACK) — confirmar con `docker exec <contenedor> printenv | grep OPENROUTER` antes de asumir

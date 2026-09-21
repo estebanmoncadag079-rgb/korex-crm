@@ -46,13 +46,13 @@ const cuerpo = z.union([
 
 const TIPOS = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
-export const POST = withAuth(async (_session, req: Request) => {
+export const POST = withAuth(async (session, req: Request) => {
   const body = await parseBody(req, cuerpo);
   if (!body.ok) return body.response;
 
   let resultado;
   if ("texto" in body.data) {
-    resultado = await extraerCatalogoDeTexto(body.data.texto);
+    resultado = await extraerCatalogoDeTexto(body.data.texto, session.organizationId);
   } else {
     const mime = body.data.mimeType.split(";")[0]?.trim().toLowerCase() ?? "";
     if (!TIPOS.includes(mime)) {
@@ -65,6 +65,7 @@ export const POST = withAuth(async (_session, req: Request) => {
     resultado = await extraerCatalogoDeImagen({
       base64: body.data.base64,
       mimeType: mime,
+      organizationId: session.organizationId,
     });
   }
 

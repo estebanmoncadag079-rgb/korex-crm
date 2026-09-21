@@ -339,6 +339,16 @@ salta ningún paso.
       | Lashes Valen | `backend` | `prompt` | **`false`** |
       | Camilabrandcol (fuera de alcance) | `backend` | `tabla` | `false` |
 
+      > ⚠️ **Esta tabla es una foto del 16-sep-2026 y ya no describe
+      > producción.** Era correcta cuando se tomó. Entre el 16 y el 19-sep
+      > alguien bajó MALIA a `state_source='prompt'` con `fase2 --apagar`,
+      > como contención del despliegue —está registrado en
+      > `ARCHITECTURE-REGRESSION-AUDIT.md` junto a Lis, que sí volvió—. Al
+      > 21-sep-2026 **MALIA es la única en `'prompt'`**. No se corrigen los
+      > valores de arriba a propósito: reescribir lo que se verificó aquel día
+      > borraría la evidencia de que la configuración cambió después. Lo
+      > vigente está en docs/korexia/187 y en `pnpm auditar:arquitectura`.
+
       **1. Estado actual** — tabla de arriba, verificada dos veces (T025 y T027),
       idéntica las dos veces: nada cambió entre una verificación y otra porque no
       se tocó nada.

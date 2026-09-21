@@ -67,6 +67,8 @@ type Ficha = {
     quienPagaElDomicilio?: string;
     restricciones?: string;
     recogerEnLocal?: string;
+    /** Pedido mínimo para domicilio, en centavos. Ausente = sin mínimo. */
+    minimoDomicilioCents?: number;
   };
   /** Dónde más te pueden pedir: apps de domicilio, tienda web, marketplace. */
   canales?: { nombre: string; enlace?: string }[];
@@ -775,6 +777,41 @@ export function OnboardingWizard() {
                       },
                     })
                   }
+                />
+              </Campo>
+              {/*
+                El pedido mínimo, en PESOS para quien lo escribe y en centavos
+                para quien lo guarda. Vacío = sin mínimo, que es lo normal.
+
+                Se pregunta en pesos y no "cuántas unidades" porque la regla
+                real es económica —un domicilio no sale a cuenta por menos de
+                X— y porque un mínimo por unidades no puede expresar "dos
+                pequeños o uno grande".
+              */}
+              <Campo
+                titulo="¿Hay un pedido mínimo para domicilio? (déjalo vacío si no)"
+                ejemplo="18000 — así no sale un domiciliario por un solo producto pequeño."
+              >
+                <ExpandableInput
+                  inputMode="numeric"
+                  placeholder="18000"
+                  value={
+                    ficha.entrega?.minimoDomicilioCents
+                      ? String(Math.round(ficha.entrega.minimoDomicilioCents / 100))
+                      : ""
+                  }
+                  onChange={(e) => {
+                    // Solo dígitos: quien escribe "18.000" o "$18000" quiere
+                    // decir lo mismo, y un NaN silencioso aquí borraría el
+                    // mínimo sin que nadie lo pidiera.
+                    const pesos = Number(e.target.value.replace(/\D/g, ""));
+                    set({
+                      entrega: {
+                        ...(ficha.entrega ?? { haceDomicilios: true }),
+                        minimoDomicilioCents: pesos > 0 ? pesos * 100 : undefined,
+                      },
+                    });
+                  }}
                 />
               </Campo>
             </>

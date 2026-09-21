@@ -1097,10 +1097,17 @@ export async function runAgentTurn(
   /*
    * FASE 2 — el estado del pedido, si este cliente lo tiene encendido.
    *
-   * ⚠️ **Todo lo de la Fase 2 cuelga de `state_source === 'backend'`, y hoy los
-   * cuatro clientes están en `'prompt'`.** Con la bandera así, este bloque no
-   * lee, no escribe y no cambia el prompt: el turno corre exactamente como
-   * antes. Es el mismo interruptor que la Fase 1, que ya demostró servir.
+   * ⚠️ **Todo lo de la Fase 2 cuelga de `state_source === 'backend'`.** Con la
+   * bandera en `'prompt'`, este bloque no lee, no escribe y no cambia el
+   * prompt: el turno corre exactamente como antes. Es el mismo interruptor
+   * que la Fase 1, que ya demostró servir.
+   *
+   * Estado al 21-sep-2026: La Churra, Lis, Lashes y Camilabrandcol están en
+   * `'backend'`; **solo MALIA sigue en `'prompt'`**, y por una contención
+   * deliberada (ver `ARCHITECTURE-REGRESSION-AUDIT.md` y docs/korexia/187).
+   * Hasta el 19-sep este comentario decía "los cuatro clientes están en
+   * prompt" — era cierto cuando se escribió y dejó de serlo sin que nadie lo
+   * mirara, que es justo el modo en que un comentario empieza a mentir.
    *
    * El "0" reinicia ANTES de llamar al modelo, igual que el handoff: es una
    * decisión determinista del servidor, no algo que se le pida al LLM.
@@ -1225,7 +1232,13 @@ export async function runAgentTurn(
        * así que el modelo no veía que le faltaban sus opciones.
        */
       if (estadoGuardado) {
-        bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? [], vertical);
+        bloqueDeEstado = comoTexto(
+          estadoGuardado,
+          productos,
+          requisitos ?? [],
+          vertical,
+          fichaDelNegocio?.entrega?.minimoDomicilioCents
+        );
       }
     }
   }
@@ -2645,14 +2658,20 @@ export async function runAgentTurn(
     //
     // T017 (feature 003-backend-como-autoridad): `estadoGuardado` ya refleja
     // lo que este turno acaba de guardar (reasignado más arriba) — `null`
-    // cuando `state_source !== 'backend'` (los 4 negocios reales hoy), así
-    // que `puedeConfirmarPedido` no exige nada nuevo para ellos.
+    // cuando `state_source !== 'backend'` — al 21-sep-2026 solo MALIA, así
+    // que `puedeConfirmarPedido` no exige nada nuevo para ella.
     const veredicto = await puedeConfirmarPedido({
       conversationId,
       productosDelPedido,
       history,
       estadoGuardado,
       requisitos,
+      // El pedido mínimo para domicilio sale de la ficha, como los
+      // requisitos: es una regla de ESTE negocio, no del núcleo. Ausente en
+      // casi todos, y entonces la Policy ni lo mira.
+      ...(fichaDelNegocio?.entrega?.minimoDomicilioCents
+        ? { minimoDomicilioCents: fichaDelNegocio.entrega.minimoDomicilioCents }
+        : {}),
     });
     if (!veredicto.ok) {
       console.warn(
@@ -3066,7 +3085,7 @@ export async function runAgentTurn(
    *
    * Corre en LOS DOS verticales con el mismo código: `book_appointment` y
    * `notify_order` comparten el mismo hueco (ninguno exige nada declarado
-   * cuando `stateSource='prompt'`, que es toda la flota real hoy).
+   * cuando `stateSource='prompt'`, que al 21-sep-2026 es solo MALIA).
    *
    * Mismo tratamiento que el cierre falso y la cita fantasma: una
    * oportunidad de rehacerlo con la corrección delante y, si insiste, lo

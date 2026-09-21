@@ -1519,9 +1519,9 @@ export const CORRECCION_SIN_RESUMEN =
  *
  * El octavo guardarraíl, y el primero que corre en LOS DOS verticales con
  * el mismo código: `book_appointment` y `notify_order` comparten el mismo
- * hueco (ninguno exige nada declarado cuando `stateSource='prompt'`, que es
- * toda la flota real — auditado en
- * docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md).
+ * hueco (ninguno exige nada declarado cuando `stateSource='prompt'` — era
+ * toda la flota cuando se auditó en
+ * docs/korexia/102-REQUISITO-NOMBRE-EN-CITAS.md; al 21-sep-2026 solo MALIA).
  *
  * A diferencia de los otros siete, este no detecta nada en el TEXTO: la
  * comprobación es de datos (`faltantes()`, en `server/contacts.ts`), así

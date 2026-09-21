@@ -96,6 +96,11 @@ const borradorSchema = z
       quienPagaElDomicilio: z.string().optional(),
       restricciones: z.string().optional(),
       recogerEnLocal: z.string().optional(),
+    // Pedido minimo para domicilio, en centavos. Declararlo aqui NO es
+    // opcional: Zod descarta en silencio lo que no esta en el esquema, y un
+    // campo que la pantalla guarda pero la ruta tira deja la funcionalidad
+    // decorativa (paso con `porDia`, 20-sep-2026).
+    minimoDomicilioCents: z.number().int().nonnegative().optional(),
     }),
     // Sin declararlo aquí, el cuestionario lo recogería y este esquema lo
     // tiraría en silencio al enviar: el campo existiría en la pantalla y no

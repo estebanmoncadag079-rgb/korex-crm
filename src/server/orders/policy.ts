@@ -51,6 +51,7 @@ import { buscarProductos } from "@/server/catalog/buscar";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import { guardarEntregaVerificada, type EstadoDelPedido } from "@/server/orders/estado";
 import type { Requisito } from "@/server/ai/generador/ficha";
+import { enPesos, faltaParaElMinimoDeDomicilio } from "@/server/orders/minimo-de-domicilio";
 
 /**
  * El veredicto de la Policy sobre una acción irreversible propuesta por el
@@ -114,6 +115,12 @@ export async function puedeConfirmarPedido(input: {
   estadoGuardado?: EstadoDelPedido | null;
   /** Lo que ESTE negocio declaró para poder cerrar — para el chequeo de arriba. */
   requisitos?: Requisito[];
+  /**
+   * Pedido mínimo para domicilio, en centavos, tal como lo declara la ficha
+   * (`entrega.minimoDomicilioCents`). Ausente/`0` = este negocio no tiene
+   * mínimo, que es el caso de casi todos.
+   */
+  minimoDomicilioCents?: number;
 }): Promise<VeredictoDePedido> {
   if (input.productosDelPedido.length === 0) return { ok: true };
 
@@ -152,6 +159,35 @@ export async function puedeConfirmarPedido(input: {
         correccion: "[SISTEMA] El pedido todavía no está resuelto del todo — no confirmes ni inventes un total.",
       };
     }
+    /*
+     * El pedido mínimo para domicilio, si este negocio lo declaró.
+     *
+     * Va DESPUÉS del total —un pedido sin total no se rechaza por "no llega
+     * al mínimo", que sería un diagnóstico falso— y ANTES de los requisitos,
+     * porque cambia lo que el cliente tiene que pedir: saber que le faltan
+     * $8.000 de producto es más útil que saber que falta su teléfono, y
+     * pedirle el teléfono para un pedido que no va a salir es hacerle perder
+     * el tiempo dos veces.
+     */
+    const falta = faltaParaElMinimoDeDomicilio({
+      minimoCents: input.minimoDomicilioCents,
+      modalidadDeEntrega: estado.modalidadDeEntrega,
+      subtotalCents: estado.totalCents,
+    });
+    if (falta) {
+      return {
+        ok: false,
+        motivo:
+          `el pedido no llega al mínimo de domicilio ` +
+          `(${enPesos(falta.subtotalCents)} de ${enPesos(falta.minimoCents)})`,
+        correccion:
+          `[SISTEMA] Este pedido todavía no llega al mínimo para domicilio: ` +
+          `lleva ${enPesos(falta.subtotalCents)} y el mínimo es ${enPesos(falta.minimoCents)}, ` +
+          `así que faltan ${enPesos(falta.faltanCents)}. Díselo al cliente y ofrécele ` +
+          `añadir algo más o pasar a recoger — no confirmes el domicilio.`,
+      };
+    }
+
     const faltantes = (input.requisitos ?? []).filter(
       (r) => r.obligatorio && !estado.datos[r.id]?.trim()
     );

@@ -181,6 +181,19 @@ export type Entrega = {
   restricciones?: string;
   /** ¿Se puede recoger en el local? Cómo funciona. */
   recogerEnLocal?: string;
+  /**
+   * Pedido mínimo, en centavos, para que salga un domicilio. Ausente o `0` =
+   * sin mínimo, que es el caso de casi todos.
+   *
+   * Es un IMPORTE y no un número de unidades a propósito: la regla que lo
+   * pidió (MALIA, 21-sep-2026) era *"mínimo dos pavés de 8 oz, o uno de 16"*,
+   * y eso NO es expresable por unidades —uno de 16 oz es una sola unidad y sí
+   * vale—. Traducida, la regla es económica: un domicilio no sale a cuenta
+   * por menos de X. Ver `@/server/orders/minimo-de-domicilio` para la tabla
+   * de equivalencias y por qué se compara contra el subtotal y nunca contra
+   * el total con la tarifa incluida.
+   */
+  minimoDomicilioCents?: number;
 };
 
 /** Cómo le pagan al negocio. */

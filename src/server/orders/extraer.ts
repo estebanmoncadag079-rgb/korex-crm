@@ -16,6 +16,7 @@
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import type { Requisito } from "@/server/ai/generador/ficha";
 import type { Vertical } from "@/server/vertical";
+import { enPesos, faltaParaElMinimoDeDomicilio } from "./minimo-de-domicilio";
 import type { EstadoDelPedido } from "./estado";
 
 export type Aporte = {
@@ -185,7 +186,18 @@ export function comoTexto(
   catalogo: ProductoDelCatalogo[] = [],
   requisitos: Requisito[] = [],
   /** Vocabulario: "PEDIDO EN CURSO" en pedidos, "CITA EN CURSO" en citas. */
-  vertical: Vertical = "pedidos"
+  vertical: Vertical = "pedidos",
+  /**
+   * Pedido mínimo para domicilio de ESTE negocio, en centavos
+   * (`ficha.entrega.minimoDomicilioCents`). Ausente en casi todos.
+   *
+   * Se le dice al modelo aquí, y no solo en el cierre, por la misma razón que
+   * la tarifa de entrega: el guardarraíl de `puedeConfirmarPedido` ya impide
+   * cerrar por debajo del mínimo, pero enterarse SOLO al confirmar significa
+   * que el cliente ya eligió sabores y toppings para nada. Avisar a tiempo es
+   * la diferencia entre "añade algo más" y un pedido que se cae al final.
+   */
+  minimoDomicilioCents?: number
 ): string {
   const conAlgo = estado.items.filter((i) => i.ofrecible.id || i.seleccion.length > 0);
   if (conAlgo.length === 0) return "";
@@ -303,10 +315,28 @@ export function comoTexto(
       : `\nTOTAL (lo calculó el sistema, úsalo tal cual): $${(estado.totalCents / 100).toLocaleString("es-CO")}`;
   const encabezado = vertical === "citas" ? "CITA EN CURSO" : "PEDIDO EN CURSO";
 
+  /*
+   * El pedido mínimo para domicilio, cuando este pedido no llega. Va como
+   * una línea propia y no dentro de `TE FALTA` porque no es un dato que el
+   * cliente tenga que DAR: es una condición del pedido, y la salida no es
+   * preguntarle algo sino ofrecerle dos caminos.
+   */
+  const minimo = faltaParaElMinimoDeDomicilio({
+    minimoCents: minimoDomicilioCents,
+    modalidadDeEntrega: estado.modalidadDeEntrega,
+    subtotalCents: estado.totalCents,
+  });
+  const avisoDelMinimo = minimo
+    ? `\nMÍNIMO DE DOMICILIO: este pedido lleva ${enPesos(minimo.subtotalCents)} y el mínimo ` +
+      `es ${enPesos(minimo.minimoCents)} — faltan ${enPesos(minimo.faltanCents)}. NO se puede ` +
+      `despachar así: díselo y ofrécele añadir algo más o pasar a recoger.`
+    : "";
+
   return (
     `${encabezado} — no vuelvas a preguntar nada de esto:\n${partes.join(" · ")}` +
     entrega +
     total +
+    avisoDelMinimo +
     (falta.length ? `\nTE FALTA, en este orden: ${falta.join(", ")}` : "\nNo falta nada: ve al resumen.")
   );
 }

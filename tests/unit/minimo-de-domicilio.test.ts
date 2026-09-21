@@ -94,3 +94,61 @@ describe("faltaParaElMinimoDeDomicilio", () => {
     expect(caso({ modalidadDeEntrega: " Domicilio ", subtotalCents: 1000000 })).not.toBeNull();
   });
 });
+
+/**
+ * Los cinco casos que el negocio aprobó por escrito el 21-sep-2026, con las
+ * cifras del catálogo real de MALIA. Están aquí, literales, para que quien
+ * venga después no tenga que reconstruir la decisión desde un documento.
+ *
+ * El contrato: **el mínimo es MONETARIO y se compara contra el SUBTOTAL.**
+ * No hay regla por unidades ni por tamaño de producto, y la tarifa de
+ * domicilio no cuenta.
+ */
+describe("los casos aprobados por el negocio (21-sep-2026)", () => {
+  const MINIMO = 1800000; // $18.000 en centavos — el precio del pavé de 16 oz
+  const cumple = (subtotalCents: number) =>
+    faltaParaElMinimoDeDomicilio({
+      minimoCents: MINIMO,
+      modalidadDeEntrega: MODALIDAD_DOMICILIO,
+      subtotalCents,
+    }) === null;
+
+  const P8 = 1000000; // pavé 8 oz  · $10.000
+  const P16 = 1800000; // pavé 16 oz · $18.000
+  const TOPPING = 200000; // cada uno · $2.000
+
+  it("1 × pavé 8 oz = $10.000 → NO cumple", () => {
+    expect(cumple(P8)).toBe(false);
+  });
+
+  it("1 × pavé 8 oz + toppings hasta $18.000 → SÍ cumple (aceptado explícitamente)", () => {
+    // 4 toppings × $2.000 = $8.000, y $10.000 + $8.000 = $18.000 justos.
+    // El negocio aceptó esta consecuencia: el domicilio se paga a sí mismo
+    // igual. NO se debe añadir una regla de unidades para "corregirlo".
+    expect(P8 + 4 * TOPPING).toBe(1800000);
+    expect(cumple(P8 + 4 * TOPPING)).toBe(true);
+    // Y por debajo de esos 4 toppings, sigue sin llegar.
+    expect(cumple(P8 + 3 * TOPPING)).toBe(false);
+  });
+
+  it("1 × pavé 16 oz = $18.000 → SÍ cumple", () => {
+    expect(cumple(P16)).toBe(true);
+  });
+
+  it("2 × pavé 8 oz = $20.000 → SÍ cumple", () => {
+    expect(cumple(2 * P8)).toBe(true);
+  });
+
+  it("subtotal $10.000 + domicilio $10.000 = $20.000 → NO cumple", () => {
+    // El caso que más fácil se implementa mal. La función solo recibe el
+    // SUBTOTAL: no tiene forma de sumar la tarifa ni aunque se lo pidieran.
+    expect(cumple(P8)).toBe(false);
+  });
+
+  it("el mínimo NO conoce unidades: solo mira el importe", () => {
+    // Mismo subtotal, composiciones distintas, mismo veredicto. Si algún día
+    // esto deja de ser cierto es que alguien metió lógica de unidades.
+    expect(cumple(1800000)).toBe(true); // 1 × 16 oz
+    expect(cumple(1800000)).toBe(true); // 1 × 8 oz + 4 toppings
+  });
+});

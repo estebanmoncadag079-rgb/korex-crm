@@ -112,12 +112,27 @@ const PLAN_DE_REGLAS: {
     accion: "se_recorta",
     nuevo:
       "DOMICILIOS\n\nCuando el cliente pida domicilio, pídele la dirección CON el barrio: " +
-      "el barrio es lo que nos deja calcular la tarifa.\n\nSi su zona queda fuera de nuestra " +
-      "cobertura, indícale de manera muy amable que puede enviar a alguien a recoger el " +
-      "pedido o visitarnos en nuestros puntos físicos.",
+      "el barrio es lo que nos deja calcular la tarifa.\n\n" +
+      /*
+       * Decisión del dueño (21-sep-2026): esta frase SE CONSERVA tal cual.
+       *
+       * La tabla de zonas sabe que esas tres ciudades no están, pero no sabe
+       * POR QUÉ: para ella son indistinguibles de un barrio cuyo nombre no
+       * reconoce. Y ante una zona desconocida el sistema hace decir *"voy a
+       * confirmar el valor del domicilio a esa zona"* (`zonas.ts:195`) en vez
+       * de *"no llegamos ahí, pero puedes recoger"* — una espera y un
+       * traspaso, en lugar de una respuesta clara con alternativa.
+       *
+       * Es comunicación comercial que la tabla NO puede representar, así que
+       * se queda en la prosa. No se inventa estructura nueva para esto.
+       */
+      "Jamundí, Yumbo o Palmira: no tenemos cobertura. Indica de manera muy " +
+      "amable que puede enviar a alguien a recoger el pedido o visitarnos en " +
+      "nuestros puntos físicos.",
     porque:
-      "la dirección ya es requisito del backend y la cobertura la decide la tabla de zonas; " +
-      "se conserva la conducta (pedir el barrio, ofrecer recogida con amabilidad)",
+      "la dirección pasa a ser requisito del backend; la cobertura de las tres ciudades SE " +
+      'CONSERVA por decisión del dueño — la tabla no distingue "no repartimos ahí" de ' +
+      '"no conozco ese barrio"',
   },
   {
     indice: 4,

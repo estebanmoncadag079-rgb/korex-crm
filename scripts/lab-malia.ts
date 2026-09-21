@@ -109,7 +109,14 @@ ficha.flujo.cierre = {
 ficha.flujo.reglasPropias = [
   "Desde chipichape NO despachamos domicilios pero SI despachamos rappi.",
   ficha.flujo.reglasPropias[2],
-  "DOMICILIOS\n\nCuando el cliente pida domicilio, pídele la dirección CON el barrio.",
+  // Mismo texto exacto que produce `migrar-malia.ts`, incluida la frase de
+  // cobertura que el dueño decidió conservar el 21-sep-2026. Si el laboratorio
+  // usara otra redacción, estaría probando una ficha que no existe.
+  "DOMICILIOS\n\nCuando el cliente pida domicilio, pídele la dirección CON el barrio: " +
+    "el barrio es lo que nos deja calcular la tarifa.\n\n" +
+    "Jamundí, Yumbo o Palmira: no tenemos cobertura. Indica de manera muy " +
+    "amable que puede enviar a alguien a recoger el pedido o visitarnos en " +
+    "nuestros puntos físicos.",
   "Actualmente no manejamos venta al por mayor; los pedidos grandes los cotiza una persona.",
   ficha.flujo.reglasPropias[5],
 ];

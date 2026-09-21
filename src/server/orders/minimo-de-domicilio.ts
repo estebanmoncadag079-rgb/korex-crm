@@ -9,6 +9,23 @@
  * quien la hacía cumplir era el modelo. Es justo lo que el Principio 7
  * prohíbe: un dato que decide, decidido por el LLM.
  *
+ * ## El contrato, aprobado por el negocio el 21-sep-2026
+ *
+ * **El mínimo es MONETARIO y se compara contra el SUBTOTAL de productos.**
+ * Esa frase es el contrato entero, y las dos mitades importan:
+ *
+ * - **Monetario**: no hay ninguna regla por número de unidades ni por tamaño
+ *   de producto. La única autoridad es `ficha.entrega.minimoDomicilioCents`
+ *   más esta función. No se debe añadir lógica de "dos de X o uno de Y".
+ * - **Contra el subtotal**: la tarifa de domicilio NUNCA cuenta para
+ *   alcanzar el mínimo.
+ *
+ * El negocio aceptó explícitamente la consecuencia: **un solo producto
+ * pequeño puede superar el mínimo a base de opciones de pago adicional**
+ * (en MALIA, un pavé de 8 oz con 4 toppings llega a $18.000). Es deliberado,
+ * no un hueco: el domicilio se paga a sí mismo igual, que es el fin de la
+ * regla. No hay que "arreglarlo" añadiendo una condición de unidades.
+ *
  * ## Por qué un IMPORTE, y no "dos unidades del producto X"
  *
  * Porque la regla del negocio, traducida, es económica: *un domicilio no sale

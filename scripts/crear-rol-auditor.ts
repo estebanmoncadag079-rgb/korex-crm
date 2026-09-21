@@ -233,7 +233,12 @@ try {
 } catch (e) {
   const m = (e as Error).message;
   if (!m.includes("__SIMULACRO__")) {
-    console.log(`\n[crear-rol-auditor] ABORTADO, nada se escribio: ${m}`);
+    /*
+     * Fallo ANTES del COMMIT. `admin.begin` ya deshizo la transacción entera,
+     * así que no hay cambios parciales: o entraron los cinco GRANT o no entró
+     * ninguno. Aquí el `exit 1` es correcto — no se aplicó nada.
+     */
+    console.log(`\n[crear-rol-auditor] ABORTADO por ROLLBACK, nada se escribio: ${m}`);
     await admin.end();
     process.exit(1);
   }
@@ -244,13 +249,55 @@ if (!aplicar) {
   await admin.end();
   process.exit(0);
 }
-console.log("  COMMIT hecho");
+
+/*
+ * ── A PARTIR DE AQUÍ LOS PERMISOS YA ESTÁN EN LA BASE ─────────────────
+ *
+ * El COMMIT pasó. Nada de lo que venga después puede deshacerlo, y por eso
+ * nada de lo que venga después debe salir con 1 "por si acaso": un código de
+ * salida que dice "falló" cuando el cambio SÍ se aplicó es peor que no
+ * tenerlo, porque invita a re-ejecutar o a dar por bueno un rollback que
+ * nadie hizo.
+ *
+ * El incidente que lo pide (21-sep-2026): con la contraseña ya borrada del
+ * disco —lo correcto, se borra al pegarla en GitHub—, este script aplicaba
+ * los GRANT, los comprometía, y acto seguido salía con 1 porque no podía
+ * reconectarse como el rol para la verificación posterior. El cambio real
+ * quedaba hecho y reportado como fallo.
+ *
+ * Desde aquí el código de salida responde a UNA sola pregunta: **¿los
+ * permisos quedaron mal?** No a "¿pude verificarlo todo?".
+ */
+console.log("\n" + "=".repeat(72));
+console.log("PERMISOS APLICADOS Y COMPROMETIDOS (COMMIT hecho).");
+console.log(`  ${Object.values(COLUMNAS).flat().length} columnas de SELECT sobre ${Object.keys(COLUMNAS).length} tablas: ${Object.keys(COLUMNAS).join(", ")}`);
+console.log("  Esto ya NO se deshace solo. Rollback: ver la cabecera de este archivo.");
+console.log("=".repeat(72));
+
+/** La consulta que comprueba el estado ya comprometido, sin necesitar la contraseña. */
+const VERIFICACION_EXTERNA =
+  `ssh -i ~/.ssh/churrabot_key root@2.25.159.117 "docker exec -i korex-crm-postgres-1 ` +
+  `psql -U postgres -d vocero -qc \\"SELECT table_name, count(*) FROM ` +
+  `information_schema.column_privileges WHERE grantee='${ROL}' GROUP BY 1 ORDER BY 1\\""`;
 
 if (!password) {
-  console.log("\n[crear-rol-auditor] permisos al dia, pero no hay contrasena disponible para");
-  console.log("  verificar la conexion. Para regenerarla: ALTER ROLE ... PASSWORD (nueva ejecucion).");
+  /*
+   * No es un fallo: es lo NORMAL cuando el rol ya existía y su contraseña se
+   * borró del disco al pegarla en GitHub. Los permisos están puestos; lo
+   * único que no se puede hacer es la verificación negativa conectándose
+   * como el rol, que necesita autenticarse.
+   */
+  console.log("\n⚠️  VERIFICACIÓN POSTERIOR PENDIENTE — y esto NO es un fallo.");
+  console.log("   Los permisos de arriba están aplicados. Lo que no se pudo hacer es");
+  console.log("   reconectarse COMO el rol para las pruebas negativas, porque su");
+  console.log("   contraseña no está en disco (se borra al pegarla en GitHub: correcto).");
+  console.log("\n   Verifícalo desde fuera, que además lee el estado ya comprometido:\n");
+  console.log(`   ${VERIFICACION_EXTERNA}\n`);
+  console.log("   Debe listar exactamente:");
+  for (const [t, cols] of Object.entries(COLUMNAS)) console.log(`     ${t}: ${cols.length}`);
+  console.log("\n[crear-rol-auditor] terminado con exito (codigo 0).");
   await admin.end();
-  process.exit(1);
+  process.exit(0);
 }
 
 // -- 4. Verificacion real: conectarse COMO el rol nuevo ------------------
@@ -353,6 +400,26 @@ console.log(
 );
 console.log("  codigo de salida:", r.status);
 
+/*
+ * El auditor puede salir con 1 por DOS razones muy distintas, y confundirlas
+ * es el mismo error de arriba con otro disfraz:
+ *
+ *   a) `permission denied` → los permisos quedaron mal. ES cosa de este
+ *      script, y tiene que salir con 1.
+ *   b) encontró una incoherencia en los DATOS de algún negocio → los
+ *      permisos están perfectos y el auditor hizo su trabajo. No es cosa de
+ *      este script: se avisa y se sale con 0.
+ *
+ * Sin esta distinción, conceder permisos correctamente sobre una base que
+ * tuviera un bloqueador se reportaría como "falló el GRANT".
+ */
+const faltaPermiso = /permission denied/i.test(salida);
+if (r.status !== 0 && !faltaPermiso) {
+  console.log("\n  ⚠️  el auditor salio con " + r.status + ", pero NO por permisos:");
+  console.log("     encontro algo en los DATOS. Los permisos de este script estan bien;");
+  console.log("     lo que reporte el auditor se atiende aparte.");
+}
+
 // -- 6. Entrega de la credencial, fuera del repositorio ------------------
 writeFileSync(
   ENTREGA,
@@ -365,7 +432,23 @@ console.log("\n" + "-".repeat(72));
 console.log(`CREDENCIAL ENTREGADA EN: ${ENTREGA}`);
 console.log("  (fuera del repositorio | borralo en cuanto lo pegues en GitHub)");
 
-const ok = neg.every(Boolean) && sinRastro && r.status === 0;
-console.log("\n" + (ok ? "OK: rol creado, verificado y probado." : "REVISAR: algo no cuadra arriba."));
+/*
+ * El código de salida responde SOLO a "¿los permisos quedaron mal?":
+ *
+ *   - alguna prueba negativa PASÓ (el rol puede escribir)   → sí, exit 1
+ *   - quedó rastro de las pruebas                            → sí, exit 1
+ *   - el auditor se quejó de `permission denied`             → sí, exit 1
+ *   - el auditor encontró una incoherencia de datos          → NO, exit 0
+ *
+ * Los GRANT ya están comprometidos pase lo que pase aquí: un exit 1 en este
+ * punto significa "revisa los permisos", nunca "no se aplicó nada".
+ */
+const permisosMal = !neg.every(Boolean) || !sinRastro || faltaPermiso;
+console.log(
+  "\n" +
+    (permisosMal
+      ? "REVISAR LOS PERMISOS: algo no cuadra arriba. Los GRANT SÍ están aplicados."
+      : "OK: permisos aplicados, verificados y probados.")
+);
 await admin.end();
-process.exit(ok ? 0 : 1);
+process.exit(permisosMal ? 1 : 0);

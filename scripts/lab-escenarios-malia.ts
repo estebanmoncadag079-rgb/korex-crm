@@ -205,8 +205,11 @@ console.log("\n── 2 · La tarifa sale de la tabla de 353 zonas ────�
 // ═══ 3 · DOMICILIO vs RECOGIDA · requisito de dirección ═════════════════
 console.log("\n── 3 · La dirección: obligatoria en domicilio, NO en recogida ─");
 {
-  const enDom = requisitosDe(ficha, { modalidadDeEntrega: MODALIDAD_DOMICILIO }).map((r) => r.id);
-  const enRec = requisitosDe(ficha, { modalidadDeEntrega: MODALIDAD_RECOGIDA }).map((r) => r.id);
+  // `requisitosDe` devuelve `undefined` cuando la ficha no declara
+  // `cierre.requisitos`. MALIA sí los declara, pero hacerle `.map()` directo
+  // dejaba el laboratorio a un `undefined` de reventar con otra ficha.
+  const enDom = (requisitosDe(ficha, { modalidadDeEntrega: MODALIDAD_DOMICILIO }) ?? []).map((r) => r.id);
+  const enRec = (requisitosDe(ficha, { modalidadDeEntrega: MODALIDAD_RECOGIDA }) ?? []).map((r) => r.id);
   comprobar("domicilio exige direccion", enDom.includes("direccion"), enDom.join(", "));
   comprobar("recogida NO exige direccion", !enRec.includes("direccion"), enRec.join(", "));
   comprobar("los dos exigen nombre y teléfono", enRec.includes("nombre") && enRec.includes("telefono"));

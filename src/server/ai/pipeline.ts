@@ -1225,7 +1225,13 @@ export async function runAgentTurn(
        * así que el modelo no veía que le faltaban sus opciones.
        */
       if (estadoGuardado) {
-        bloqueDeEstado = comoTexto(estadoGuardado, productos, requisitos ?? [], vertical);
+        bloqueDeEstado = comoTexto(
+          estadoGuardado,
+          productos,
+          requisitos ?? [],
+          vertical,
+          fichaDelNegocio?.entrega?.minimoDomicilioCents
+        );
       }
     }
   }
@@ -2653,6 +2659,12 @@ export async function runAgentTurn(
       history,
       estadoGuardado,
       requisitos,
+      // El pedido mínimo para domicilio sale de la ficha, como los
+      // requisitos: es una regla de ESTE negocio, no del núcleo. Ausente en
+      // casi todos, y entonces la Policy ni lo mira.
+      ...(fichaDelNegocio?.entrega?.minimoDomicilioCents
+        ? { minimoDomicilioCents: fichaDelNegocio.entrega.minimoDomicilioCents }
+        : {}),
     });
     if (!veredicto.ok) {
       console.warn(

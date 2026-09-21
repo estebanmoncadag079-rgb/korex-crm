@@ -32,7 +32,7 @@
  *   pnpm auditar:arquitectura --estricto
  */
 import { readFileSync } from "node:fs";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -236,6 +236,52 @@ async function main() {
     console.log(`  ${bloquea ? "🔴" : "🟡"} ${p.nombre} — ${resumen}`);
     for (const f of fallos) {
       console.log(`       ${f.bloqueante ? "[FAIL]" : "[aviso]"} ${f.tipo}: ${f.mensaje}`);
+    }
+  }
+
+  /*
+   * ── Productos disponibles sin precio ────────────────────────────────
+   *
+   * Guardar un producto sin precio es DELIBERADO (`catalog/productos.ts:58`):
+   * un negocio que todavía no lo sabe puede cargarlo y completarlo después en
+   * vez de quedar bloqueado. Así que esto no se prohíbe ni bloquea el
+   * despliegue.
+   *
+   * Pero con `state_source='backend'` deja de ser inocuo: el backend no puede
+   * sumar, `puedeConfirmarPedido` rechaza el cierre y el pedido acaba en una
+   * persona. Un producto a medias que nadie recuerda haber creado se convierte
+   * en ventas derivadas, en silencio.
+   *
+   * El caso que lo pidió: MALIA tenía un producto llamado `"1"`, disponible,
+   * sin precio y sin descripción (auditoría del 21-sep-2026). No es que la
+   * capacidad esté mal: es que nada la hacía visible.
+   */
+  console.log("\n── Catálogo: productos ofrecibles sin precio ───────────────");
+  const sinPrecio = await db
+    .select({ org: schema.organization.name, nombre: schema.product.name })
+    .from(schema.product)
+    .innerJoin(schema.organization, eq(schema.organization.id, schema.product.organizationId))
+    .where(
+      and(
+        isNull(schema.product.priceCents),
+        isNull(schema.product.archivedAt),
+        eq(schema.product.available, true)
+      )
+    );
+  if (sinPrecio.length === 0) {
+    console.log("  🟢 ninguno.");
+  } else {
+    const porOrg = new Map<string, string[]>();
+    for (const p of sinPrecio) porOrg.set(p.org, [...(porOrg.get(p.org) ?? []), `"${p.nombre}"`]);
+    for (const [org, nombres] of porOrg) {
+      observaciones.push(org);
+      console.log(
+        `  🟡 ${org} — ${nombres.length} producto(s) ofrecible(s) sin precio: ${nombres.join(", ")}`
+      );
+      console.log(
+        "       [aviso] el backend no puede sumarlos; con state_source='backend' el pedido " +
+          "se deriva a una persona. Ponles precio o archívalos."
+      );
     }
   }
 

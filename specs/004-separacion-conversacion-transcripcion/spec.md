@@ -1,6 +1,6 @@
 # 004 — Separar quién conversa de quién lee los medios
 
-**Estado:** implementado, sin desplegar
+**Estado:** implementado, sin desplegar · **el cambio de modelo se DESCARTA** (ver §7)
 **Rama:** `004-separacion-conversacion-transcripcion`
 **Fecha:** 21-sep-2026
 
@@ -165,7 +165,54 @@ funcionando sin tocar código. **Se reporta como decisión, no se bloquea.**
 | 8 | Gate completo en verde, sin regresiones | `typecheck` + `lint` + `build` + 2.597 pruebas |
 | 9 | Rollback = una variable, sin código ni datos | documentado y ensayado |
 
-## 7 · Rollback
+## 7 · La medición: GPT-5 mini NO debe encenderse
+
+Con la separación ya construida, se midió el candidato. **Mismas 325 entradas
+exactas** que vio Gemini —replicadas desde su informe con `--como`, no
+reconsultadas—, mismo prompt, mismo catálogo, mismo backend.
+
+| | Gemini 3.7 Flash | GPT-5 mini |
+|---|---:|---:|
+| turnos | 325 | 325 |
+| **pedidos cerrados** (`notify_order`) | **6** | **0** |
+| **derivaciones a humano** | **1** | **7** |
+| respuestas vacías | 0 | 0 |
+| costo | US$3,5784 | US$1,0118 |
+| costo por turno | US$0,011010 | US$0,003113 |
+| latencia | 7.365 ms | 13.058 ms |
+
+**Cero pedidos cerrados de seis.** Y no es ruido estadístico: en los seis
+turnos exactos en que el cliente confirmó, esto es lo que hizo cada uno.
+
+| # | El cliente dijo | Gemini | GPT-5 mini |
+|---|---|---|---|
+| 1 | (confirma el resumen) | envía los datos de pago | vuelve a preguntar el tamaño, ya elegido |
+| 2 | "Listo" | **pedido confirmado** | deriva a una persona |
+| 3 | "3246028983 Liseth García" | **pedido registrado** | dice que falta elegir sabor |
+| 4 | "Si correcto" | **pedido confirmado** | "Perdón, hubo un error al guardar" |
+| 5 | "Siii" | **pedido confirmado** | deriva a una persona |
+| 6 | "Sip" | **pedido confirmado** | deriva a una persona |
+
+Tres de seis derivan a una persona **en el momento exacto de la venta**. Uno
+devuelve un error y le pide al cliente que lo reescriba todo. Dos vuelven a
+preguntar algo ya respondido.
+
+Es el mismo modo de fallo que ya descartó a `gemini-2.5-flash-lite` el mismo
+día (5 derivaciones, 0 pedidos cerrados en 332 turnos). Dos modelos más
+baratos, independientes entre sí, fallando en el mismo punto: cerrar.
+
+**Ahorraría el 72% y perdería las ventas.** No se enciende.
+
+Lo que la medición NO dice: que GPT-5 mini sea malo en general. Solo que con
+este prompt y este contrato de acciones no cierra. Ajustarlo sería otro
+trabajo, con su propia medición.
+
+### Lo que sí queda
+
+La separación de papeles es independiente del modelo que se elija, y es lo
+que hace que la pregunta se pueda volver a hacer sin arriesgar el audio.
+
+## 8 · Rollback
 
 Quitar `OPENROUTER_TRANSCRIPTION_MODEL` y devolver `OPENROUTER_MODEL` a
 `google/gemini-3.7-flash`. Reiniciar. No hay migración, no hay dato tocado, no

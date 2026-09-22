@@ -162,16 +162,27 @@ caso rescatado, porque el rescate ocurre antes en la secuencia. Ver el
 comentario en `pipeline.ts` en el nuevo punto de enganche para el detalle
 completo.
 
-**Hallazgo relacionado, no corregido (fuera del alcance de esta corrección)**:
-el rescate de PEDIDO no puebla `deliveryFeeCents` — construye
-`subtotalCents`/`totalCents` como el mismo número
-(`estadoGuardado.totalCents`, que es la suma de los ítems, sin domicilio).
-Con esto, `bloqueDeDomicilioPendiente` ahora sí corre, pero un domicilio YA
-verificado con tarifa distinta de cero no se refleja en los montos
-estructurados del cierre rescatado. Es un hallazgo de la auditoría, anotado
-aquí para que no se pierda — no se resolvió porque el encargo pidió
-únicamente enrutar por los guardarraíles existentes, no rediseñar el cálculo
-de montos.
+**Hallazgo relacionado, corregido aparte (21-sep-2026, noche)**: el rescate
+de PEDIDO no poblaba `deliveryFeeCents` — construía `subtotalCents`/
+`totalCents` como el mismo número (`estadoGuardado.totalCents`, la suma de
+los ítems, sin domicilio), así que un domicilio YA verificado con tarifa
+distinta de cero no se reflejaba en los montos estructurados del cierre
+rescatado.
+
+**La fuente**, exactamente la misma que usa un cierre normal: un cierre
+propuesto por GPT no CALCULA `deliveryFeeCents` tampoco — GPT lo escribe y
+`inconsistenciaFinancieraDePedido` lo VALIDA contra `entregaPersistida`
+(`pipeline.ts`, que lee `EstadoDelPedido.entrega`, verificado por
+`consultar_domicilio` y persistido entre turnos). Como el rescate no tiene
+ninguna cifra de GPT que validar, se construye directamente desde esa misma
+fuente — nunca desde Gemini, nunca desde texto, nunca inventada — con
+`cifrasNumericasDelCierre` (`anuncio-de-cierre.ts`), extraída de
+`bloqueDeCifrasVerificadas` para que las dos compartan una sola aritmética:
+domicilio con tarifa conocida → `deliveryFeeCents` = esa tarifa,
+`totalCents` = subtotal + tarifa; domicilio pendiente, recogida, o
+modalidad sin resolver → `deliveryFeeCents: null`, `totalCents` = subtotal
+— igual que haría un cierre normal en cada uno de esos casos, nunca
+inventando ni asumiendo.
 
 ### Hallazgo 2 — `OPENROUTER_FALLBACK_MODEL` compartía responsabilidad con más de 30 sitios ajenos
 

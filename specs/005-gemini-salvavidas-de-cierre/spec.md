@@ -1,11 +1,11 @@
 # 005 — GPT-5 Mini principal + Gemini salvavidas de cierre
 
-**Estado:** implementado, sin desplegar — **v3, corregido tras auditoría independiente**
+**Estado:** implementado, sin desplegar — **v4, con deliveryFeeCents resuelto**
 **Rama:** `004-separacion-conversacion-transcripcion` (continúa sobre la 004)
-**Fecha:** 21-sep-2026 (mañana: v1 solo pedidos · tarde: v2 +citas · noche: v3 correcciones)
+**Fecha:** 21-sep-2026 (mañana: v1 solo pedidos · tarde: v2 +citas · noche: v3 correcciones de auditoría · noche: v4 deliveryFeeCents)
 **Excepción arquitectónica:** ver
 [docs/korexia/189](../../docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md)
-(y sus tres Adendas) — decisión del dueño, con el choque contra
+(y sus Adendas) — decisión del dueño, con el choque contra
 [doc 156](../../docs/korexia/156-ARQUITECTURA-DECISION-CONVERSACIONAL-KOREX.md)
 documentado explícitamente, no resuelto por cuenta propia.
 
@@ -31,6 +31,51 @@ más allá de lo ya descrito y sin tocar doc 156:
    puede activarse ahí. Corregido en las tablas de abajo y en doc 189.
 
 Detalle completo de cada corrección en la tercera Adenda de doc 189.
+
+## Corrección funcional: `deliveryFeeCents` (v4)
+
+El hallazgo 1 de la corrección v3 dejó anotado, sin resolver a propósito
+(fuera del alcance de esa corrección), que el rescate de PEDIDO no poblaba
+`deliveryFeeCents` — un domicilio ya verificado con tarifa distinta de cero
+no se reflejaba en los montos estructurados del cierre rescatado. El dueño
+pidió corregirlo antes de deploy, no solo dejarlo documentado.
+
+**De dónde sale `deliveryFeeCents` en un cierre NORMAL** (investigado, no
+supuesto): ni siquiera un cierre propuesto por GPT lo CALCULA — GPT lo
+escribe en su JSON, y `inconsistenciaFinancieraDePedido`
+(`anuncio-de-cierre.ts`) lo VALIDA contra `entregaPersistida` (variable de
+`pipeline.ts`, que lee `EstadoDelPedido.entrega` — verificado por
+`consultar_domicilio` y persistido entre turnos, independiente de
+`state_source`). Si no coincide, el pipeline reintenta con GPT hasta que
+coincide o deriva. La autoridad nunca fue "quién calcula", sino "contra qué
+se valida" — y esa fuente es `entregaPersistida`.
+
+**Cómo quedó reutilizada esa misma autoridad en el rescate**: como el
+rescate no tiene ninguna cifra de GPT que validar (GPT nunca propuso
+`notify_order`), se construye directamente desde `entregaPersistida` — la
+MISMA variable, pasada tal cual desde `pipeline.ts` — con una función nueva,
+`cifrasNumericasDelCierre` (`anuncio-de-cierre.ts`), extraída de
+`bloqueDeCifrasVerificadas` (que hasta ahora solo producía texto) para que
+las dos compartan una única aritmética. Nunca Gemini, nunca texto libre,
+nunca hardcodeado.
+
+| Caso | `deliveryFeeCents` | `totalCents` |
+|---|---|---|
+| Sin domicilio / modalidad sin resolver | `null` | `subtotalCents` |
+| Recogida en el local | `null` | `subtotalCents` |
+| Domicilio con tarifa verificada (incluida `$0`) | la tarifa | `subtotalCents + tarifa` |
+| Domicilio pendiente de verificar | `null` — **nunca inventada** | `subtotalCents` |
+
+El último caso replica el comportamiento de un cierre normal con domicilio
+pendiente (`bloqueDeDomicilioPendiente`: no bloquea el cierre, solo aclara
+que el domicilio se confirma aparte) — nunca asume `$0` ni ninguna otra
+cifra.
+
+**Citas, verificado explícitamente**: `book_appointment` no tiene ningún
+campo de precio/tarifa en su contrato (`servicios`, `fecha`, `hora`,
+`especialista?`, `farewell?` — nada más). El rescate de cita ya poblaba los
+cuatro campos relevantes desde antes de esta corrección; no había un vacío
+estructural equivalente que resolver.
 
 ## Objetivo
 
@@ -130,10 +175,12 @@ pedidos.
 | `src/lib/ai/modelos.ts` | `modeloDeRescate()` — **v3**: lee `OPENROUTER_RECOVERY_MODEL`, propia, sin caer a `OPENROUTER_FALLBACK_MODEL` |
 | `src/server/ai/pipeline.ts` | el enganche: una sola llamada a `intentarRescatarTurno`, envuelta en `try/catch` — **v3: reubicado** antes de los guardarraíles del cierre |
 | `src/server/appointments/policy.ts` | **sin tocar** — `puedeConfirmarCita` se reutiliza tal cual |
-| `src/server/orders/policy.ts`, `src/server/ai/anuncio-de-cierre.ts` | **sin tocar** — `inconsistenciaFinancieraDePedido`/`bloqueDeDomicilioPendiente` se reutilizan tal cual, ahora alcanzadas por el rescate |
-| `docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md` | la excepción + tres Adendas (citas, y la corrección v3) |
-| `tests/unit/recuperacion-de-turno.test.ts` | 32 pruebas: detector y orquestación de AMBOS dominios, el punto de entrada único, la separación de variables, y la reproducción de los 6 casos medidos |
-| `tests/unit/salvavidas-de-cierre-alcance.test.ts` | 10 pruebas de ALCANCE — pipeline.ts usa el punto de entrada único, reschedule/cancel siguen fuera |
+| `src/server/orders/policy.ts` | **sin tocar** |
+| `src/server/ai/anuncio-de-cierre.ts` | **v4** — nueva función exportada `cifrasNumericasDelCierre` (la aritmética de `deliveryFeeCents`, extraída para reutilizarla desde el rescate); `bloqueDeCifrasVerificadas` la usa internamente para su rama de domicilio — comportamiento de texto sin cambios, verificado con su suite existente |
+| `docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md` | la excepción + Adendas (citas, corrección v3, `deliveryFeeCents` v4) |
+| `tests/unit/recuperacion-de-turno.test.ts` | 35 pruebas: detector y orquestación de AMBOS dominios, el punto de entrada único, la separación de variables, `deliveryFeeCents` en sus cinco casos, y la reproducción de los 6 casos medidos |
+| `tests/unit/salvavidas-de-cierre-alcance.test.ts` | 15 pruebas de ALCANCE — punto de entrada único, reubicación del enganche, `deliveryFeeCents` reutiliza la autoridad backend, citas sin vacío estructural |
+| `tests/unit/cifras-las-escribe-el-backend.test.ts` | **v4** — +14 pruebas: `cifrasNumericasDelCierre` en sus cuatro casos y su coherencia aritmética |
 | `tests/unit/modelos-por-papel.test.ts` | **v3** — +6 pruebas: `modeloDeRescate` es independiente del juez, de `aprendizaje` y de la cadena técnica |
 | `tests/unit/modelos-seguridad-y-multitenant.test.ts` | 4 pruebas — el módulo no filtra secretos ni discrimina por organización |
 
@@ -141,7 +188,8 @@ pedidos.
 
 | Garantía | Cómo se cumple | Prueba |
 |---|---|---|
-| Gemini no inventa datos comerciales | Montos, fecha, hora y servicio SIEMPRE salen de `estadoGuardado` | inyecta un modelo que MIENTE con cifras/fecha propias en AMBOS dominios — se ignoran |
+| Gemini no inventa datos comerciales | Montos (incluido `deliveryFeeCents`), fecha, hora y servicio SIEMPRE salen de `estadoGuardado`/`entregaPersistida` | inyecta un modelo que MIENTE con cifras/fecha propias en AMBOS dominios — se ignoran |
+| **`deliveryFeeCents` sale de la misma autoridad que un cierre normal** | **v4**: `cifrasNumericasDelCierre`, construida desde `entregaPersistida` — nunca inventa una tarifa cuando el domicilio está pendiente | 5 casos: sin domicilio, con tarifa, pendiente, tarifa $0, y coherencia `total = subtotal + fee` |
 | Máximo un fallback lógico por turno | `intentarRescatarTurno` prueba pedido, y solo si no aplica, cita — nunca las dos; cada rescate hace como mucho 2 llamadas | "hay un ÚNICO punto de entrada" + "máximo dos llamadas a chatJson en TODO el archivo" |
 | Handoff legítimo no dispara nada | Los dos detectores exigen `estadoGuardado` completo antes de llamar a nada | 14 de los 15 casos de detector (7 por dominio) cubren los caminos que deben dar `false` |
 | El backend sigue siendo la autoridad | Cero líneas nuevas en `orders/estado.ts`, `orders/policy.ts`, `appointments/policy.ts`, `catalog/`, los switches de ejecución | grep de diff — 0 cambios en esos archivos |

@@ -2433,6 +2433,12 @@ export async function runAgentTurn(
       messages,
       estadoGuardado,
       requisitos,
+      // La MISMA autoridad backend que `inconsistenciaFinancieraDePedido`
+      // usa, unas líneas más abajo, para validar el `deliveryFeeCents` que
+      // GPT propone en un cierre normal. Aquí no hay nada que validar —GPT
+      // nunca propuso `notify_order`— así que el rescate lo construye
+      // directamente desde esta misma fuente, nunca desde Gemini.
+      entrega: entregaPersistida,
       ...(fichaDelNegocio?.entrega?.minimoDomicilioCents
         ? { minimoDomicilioCents: fichaDelNegocio.entrega.minimoDomicilioCents }
         : {}),

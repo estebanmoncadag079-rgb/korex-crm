@@ -48,7 +48,7 @@ import {
 import { puedeConfirmarPedido } from "@/server/orders/policy";
 import { puedeConfirmarCita } from "@/server/appointments/policy";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
-import { estadoVacio, type EstadoDelPedido } from "@/server/orders/estado";
+import { estadoVacio, type EstadoDelPedido, type EntregaVerificada } from "@/server/orders/estado";
 import type { Requisito } from "@/server/ai/generador/ficha";
 import type { AgentActionType } from "@/server/ai/actions";
 import type { ChatMessage } from "@/lib/ai";
@@ -531,6 +531,161 @@ describe("intentarRescateDeCierre — la orquestación", () => {
     expect(r.info.redactadoPor).toBe("principal");
     // Dos llamadas: el juicio de Gemini y la redacción de GPT. Ni una más.
     expect(vistos).toEqual(["google/gemini-3.7-flash", "openai/gpt-5-mini"]);
+  });
+
+  /**
+   * `deliveryFeeCents` — corrección del 21-sep-2026 (noche): el rescate de
+   * pedidos no lo poblaba. La fuente es `entrega` (== `entregaPersistida`
+   * de `pipeline.ts`, la MISMA autoridad que usa un cierre normal), nunca
+   * Gemini ni texto libre. Un juicio que confirma se simula igual en las
+   * cinco pruebas — lo único que cambia es `entrega`.
+   */
+  describe("deliveryFeeCents — la misma autoridad backend que un cierre normal", () => {
+    const juicioConfirmaYRedactaOk = () => {
+      let llamada = 0;
+      global.fetch = vi.fn(async () => {
+        llamada++;
+        if (llamada === 1) {
+          // Gemini confirma. Sus propias cifras (si trajera alguna) se
+          // ignoran siempre — no hay ninguna en este juicio a propósito.
+          return respuesta({
+            choices: [{ message: { content: JSON.stringify({ action: "notify_order", summary: "x", farewell: "y" }) } }],
+          });
+        }
+        return respuesta({
+          choices: [{ message: { content: JSON.stringify({ summary: "resumen", farewell: "despedida" }) } }],
+        });
+      }) as unknown as typeof fetch;
+    };
+
+    it("pedido SIN domicilio: deliveryFeeCents null, totalCents = subtotal", async () => {
+      vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
+      const { intentarRescateDeCierre } = await cargar();
+      juicioConfirmaYRedactaOk();
+
+      const r = await intentarRescateDeCierre({
+        messages: MENSAJES,
+        estadoGuardado: HOJA_COMPLETA, // sin `entrega`
+        requisitos: REQUISITOS,
+      });
+
+      expect(r.rescatado).toBe(true);
+      if (!r.rescatado) throw new Error("no debería llegar aquí");
+      const a = r.accion as { subtotalCents?: number; deliveryFeeCents?: number | null; totalCents?: number };
+      expect(a.subtotalCents).toBe(1_000_000);
+      expect(a.deliveryFeeCents).toBeNull();
+      expect(a.totalCents).toBe(1_000_000);
+    });
+
+    it("pedido con domicilio Y tarifa conocida: deliveryFeeCents = la tarifa verificada, totalCents = suma", async () => {
+      vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
+      const { intentarRescateDeCierre } = await cargar();
+      juicioConfirmaYRedactaOk();
+
+      const r = await intentarRescateDeCierre({
+        messages: MENSAJES,
+        estadoGuardado: HOJA_COMPLETA,
+        requisitos: REQUISITOS,
+        entrega: {
+          tipo: "domicilio",
+          zonaId: "z1",
+          zonaNombre: "Brisas de Mayo",
+          feeCents: 1_200_000,
+          verificadoEnMensajeId: null,
+          verificadoEn: new Date().toISOString(),
+        },
+      });
+
+      expect(r.rescatado).toBe(true);
+      if (!r.rescatado) throw new Error("no debería llegar aquí");
+      const a = r.accion as { subtotalCents?: number; deliveryFeeCents?: number | null; totalCents?: number };
+      expect(a.subtotalCents).toBe(1_000_000);
+      expect(a.deliveryFeeCents).toBe(1_200_000);
+      expect(a.totalCents).toBe(2_200_000);
+    });
+
+    it("domicilio SIN tarifa verificada (pendiente): NO inventa la tarifa — mismo comportamiento que un cierre normal", async () => {
+      vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
+      const { intentarRescateDeCierre } = await cargar();
+      juicioConfirmaYRedactaOk();
+
+      const r = await intentarRescateDeCierre({
+        messages: MENSAJES,
+        estadoGuardado: HOJA_COMPLETA,
+        requisitos: REQUISITOS,
+        entrega: {
+          tipo: "domicilio",
+          zonaId: null,
+          zonaNombre: null,
+          feeCents: null, // pendiente de verificar
+          verificadoEnMensajeId: null,
+          verificadoEn: new Date().toISOString(),
+        },
+      });
+
+      // Un cierre normal con domicilio pendiente NO se bloquea (lo dice
+      // `bloqueDeDomicilioPendiente`): cierra sin la tarifa, y el pipeline
+      // aclara aparte que el domicilio se confirma después. El rescate
+      // sigue exactamente ese mismo comportamiento — nunca asume $0 ni
+      // ninguna otra cifra.
+      expect(r.rescatado).toBe(true);
+      if (!r.rescatado) throw new Error("no debería llegar aquí");
+      const a = r.accion as { deliveryFeeCents?: number | null; totalCents?: number };
+      expect(a.deliveryFeeCents).toBeNull();
+      expect(a.totalCents).toBe(1_000_000);
+    });
+
+    it("tarifa de domicilio $0 (zona gratis): es una tarifa REAL, no se confunde con 'pendiente'", async () => {
+      vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
+      const { intentarRescateDeCierre } = await cargar();
+      juicioConfirmaYRedactaOk();
+
+      const r = await intentarRescateDeCierre({
+        messages: MENSAJES,
+        estadoGuardado: HOJA_COMPLETA,
+        requisitos: REQUISITOS,
+        entrega: {
+          tipo: "domicilio",
+          zonaId: "z-gratis",
+          zonaNombre: "Zona gratis",
+          feeCents: 0,
+          verificadoEnMensajeId: null,
+          verificadoEn: new Date().toISOString(),
+        },
+      });
+
+      expect(r.rescatado).toBe(true);
+      if (!r.rescatado) throw new Error("no debería llegar aquí");
+      const a = r.accion as { deliveryFeeCents?: number | null; totalCents?: number };
+      expect(a.deliveryFeeCents).toBe(0);
+      expect(a.deliveryFeeCents).not.toBeNull();
+      expect(a.totalCents).toBe(1_000_000);
+    });
+
+    it("coherencia: totalCents === subtotalCents + (deliveryFeeCents ?? 0), en los cuatro casos de arriba", async () => {
+      vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
+      const { intentarRescateDeCierre } = await cargar();
+
+      const entregas: (EntregaVerificada | undefined)[] = [
+        undefined,
+        { tipo: "recogida", zonaId: null, zonaNombre: null, feeCents: null, verificadoEnMensajeId: null, verificadoEn: "x" },
+        { tipo: "domicilio", zonaId: "z1", zonaNombre: "Z1", feeCents: 800_000, verificadoEnMensajeId: null, verificadoEn: "x" },
+        { tipo: "domicilio", zonaId: null, zonaNombre: null, feeCents: null, verificadoEnMensajeId: null, verificadoEn: "x" },
+      ];
+      for (const entrega of entregas) {
+        juicioConfirmaYRedactaOk();
+        const r = await intentarRescateDeCierre({
+          messages: MENSAJES,
+          estadoGuardado: HOJA_COMPLETA,
+          requisitos: REQUISITOS,
+          entrega,
+        });
+        expect(r.rescatado).toBe(true);
+        if (!r.rescatado) throw new Error("no debería llegar aquí");
+        const a = r.accion as { subtotalCents?: number; deliveryFeeCents?: number | null; totalCents?: number };
+        expect(a.totalCents).toBe((a.subtotalCents ?? 0) + (a.deliveryFeeCents ?? 0));
+      }
+    });
   });
 
   it("Gemini confirma pero la redacción de GPT falla → se usa el texto de Gemini como respaldo", async () => {

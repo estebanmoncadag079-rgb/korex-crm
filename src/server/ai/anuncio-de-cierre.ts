@@ -435,6 +435,45 @@ function enPesos(cents: number): string {
  * afirma nada y el cierre sigue el camino de siempre. **Medio total es peor
  * que ninguno.**
  */
+/**
+ * Los montos NUMÉRICOS del cierre — la misma cuenta que hace
+ * `bloqueDeCifrasVerificadas` para su texto, aparte porque un consumidor
+ * ESTRUCTURADO (el salvavidas de recuperación de turno,
+ * `@/server/ai/recuperacion-de-turno`) necesita los números, no la prosa, y
+ * no puede tener su propia copia de esta cuenta — sería exactamente el
+ * defecto que este archivo existe para cerrar (dos versiones de la misma
+ * cifra que pueden divergir).
+ *
+ * A diferencia de `bloqueDeCifrasVerificadas`, **nunca devuelve `null`**: la
+ * falta de certeza de un domicilio pendiente se expresa aquí como
+ * `deliveryFeeCents: null` —igual que "recogida" o "sin modalidad
+ * resuelta"—, que es una respuesta VÁLIDA para `notify_order.deliveryFeeCents`
+ * (opcional y nullable en `actions.ts`), nunca un total inventado. Quien
+ * necesite distinguir "domicilio pendiente" de "recogida" para decidir si
+ * puede afirmar algo en TEXTO libre sigue usando `bloqueDeCifrasVerificadas`,
+ * que sí lo distingue (por eso esa función devuelve `null` en ese caso y
+ * esta no).
+ */
+export function cifrasNumericasDelCierre(input: {
+  /** Suma de los ítems contra el catálogo (`EstadoDelPedido.totalCents`), ya resuelta. */
+  subtotalCents: number;
+  /** La entrega ya verificada y persistida, si la hay. */
+  entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+}): { subtotalCents: number; deliveryFeeCents: number | null; totalCents: number } {
+  const { subtotalCents, entrega } = input;
+  if (entrega?.tipo === "domicilio" && typeof entrega.feeCents === "number") {
+    return {
+      subtotalCents,
+      deliveryFeeCents: entrega.feeCents,
+      totalCents: subtotalCents + entrega.feeCents,
+    };
+  }
+  // Domicilio pendiente, recogida, o modalidad sin resolver: sin tarifa
+  // verificada que afirmar, el total es el subtotal — nunca se inventa un
+  // domicilio ni se asume "sin domicilio" cuando en realidad está pendiente.
+  return { subtotalCents, deliveryFeeCents: null, totalCents: subtotalCents };
+}
+
 export function bloqueDeCifrasVerificadas(input: {
   /** Suma de los ítems contra el catálogo (`EstadoDelPedido.totalCents`). */
   subtotalCents: number | null | undefined;
@@ -463,8 +502,9 @@ export function bloqueDeCifrasVerificadas(input: {
      * interruptor. Cazado por esta prueba en la auditoría del 19-sep-2026.
      */
     if (typeof entrega.feeCents !== "number") return null;
-    lineas.push(`Domicilio: ${enPesos(entrega.feeCents)}`);
-    lineas.push(`Total: ${enPesos(subtotalCents + entrega.feeCents)}`);
+    const { deliveryFeeCents, totalCents } = cifrasNumericasDelCierre({ subtotalCents, entrega });
+    lineas.push(`Domicilio: ${enPesos(deliveryFeeCents!)}`);
+    lineas.push(`Total: ${enPesos(totalCents)}`);
   } else if (entrega?.tipo === "recogida") {
     lineas.push("Recoges en el local (sin domicilio)");
     lineas.push(`Total: ${enPesos(subtotalCents)}`);

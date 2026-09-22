@@ -4,8 +4,9 @@ import { modeloDeRescate } from "@/lib/ai/modelos";
 import { AgentAction, type AgentActionType } from "@/server/ai/actions";
 import { puedeConfirmarPedido } from "@/server/orders/policy";
 import { puedeConfirmarCita } from "@/server/appointments/policy";
+import { cifrasNumericasDelCierre } from "@/server/ai/anuncio-de-cierre";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
-import type { EstadoDelPedido } from "@/server/orders/estado";
+import type { EstadoDelPedido, EntregaVerificada } from "@/server/orders/estado";
 import { enPesos } from "@/server/orders/minimo-de-domicilio";
 import type { Requisito } from "@/server/ai/generador/ficha";
 
@@ -306,11 +307,25 @@ export type RescateDeCierre =
   | { rescatado: true; accion: AgentActionType; info: ResultadoDeRescate }
   | { rescatado: false; info: ResultadoDeRescate };
 
-/** Rescate de PEDIDO — API sin cambios respecto a la versión original. */
+/**
+ * Rescate de PEDIDO.
+ *
+ * `entrega` es la MISMA autoridad backend que usa un cierre normal para
+ * `deliveryFeeCents` — `entregaPersistida` en `pipeline.ts`
+ * (`EstadoDelPedido.entrega`, verificada por `consultar_domicilio` y
+ * persistida entre turnos). Un cierre PROPUESTO POR GPT no calcula esta
+ * cifra tampoco: GPT la escribe y `inconsistenciaFinancieraDePedido` la
+ * VALIDA contra esta misma fuente. Aquí, como no hay ninguna cifra que
+ * validar (GPT nunca propuso `notify_order`), se construye directamente
+ * desde la fuente — nunca desde Gemini, nunca desde texto, nunca
+ * inventada. Ver `cifrasNumericasDelCierre` (`anuncio-de-cierre.ts`).
+ */
 export async function intentarRescateDeCierre(input: {
   messages: ChatMessage[];
   estadoGuardado: EstadoDelPedido;
   requisitos: Requisito[];
+  /** `entregaPersistida` del pipeline — `undefined`/`null` = sin domicilio verificado ni pendiente. */
+  entrega?: EntregaVerificada | null;
 }): Promise<RescateDeCierre> {
   const resumen = resumenDeLaHoja(input.estadoGuardado, input.requisitos);
   const resultado = await juicioYRedaccion({
@@ -323,15 +338,23 @@ export async function intentarRescateDeCierre(input: {
   if (!resultado.ok) return { rescatado: false, info: resultado.info };
 
   // Los montos SIEMPRE salen del backend — nunca de lo que Gemini escribió,
-  // aunque su respuesta traiga cifras propias.
+  // aunque su respuesta traiga cifras propias. `totalCents` no puede ser
+  // `null` aquí: es la primera condición que exige `puedeConfirmarPedido`
+  // para que este rescate llegue a ejecutarse.
+  const montos = cifrasNumericasDelCierre({
+    subtotalCents: input.estadoGuardado.totalCents!,
+    entrega: input.entrega,
+  });
+
   return {
     rescatado: true,
     accion: {
       action: "notify_order",
       summary: resultado.summary,
       farewell: resultado.farewell,
-      subtotalCents: input.estadoGuardado.totalCents ?? undefined,
-      totalCents: input.estadoGuardado.totalCents ?? undefined,
+      subtotalCents: montos.subtotalCents,
+      deliveryFeeCents: montos.deliveryFeeCents,
+      totalCents: montos.totalCents,
     },
     info: {
       exito: true,
@@ -405,6 +428,8 @@ export async function intentarRescatarTurno(input: {
   estadoGuardado?: EstadoDelPedido | null;
   requisitos?: Requisito[];
   minimoDomicilioCents?: number;
+  /** `entregaPersistida` del pipeline — la autoridad backend de `deliveryFeeCents`. Solo aplica a pedidos. */
+  entrega?: EntregaVerificada | null;
 }): Promise<RescateDeCierre | null> {
   const esPedidoEvitable = await accionEvitablementeNoCerrada(input);
   if (esPedidoEvitable) {
@@ -412,6 +437,7 @@ export async function intentarRescatarTurno(input: {
       messages: input.messages,
       estadoGuardado: input.estadoGuardado!,
       requisitos: input.requisitos ?? [],
+      entrega: input.entrega,
     });
   }
 

@@ -76,6 +76,84 @@ describe("el detector no es una heurística de texto", () => {
   });
 });
 
+/**
+ * `deliveryFeeCents` — corrección del 21-sep-2026 (noche). El rescate de
+ * pedidos no lo poblaba: tenía menos datos estructurados que un
+ * `notify_order` normal. Corregido reutilizando `cifrasNumericasDelCierre`
+ * (`anuncio-de-cierre.ts`), la MISMA función que ahora también usa
+ * `bloqueDeCifrasVerificadas` para su texto — una sola fuente de verdad
+ * para "qué cobra este cierre", nunca dos versiones que puedan divergir.
+ */
+describe("deliveryFeeCents del pedido rescatado sale de la autoridad backend", () => {
+  const anuncioDeCierre = readFileSync("src/server/ai/anuncio-de-cierre.ts", "utf8");
+
+  it("el rescate de pedido importa y usa cifrasNumericasDelCierre — no reimplementa la cuenta", () => {
+    expect(recuperacion).toContain("cifrasNumericasDelCierre");
+    const pedido = recuperacion.slice(
+      recuperacion.indexOf("export async function intentarRescateDeCierre"),
+      recuperacion.indexOf("/** Rescate de CITA")
+    );
+    expect(pedido).toContain("cifrasNumericasDelCierre(");
+    // La suma a mano (`subtotalCents + entrega.feeCents`) no debe existir
+    // AQUÍ: si existe, es que se duplicó la cuenta en vez de reutilizarla.
+    expect(pedido).not.toMatch(/subtotalCents\s*\+\s*.*feeCents/);
+  });
+
+  it("recibe `entrega` desde pipeline.ts — la misma variable que valida un cierre normal", () => {
+    // `entregaPersistida` es la variable que `inconsistenciaFinancieraDePedido`
+    // usa unas líneas más abajo para validar lo que GPT propone. El rescate
+    // debe recibir esa MISMA variable, no una copia ni un recálculo.
+    const bloque = pipeline.slice(
+      pipeline.indexOf("intentarRescatarTurno({"),
+      pipeline.indexOf("Consistencia financiera del cierre")
+    );
+    expect(bloque).toMatch(/entrega:\s*entregaPersistida/);
+  });
+
+  it("cifrasNumericasDelCierre y bloqueDeCifrasVerificadas comparten la misma aritmética", () => {
+    // No es la misma línea de código (una devuelve texto, la otra números),
+    // pero `bloqueDeCifrasVerificadas` debe LLAMAR a la función numérica
+    // para su caso de domicilio con tarifa — no debe haber una segunda suma
+    // independiente que pueda desincronizarse.
+    const bloqueTexto = anuncioDeCierre.slice(
+      anuncioDeCierre.indexOf("export function bloqueDeCifrasVerificadas")
+    );
+    expect(bloqueTexto).toContain("cifrasNumericasDelCierre(");
+  });
+});
+
+/**
+ * Requisito explícito de la corrección: verificar que CITAS no tenga un
+ * vacío estructural equivalente al que tenía pedidos.
+ */
+describe("citas — sin equivalente estructural pendiente (verificado, no solo asumido)", () => {
+  it("book_appointment no tiene ningún campo de precio/tarifa en su contrato", () => {
+    const actions = readFileSync("src/server/ai/actions.ts", "utf8");
+    const bloque = actions.slice(
+      actions.indexOf('action: z.literal("book_appointment")'),
+      actions.indexOf('action: z.literal("reschedule_appointment")')
+    );
+    // Los únicos campos de book_appointment son reservas[] y farewell — se
+    // fija aquí para que un campo nuevo en el esquema no pase inadvertido
+    // sin que alguien revise si el rescate de citas debe poblarlo también.
+    expect(bloque).toMatch(/servicios:/);
+    expect(bloque).toMatch(/fecha:/);
+    expect(bloque).toMatch(/hora:/);
+    expect(bloque).toMatch(/especialista:/);
+    expect(bloque).toMatch(/farewell:/);
+    expect(bloque).not.toMatch(/Cents|precio|tarifa|fee/i);
+  });
+
+  it("el rescate de cita puebla los CUATRO campos de reservas[] — ninguno queda en blanco por diseño", () => {
+    const cita = recuperacion.slice(recuperacion.indexOf("export async function intentarRescateDeCita"));
+    expect(cita).toMatch(/servicios:\s*input\.estadoGuardado\.items\.map/);
+    expect(cita).toMatch(/fecha:\s*reserva\.fecha!/);
+    expect(cita).toMatch(/hora:\s*reserva\.hora!/);
+    expect(cita).toMatch(/especialista:\s*reserva\.recursoNombre/);
+    expect(cita).toContain("farewell: resultado.farewell");
+  });
+});
+
 describe("dónde vive el enganche en pipeline.ts", () => {
   it("hay un ÚNICO punto de entrada — pipeline.ts no llama a los detectores por separado", () => {
     expect(pipeline).not.toContain("accionEvitablementeNoCerrada(");
@@ -86,12 +164,25 @@ describe("dónde vive el enganche en pipeline.ts", () => {
     expect(ocurrencias.length).toBe(1);
   });
 
-  it("se llama DESPUÉS de todos los guardarraíles reactivos, antes del cierre de pedido", () => {
+  it("se llama ANTES de los guardarraíles del cierre — para que la acción rescatada los atraviese", () => {
+    /**
+     * Corrección del 21-sep-2026 (noche), sobre un hallazgo de la auditoría
+     * independiente del commit 26bf657: el enganche vivía DESPUÉS de
+     * `inconsistenciaFinancieraDePedido`/`bloqueDeDomicilioPendiente`, así
+     * que una acción rescatada nunca los veía — tenía MENOS validación que
+     * un cierre que GPT propone por su cuenta. Ahora vive antes de esos dos
+     * y de todo lo demás que depende de `action.action === "notify_order"`,
+     * pero después de los guardarraíles que no dependen del cierre
+     * (disponibilidad, producto, domicilio contradicho).
+     */
     const iEnganche = pipeline.indexOf("intentarRescatarTurno({");
+    const iFinanciero = pipeline.indexOf("Consistencia financiera del cierre");
     const iCierre = pipeline.indexOf('Guardarraíl de "pedido ya confirmado"');
     expect(iEnganche).toBeGreaterThan(0);
+    expect(iFinanciero).toBeGreaterThan(0);
     expect(iCierre).toBeGreaterThan(0);
-    expect(iEnganche).toBeLessThan(iCierre);
+    expect(iEnganche).toBeLessThan(iFinanciero);
+    expect(iFinanciero).toBeLessThan(iCierre);
   });
 
   it("si no se rescata (null), la acción original de GPT sigue intacta (comentario explícito)", () => {

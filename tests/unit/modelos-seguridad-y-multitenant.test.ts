@@ -16,6 +16,13 @@ const ARCHIVOS_QUE_LLAMAN_AL_PROVEEDOR = [
   "src/server/ai/generador/extraer-catalogo.ts",
 ];
 
+/**
+ * El salvavidas de cierre (`docs/korexia/189`) no habla con el proveedor
+ * directamente —pasa por `chatJson`, ya cubierto arriba—, pero sí decide qué
+ * datos viajan hacia él. Se comprueba aparte.
+ */
+const SALVAVIDAS_DE_CIERRE = "src/server/ai/recuperacion-de-turno.ts";
+
 describe("la credencial no se escapa", () => {
   for (const archivo of ARCHIVOS_QUE_LLAMAN_AL_PROVEEDOR) {
     it(`${archivo} no mete el token en ningún log`, () => {
@@ -75,6 +82,33 @@ describe("la elección de modelo es genérica, no por cliente", () => {
     expect(fuente).toMatch(/export function modeloQueLeeMedios\(\)/);
     expect(fuente).toMatch(/export function modeloQueJuzga\(\)/);
     expect(fuente).not.toContain("organizationId");
+  });
+
+  it("el salvavidas de cierre tampoco discrimina por organización", () => {
+    const fuente = readFileSync(SALVAVIDAS_DE_CIERRE, "utf8");
+    expect(fuente).not.toMatch(/organizationId\s*===\s*["'`]org_/);
+    expect(fuente).not.toMatch(/["'`]org_[a-z0-9]{8}/i);
+    // No recibe organizationId en absoluto: decide solo con lo que el
+    // backend ya scoped (estadoGuardado, requisitos, catálogo).
+    expect(fuente).not.toContain("organizationId");
+  });
+});
+
+describe("el salvavidas de cierre no vuelca datos personales al log", () => {
+  it("su único console.warn no incluye el texto del cliente ni datos de conversation_state.datos", () => {
+    const fuente = readFileSync(SALVAVIDAS_DE_CIERRE, "utf8");
+    // No debe existir NINGÚN log en este archivo: el que reporta el
+    // resultado del rescate vive en pipeline.ts, ya con la misma disciplina
+    // que el resto de guardarraíles (solo ids y enums, nunca texto libre).
+    expect(fuente).not.toMatch(/console\.(log|warn|info|error)/);
+  });
+
+  it("el console.warn de pipeline.ts solo registra ids y enums, nunca el resumen del pedido", () => {
+    const pipeline = readFileSync("src/server/ai/pipeline.ts", "utf8");
+    const inicio = pipeline.indexOf("[rescate]");
+    const bloque = pipeline.slice(Math.max(0, inicio - 200), inicio + 300);
+    expect(bloque).not.toContain("resumen");
+    expect(bloque).not.toMatch(/estadoGuardado\.datos/);
   });
 });
 

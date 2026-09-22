@@ -103,3 +103,21 @@ export function cadenaDeSalvavidas(principal: string): string[] {
     .map((m) => limpio(m))
     .filter((m): m is string => Boolean(m));
 }
+
+/**
+ * El modelo del SALVAVIDAS DE RECUPERACIÓN DE TURNO
+ * (`docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md`).
+ *
+ * Es la MISMA variable que usa `cadenaDeSalvavidas` (`OPENROUTER_FALLBACK_MODEL`)
+ * — un solo interruptor, dos consumidores: uno automático dentro de
+ * `chatJson` (fallos TÉCNICOS: JSON inválido, Zod, error del proveedor,
+ * timeout, respuesta vacía) y uno explícito en
+ * `@/server/ai/recuperacion-de-turno` (el ÚNICO fallo SEMÁNTICO evidenciado:
+ * un pedido que el backend ya sabe completo y el modelo no cerró).
+ *
+ * Vacía = el mecanismo de recuperación de turno queda apagado por completo,
+ * sin tocar código ni dato — es el rollback de toda la excepción 189.
+ */
+export function modeloDeRescate(): string | undefined {
+  return limpio(getEnv().OPENROUTER_FALLBACK_MODEL);
+}

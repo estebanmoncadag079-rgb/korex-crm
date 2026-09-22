@@ -130,6 +130,10 @@ import {
   ejecutarConfirmacionDePedido,
 } from "@/server/orders/policy";
 import { puedeConfirmarCita } from "@/server/appointments/policy";
+import {
+  accionEvitablementeNoCerrada,
+  intentarRescateDeCierre,
+} from "@/server/ai/recuperacion-de-turno";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import {
@@ -2615,6 +2619,68 @@ export async function runAgentTurn(
         };
       }
     }
+  }
+
+  /**
+   * Salvavidas de RECUPERACIÓN DE TURNO — excepción autorizada el
+   * 21-sep-2026 sobre `docs/korexia/156` (ver
+   * `docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md`).
+   *
+   * `openai/gpt-5-mini`, medido, cerró 0 de 6 pedidos donde el cliente
+   * confirmó con una frase coloquial ("Listo", "Sip", "Siii"). Aquí, DESPUÉS
+   * de que `action` ya pasó por TODOS los guardarraíles de arriba sin
+   * cambiar, se comprueba —con la MISMA autoridad backend que usa
+   * `puedeConfirmarPedido` para RECHAZAR un cierre mal disparado— si el
+   * pedido ya está listo y el modelo, aun así, no lo cerró. Solo entonces se
+   * le da a Gemini la única pregunta que quedó sin resolver: ¿esto es una
+   * confirmación? Ver `@/server/ai/recuperacion-de-turno` para por qué esto
+   * NO es el orquestador de intención que doc 156 descartó.
+   *
+   * Todo el bloque va en un `try`: un salvavidas que pudiera tumbar el turno
+   * dejaría de ser un salvavidas. Mismo principio que `transcribirAudio`
+   * "nunca lanza" — si algo falla aquí (de red, de configuración, lo que
+   * sea), el turno sigue exactamente como si este bloque no existiera, con
+   * la acción que GPT ya había decidido.
+   */
+  try {
+    if (
+      await accionEvitablementeNoCerrada({
+        action,
+        conversationId,
+        productosDelPedido,
+        history,
+        estadoGuardado,
+        requisitos,
+        ...(fichaDelNegocio?.entrega?.minimoDomicilioCents
+          ? { minimoDomicilioCents: fichaDelNegocio.entrega.minimoDomicilioCents }
+          : {}),
+      })
+    ) {
+      // `estadoGuardado` no puede ser null/undefined aquí: es la primera
+      // condición que revisa `accionEvitablementeNoCerrada`.
+      const rescate = await intentarRescateDeCierre({
+        messages,
+        estadoGuardado: estadoGuardado!,
+        requisitos: requisitos ?? [],
+      });
+      agregarGuardarrail(traza, "salvavidas_de_cierre", rescate.rescatado);
+      console.warn(
+        `[rescate] ${conversationId}: acción original="${action.action}", ` +
+          `salvavidas=${rescate.info.motivo}` +
+          (rescate.info.modelo ? ` (${rescate.info.modelo})` : "")
+      );
+      if (rescate.rescatado) {
+        action = rescate.accion;
+      }
+      // `rescate.rescatado === false`: `action` sigue siendo la de GPT, sin
+      // cambios — el turno continúa exactamente como si este bloque no
+      // existiera. Nunca se reintenta una segunda vez.
+    }
+  } catch (err) {
+    console.error(
+      `[rescate] fallo inesperado en ${conversationId}, se ignora y el turno sigue con la acción original:`,
+      err
+    );
   }
 
   /**

@@ -218,7 +218,11 @@ describe("estructura: nadie vuelve a atar los medios a la variable de conversaci
      * por otra puerta.
      */
     const pipeline = readFileSync("src/server/ai/pipeline.ts", "utf8");
-    expect(pipeline).not.toMatch(/transcribirAudio|describirImagen/);
+    // Se exige la llamada real (con paréntesis), no la palabra suelta: un
+    // comentario que las nombre por analogía —como el del salvavidas de
+    // cierre, "nunca lanza, igual que transcribirAudio"— es documentación
+    // legítima, no una llamada.
+    expect(pipeline).not.toMatch(/\btranscribirAudio\(|\bdescribirImagen\(/);
 
     const ingest = readFileSync("src/server/inbox/ingest.ts", "utf8");
     expect(ingest).toContain("transcribirAudio");

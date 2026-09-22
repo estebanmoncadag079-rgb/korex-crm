@@ -108,16 +108,20 @@ export function cadenaDeSalvavidas(principal: string): string[] {
  * El modelo del SALVAVIDAS DE RECUPERACIÓN DE TURNO
  * (`docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md`).
  *
- * Es la MISMA variable que usa `cadenaDeSalvavidas` (`OPENROUTER_FALLBACK_MODEL`)
- * — un solo interruptor, dos consumidores: uno automático dentro de
- * `chatJson` (fallos TÉCNICOS: JSON inválido, Zod, error del proveedor,
- * timeout, respuesta vacía) y uno explícito en
- * `@/server/ai/recuperacion-de-turno` (el ÚNICO fallo SEMÁNTICO evidenciado:
- * un pedido que el backend ya sabe completo y el modelo no cerró).
+ * **Variable propia, `OPENROUTER_RECOVERY_MODEL`** — separada de
+ * `OPENROUTER_FALLBACK_MODEL` el 21-sep-2026 (tarde) tras una auditoría
+ * independiente del commit `26bf657`: compartir la variable con
+ * `cadenaDeSalvavidas` significaba que ajustar el salvavidas de cierre
+ * cambiaba, sin que nadie lo pidiera, el fallback técnico de más de 30
+ * llamadas del pipeline, del análisis de aprendizaje y del juez del
+ * Laboratorio (ver el comentario de `OPENROUTER_RECOVERY_MODEL` en
+ * `@/lib/env`).
  *
  * Vacía = el mecanismo de recuperación de turno queda apagado por completo,
  * sin tocar código ni dato — es el rollback de toda la excepción 189.
+ * Deliberadamente sin caer a `OPENROUTER_FALLBACK_MODEL` si falta: eso
+ * reacoplaría las dos variables por la puerta de atrás.
  */
 export function modeloDeRescate(): string | undefined {
-  return limpio(getEnv().OPENROUTER_FALLBACK_MODEL);
+  return limpio(getEnv().OPENROUTER_RECOVERY_MODEL);
 }

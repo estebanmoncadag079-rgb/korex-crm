@@ -194,3 +194,65 @@ describe("la cadena de salvavidas", () => {
     expect(modeloQueLeeMedios()).toBe("oyente");
   });
 });
+
+/**
+ * El salvavidas de RECUPERACIÓN DE TURNO (`docs/korexia/189`) tiene su
+ * PROPIA variable, `OPENROUTER_RECOVERY_MODEL`, separada de
+ * `OPENROUTER_FALLBACK_MODEL` desde el 21-sep-2026 (tarde).
+ *
+ * ## Por qué se separó (segundo incidente del mismo día)
+ *
+ * Una auditoría independiente del commit `26bf657` encontró que
+ * `modeloDeRescate()` leía `OPENROUTER_FALLBACK_MODEL` — la MISMA variable
+ * que `cadenaDeSalvavidas` usa dentro de `chatJson` para el fallback
+ * TÉCNICO de más de 30 llamadas del pipeline, más `aprendizaje.ts` y el
+ * juez del Laboratorio. Configurar el salvavidas semántico cambiaba, sin
+ * que nadie lo pidiera, el comportamiento de todo lo demás. Es el mismo
+ * patrón exacto que ya motivó separar `OPENROUTER_TRANSCRIPTION_MODEL` de
+ * `OPENROUTER_MODEL` unas horas antes — una variable no puede decidir dos
+ * cosas que alguien necesita poder cambiar por separado.
+ */
+describe("el salvavidas de recuperación de turno tiene su propia variable", () => {
+  it("modeloDeRescate lee OPENROUTER_RECOVERY_MODEL", async () => {
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
+    const { modeloDeRescate } = await cargar();
+    expect(modeloDeRescate()).toBe("google/gemini-3.8-flash");
+  });
+
+  it("NO cae a OPENROUTER_FALLBACK_MODEL si falta — no se reacopla por la puerta de atrás", async () => {
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.7-flash");
+    const { modeloDeRescate } = await cargar();
+    expect(modeloDeRescate()).toBeUndefined();
+  });
+
+  it("cambiar OPENROUTER_RECOVERY_MODEL no toca la cadena de salvavidas técnica", async () => {
+    vi.stubEnv("OPENROUTER_MODEL", "conversador");
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "salvavidas-tecnico");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
+    const { cadenaDeSalvavidas, modeloDeRescate } = await cargar();
+    // La cadena técnica sigue viendo SOLO OPENROUTER_FALLBACK_MODEL.
+    expect(cadenaDeSalvavidas("conversador")).toEqual(["conversador", "salvavidas-tecnico"]);
+    // Y el salvavidas de recuperación sigue viendo SOLO su propia variable.
+    expect(modeloDeRescate()).toBe("google/gemini-3.8-flash");
+  });
+
+  it("cambiar OPENROUTER_RECOVERY_MODEL no toca el modelo del juez", async () => {
+    vi.stubEnv("OPENROUTER_MODEL", "conversador");
+    vi.stubEnv("OPENROUTER_JUDGE_MODEL", "juez-de-siempre");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
+    const { modeloQueJuzga, modeloDeRescate } = await cargar();
+    expect(modeloQueJuzga()).toBe("juez-de-siempre");
+    expect(modeloDeRescate()).toBe("google/gemini-3.8-flash");
+  });
+
+  it("se limpia igual que los demás papeles", async () => {
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "  google/gemini-3.8-flash  ");
+    const { modeloDeRescate } = await cargar();
+    expect(modeloDeRescate()).toBe("google/gemini-3.8-flash");
+  });
+
+  it("sin configurar, el mecanismo queda apagado (undefined, no un modelo inventado)", async () => {
+    const { modeloDeRescate } = await cargar();
+    expect(modeloDeRescate()).toBeUndefined();
+  });
+});

@@ -325,7 +325,7 @@ describe("resumenDeLaReserva — el hecho que se le da al salvavidas, para citas
 describe("intentarRescatarTurno — el punto de entrada único", () => {
   /**
    * `getEnv()` cachea el entorno la primera vez que alguien lo pide. Las dos
-   * pruebas de abajo necesitan `OPENROUTER_FALLBACK_MODEL` con valores que
+   * pruebas de abajo necesitan `OPENROUTER_RECOVERY_MODEL` con valores que
    * podrían no coincidir con lo que ya haya en caché por otra prueba de este
    * archivo — se recarga el módulo para que SU `vi.stubEnv` sea el que cuente,
    * no el de quien haya corrido antes.
@@ -352,7 +352,7 @@ describe("intentarRescatarTurno — el punto de entrada único", () => {
 
   it("pedido listo (y NO cita) → intenta el rescate de pedido", async () => {
     baseEnv();
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
     const { intentarRescatarTurno: fn } = await cargar();
     global.fetch = vi.fn(async () =>
       respuesta({
@@ -376,7 +376,7 @@ describe("intentarRescatarTurno — el punto de entrada único", () => {
 
   it("cita lista (y NO pedido, sin catálogo de productos) → intenta el rescate de cita", async () => {
     baseEnv();
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
     const { intentarRescatarTurno: fn } = await cargar();
     global.fetch = vi.fn(async () =>
       respuesta({
@@ -437,7 +437,7 @@ describe("intentarRescateDeCierre — la orquestación", () => {
     baseEnv();
   });
 
-  it("sin OPENROUTER_FALLBACK_MODEL, el mecanismo entero queda apagado (rollback de una variable)", async () => {
+  it("sin OPENROUTER_RECOVERY_MODEL, el mecanismo entero queda apagado (rollback de una variable)", async () => {
     global.fetch = vi.fn() as unknown as typeof fetch;
     const { intentarRescateDeCierre: fn } = await cargar();
     const r = await fn({
@@ -450,8 +450,32 @@ describe("intentarRescateDeCierre — la orquestación", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it("Gemini confirma → GPT redacta → se rescata con notify_order", async () => {
+  /**
+   * El punto exacto de la separación (auditoría independiente del commit
+   * `26bf657`, corrección #2): antes, `modeloDeRescate()` leía
+   * `OPENROUTER_FALLBACK_MODEL` — la MISMA variable que la cadena técnica de
+   * `chatJson`. Configurar una sin la otra no era posible. Ahora son
+   * independientes: `OPENROUTER_FALLBACK_MODEL` sola, sin
+   * `OPENROUTER_RECOVERY_MODEL`, NO debe encender el salvavidas semántico.
+   */
+  it("OPENROUTER_FALLBACK_MODEL solo, sin OPENROUTER_RECOVERY_MODEL, NO enciende el mecanismo", async () => {
     vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.7-flash");
+    global.fetch = vi.fn() as unknown as typeof fetch;
+    const { intentarRescateDeCierre: fn } = await cargar();
+    const r = await fn({
+      messages: MENSAJES,
+      estadoGuardado: HOJA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+    expect(r.rescatado).toBe(false);
+    expect(r.info.motivo).toBe("sin_modelo_configurado");
+    // No cae a OPENROUTER_FALLBACK_MODEL "por la puerta de atrás": si lo
+    // hiciera, este fetch SÍ se habría llamado.
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("Gemini confirma → GPT redacta → se rescata con notify_order", async () => {
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
     const { intentarRescateDeCierre } = await cargar();
     let llamada = 0;
     const vistos: string[] = [];
@@ -510,7 +534,7 @@ describe("intentarRescateDeCierre — la orquestación", () => {
   });
 
   it("Gemini confirma pero la redacción de GPT falla → se usa el texto de Gemini como respaldo", async () => {
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.7-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
     const { intentarRescateDeCierre } = await cargar();
     let llamada = 0;
     global.fetch = vi.fn(async () => {
@@ -546,7 +570,7 @@ describe("intentarRescateDeCierre — la orquestación", () => {
   });
 
   it("Gemini NO confirma (propone otra cosa) → no se rescata, sin segunda llamada", async () => {
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.7-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
     const { intentarRescateDeCierre } = await cargar();
     global.fetch = vi.fn(async () =>
       respuesta({
@@ -566,7 +590,7 @@ describe("intentarRescateDeCierre — la orquestación", () => {
   });
 
   it("Gemini falla técnicamente → no se rescata, sin loop de reintentos propio", async () => {
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.7-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.7-flash");
     const { intentarRescateDeCierre } = await cargar();
     global.fetch = vi.fn(async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
 
@@ -578,17 +602,26 @@ describe("intentarRescateDeCierre — la orquestación", () => {
 
     expect(r.rescatado).toBe(false);
     expect(r.info.motivo).toBe("gemini_fallo");
-    /*
-     * 6, no 3: `cadenaDeSalvavidas` (lib/ai/modelos.ts) no deduplica cuando
-     * el modelo pedido explícitamente coincide con `OPENROUTER_FALLBACK_MODEL`
-     * — aquí los dos son Gemini, así que `chatJson` agota 3 intentos contra
-     * Gemini, ve que el "siguiente salvavidas" es Gemini otra vez, y agota 3
-     * más. Ineficiente (el doble de latencia en un camino que ya iba a
-     * fallar) pero NO incorrecto: nunca ejecuta una acción, nunca hay un
-     * tercer intento desde ESTE módulo. Documentado en el reporte final como
-     * hallazgo menor, no bloqueante.
+    /**
+     * Exactamente 3, no 6.
+     *
+     * Antes de la separación de variables (corrección #2 sobre la auditoría
+     * del commit `26bf657`), `modeloDeRescate()` leía `OPENROUTER_FALLBACK_
+     * MODEL` — la MISMA que usa `cadenaDeSalvavidas` para el "siguiente
+     * salvavidas" dentro de `chatJson`. Cuando los dos valores coincidían
+     * (el caso normal: el mismo Gemini en ambos), `chatJson` agotaba 3
+     * intentos contra Gemini, veía que el "siguiente" era Gemini otra vez, y
+     * agotaba 3 más — 6 llamadas para un fallo que ya estaba decidido tras
+     * las primeras 3.
+     *
+     * Con `OPENROUTER_RECOVERY_MODEL` como variable propia y
+     * `OPENROUTER_FALLBACK_MODEL` SIN configurar en esta prueba (como
+     * corresponde tras la separación), `cadenaDeSalvavidas` no tiene ningún
+     * "siguiente" que probar: son 3 intentos, y se acabó. La ineficiencia
+     * detectada en la auditoría se resolvió como efecto colateral de separar
+     * las variables, no con un cambio aparte.
      */
-    expect(global.fetch).toHaveBeenCalledTimes(6);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -605,7 +638,7 @@ describe("intentarRescateDeCita — la orquestación (mismo motor, otro dominio)
   });
 
   it("Gemini confirma → GPT redacta → se rescata con book_appointment reconstruido del backend", async () => {
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
     const { intentarRescateDeCita } = await cargar();
     let llamada = 0;
     const vistos: string[] = [];
@@ -664,7 +697,7 @@ describe("intentarRescateDeCita — la orquestación (mismo motor, otro dominio)
   });
 
   it("si la redacción falla, usa un respaldo determinista — nunca un mensaje vacío", async () => {
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
     const { intentarRescateDeCita } = await cargar();
     let llamada = 0;
     global.fetch = vi.fn(async () => {
@@ -702,7 +735,7 @@ describe("intentarRescateDeCita — la orquestación (mismo motor, otro dominio)
   });
 
   it("Gemini NO confirma → no se rescata", async () => {
-    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    vi.stubEnv("OPENROUTER_RECOVERY_MODEL", "google/gemini-3.8-flash");
     const { intentarRescateDeCita } = await cargar();
     global.fetch = vi.fn(async () =>
       respuesta({

@@ -94,6 +94,34 @@ const envSchema = z.object({
    */
   OPENROUTER_FALLBACK_MODEL: z.string().optional(),
   OPENROUTER_FALLBACK_MODEL_2: z.string().optional(),
+  /**
+   * El modelo del SALVAVIDAS DE RECUPERACIÓN DE TURNO
+   * (`docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md`) —
+   * `src/server/ai/recuperacion-de-turno.ts`.
+   *
+   * ## Por qué es una variable APARTE de `OPENROUTER_FALLBACK_MODEL`
+   *
+   * Hasta el 21-sep-2026 (tarde) las dos responsabilidades compartían
+   * `OPENROUTER_FALLBACK_MODEL`: la cadena técnica de `chatJson`
+   * (`cadenaDeSalvavidas`, que entra ante JSON inválido/error del
+   * proveedor/timeout en **más de 30 sitios** del pipeline, más
+   * `aprendizaje.ts` y el juez del Laboratorio) y el juicio semántico de
+   * "¿esto es una confirmación?". Una auditoría independiente del commit
+   * `26bf657` encontró que eso era un acoplamiento real, no documentado con
+   * precisión: cambiar la variable para ajustar UNA de las dos
+   * responsabilidades cambiaba la otra sin que nadie lo pidiera.
+   *
+   * Ahora cada una tiene su propio interruptor. `OPENROUTER_FALLBACK_MODEL`
+   * conserva EXCLUSIVAMENTE su responsabilidad de siempre (fallos técnicos
+   * de `chatJson`, en cualquiera de sus ~30 llamadas). Esta variable solo la
+   * lee `recuperacion-de-turno.ts`.
+   *
+   * Vacía = el salvavidas de recuperación de turno queda apagado por
+   * completo, sin tocar código ni dato — el rollback de toda la excepción
+   * 189. Deliberadamente SIN caer a `OPENROUTER_FALLBACK_MODEL` si falta:
+   * eso reacoplaría las dos variables por la puerta de atrás.
+   */
+  OPENROUTER_RECOVERY_MODEL: z.string().optional(),
   ALLOW_SIGNUP: z.string().optional(),
   /** WhatsApp de la agencia para pedir asesoría desde el login (E.164 sin '+'). */
   SUPPORT_WHATSAPP: z.string().optional(),

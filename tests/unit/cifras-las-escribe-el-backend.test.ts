@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bloqueDeCifrasVerificadas,
+  cifrasNumericasDelCierre,
   inconsistenciaFinancieraDePedido,
 } from "@/server/ai/anuncio-de-cierre";
 
@@ -67,6 +68,97 @@ describe("bloqueDeCifrasVerificadas — el backend escribe las cifras del cierre
         entrega: { tipo: "domicilio", feeCents: null },
       })
     ).toBeNull();
+  });
+});
+
+/**
+ * `cifrasNumericasDelCierre` — la MISMA cuenta que `bloqueDeCifrasVerificadas`,
+ * pero en números en vez de texto.
+ *
+ * Existe para un consumidor concreto: el salvavidas de recuperación de turno
+ * (`@/server/ai/recuperacion-de-turno`), que construye un `notify_order`
+ * SIN que el modelo haya propuesto uno. Requisito de la corrección del
+ * 21-sep-2026 (noche): el `notify_order` rescatado debe llevar los mismos
+ * datos estructurados que llevaría uno normal, incluido `deliveryFeeCents`
+ * cuando corresponde — nunca calculado por Gemini, nunca desde texto libre,
+ * nunca hardcodeado. Esta función es esa fuente única.
+ */
+describe("cifrasNumericasDelCierre — los mismos números, para un consumidor estructurado", () => {
+  it("pedido SIN domicilio (modalidad sin resolver): deliveryFeeCents null, total = subtotal", () => {
+    expect(cifrasNumericasDelCierre({ subtotalCents: 1_800_000 })).toEqual({
+      subtotalCents: 1_800_000,
+      deliveryFeeCents: null,
+      totalCents: 1_800_000,
+    });
+  });
+
+  it("recogida en el local: deliveryFeeCents null, total = subtotal", () => {
+    expect(
+      cifrasNumericasDelCierre({
+        subtotalCents: 3_000_000,
+        entrega: { tipo: "recogida", feeCents: null },
+      })
+    ).toEqual({ subtotalCents: 3_000_000, deliveryFeeCents: null, totalCents: 3_000_000 });
+  });
+
+  it("domicilio CON tarifa conocida (el caso de MALIA): deliveryFeeCents = la tarifa, total = suma", () => {
+    expect(
+      cifrasNumericasDelCierre({
+        subtotalCents: 3_000_000,
+        entrega: { tipo: "domicilio", feeCents: 1_200_000 },
+      })
+    ).toEqual({ subtotalCents: 3_000_000, deliveryFeeCents: 1_200_000, totalCents: 4_200_000 });
+  });
+
+  it("domicilio SIN tarifa verificada (pendiente): NO inventa una — deliveryFeeCents null, total = subtotal", () => {
+    expect(
+      cifrasNumericasDelCierre({
+        subtotalCents: 3_000_000,
+        entrega: { tipo: "domicilio", feeCents: null },
+      })
+    ).toEqual({ subtotalCents: 3_000_000, deliveryFeeCents: null, totalCents: 3_000_000 });
+  });
+
+  it("tarifa de domicilio $0 (zona gratis): es una tarifa REAL, no 'sin domicilio'", () => {
+    // `0` es un valor legítimo (ver EntregaVerificada.feeCents en estado.ts:
+    // "0 es una tarifa real, nunca 'no aplica'"). Si esto se confundiera con
+    // "sin verificar", una zona gratis se trataría como domicilio pendiente.
+    const r = cifrasNumericasDelCierre({
+      subtotalCents: 1_800_000,
+      entrega: { tipo: "domicilio", feeCents: 0 },
+    });
+    expect(r.deliveryFeeCents).toBe(0);
+    expect(r.deliveryFeeCents).not.toBeNull();
+    expect(r.totalCents).toBe(1_800_000);
+  });
+
+  it("nunca devuelve null: a diferencia del bloque de texto, siempre hay una respuesta estructurada válida", () => {
+    // `bloqueDeCifrasVerificadas` SÍ devuelve null con domicilio pendiente
+    // (para no apagar los chequeos de texto). Un `notify_order` no puede
+    // tener un `deliveryFeeCents` "null de verdad" en ese sentido — la
+    // acción necesita algún valor, y `null` (sin tarifa) es ese valor.
+    const pendiente = cifrasNumericasDelCierre({
+      subtotalCents: 1_000_000,
+      entrega: { tipo: "domicilio", feeCents: null },
+    });
+    expect(pendiente).not.toBeNull();
+    expect(bloqueDeCifrasVerificadas({ subtotalCents: 1_000_000, entrega: { tipo: "domicilio", feeCents: null } })).toBeNull();
+  });
+
+  describe("coherencia: totalCents === subtotalCents + (deliveryFeeCents ?? 0), siempre", () => {
+    const CASOS = [
+      { nombre: "sin domicilio", input: { subtotalCents: 500_000 } },
+      { nombre: "recogida", input: { subtotalCents: 500_000, entrega: { tipo: "recogida" as const, feeCents: null } } },
+      { nombre: "domicilio con tarifa", input: { subtotalCents: 500_000, entrega: { tipo: "domicilio" as const, feeCents: 300_000 } } },
+      { nombre: "domicilio con tarifa cero", input: { subtotalCents: 500_000, entrega: { tipo: "domicilio" as const, feeCents: 0 } } },
+      { nombre: "domicilio pendiente", input: { subtotalCents: 500_000, entrega: { tipo: "domicilio" as const, feeCents: null } } },
+    ];
+    for (const { nombre, input } of CASOS) {
+      it(nombre, () => {
+        const r = cifrasNumericasDelCierre(input);
+        expect(r.totalCents).toBe(r.subtotalCents + (r.deliveryFeeCents ?? 0));
+      });
+    }
   });
 });
 

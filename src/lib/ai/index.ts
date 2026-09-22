@@ -1,5 +1,10 @@
 import type { z } from "zod";
 import { getEnv, isAiConfigured } from "@/lib/env";
+import {
+  cadenaDeSalvavidas,
+  modeloQueConversa,
+  modeloQueJuzga,
+} from "@/lib/ai/modelos";
 
 /**
  * Adaptador LLM OpenRouter-compatible — ÚNICA frontera con el proveedor de IA
@@ -74,13 +79,10 @@ export async function chatJson<T>(
       detail: "Sin OPENROUTER_API_TOKEN configurado",
     };
   }
-  const env = getEnv();
-  const model =
-    opts?.model ??
-    (opts?.judge
-      ? (env.OPENROUTER_JUDGE_MODEL ?? env.OPENROUTER_MODEL)
-      : env.OPENROUTER_MODEL);
-  if (!model?.trim()) {
+  // Quién conversa y quién juzga los decide `@/lib/ai/modelos`, el único
+  // sitio donde se reparten los papeles. Aquí solo se usa el que toque.
+  const model = opts?.model?.trim() || (opts?.judge ? modeloQueJuzga() : modeloQueConversa());
+  if (!model) {
     return {
       ok: false,
       error: "not_configured",
@@ -124,9 +126,7 @@ export async function chatJson<T>(
    * hasta la traza del turno. Si un salvavidas está trabajando, se ve; no hay
    * que fiarse de dónde uno cree que está la variable.
    */
-  const cadena = [model, env.OPENROUTER_FALLBACK_MODEL, env.OPENROUTER_FALLBACK_MODEL_2]
-    .map((m) => m?.trim())
-    .filter((m): m is string => Boolean(m));
+  const cadena = cadenaDeSalvavidas(model);
 
   let ultimo!: ChatJsonResult<T>;
   const acumulado: AiUsage = { model, tokensIn: 0, tokensOut: 0, costUsd: 0 };

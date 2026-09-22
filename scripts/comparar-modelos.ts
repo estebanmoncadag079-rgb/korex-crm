@@ -33,8 +33,18 @@
  *   # Y el veredicto:
  *   corepack pnpm comparar:modelos --comparar a.json b.json
  *
- * Opciones: `--dias=N` (por defecto 1), `--max=N` conversaciones (por defecto
- * 15), `--limpiar` borra las conversaciones de prueba al terminar.
+ * ## Opciones
+ *
+ * - `--como=informe.json` — replica EXACTAMENTE las conversaciones que vio
+ *   otra corrida. Es lo que hace comparables dos modelos sin volver a pagar
+ *   el primero.
+ * - `--desde=ISO` — fija el inicio de la ventana, para que la selección sea
+ *   determinista. Sin esto, `--dias=N` (por defecto 1) la calcula desde
+ *   "ahora" y dos corridas separadas por una hora ven conjuntos distintos.
+ * - `--max=N` — cuántas conversaciones (por defecto 15).
+ * - `--salida=informe.json` — dónde guardar el informe.
+ * - `--limpiar` — borra las conversaciones Y los contactos de prueba al
+ *   terminar.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { and, asc, desc, eq, gt, sql as raw } from "drizzle-orm";
@@ -153,7 +163,7 @@ if (args[0] === "--comparar") {
 // ---------------------------------------------------------------- replicar
 const organizationId = args.find((a) => !a.startsWith("--"));
 if (!organizationId) {
-  console.error("Uso: comparar:modelos <organizationId> [--dias=1] [--max=15] [--salida=informe.json] [--limpiar]");
+  console.error("Uso: comparar:modelos <organizationId> [--dias=1|--desde=ISO] [--max=15] [--salida=informe.json] [--limpiar]");
   process.exit(1);
 }
 const opt = (nombre: string, pordefecto: string) =>
@@ -177,7 +187,26 @@ if (!url) {
 const sql = postgres(url, { max: 1, onnotice: () => {} });
 const db = drizzle(sql, { schema });
 
-const desde = new Date(Date.now() - dias * 24 * 3600 * 1000);
+/*
+ * La ventana, y por qué se puede FIJAR con `--desde`.
+ *
+ * `--dias` calcula la ventana desde "ahora", así que dos corridas separadas
+ * por una hora NO ven el mismo conjunto: entran mensajes nuevos, cambia el
+ * ranking por longitud y la ventana suelta por el otro extremo los mensajes
+ * más viejos. Medido el 21-sep-2026 comparando dos modelos con una hora de
+ * diferencia: **solo 7 de las 10 conversaciones coincidieron**, y comparar
+ * dos modelos sobre conjuntos distintos no compara los modelos.
+ *
+ * `--desde=2026-09-19T00:00:00Z` clava el inicio de la ventana y hace la
+ * selección determinista: la misma orden devuelve exactamente las mismas
+ * conversaciones hoy y dentro de tres horas.
+ */
+const desdeFijo = opt("desde", "");
+const desde = desdeFijo ? new Date(desdeFijo) : new Date(Date.now() - dias * 24 * 3600 * 1000);
+if (desdeFijo && Number.isNaN(desde.getTime())) {
+  console.error(`[comparar] --desde no es una fecha válida: ${desdeFijo}`);
+  process.exit(1);
+}
 
 /**
  * Los mensajes ENTRANTES reales, agrupados por conversación. Solo lectura, y
@@ -208,11 +237,49 @@ for (const m of reales) {
   lista.push(m.text);
   porConversacion.set(m.conversationId, lista);
 }
-// Las más largas primero: son las que de verdad ponen a prueba al modelo.
-const guiones = [...porConversacion.entries()]
-  .filter(([, ms]) => ms.length >= 2)
-  .sort((a, b) => b[1].length - a[1].length)
-  .slice(0, maxConversaciones);
+/**
+ * `--como=informe.json`: replicar EXACTAMENTE las conversaciones que vio otra
+ * corrida, en su mismo orden.
+ *
+ * Es lo que hace que dos modelos se puedan comparar sin volver a pagar el
+ * primero. Cada réplica del informe guarda su `origen` —el id de la
+ * conversación real de la que salió el guion—, así que basta con leerlo.
+ *
+ * Hace falta porque la selección normal ordena por número de mensajes y corta
+ * por arriba: cualquier mensaje nuevo que entre entre una corrida y otra puede
+ * cambiar el conjunto. Medido el 21-sep-2026 con una hora de diferencia: solo
+ * 7 de 10 conversaciones coincidieron. Comparar dos modelos sobre conjuntos
+ * distintos no compara los modelos.
+ */
+const comoInforme = opt("como", "");
+let guiones: [string, string[]][];
+
+if (comoInforme) {
+  /*
+   * Se replican los MENSAJES GUARDADOS en el informe, no se vuelven a
+   * consultar en la base.
+   *
+   * Consultarlos otra vez dejaría la ventana decidiendo cuántos mensajes de
+   * cada conversación entran: con `--dias=1` en una corrida y `--desde` en la
+   * otra, las mismas diez conversaciones darían distinto número de turnos y
+   * volveríamos al mismo problema por otra puerta. El informe ya guarda el
+   * texto exacto de cada turno; replicarlo hace las entradas idénticas por
+   * construcción.
+   */
+  const previo = JSON.parse(readFileSync(comoInforme, "utf8")) as Informe;
+  guiones = previo.replicas.map((r) => [r.origen, r.turnos.map((t) => t.entrante)]);
+  const turnos = guiones.reduce((n, [, m]) => n + m.length, 0);
+  console.log(
+    `\n[comparar] replicando las MISMAS entradas de ${comoInforme}\n` +
+      `           (${previo.modelo}, ${guiones.length} conversaciones, ${turnos} turnos)`
+  );
+} else {
+  // Las más largas primero: son las que de verdad ponen a prueba al modelo.
+  guiones = [...porConversacion.entries()]
+    .filter(([, ms]) => ms.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, maxConversaciones);
+}
 
 if (guiones.length === 0) {
   console.error(`[comparar] No hay conversaciones reales de los últimos ${dias} día(s).`);
@@ -232,6 +299,20 @@ const costoPrevio = Number(gastoAntes[0]?.total ?? 0);
 
 const replicas: Replica[] = [];
 const creadas: string[] = [];
+/**
+ * Los contactos inventados para las réplicas.
+ *
+ * `--limpiar` borraba la conversación y sus mensajes pero NO el contacto, así
+ * que cada corrida dejaba uno huérfano en la base de PRODUCCIÓN y el script
+ * se creía limpio. Contados el 21-sep-2026: **48 contactos** acumulados desde
+ * el 9-sep, de corridas que sí habían "limpiado".
+ *
+ * Peor: varios llevaban nombres de clientes reales —el pipeline escribe
+ * `contact.name` con el nombre que el cliente da, y las réplicas usan
+ * conversaciones reales—, así que eran datos personales duplicados que nadie
+ * pidió.
+ */
+const contactosCreados: string[] = [];
 let totalMs = 0;
 let totalTurnos = 0;
 let derivaciones = 0;
@@ -262,6 +343,7 @@ for (const [origen, mensajes] of guiones) {
       .returning()
   )[0]!;
   creadas.push(conv.id);
+  contactosCreados.push(contacto.id);
 
   const turnos: Turno[] = [];
   process.stdout.write(`  ${origen.slice(0, 24)} `);
@@ -341,7 +423,14 @@ if (limpiar) {
     await db.delete(schema.conversationState).where(eq(schema.conversationState.conversationId, id));
     await db.delete(schema.conversation).where(eq(schema.conversation.id, id));
   }
-  console.log(`  ${creadas.length} conversaciones de prueba borradas\n`);
+  // Y el contacto, que antes se quedaba. Va después de la conversación para
+  // no depender del orden de los `ON DELETE CASCADE`.
+  for (const id of contactosCreados) {
+    await db.delete(schema.contact).where(eq(schema.contact.id, id));
+  }
+  console.log(
+    `  ${creadas.length} conversaciones y ${contactosCreados.length} contactos de prueba borrados\n`
+  );
 }
 
 await sql.end();

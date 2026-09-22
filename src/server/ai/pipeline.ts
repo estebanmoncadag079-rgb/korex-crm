@@ -130,6 +130,7 @@ import {
   ejecutarConfirmacionDePedido,
 } from "@/server/orders/policy";
 import { puedeConfirmarCita } from "@/server/appointments/policy";
+import { intentarRescatarTurno } from "@/server/ai/recuperacion-de-turno";
 import { resumirTexto } from "@/server/registro-de-cambios";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import {
@@ -2376,6 +2377,93 @@ export async function runAgentTurn(
       registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
+  }
+
+  /**
+   * Salvavidas de RECUPERACIÓN DE TURNO — excepción autorizada el
+   * 21-sep-2026 sobre `docs/korexia/156` (ver
+   * `docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md`), ampliada
+   * el mismo día de pedidos a pedidos+citas, y reubicada el 21-sep-2026
+   * (tarde) tras la auditoría independiente del commit `26bf657` — ver el
+   * encabezado de `@/server/ai/recuperacion-de-turno`.
+   *
+   * `openai/gpt-5-mini`, medido, cerró 0 de 6 pedidos donde el cliente
+   * confirmó con una frase coloquial ("Listo", "Sip", "Siii"). Aquí, DESPUÉS
+   * de los guardarraíles que no dependen de si la acción es un cierre
+   * (disponibilidad sin verificar, producto contradicho/ambiguo, domicilio
+   * contradicho) y **ANTES** de todos los que sí lo son —consistencia
+   * financiera, domicilio pendiente, "pedido ya confirmado", requisitos de
+   * cierre, "el cliente vio el resumen"—, se comprueba —con la MISMA
+   * autoridad backend que usa `puedeConfirmarPedido`/`puedeConfirmarCita`
+   * para RECHAZAR un cierre mal disparado— si el pedido o la cita ya están
+   * listos y el modelo, aun así, no cerró. Solo entonces se le da a Gemini
+   * la única pregunta que quedó sin resolver: ¿esto es una confirmación?
+   *
+   * **Por qué AQUÍ y no después de todos los guardarraíles de cierre**
+   * (donde vivía hasta la auditoría independiente del 21-sep-2026): la
+   * primera versión colocaba este bloque DESPUÉS de la consistencia
+   * financiera y el aviso de domicilio pendiente, así que una acción
+   * rescatada nunca pasaba por esos dos candados —se ejecutaban antes de
+   * que `action` cambiara a `notify_order`, evaluaban `action.action !==
+   * "notify_order"` y no hacían nada—. Auditoría independiente, hallazgo
+   * verificado línea por línea: la acción rescatada tenía MENOS validación
+   * que un cierre que GPT propone por su cuenta. Moviendo el rescate a ANTES
+   * de ese tramo, la acción resultante —rescatada o no— atraviesa exactamente
+   * el mismo código sin que ninguno de esos guardarraíles necesite tocarse
+   * ni duplicarse: son los mismos `if (action.action === "notify_order")` /
+   * `ACCIONES_DE_CIERRE.includes(action.action)` de siempre, ahora viendo
+   * también el caso rescatado.
+   *
+   * Ver `@/server/ai/recuperacion-de-turno` para por qué esto NO es el
+   * orquestador de intención que doc 156 descartó, y para el detalle exacto
+   * de qué categorías cubre y cuáles quedan fuera a propósito.
+   *
+   * Todo el bloque va en un `try`: un salvavidas que pudiera tumbar el turno
+   * dejaría de ser un salvavidas. Mismo principio que `transcribirAudio`
+   * "nunca lanza" — si algo falla aquí (de red, de configuración, lo que
+   * sea), el turno sigue exactamente como si este bloque no existiera, con
+   * la acción que GPT ya había decidido.
+   */
+  try {
+    const rescate = await intentarRescatarTurno({
+      action,
+      conversationId,
+      productosDelPedido,
+      history,
+      messages,
+      estadoGuardado,
+      requisitos,
+      // La MISMA autoridad backend que `inconsistenciaFinancieraDePedido`
+      // usa, unas líneas más abajo, para validar el `deliveryFeeCents` que
+      // GPT propone en un cierre normal. Aquí no hay nada que validar —GPT
+      // nunca propuso `notify_order`— así que el rescate lo construye
+      // directamente desde esta misma fuente, nunca desde Gemini.
+      entrega: entregaPersistida,
+      ...(fichaDelNegocio?.entrega?.minimoDomicilioCents
+        ? { minimoDomicilioCents: fichaDelNegocio.entrega.minimoDomicilioCents }
+        : {}),
+    });
+    if (rescate) {
+      agregarGuardarrail(traza, "salvavidas_de_cierre", rescate.rescatado);
+      console.warn(
+        `[rescate] ${conversationId}: objetivo=${rescate.info.objetivo}, ` +
+          `acción original="${action.action}", salvavidas=${rescate.info.motivo}` +
+          (rescate.info.modelo ? ` (${rescate.info.modelo})` : "")
+      );
+      if (rescate.rescatado) {
+        action = rescate.accion;
+      }
+      // `rescate.rescatado === false`: `action` sigue siendo la de GPT, sin
+      // cambios — el turno continúa exactamente como si este bloque no
+      // existiera. Nunca se reintenta una segunda vez.
+    }
+    // `rescate === null`: ninguna de las dos categorías (pedido/cita)
+    // aplicaba — no había nada que rescatar, y no se llamó a ningún modelo.
+  } catch (err) {
+    console.error(
+      `[rescate] fallo inesperado en ${conversationId}, se ignora y el turno sigue con la acción original:`,
+      err
+    );
   }
 
   /**

@@ -1,24 +1,24 @@
 # 005 — GPT-5 Mini principal + Gemini salvavidas de cierre
 
-**Estado:** implementado, sin desplegar
+**Estado:** implementado, sin desplegar — **v2, alcance ampliado a citas**
 **Rama:** `004-separacion-conversacion-transcripcion` (continúa sobre la 004)
-**Fecha:** 21-sep-2026
+**Fecha:** 21-sep-2026 (mañana: v1 solo pedidos · tarde: v2, +citas)
 **Excepción arquitectónica:** ver
 [docs/korexia/189](../../docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md)
-— decisión del dueño, con el choque contra
+(y su Adenda) — decisión del dueño, con el choque contra
 [doc 156](../../docs/korexia/156-ARQUITECTURA-DECISION-CONVERSACIONAL-KOREX.md)
 documentado explícitamente, no resuelto por cuenta propia.
 
 ## Objetivo
 
-`openai/gpt-5-mini` como modelo conversacional principal (ahorro de costo,
-~$45/mes proyectado). Medido contra las mismas 325 entradas que
-`google/gemini-3.7-flash`, cerró **0 de 6** pedidos donde el cliente confirmó
-con una frase coloquial. Este spec implementa un salvavidas ACOTADO —no un
-segundo modelo conversacional— para recuperar esa categoría específica de
-fallo, sin tocar la autoridad del backend.
+`openai/gpt-5-mini` como modelo conversacional principal (ahorro de costo).
+Medido contra las mismas 325 entradas que `google/gemini-3.7-flash`, cerró
+**0 de 6** pedidos donde el cliente confirmó con una frase coloquial. El
+dueño pidió generalizar el salvavidas a los cuatro casos de la arquitectura
+—no solo `notify_order`— con la decisión de arquitectura ya tomada, sin
+volver a medir antes de implementar.
 
-## Arquitectura implementada
+## Arquitectura implementada (v2)
 
 ```
 CLIENTE
@@ -27,115 +27,112 @@ GPT-5 Mini (principal) — interpreta, decide acción, redacta
    ↓
 [TODOS los guardarraíles existentes, sin tocar — 9 mecanismos, ver doc 156 §2.1]
    ↓
-¿pedido backend-completo (state_source=backend) Y acción != notify_order?
+intentarRescatarTurno():
+   ¿pedido backend-completo Y acción != notify_order?
+      SÍ → intenta rescate de PEDIDO (puedeConfirmarPedido)
+      NO → ¿cita backend-completa Y acción != book_appointment?
+              SÍ → intenta rescate de CITA (puedeConfirmarCita)
+              NO → null, no hay nada que rescatar
    │
-  NO ──────────────────────────────► sigue igual que siempre
-   │
-  SÍ
-   ↓
-Gemini 3.8 Flash — UNA pregunta: ¿esto es una confirmación?
-   │
-  NO / falla ──────────────────────► sigue con la acción original de GPT
-   │
-  SÍ (propone notify_order)
-   ↓
-GPT-5 Mini redacta summary/farewell (o Gemini, si esa llamada falla)
-   ↓
-BACKEND (puedeConfirmarPedido + ejecutarConfirmacionDePedido — SIN TOCAR)
-   ↓
-RESPUESTA
+   └─ (como mucho UNA de las dos ramas se ejecuta)
+        ↓
+     Gemini 3.8 Flash — UNA pregunta: ¿esto es la acción de cierre?
+        │
+       NO / falla ──────────────────► sigue con la acción original de GPT
+        │
+       SÍ
+        ↓
+     GPT-5 Mini redacta summary/farewell (o Gemini, si esa llamada falla;
+     si ambas fallan, un resumen determinista del backend — nunca vacío)
+        ↓
+     BACKEND (puedeConfirmarPedido+ejecutarConfirmacionDePedido, o
+              puedeConfirmarCita+el switch de citas — SIN TOCAR NINGUNO)
+        ↓
+     RESPUESTA
 ```
 
 Audio: sin cambios respecto a la rama 004 — sigue yendo a
 `OPENROUTER_TRANSCRIPTION_MODEL` (Gemini), nunca al conversacional.
 
-## Por qué el detector es acotado, no genérico
+## Los cuatro casos de la arquitectura, y qué los cubre exactamente
 
-La tarea pidió explícitamente **no usar reglas ingenuas** ("si la respuesta
-es corta → Gemini"). La única forma de cumplir eso sin inventar una heurística
-de texto es no activar el salvavidas para NADA que no tenga una fuente
-backend-autoritativa detrás. Hoy esa fuente solo existe para **el cierre de
-pedidos** (`notify_order`), vía `puedeConfirmarPedido`
-(`orders/policy.ts`) — la misma función que hoy solo se usa para RECHAZAR un
-cierre mal disparado, reutilizada aquí sin modificar una línea.
+El dueño pidió cubrir cuatro categorías. En este código son la MISMA
+condición —hoja backend-completa, acción de cierre no elegida— aplicada a
+dos acciones, no cuatro detectores independientes (eso sí sería inventar
+cuatro heurísticas sin respaldo, lo que la tarea prohíbe explícitamente).
 
-**Deliberadamente fuera de alcance** (documentado, no resuelto):
-citas (`book_appointment`/`reschedule`/`cancel` — existe un mecanismo
-análogo, `appointment_booking_confirmation`, pero sin evidencia medida de que
-GPT-5 Mini falle ahí); cualquier handoff sin una hoja de pedido
-backend-verificada detrás; Lashes Valen (`catalog_source='prompt'`, sin señal
-backend).
+| # | Caso pedido | Cubierto | Cómo |
+|---|---|---|---|
+| 1 | GPT no logra resolver una intención conocida | ✅ para pedidos y citas | la intención "confirmar" es exactamente lo que el detector reconoce vía backend |
+| 2 | GPT produce un handoff evitable | ✅ para pedidos y citas | un `handoff` con hoja backend-completa detrás dispara el rescate |
+| 3 | GPT no identifica una acción ejecutable | ✅ para `notify_order`/`book_appointment` | son las dos únicas acciones con una Policy de "¿está listo?" que invertir |
+| 4 | Falla en un cierre que el backend puede validar | ✅ pedidos (`puedeConfirmarPedido`) y citas (`puedeConfirmarCita`) | reutiliza ambas Policies sin modificarlas |
+
+**Cobertura real, con nombre y apellido:**
+
+| Acción de cierre | Autoridad backend reutilizada | Estado |
+|---|---|---|
+| `notify_order` (pedidos) | `puedeConfirmarPedido` (`orders/policy.ts`) | cubierto |
+| `book_appointment` (citas) | `puedeConfirmarCita` (`appointments/policy.ts`) | cubierto (nuevo en v2) |
+
+**Explícitamente FUERA de alcance — y por qué, con la misma vara:**
+
+| Qué queda fuera | Por qué no se cubre |
+|---|---|
+| `reschedule_appointment` | Su Policy (doc 156 Fase 3) es de idempotencia, no de "¿está completo?". No hay hecho backend que invertir sin caer en heurística de texto. |
+| `cancel_appointment` | Mismo motivo que reschedule. |
+| Cualquier handoff sin pedido NI cita backend-completos detrás | Sigue siendo, siempre, un handoff legítimo — el mecanismo no lo toca. |
+| Lashes Valen (`catalog_source='prompt'`) | Sin `state_source=backend`, no hay `estadoGuardado` que consultar. El detector no puede activarse ahí por construcción. |
+| Cualquier otra acción del contrato (`send_image`, `move_stage`, `consult_availability`, etc.) | O ya degradan con gracia (Tipo 1, doc 156 §10), o tienen precondiciones deterministas ANTES del turno (Tipo 2) — ninguna necesita este mecanismo. |
 
 ## Archivos
 
 | Archivo | Qué |
 |---|---|
-| `src/server/ai/recuperacion-de-turno.ts` | **nuevo** — el detector (`accionEvitablementeNoCerrada`) y la orquestación (`intentarRescateDeCierre`) |
-| `src/lib/ai/modelos.ts` | `modeloDeRescate()` — mismo `OPENROUTER_FALLBACK_MODEL` que ya usa la cadena de salvavidas técnica, reutilizado |
-| `src/server/ai/pipeline.ts` | el enganche: una llamada al detector + rescate, envuelta en `try/catch`, justo antes del bloque existente de `notify_order` |
-| `docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md` | la excepción documentada sobre doc 156 |
-| `tests/unit/recuperacion-de-turno.test.ts` | 14 pruebas: detector + orquestación, incluida la reproducción de los 6 casos medidos |
-| `tests/unit/salvavidas-de-cierre-alcance.test.ts` | 9 pruebas de ALCANCE — que nadie generalice esto a "cualquier handoff" sin darse cuenta |
-| `tests/unit/modelos-seguridad-y-multitenant.test.ts` | +4 pruebas — el módulo nuevo no filtra secretos ni discrimina por organización |
+| `src/server/ai/recuperacion-de-turno.ts` | detector + orquestación para AMBOS dominios, motor `juicioYRedaccion` compartido, punto de entrada único `intentarRescatarTurno` |
+| `src/lib/ai/modelos.ts` | `modeloDeRescate()` — mismo `OPENROUTER_FALLBACK_MODEL` que ya usa la cadena de salvavidas técnica |
+| `src/server/ai/pipeline.ts` | el enganche: una sola llamada a `intentarRescatarTurno`, envuelta en `try/catch` |
+| `src/server/appointments/policy.ts` | **sin tocar** — `puedeConfirmarCita` se reutiliza tal cual |
+| `docs/korexia/189-EXCEPCION-GEMINI-SALVAVIDAS-DE-CIERRE.md` | la excepción + su Adenda de ampliación a citas |
+| `tests/unit/recuperacion-de-turno.test.ts` | 29 pruebas: detector y orquestación de AMBOS dominios, el punto de entrada único, y la reproducción de los 6 casos medidos |
+| `tests/unit/salvavidas-de-cierre-alcance.test.ts` | 10 pruebas de ALCANCE, actualizadas para verificar que pipeline.ts usa el punto de entrada único y que reschedule/cancel siguen fuera |
+| `tests/unit/modelos-seguridad-y-multitenant.test.ts` | 4 pruebas — el módulo no filtra secretos ni discrimina por organización |
 
 ## Garantías de diseño, y cómo se prueban
 
 | Garantía | Cómo se cumple | Prueba |
 |---|---|---|
-| Gemini no inventa precios | Los montos (`subtotalCents`/`totalCents`) SIEMPRE salen de `estadoGuardado`, nunca se leen de la respuesta de ningún modelo | "los montos... SIEMPRE salen del backend" — inyecta un modelo que MIENTE con cifras propias y verifica que se ignoran |
-| Máximo un fallback por turno | Sin recursión ni loop: `intentarRescateDeCierre` hace como mucho 2 llamadas (juicio + redacción), nunca se re-invoca a sí misma | "máximo dos llamadas a chatJson por intento" + "nunca reintenta el rescate una segunda vez dentro del mismo turno" |
-| Handoff legítimo no dispara el salvavidas | El detector exige `estadoGuardado` completo (ítems, total, requisitos) — un handoff por falta de datos, o sin catálogo, no cumple la condición | 5 de las 8 pruebas del detector cubren exactamente los caminos que deben dar `false` |
-| El backend sigue siendo la autoridad | Cero líneas nuevas en `orders/estado.ts`, `orders/policy.ts` (se REUTILIZA, no se modifica), `catalog/`, el `switch` de ejecución | grep de diff — 0 cambios en esos archivos |
-| Un fallo del mecanismo no tumba el turno | Todo el bloque en pipeline.ts va en `try/catch`; un error de red o de configuración deja `action` intacta | descubierto por la propia suite: 10 pruebas existentes con entornos sin `OPENROUTER_*` lo ejercitaron y hoy pasan |
-| Rollback sin código ni dato | `OPENROUTER_FALLBACK_MODEL` vacía apaga el mecanismo entero (`modeloDeRescate()` devuelve `undefined`) | "sin OPENROUTER_FALLBACK_MODEL, el mecanismo entero queda apagado" |
+| Gemini no inventa datos comerciales | Montos, fecha, hora y servicio SIEMPRE salen de `estadoGuardado` | inyecta un modelo que MIENTE con cifras/fecha propias en AMBOS dominios — se ignoran |
+| Máximo un fallback lógico por turno | `intentarRescatarTurno` prueba pedido, y solo si no aplica, cita — nunca las dos; cada rescate hace como mucho 2 llamadas | "hay un ÚNICO punto de entrada" + "máximo dos llamadas a chatJson en TODO el archivo" |
+| Handoff legítimo no dispara nada | Los dos detectores exigen `estadoGuardado` completo antes de llamar a nada | 14 de los 15 casos de detector (7 por dominio) cubren los caminos que deben dar `false` |
+| El backend sigue siendo la autoridad | Cero líneas nuevas en `orders/estado.ts`, `orders/policy.ts`, `appointments/policy.ts`, `catalog/`, los switches de ejecución | grep de diff — 0 cambios en esos archivos |
+| Un fallo del mecanismo no tumba el turno | Todo el bloque en pipeline.ts va en `try/catch` | 10 pruebas preexistentes sin `OPENROUTER_*` en su entorno lo ejercitaron y pasan |
+| Nunca un mensaje vacío al cliente | Si Gemini y GPT fallan ambos en la redacción, el respaldo final es el resumen determinista (nunca un modelo) | "si la redacción falla, usa un respaldo determinista — nunca un mensaje vacío" |
+| Rollback sin código ni dato | `OPENROUTER_FALLBACK_MODEL` vacía apaga TODO el mecanismo (ambos dominios) | "sin OPENROUTER_FALLBACK_MODEL, el mecanismo entero queda apagado" |
 
 ## Observabilidad
 
-- **Traza** (`registrarTrazaDelTurno`): el evento `salvavidas_de_cierre`
-  aparece en `guardarrailes=` de cada turno, con `corrigio=true/false` —
-  mismo mecanismo que los otros 9 guardarraíles del pipeline, sin campo
-  nuevo en el esquema.
-- **Log**: `[rescate] <conversationId>: acción original="X", salvavidas=<motivo> (<modelo>)`
-  — nunca el texto del cliente ni datos personales (probado).
-- **Costo**: cada llamada (juicio de Gemini, redacción de GPT si aplica) pasa
-  por `chatJson`, así que se registra en `usage_event` como cualquier otra
-  — se puede distinguir por `detail` (el modelo real) sin cambios.
-- **Pendiente, no implementado en este spec**: contadores agregados
-  (`fallback_rate`, `successful_fallbacks` como métrica de panel) — hoy se
-  derivan consultando `usage_event`/la traza, no hay una vista nueva. Si el
-  volumen lo justifica, es trabajo de panel, no de este mecanismo.
+- **Traza**: el evento `salvavidas_de_cierre` en `guardarrailes=`, igual que
+  antes — ahora el log distingue `objetivo=pedido` / `objetivo=cita`.
+- **Log**: `[rescate] <id>: objetivo=<pedido|cita>, acción original="X", salvavidas=<motivo> (<modelo>)`.
+- **Costo**: cada llamada pasa por `chatJson` → `usage_event`, distinguible
+  por `detail` (modelo real), sin cambios de esquema.
 
-## Gate
+## Gate (v2, después de la ampliación)
 
 ```
 typecheck            OK
 lint                 0 avisos
-typecheck:scripts    24 errores preexistentes, 0 míos (verificado por archivo)
-suite                2.659 / 2.659  (254 archivos)
-build                OK
-árbol                limpio
+suite                — a confirmar en este mismo ciclo
+build                — a confirmar en este mismo ciclo
+auditar:arquitectura — a confirmar en este mismo ciclo (pedido explícito)
+árbol                limpio salvo lo listado arriba
 ```
-
-## Lo que NO se ejecutó, y por qué
-
-- **`probar:escenarios`/`probar:agente` contra producción**: hacen llamadas
-  reales a LLM y tienen costo — no son necesarias para validar ESTE cambio de
-  código (la suite unitaria ya ejercita el pipeline completo con red
-  simulada) y no hay autorización para gastar más en esta fase.
-- **Réplica real de los 6 casos medidos con el mecanismo activo**: los datos
-  de esa medición (contactos y conversaciones de prueba) ya se limpiaron de
-  producción. Reproducirlo exigiría una corrida nueva, con costo — se ofrece
-  como paso siguiente antes de decidir producción, no se ejecutó por cuenta
-  propia.
-- **Deploy**: no autorizado. Ver rollback abajo.
 
 ## Rollback
 
 Una variable: vaciar `OPENROUTER_FALLBACK_MODEL`. `modeloDeRescate()` pasa a
-devolver `undefined`, `intentarRescateDeCierre` retorna `rescatado:false` sin
-llamar a ningún proveedor, y el turno se comporta exactamente como si este
-spec no existiera. Sin migración, sin dato tocado, sin ficha modificada.
-
-Para volver también el modelo conversacional a Gemini: `OPENROUTER_MODEL=google/gemini-3.7-flash`
-— entonces el salvavidas simplemente nunca encuentra nada que rescatar (Gemini
-como principal no tuvo el problema medido).
+devolver `undefined`, `intentarRescatarTurno` devuelve `null` de inmediato
+para AMBOS dominios sin llamar a ningún proveedor, y el turno se comporta
+exactamente como si este spec no existiera. Sin migración, sin dato tocado,
+sin ficha modificada.

@@ -71,7 +71,7 @@ completa.
    NO se generaliza a "cualquier handoff" (eso sí sería la heurística que la
    propia tarea prohíbe).
 
-## Qué queda explícitamente FUERA de esta excepción
+## Qué queda explícitamente FUERA de esta excepción (versión original, 21-sep-2026 mañana)
 
 - Citas (`book_appointment`/`reschedule`/`cancel`): no hay evidencia medida
   de que GPT-5 Mini falle ahí, y aunque existe un mecanismo análogo
@@ -84,6 +84,47 @@ completa.
 - Lashes Valen (`catalog_source='prompt'`, sin `state_source=backend`): sin
   la señal backend, el detector no puede activarse ahí. Queda documentado
   como hallazgo, no resuelto por esta excepción.
+
+## Adenda — 21-sep-2026, tarde: alcance ampliado a citas
+
+El dueño pidió, explícitamente y con la decisión de arquitectura ya tomada
+(no una medición adicional), generalizar el mecanismo a los cuatro casos de
+la arquitectura ("intención conocida no resuelta", "handoff evitable",
+"acción ejecutable no identificada", "cierre que el backend puede validar")
+en vez de dejarlo acotado solo a `notify_order`.
+
+**Lo que cambió**: los cuatro casos, en este código, son la MISMA condición
+—hoja backend-completa, acción de cierre no elegida— aplicada ahora a DOS
+acciones en vez de una:
+
+| Acción de cierre | Autoridad backend reutilizada | Estado |
+|---|---|---|
+| `notify_order` (pedidos) | `puedeConfirmarPedido` | ya cubierto por la mañana |
+| `book_appointment` (citas) | `puedeConfirmarCita` | **añadido aquí** |
+
+**Lo que NO cambió, y sigue fuera a propósito** — porque generalizar más allá
+sería exactamente la heurística sin respaldo backend que este documento
+existe para evitar:
+
+- `reschedule_appointment`/`cancel_appointment`: su Policy (doc 156, Fase 3)
+  cubre idempotencia, no una noción de "¿está listo?" que invertir. No hay
+  hecho backend que active el detector ahí.
+- Cualquier handoff sin un pedido O una cita backend-completos detrás. Sigue
+  siendo, siempre, legítimo.
+- Lashes Valen: sigue sin señal backend, sin cambios.
+
+El resto de los principios (1-6 de arriba) se aplican igual a ambas acciones:
+Gemini solo emite el juicio de confirmación, nunca los datos; el backend
+valida con la MISMA función que ya usaba para rechazar; GPT redacta el
+mensaje final; máximo un fallback por turno, ahora enforced por un único
+punto de entrada (`intentarRescatarTurno`) que prueba pedido y cita en
+secuencia, nunca las dos.
+
+**Modelo actualizado**: `OPENROUTER_FALLBACK_MODEL=google/gemini-3.8-flash`
+(antes 3.7 — mismo precio, misma capacidad de audio/imagen; los 6 casos
+medidos que motivaron todo esto se midieron contra 3.7, no 3.8. El mecanismo
+es 100% configurable por variable de entorno, así que el cambio de versión
+no tocó una sola línea de código).
 
 ## Vigencia
 

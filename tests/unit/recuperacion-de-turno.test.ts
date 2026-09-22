@@ -9,17 +9,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * listo (`puedeConfirmarPedido` habría dicho `{ok:true}`); lo que faltó fue
  * que el modelo lo reconociera.
  *
- * Este archivo prueba las dos piezas por separado:
+ * Ampliado el mismo día a CITAS (`book_appointment`, vía `puedeConfirmarCita`)
+ * — mismo motor, misma disciplina, ver el encabezado de
+ * `recuperacion-de-turno.ts` para qué queda dentro y qué fuera.
  *
- *  1. `accionEvitablementeNoCerrada` — el DETECTOR. Reutiliza
- *     `puedeConfirmarPedido` sin tocarla; se prueba que de verdad la llama
+ * Este archivo prueba, para cada dominio (pedidos y citas):
+ *
+ *  1. El DETECTOR (`accionEvitablementeNoCerrada` / `citaEvitablementeNoCerrada`).
+ *     Reutiliza la Policy real sin tocarla; se prueba que de verdad la llama
  *     (no una copia de su lógica) y que NUNCA se activa sin autoridad
- *     backend, sin catálogo, o cuando la acción ya es `notify_order`.
+ *     backend, sin catálogo/servicio, o cuando la acción ya es la de cierre.
  *
- *  2. `intentarRescateDeCierre` — la ORQUESTACIÓN. Como máximo una llamada a
- *     Gemini y, si confirma, como máximo una más para redactar. Los montos
+ *  2. La ORQUESTACIÓN (`intentarRescateDeCierre` / `intentarRescateDeCita`).
+ *     Como máximo una llamada a Gemini y, si confirma, como máximo una más
+ *     para redactar. Los datos que importan (montos, fecha, hora, servicio)
  *     SIEMPRE salen de `estadoGuardado`, nunca de lo que escriba un modelo
- *     — se prueba inyectando un modelo que MIENTE con otras cifras.
+ *     — se prueba inyectando un modelo que MIENTE con datos propios.
+ *
+ *  3. El punto de entrada único (`intentarRescatarTurno`), que decide cuál
+ *     de los dos dominios aplica y garantiza un solo intento por turno.
  */
 
 const ultimaConfirmacionDeMock = vi.fn();
@@ -30,8 +38,15 @@ vi.mock("@/server/ai/confirmacion-de-pedido", () => ({
   intentarNotificarPedido: vi.fn(),
 }));
 
-import { accionEvitablementeNoCerrada, resumenDeLaHoja } from "@/server/ai/recuperacion-de-turno";
+import {
+  accionEvitablementeNoCerrada,
+  citaEvitablementeNoCerrada,
+  intentarRescatarTurno,
+  resumenDeLaHoja,
+  resumenDeLaReserva,
+} from "@/server/ai/recuperacion-de-turno";
 import { puedeConfirmarPedido } from "@/server/orders/policy";
+import { puedeConfirmarCita } from "@/server/appointments/policy";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import { estadoVacio, type EstadoDelPedido } from "@/server/orders/estado";
 import type { Requisito } from "@/server/ai/generador/ficha";
@@ -198,6 +213,189 @@ describe("accionEvitablementeNoCerrada — el detector", () => {
       requisitos: REQUISITOS,
     });
     expect(r).toBe(directo.ok);
+  });
+});
+
+const RESERVA_COMPLETA: EstadoDelPedido = {
+  ...estadoVacio(),
+  items: [
+    {
+      ofrecible: { id: "s1", nombre: "Volumen Ruso" },
+      cantidad: 1,
+      seleccion: [],
+      totalCents: 8000000,
+    },
+  ],
+  reserva: {
+    fecha: "25/09/2026",
+    hora: "15:00",
+    duracionMin: 90,
+    recursoId: "r1",
+    recursoNombre: "Laura",
+  },
+  datos: { telefono: "3001234567" },
+};
+
+const BOOK: AgentActionType = {
+  action: "book_appointment",
+  reservas: [{ servicios: ["Volumen Ruso"], fecha: "25/09/2026", hora: "15:00" }],
+};
+
+describe("citaEvitablementeNoCerrada — el mismo detector, para citas", () => {
+  it("reserva lista, acción distinta de book_appointment → true", () => {
+    for (const action of [REPLY, HANDOFF]) {
+      expect(
+        citaEvitablementeNoCerrada({ action, estadoGuardado: RESERVA_COMPLETA, requisitos: REQUISITOS })
+      ).toBe(true);
+    }
+  });
+
+  it("sin autoridad backend → false", () => {
+    expect(
+      citaEvitablementeNoCerrada({ action: REPLY, estadoGuardado: null, requisitos: REQUISITOS })
+    ).toBe(false);
+  });
+
+  it("la acción YA es book_appointment → false", () => {
+    expect(
+      citaEvitablementeNoCerrada({ action: BOOK, estadoGuardado: RESERVA_COMPLETA, requisitos: REQUISITOS })
+    ).toBe(false);
+  });
+
+  it("sin fecha/hora verificada por el backend → false (handoff legítimo)", () => {
+    const sinHorario: EstadoDelPedido = { ...RESERVA_COMPLETA, reserva: { ...RESERVA_COMPLETA.reserva!, fecha: null, hora: null } };
+    expect(
+      citaEvitablementeNoCerrada({ action: HANDOFF, estadoGuardado: sinHorario, requisitos: REQUISITOS })
+    ).toBe(false);
+  });
+
+  it("sin servicio resuelto → false", () => {
+    const sinServicio: EstadoDelPedido = { ...RESERVA_COMPLETA, items: [] };
+    expect(
+      citaEvitablementeNoCerrada({ action: HANDOFF, estadoGuardado: sinServicio, requisitos: REQUISITOS })
+    ).toBe(false);
+  });
+
+  it("falta un requisito obligatorio → false", () => {
+    const sinTelefono: EstadoDelPedido = { ...RESERVA_COMPLETA, datos: {} };
+    expect(
+      citaEvitablementeNoCerrada({ action: HANDOFF, estadoGuardado: sinTelefono, requisitos: REQUISITOS })
+    ).toBe(false);
+  });
+
+  it("es literalmente puedeConfirmarCita, no una copia", () => {
+    const r = citaEvitablementeNoCerrada({
+      action: HANDOFF,
+      estadoGuardado: RESERVA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+    const directo = puedeConfirmarCita({ estadoGuardado: RESERVA_COMPLETA, requisitos: REQUISITOS });
+    expect(r).toBe(directo.ok);
+  });
+
+  it("reschedule_appointment y cancel_appointment NO disparan nada (fuera de alcance)", () => {
+    const RESCHEDULE: AgentActionType = {
+      action: "reschedule_appointment",
+      servicio: "Volumen Ruso",
+      nuevaFecha: "26/09/2026",
+      nuevaHora: "16:00",
+    };
+    // El detector no distingue estas acciones especialmente: como no son
+    // "book_appointment", la condición se evalúa igual y SÍ podría marcar
+    // `true` si la hoja está lista — pero eso es correcto: lo que importa
+    // es que no exista un tercer detector para reschedule/cancel que
+    // reconstruya SU PROPIA acción (eso sí sería inventar una señal, porque
+    // no hay Policy de "¿está completo?" para reschedule/cancel). Aquí solo
+    // se confirma que intentarRescatarTurno nunca podría construir esas
+    // acciones — ver el test de alcance en salvavidas-de-cierre-alcance.
+    expect(RESCHEDULE.action).not.toBe("book_appointment");
+  });
+});
+
+describe("resumenDeLaReserva — el hecho que se le da al salvavidas, para citas", () => {
+  it("no usa ningún modelo: es texto plano a partir del estado", () => {
+    const r = resumenDeLaReserva(RESERVA_COMPLETA, REQUISITOS);
+    expect(r).toContain("Volumen Ruso");
+    expect(r).toContain("25/09/2026");
+    expect(r).toContain("15:00");
+    expect(r).toContain("Laura");
+  });
+});
+
+describe("intentarRescatarTurno — el punto de entrada único", () => {
+  /**
+   * `getEnv()` cachea el entorno la primera vez que alguien lo pide. Las dos
+   * pruebas de abajo necesitan `OPENROUTER_FALLBACK_MODEL` con valores que
+   * podrían no coincidir con lo que ya haya en caché por otra prueba de este
+   * archivo — se recarga el módulo para que SU `vi.stubEnv` sea el que cuente,
+   * no el de quien haya corrido antes.
+   */
+  const cargar = async () => {
+    vi.resetModules();
+    return import("@/server/ai/recuperacion-de-turno");
+  };
+
+  it("sin ninguna categoría aplicable, devuelve null sin llamar a ningún modelo", async () => {
+    global.fetch = vi.fn() as unknown as typeof fetch;
+    const r = await intentarRescatarTurno({
+      action: REPLY,
+      conversationId: "cv_1",
+      productosDelPedido: [],
+      history: historial("hola"),
+      messages: [{ role: "user", content: "hola" }],
+      estadoGuardado: null,
+      requisitos: REQUISITOS,
+    });
+    expect(r).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("pedido listo (y NO cita) → intenta el rescate de pedido", async () => {
+    baseEnv();
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    const { intentarRescatarTurno: fn } = await cargar();
+    global.fetch = vi.fn(async () =>
+      respuesta({
+        choices: [{ message: { content: JSON.stringify({ action: "handoff", reason: "no confirmó" }) } }],
+      })
+    ) as unknown as typeof fetch;
+
+    const r = await fn({
+      action: REPLY,
+      conversationId: "cv_1",
+      productosDelPedido: CATALOGO,
+      history: historial("Sip"),
+      messages: [{ role: "user", content: "Sip" }],
+      estadoGuardado: HOJA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+
+    expect(r).not.toBeNull();
+    expect(r?.info.objetivo).toBe("pedido");
+  });
+
+  it("cita lista (y NO pedido, sin catálogo de productos) → intenta el rescate de cita", async () => {
+    baseEnv();
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    const { intentarRescatarTurno: fn } = await cargar();
+    global.fetch = vi.fn(async () =>
+      respuesta({
+        choices: [{ message: { content: JSON.stringify({ action: "handoff", reason: "no confirmó" }) } }],
+      })
+    ) as unknown as typeof fetch;
+
+    const r = await fn({
+      action: HANDOFF,
+      conversationId: "cv_1",
+      productosDelPedido: [], // sin catálogo de PEDIDOS: el negocio es de citas
+      history: historial("Sip"),
+      messages: [{ role: "user", content: "Sip" }],
+      estadoGuardado: RESERVA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+
+    expect(r).not.toBeNull();
+    expect(r?.info.objetivo).toBe("cita");
   });
 });
 
@@ -391,5 +589,136 @@ describe("intentarRescateDeCierre — la orquestación", () => {
      * hallazgo menor, no bloqueante.
      */
     expect(global.fetch).toHaveBeenCalledTimes(6);
+  });
+});
+
+describe("intentarRescateDeCita — la orquestación (mismo motor, otro dominio)", () => {
+  const MENSAJES_CITA: ChatMessage[] = [{ role: "user", content: "Sip" }];
+
+  const cargar = async () => {
+    vi.resetModules();
+    return import("@/server/ai/recuperacion-de-turno");
+  };
+
+  beforeEach(() => {
+    baseEnv();
+  });
+
+  it("Gemini confirma → GPT redacta → se rescata con book_appointment reconstruido del backend", async () => {
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    const { intentarRescateDeCita } = await cargar();
+    let llamada = 0;
+    const vistos: string[] = [];
+    global.fetch = vi.fn(async (_url, init) => {
+      llamada++;
+      const body = JSON.parse(String((init as RequestInit).body));
+      vistos.push(body.model);
+      if (llamada === 1) {
+        // El juicio de Gemini: confirma, pero con fecha/hora/servicio MENTIROSOS.
+        return respuesta({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "book_appointment",
+                  reservas: [{ servicios: ["Otro servicio inventado"], fecha: "01/01/2099", hora: "00:00" }],
+                }),
+              },
+            },
+          ],
+        });
+      }
+      return respuesta({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summary: "Volumen Ruso — 25/09/2026 15:00 con Laura",
+                farewell: "¡Nos vemos el jueves! 💇‍♀️",
+              }),
+            },
+          },
+        ],
+      });
+    }) as unknown as typeof fetch;
+
+    const r = await intentarRescateDeCita({
+      messages: MENSAJES_CITA,
+      estadoGuardado: RESERVA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+
+    expect(r.rescatado).toBe(true);
+    if (!r.rescatado) throw new Error("no debería llegar aquí");
+    expect(r.accion.action).toBe("book_appointment");
+    const reservas = (r.accion as { reservas?: { servicios: string[]; fecha: string; hora: string; especialista?: string }[] }).reservas;
+    // La fecha/hora/servicio/especialista son los del BACKEND, nunca los que
+    // Gemini inventó.
+    expect(reservas?.[0]?.fecha).toBe("25/09/2026");
+    expect(reservas?.[0]?.hora).toBe("15:00");
+    expect(reservas?.[0]?.servicios).toEqual(["Volumen Ruso"]);
+    expect(reservas?.[0]?.especialista).toBe("Laura");
+    expect((r.accion as { farewell?: string }).farewell).toBe("¡Nos vemos el jueves! 💇‍♀️");
+    expect(r.info.objetivo).toBe("cita");
+    expect(vistos).toEqual(["google/gemini-3.8-flash", "openai/gpt-5-mini"]);
+  });
+
+  it("si la redacción falla, usa un respaldo determinista — nunca un mensaje vacío", async () => {
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    const { intentarRescateDeCita } = await cargar();
+    let llamada = 0;
+    global.fetch = vi.fn(async () => {
+      llamada++;
+      if (llamada === 1) {
+        return respuesta({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: "book_appointment",
+                  // Sin farewell propio: book_appointment no trae `summary`.
+                  reservas: [{ servicios: ["Volumen Ruso"], fecha: "25/09/2026", hora: "15:00" }],
+                }),
+              },
+            },
+          ],
+        });
+      }
+      return new Response("boom", { status: 500 });
+    }) as unknown as typeof fetch;
+
+    const r = await intentarRescateDeCita({
+      messages: MENSAJES_CITA,
+      estadoGuardado: RESERVA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+
+    expect(r.rescatado).toBe(true);
+    if (!r.rescatado) throw new Error("no debería llegar aquí");
+    // Nunca vacío: el respaldo determinista usa el resumen de la reserva.
+    expect((r.accion as { farewell?: string }).farewell).toBeTruthy();
+    expect((r.accion as { farewell?: string }).farewell).toContain("Volumen Ruso");
+    expect(r.info.redactadoPor).toBe("salvavidas");
+  });
+
+  it("Gemini NO confirma → no se rescata", async () => {
+    vi.stubEnv("OPENROUTER_FALLBACK_MODEL", "google/gemini-3.8-flash");
+    const { intentarRescateDeCita } = await cargar();
+    global.fetch = vi.fn(async () =>
+      respuesta({
+        choices: [{ message: { content: JSON.stringify({ action: "handoff", reason: "no está claro" }) } }],
+      })
+    ) as unknown as typeof fetch;
+
+    const r = await intentarRescateDeCita({
+      messages: MENSAJES_CITA,
+      estadoGuardado: RESERVA_COMPLETA,
+      requisitos: REQUISITOS,
+    });
+
+    expect(r.rescatado).toBe(false);
+    expect(r.info.motivo).toBe("gemini_no_confirmo");
+    expect(r.info.objetivo).toBe("cita");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

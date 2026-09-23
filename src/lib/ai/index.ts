@@ -35,7 +35,24 @@ export type AiUsage = {
 };
 
 export type ChatJsonResult<T> =
-  | { ok: true; data: T; raw: string; usage?: AiUsage }
+  | {
+      ok: true;
+      data: T;
+      raw: string;
+      usage?: AiUsage;
+      /**
+       * Por qué paró de hablar el modelo, tal cual lo informó el proveedor.
+       *
+       * Es el único dato que distingue "terminó" de "lo cortaron a mitad"
+       * (`"length"`). Viajaba en la respuesta y se tiraba: una respuesta
+       * truncada que aun así parsea llegaba al turno indistinguible de una
+       * completa. Lo usa `server/ai/integridad-de-salida.ts`.
+       *
+       * Opcional porque no todos los proveedores ni todos los modelos de la
+       * cadena lo mandan, y su ausencia no puede costar un turno.
+       */
+      finishReason?: string | null;
+    }
   | {
       ok: false;
       error: "not_configured" | "provider_error" | "invalid_output";
@@ -186,7 +203,7 @@ async function intentarCon<T>(
         ? messages
         : [...messages, { role: "system", content: correccionParaElSiguiente }];
     try {
-      const { content: raw, usage } = await callProvider(
+      const { content: raw, usage, finishReason } = await callProvider(
         model,
         attemptMessages,
         timeoutMs,
@@ -210,7 +227,7 @@ async function intentarCon<T>(
         correccionParaElSiguiente = `STRICT: tu respuesta anterior no cumplió el contrato exacto: ${detalle}. Corrige ÚNICAMENTE eso, sin cambiar de acción si sigue siendo la correcta. Responde ÚNICAMENTE el objeto JSON.`;
         continue;
       }
-      return { ok: true, data: parsed.data, raw, usage: gastado };
+      return { ok: true, data: parsed.data, raw, usage: gastado, finishReason };
     } catch (err) {
       lastDetail = err instanceof Error ? err.message : String(err);
       // Error de red/proveedor, no de contenido: no hay un campo concreto
@@ -248,7 +265,7 @@ async function callProvider(
   messages: ChatMessage[],
   timeoutMs = 60_000,
   jsonSchema?: unknown
-): Promise<{ content: string; usage: AiUsage }> {
+): Promise<{ content: string; usage: AiUsage; finishReason: string | null }> {
   const env = getEnv();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -275,7 +292,7 @@ async function callProvider(
       throw new Error(`proveedor respondió ${res.status}: ${truncate(text)}`);
     }
     const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
+      choices?: { message?: { content?: string }; finish_reason?: string | null }[];
       usage?: {
         prompt_tokens?: number;
         completion_tokens?: number;
@@ -288,6 +305,7 @@ async function callProvider(
     }
     return {
       content,
+      finishReason: json.choices?.[0]?.finish_reason ?? null,
       usage: {
         model,
         tokensIn: json.usage?.prompt_tokens ?? 0,

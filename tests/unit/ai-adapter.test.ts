@@ -244,3 +244,73 @@ describe("cadena de salvavidas", () => {
     expect(r.usage?.model).toBe("salvavidas-1");
   });
 });
+
+/**
+ * `finish_reason` viajaba en la respuesta del proveedor y se tiraba a la
+ * basura (22-sep-2026). Es el único dato que distingue "el modelo terminó de
+ * hablar" de "lo cortaron a mitad", y sin él una respuesta truncada llega al
+ * turno indistinguible de una completa: parsea, valida y sale.
+ *
+ * Quien lo usa es `integridad-de-salida.ts`; aquí solo se comprueba que llegue
+ * y que su ausencia no rompa nada — la mayoría de la cadena son modelos y
+ * proveedores que puede que no lo manden.
+ */
+describe("chatJson: el finish_reason del proveedor llega hasta el turno", () => {
+  const schema = z.object({ action: z.literal("reply"), text: z.string() });
+
+  beforeEach(() => {
+    vi.stubEnv("APP_BASE_URL", "http://localhost:3000");
+    vi.stubEnv("DATABASE_URL", "postgresql://t:t@localhost:5432/t");
+    vi.stubEnv("BETTER_AUTH_SECRET", "secret-de-test-suficiente");
+    vi.stubEnv("ENCRYPTION_KEY", Buffer.alloc(32, 3).toString("base64"));
+    vi.stubEnv("META_WEBHOOK_VERIFY_TOKEN", "verify-test");
+    vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
+    vi.stubEnv("OPENROUTER_MODEL", "modelo-test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function conFinishReason(content: string, finishReason?: string) {
+    return new Response(
+      JSON.stringify({
+        choices: [{ message: { content }, ...(finishReason ? { finish_reason: finishReason } : {}) }],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }
+
+  it("una respuesta cortada por longitud llega marcada como tal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(conFinishReason('{"action":"reply","text":"ok"}', "length"))
+    );
+    const result = await chatJson(schema, [{ role: "user", content: "hola" }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.finishReason).toBe("length");
+  });
+
+  it("una respuesta normal llega con su 'stop'", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(conFinishReason('{"action":"reply","text":"ok"}', "stop"))
+    );
+    const result = await chatJson(schema, [{ role: "user", content: "hola" }]);
+    if (result.ok) expect(result.finishReason).toBe("stop");
+  });
+
+  it("un proveedor que no lo manda no rompe el turno", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(conFinishReason('{"action":"reply","text":"ok"}'))
+    );
+    const result = await chatJson(schema, [{ role: "user", content: "hola" }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.text).toBe("ok");
+      expect(result.finishReason ?? null).toBeNull();
+    }
+  });
+});

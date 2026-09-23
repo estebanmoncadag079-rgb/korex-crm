@@ -343,6 +343,64 @@ cualquier otra pregunta, en el momento en que la haga. Si no la tienes, no
 inventes: dile que lo confirmas con el equipo y sigue.`;
 
 /**
+ * El contrato de cadencia: cuánto se le puede pedir al cliente de una vez.
+ *
+ * 22-sep-2026, MALIA. Una clienta escribió «para encargar por fa dos cremosos
+ * de 7 onzas / para un detalle» y el agente le devolvió en UN mensaje: las
+ * opciones de cada uno, si era regalo, el nombre, el celular, cómo lo recibía
+ * y la forma de pago. Un muro de seis cosas a alguien que llevaba dos frases.
+ *
+ * **La causa era la regla, no el modelo.** Aquí decía literalmente «agrupa lo
+ * que va junto» y «Una pregunta por mensaje alarga el pedido y cansa»: una
+ * invitación a agrupar SIN NINGÚN TECHO. Se escribió el 13-ago-2026 contra el
+ * fallo contrario —un agente que preguntaba de a poquitos— y con otro modelo
+ * detrás. GPT-5 mini es más literal y la aplicó hasta el final.
+ *
+ * Por eso el arreglo no es «pregunta menos»: es poner el techo que faltaba, y
+ * decir a qué alcanza. **Limita lo que el agente PIDE; nunca lo que el cliente
+ * puede DAR.** Las dos mitades son obligatorias: solo la primera convierte el
+ * chat en un formulario de una pregunta por turno, que es el fallo de agosto y
+ * cuesta lo mismo.
+ *
+ * La unidad del techo es **un punto del orden numerado** de `meta()`, no una
+ * pregunta. Se eligió así porque es la única unidad que ya existía en el
+ * sistema y es verificable leyendo un mensaje (¿a cuántos puntos pertenece lo
+ * que pide?), y porque los puntos ya vienen agrupados por afinidad: «su nombre
+ * y su celular» es UNO, y «las opciones de CADA cosa que pidió» también — así
+ * que el techo no rompe la lección del 17-ago de preguntar por varios productos
+ * en el mismo mensaje, que vive DENTRO de un solo punto.
+ *
+ * Es genérico a propósito: el mismo texto lo llevan los dos verticales. Tener
+ * dos redacciones de la misma doctrina es cómo se acaba con dos doctrinas.
+ */
+export const CADENCIA = `## En cada mensaje, UN punto de esa lista
+
+Esa lista es un ORDEN, no un formulario que se entrega de una vez. Te toca
+siempre **el primer punto que sigue sin resolver, y solo ese**. Resuélvelo
+entero: un punto puede llevar varias preguntas si van juntas —el nombre y el
+celular son UN punto— y eso sigue contando como uno.
+
+Esto NO es "una pregunta por mensaje". Es no mezclar puntos distintos.
+
+🛑 **Nunca juntes preguntas de dos puntos en el mismo mensaje**, ni le sueltes
+de golpe todo lo que te falta para cerrar. Cada pregunta por separado es
+razonable; lo que hace que abandone es el muro de todas juntas.
+
+## Lo que te adelante, se queda
+
+🛑 **El límite es de lo que TÚ pides, nunca de lo que él te puede dar.** Si en
+su mensaje viene información de puntos que todavía no tocaban, **apúntala toda
+y da esos puntos por resueltos**: ni la ignores, ni la dejes para luego, ni se
+la vuelvas a preguntar cuando llegues ahí.
+
+Eso te hará saltar varios puntos de una vez, y así debe ser: tu próximo
+objetivo es el primero que siga de verdad en blanco, no el que toque por
+número.
+
+Y contestar no cuenta como pedir: responde lo que te pregunten, recomienda,
+saluda y sigue con naturalidad. El techo es solo de los datos que pides.`;
+
+/**
  * El objetivo y **el orden en que se pregunta**.
  *
  * El orden explícito se añadió el 13-ago-2026, tras una observación del dueño
@@ -380,9 +438,9 @@ Lleva la conversación hasta agendar, hablando poco y sin trabarte.
 4. **Su nombre y su celular.**
 5. **Confirmar la cita.**
 
-**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar. Y
-agrupa — si ya eligió servicio, pregúntale el día y la preferencia de persona
-en el MISMO mensaje. Una pregunta por mensaje alarga la conversación y cansa.
+**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar.
+
+${CADENCIA}
 
 ## Si pide VARIOS servicios
 
@@ -415,9 +473,9 @@ Lleva la conversación hasta el pedido cerrado, hablando poco y sin trabarte.
 6. **El resumen y su confirmación.**
 7. **Los datos de pago**, cuando ya confirmó — o antes, si él los pide.
 
-**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar. Y
-agrupa lo que va junto — con lo que ya eligió, pídele las opciones y si es
-regalo en el MISMO mensaje. Una pregunta por mensaje alarga el pedido y cansa.
+**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar.
+
+${CADENCIA}
 
 ## Si pide VARIAS cosas a la vez
 

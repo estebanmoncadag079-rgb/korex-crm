@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { faltantesDeLaFicha, type FichaDelNegocio } from "@/server/ai/generador/ficha";
 import { generarPerfil } from "@/server/ai/generador/generar";
-import { CIERRE, CIERRE_CITAS, ESTILO, meta, NUNCA } from "@/server/ai/generador/conducta";
+import { CADENCIA, CIERRE, CIERRE_CITAS, ESTILO, meta, NUNCA } from "@/server/ai/generador/conducta";
 
 /**
  * El generador de prompts (12-ago-2026).
@@ -297,7 +297,7 @@ describe("se adapta al negocio sin dejar huecos", () => {
  * ────────────────────────────────────────────────────────────────────────
  */
 describe("la conducta común es de todos, no de un sector", () => {
-  const TEXTOS = [ESTILO, CIERRE, CIERRE_CITAS, NUNCA, meta("pedidos"), meta("citas")];
+  const TEXTOS = [ESTILO, CIERRE, CIERRE_CITAS, NUNCA, CADENCIA, meta("pedidos"), meta("citas")];
 
   it("ni una palabra de comida en el texto que se lleva cualquier negocio", () => {
     const prohibidas = /salsa|churro|topping|arequipe|recubiert|cocina|sabor/i;

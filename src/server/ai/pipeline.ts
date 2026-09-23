@@ -144,6 +144,11 @@ import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
 import { comoTexto, requisitosPendientesDe } from "@/server/orders/extraer";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
+  CORRECCION_DE_SALIDA_DEGENERADA,
+  primerTextoDegenerado,
+  textoDegenerado,
+} from "@/server/ai/integridad-de-salida";
+import {
   afirmaConEspecialistaSinVerificar,
   anunciaCierre,
   anunciaCitaAgendada,
@@ -483,6 +488,26 @@ export function textosAlCliente(action: AgentActionType): string[] {
     default:
       return [];
   }
+}
+
+/**
+ * Lo que queda utilizable de un reintento del gate de integridad: la acción
+ * si su texto ya se puede enviar, o `null` si sigue sin poder.
+ *
+ * Vive fuera de `runAgentTurn` por una razón concreta, no por estilo: esa
+ * función es tan larga que TypeScript deja de seguirle el rastro al afinado de
+ * `reintento.ok` antes de llegar al gate, y el compilador rechaza leer `data`.
+ * Taparlo con un `as` sería apagar justo la comprobación que impide leer el
+ * resultado de una llamada que falló. Aquí el afinado funciona solo.
+ */
+function accionUsableTrasIntegridad(
+  reintento: ChatJsonResult<AgentActionType>
+): AgentActionType | null {
+  if (!reintento.ok) return null;
+  const sigueRoto = primerTextoDegenerado(textosAlCliente(reintento.data), {
+    finishReason: reintento.finishReason,
+  });
+  return sigueRoto ? null : reintento.data;
 }
 
 /**
@@ -1103,12 +1128,18 @@ export async function runAgentTurn(
    * prompt: el turno corre exactamente como antes. Es el mismo interruptor
    * que la Fase 1, que ya demostró servir.
    *
-   * Estado al 21-sep-2026: La Churra, Lis, Lashes y Camilabrandcol están en
-   * `'backend'`; **solo MALIA sigue en `'prompt'`**, y por una contención
-   * deliberada (ver `ARCHITECTURE-REGRESSION-AUDIT.md` y docs/korexia/187).
-   * Hasta el 19-sep este comentario decía "los cuatro clientes están en
-   * prompt" — era cierto cuando se escribió y dejó de serlo sin que nadie lo
-   * mirara, que es justo el modo en que un comentario empieza a mentir.
+   * Estado al 22-sep-2026, **leído de la base, no recordado**: los CINCO
+   * clientes con ficha —La Churra, Lis, Lashes, Camilabrandcol y MALIA—
+   * están en `'backend'`. El único `'prompt'` que queda es `korex.ia`, la
+   * organización de la propia agencia, que no atiende a nadie.
+   *
+   * Este comentario lleva dos correcciones seguidas por la misma razón, y
+   * vale la pena dejarla escrita: hasta el 19-sep decía "los cuatro clientes
+   * están en prompt", hasta el 22-sep decía "solo MALIA sigue en prompt", y
+   * las dos veces era cierto al escribirse y dejó de serlo sin que nadie lo
+   * mirara. **Un comentario que nombra clientes caduca solo.** Si hace falta
+   * saber quién está en qué, se consulta `agent_profile.state_source`; esto
+   * es contexto, no fuente de verdad.
    *
    * El "0" reinicia ANTES de llamar al modelo, igual que el handoff: es una
    * decisión determinista del servidor, no algo que se le pida al LLM.
@@ -1561,6 +1592,20 @@ export async function runAgentTurn(
   }
 
   let action: AgentActionType = result.data;
+  /**
+   * La respuesta de ESTA llamada, guardada aparte para el gate de integridad
+   * de más abajo.
+   *
+   * Se copian aquí y no se leen de `result` allí por dos razones. La de
+   * fondo: el gate necesita saber si la acción que va a salir es todavía la de
+   * esta llamada o la reescribió un guardarraíl, y `primeraAccion` lo dice sin
+   * ambigüedad. La práctica: `runAgentTurn` es lo bastante larga como para que
+   * TypeScript pierda el afinado de `result.ok` por el camino, y un `as` para
+   * taparlo sería apagar justo la comprobación que evita leer `data` de un
+   * resultado fallido.
+   */
+  const primeraAccion: AgentActionType = result.data;
+  const finishReasonDeLaPrimeraLlamada = result.finishReason;
 
   /**
    * Fase 8J — el carrito que el backend RECHAZÓ deja de ser invisible.
@@ -2746,8 +2791,10 @@ export async function runAgentTurn(
     //
     // T017 (feature 003-backend-como-autoridad): `estadoGuardado` ya refleja
     // lo que este turno acaba de guardar (reasignado más arriba) — `null`
-    // cuando `state_source !== 'backend'` — al 21-sep-2026 solo MALIA, así
-    // que `puedeConfirmarPedido` no exige nada nuevo para ella.
+    // cuando `state_source !== 'backend'`, que al 22-sep-2026 no es ningún
+    // cliente real: los cinco con ficha están en `'backend'` (verificado
+    // contra la base ese día; ver el comentario largo de `estadoEstructurado`
+    // sobre por qué esta lista caduca sola).
     const veredicto = await puedeConfirmarPedido({
       conversationId,
       productosDelPedido,
@@ -3173,7 +3220,8 @@ export async function runAgentTurn(
    *
    * Corre en LOS DOS verticales con el mismo código: `book_appointment` y
    * `notify_order` comparten el mismo hueco (ninguno exige nada declarado
-   * cuando `stateSource='prompt'`, que al 21-sep-2026 es solo MALIA).
+   * cuando `stateSource='prompt'`, que al 22-sep-2026 ya no es ningún
+   * cliente real — ver `estadoEstructurado` más arriba).
    *
    * Mismo tratamiento que el cierre falso y la cita fantasma: una
    * oportunidad de rehacerlo con la corrección delante y, si insiste, lo
@@ -3610,6 +3658,68 @@ export async function runAgentTurn(
    */
   if (estadoRecienGuardado?.guardadoConfirmadoTrue && action.action !== "notify_order") {
     await corregirConfirmadoSinCierre(organizationId, conversation.id);
+  }
+
+  /**
+   * Lo último antes de ejecutar: el texto que va a salir, ¿se puede leer?
+   *
+   * 22-sep-2026, MALIA. Una respuesta llegó a WhatsApp con `}]}]}` pegado y
+   * restos del formato interno del modelo. Las dos validaciones que había
+   * (`extractJson` y Zod, en el adaptador) hicieron su trabajo: el objeto era
+   * impecable y la basura viajaba DENTRO del string de `reply`. Miran la FORMA
+   * de la respuesta; nadie miraba el CONTENIDO que iba a leer una persona.
+   *
+   * **Por qué aquí y no junto a la primera respuesta del modelo.** Aquí
+   * `action` ya es la decisión final: los ocho guardarraíles de texto que
+   * pueden reescribirla ya corrieron, y `consult_product` /
+   * `consult_availability` ya hicieron su segunda llamada, que es de donde
+   * sale el texto que lee el cliente en esos turnos. Comprobarlo arriba
+   * habría dejado fuera justo esos casos. Y sigue siendo ANTES de cualquier
+   * envío: el primer `deliverReply` del turno está unas líneas más abajo.
+   *
+   * UN reintento y se acabó, como el resto de guardarraíles de este archivo:
+   * si el modelo devuelve basura dos veces seguidas, encadenar llamadas es
+   * gastar dinero para llegar igual a una persona. No hay tercer modelo ni
+   * cadena nueva: los salvavidas viven en el adaptador y el de cierre en
+   * `recuperacion-de-turno.ts`, y ninguno de los dos sabe de esto.
+   */
+  const degenerado = primerTextoDegenerado(textosAlCliente(action), {
+    /*
+     * El `finish_reason` es de la PRIMERA llamada. Solo habla del texto que
+     * va a salir si `action` sigue siendo la de esa llamada; si un guardarraíl
+     * la reemplazó, atribuirle aquel truncamiento sería inventárselo, y un
+     * falso positivo aquí es un cliente derivado a una persona por nada.
+     */
+    finishReason: action === primeraAccion ? finishReasonDeLaPrimeraLlamada : undefined,
+  });
+  if (degenerado) {
+    console.warn(
+      `[integridad] salida degenerada en ${conversationId} (${degenerado.motivo}: ${degenerado.evidencia}); UN reintento antes de derivar`
+    );
+    const reintentoDeIntegridad = await chatJson(AgentAction, [
+      ...messages,
+      { role: "assistant", content: JSON.stringify(action) },
+      { role: "user", content: CORRECCION_DE_SALIDA_DEGENERADA },
+    ]);
+    await registrarUsoIa(
+      organizationId,
+      reintentoDeIntegridad.usage,
+      `conv:${conversationId}/salida-degenerada`
+    );
+    const accionRescatada = accionUsableTrasIntegridad(reintentoDeIntegridad);
+    if (!accionRescatada) {
+      console.error(
+        `[integridad] el reintento de ${conversationId} tampoco es enviable; lo toma una persona`
+      );
+      agregarGuardarrail(traza, "salida_degenerada", false);
+      await derivarAUnaPersona(conversation);
+      registrarHandoff(traza, "salida_degenerada");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
+    }
+    action = accionRescatada;
+    agregarGuardarrail(traza, "salida_degenerada", true);
   }
 
   if (action.action === "move_stage") {
@@ -4537,6 +4647,33 @@ async function deliverReply(
   text: string,
   opts?: { esAviso?: boolean }
 ): Promise<void> {
+  /**
+   * Fail-closed: aquí no se decide nada, solo se cierra la puerta.
+   *
+   * El gate de integridad de más arriba cubre HOY todos los caminos por los
+   * que sale texto del modelo, porque todos pasan por el punto donde
+   * `action` ya es final. Esto es para el día en que alguien añada un
+   * `deliverReply` ANTES de ese punto: quien lo escriba no tiene por qué
+   * acordarse de un gate que está novecientas líneas más arriba, y el precio
+   * de que se le olvide lo paga un cliente.
+   *
+   * No reintenta: el reintento es del gate, que sí sabe qué se le pidió al
+   * modelo. Aquí solo queda no enviarlo y que lo tome una persona.
+   *
+   * El aviso de derivación se salta la comprobación: lo escribe el servidor
+   * (es una constante) y comprobarlo abriría una recursión con
+   * `derivarAUnaPersona`, que es quien lo manda.
+   */
+  if (!opts?.esAviso) {
+    const degeneradoAlEnviar = textoDegenerado(text);
+    if (degeneradoAlEnviar) {
+      console.error(
+        `[integridad] texto degenerado interceptado al enviar en ${conversation.id} (${degeneradoAlEnviar.motivo}: ${degeneradoAlEnviar.evidencia}); no sale`
+      );
+      await derivarAUnaPersona(conversation, { reason: "error" });
+      return;
+    }
+  }
   await asegurarOwnershipVigente(conversation);
   if (conversation.isTest) {
     await persistTestOutbound(conversation, text);
@@ -5492,7 +5629,15 @@ async function chatJsonConEstado(
     return { resultado: reintento };
   }
   return {
-    resultado: { ok: true, data: validada.data, raw: bruto.raw, usage: bruto.usage },
+    resultado: {
+      ok: true,
+      data: validada.data,
+      raw: bruto.raw,
+      usage: bruto.usage,
+      // Sin esta línea el dato se perdía justo para los clientes que SÍ
+      // tienen el estado en el backend, que son todos menos MALIA.
+      finishReason: bruto.finishReason,
+    },
     operaciones,
   };
 }

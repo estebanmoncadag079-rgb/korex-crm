@@ -83,6 +83,14 @@ describe("buildAgentSystemPrompt — efecto end-to-end del filtro", () => {
     hoursCloseSunday: null,
   } as unknown as Profile;
 
+  /*
+   * El rótulo de esta sección pasó de «DATOS QUE ESTE NEGOCIO NECESITA ANTES
+   * DE CERRAR» a «REQUISITOS PARA CERRAR» el 22-sep-2026, al separar lo que
+   * hace falta para cerrar de lo que se pregunta en el turno actual
+   * (docs/korexia/190). Estas pruebas lo usan como marca de presencia de la
+   * sección: lo que comprueban —que aparezca solo con requisitos pendientes y
+   * que liste exactamente los que quedan— no cambió.
+   */
   it("8. Con el requisito YA capturado (lista pre-filtrada), el prompt deja de listarlo", () => {
     const prompt = buildAgentSystemPrompt({
       profile: profileBase,
@@ -91,7 +99,7 @@ describe("buildAgentSystemPrompt — efecto end-to-end del filtro", () => {
       appointments: { catalog: [] },
       requisitos: [], // ya filtrado: nada pendiente
     });
-    expect(prompt).not.toMatch(/DATOS QUE ESTE NEGOCIO NECESITA ANTES DE CERRAR/);
+    expect(prompt).not.toMatch(/REQUISITOS PARA CERRAR/);
   });
 
   it("9. Con el requisito TODAVÍA pendiente, el prompt lo sigue pidiendo (no regresión)", () => {
@@ -102,7 +110,7 @@ describe("buildAgentSystemPrompt — efecto end-to-end del filtro", () => {
       appointments: { catalog: [] },
       requisitos: REQUISITOS,
     });
-    expect(prompt).toMatch(/DATOS QUE ESTE NEGOCIO NECESITA ANTES DE CERRAR/);
+    expect(prompt).toMatch(/REQUISITOS PARA CERRAR/);
     expect(prompt).toMatch(/- nombre: el nombre de quien lo pide/);
     expect(prompt).toMatch(/- telefono: el celular de contacto/);
   });

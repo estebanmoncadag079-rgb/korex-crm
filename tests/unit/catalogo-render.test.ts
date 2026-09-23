@@ -126,3 +126,60 @@ describe("renderCatalogoDePedidos: relación producto → opciones", () => {
     expect(texto).toBe("Botella de Agua — $3.000");
   });
 });
+
+/**
+ * Incidente real (MALIA, 22-sep-2026): las opciones llegaban al prompt
+ * aplastadas en una sola línea —`MILO · OREO · AREQUIPE · FRESA · …`— y el
+ * agente las repetía al cliente tal cual, en contra de las reglas de
+ * presentación del propio negocio, que piden listas.
+ *
+ * Es un fallo de FORMATO ESTRUCTURAL del dato, no una regla de MALIA: el
+ * separador ` · ` lo escribía el renderer común a los cinco negocios. La
+ * viñeta `• ` no se inventa aquí — es la que ya usa `textoPlanoDeMenu`
+ * (`catalog/menu.ts`) para las listas que lee un cliente por WhatsApp, y la
+ * que `catalogo-texto.ts` sabe leer de vuelta.
+ *
+ * Por qué importa que sea el renderer y no el prompt: el modelo copia los
+ * datos duros TAL CUAL (regla de `ESTILO` en conducta.ts). Si le llegan en
+ * una línea, los manda en una línea por mucho que otra instrucción diga
+ * "haz listas".
+ */
+describe("renderCatalogoDePedidos: las opciones se leen como lista", () => {
+  it("cada opción va en su propia línea con viñeta, no separadas por ' · '", () => {
+    const sabor = grupo("Sabor", 1, 1, [
+      { nombre: "MILO" },
+      { nombre: "OREO" },
+      { nombre: "AREQUIPE" },
+      { nombre: "FRESA" },
+    ]);
+    const texto = renderCatalogoDePedidos([producto("Pavé Cremoso 7 oz", 1_200_000, [sabor])]);
+
+    expect(texto).toContain("• MILO\n• OREO\n• AREQUIPE\n• FRESA");
+    expect(texto).not.toContain("MILO · OREO");
+  });
+
+  it("la cabecera del bloque sigue diciendo a qué productos aplica, y la lista va debajo", () => {
+    const sabor = grupo("Sabor", 1, 1, [{ nombre: "MILO" }, { nombre: "OREO" }]);
+    const texto = renderCatalogoDePedidos([
+      producto("Pavé 7 oz", 1_200_000, [sabor]),
+      producto("Pavé 8 oz", 1_500_000, [{ ...sabor, id: "pog_sabor_2" }]),
+    ]);
+
+    const lineas = texto.split("\n");
+    const i = lineas.findIndex((l) => l.startsWith("SABOR"));
+    expect(lineas[i]).toContain("aplica a: Pavé 7 oz, Pavé 8 oz");
+    expect(lineas[i + 1]).toBe("• MILO");
+    expect(lineas[i + 2]).toBe("• OREO");
+  });
+
+  it("el precio extra de una opción sigue pegado a su propia línea", () => {
+    const adiciones = grupo("Adiciones", 0, 3, [
+      { nombre: "Arequipe", precioExtraCents: 200_000 },
+      { nombre: "Oreo" },
+    ]);
+    const texto = renderCatalogoDePedidos([producto("Torta", 1_800_000, [adiciones])]);
+
+    expect(texto).toContain("• Arequipe $2.000");
+    expect(texto).toContain("• Oreo");
+  });
+});

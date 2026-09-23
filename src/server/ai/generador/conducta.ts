@@ -343,6 +343,64 @@ cualquier otra pregunta, en el momento en que la haga. Si no la tienes, no
 inventes: dile que lo confirmas con el equipo y sigue.`;
 
 /**
+ * El contrato de cadencia: cuánto se le puede pedir al cliente de una vez.
+ *
+ * 22-sep-2026, MALIA. Una clienta escribió «para encargar por fa dos cremosos
+ * de 7 onzas / para un detalle» y el agente le devolvió en UN mensaje: las
+ * opciones de cada uno, si era regalo, el nombre, el celular, cómo lo recibía
+ * y la forma de pago. Un muro de seis cosas a alguien que llevaba dos frases.
+ *
+ * **La causa era la regla, no el modelo.** Aquí decía literalmente «agrupa lo
+ * que va junto» y «Una pregunta por mensaje alarga el pedido y cansa»: una
+ * invitación a agrupar SIN NINGÚN TECHO. Se escribió el 13-ago-2026 contra el
+ * fallo contrario —un agente que preguntaba de a poquitos— y con otro modelo
+ * detrás. GPT-5 mini es más literal y la aplicó hasta el final.
+ *
+ * Por eso el arreglo no es «pregunta menos»: es poner el techo que faltaba, y
+ * decir a qué alcanza. **Limita lo que el agente PIDE; nunca lo que el cliente
+ * puede DAR.** Las dos mitades son obligatorias: solo la primera convierte el
+ * chat en un formulario de una pregunta por turno, que es el fallo de agosto y
+ * cuesta lo mismo.
+ *
+ * La unidad del techo es **un punto del orden numerado** de `meta()`, no una
+ * pregunta. Se eligió así porque es la única unidad que ya existía en el
+ * sistema y es verificable leyendo un mensaje (¿a cuántos puntos pertenece lo
+ * que pide?), y porque los puntos ya vienen agrupados por afinidad: «su nombre
+ * y su celular» es UNO, y «las opciones de CADA cosa que pidió» también — así
+ * que el techo no rompe la lección del 17-ago de preguntar por varios productos
+ * en el mismo mensaje, que vive DENTRO de un solo punto.
+ *
+ * Es genérico a propósito: el mismo texto lo llevan los dos verticales. Tener
+ * dos redacciones de la misma doctrina es cómo se acaba con dos doctrinas.
+ */
+export const CADENCIA = `## En cada mensaje, UN punto de esa lista
+
+Esa lista es un ORDEN, no un formulario que se entrega de una vez. Te toca
+siempre **el primer punto que sigue sin resolver, y solo ese**. Resuélvelo
+entero: un punto puede llevar varias preguntas si van juntas —el nombre y el
+celular son UN punto— y eso sigue contando como uno.
+
+Esto NO es "una pregunta por mensaje". Es no mezclar puntos distintos.
+
+🛑 **Nunca juntes preguntas de dos puntos en el mismo mensaje**, ni le sueltes
+de golpe todo lo que te falta para cerrar. Cada pregunta por separado es
+razonable; lo que hace que abandone es el muro de todas juntas.
+
+## Lo que te adelante, se queda
+
+🛑 **El límite es de lo que TÚ pides, nunca de lo que él te puede dar.** Si en
+su mensaje viene información de puntos que todavía no tocaban, **apúntala toda
+y da esos puntos por resueltos**: ni la ignores, ni la dejes para luego, ni se
+la vuelvas a preguntar cuando llegues ahí.
+
+Eso te hará saltar varios puntos de una vez, y así debe ser: tu próximo
+objetivo es el primero que siga de verdad en blanco, no el que toque por
+número.
+
+Y contestar no cuenta como pedir: responde lo que te pregunten, recomienda,
+saluda y sigue con naturalidad. El techo es solo de los datos que pides.`;
+
+/**
  * El objetivo y **el orden en que se pregunta**.
  *
  * El orden explícito se añadió el 13-ago-2026, tras una observación del dueño
@@ -365,6 +423,22 @@ inventes: dile que lo confirmas con el equipo y sigue.`;
  * El backend ya sostiene varios ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md)). Esto es
  * la otra mitad: de nada sirve que el estado aguante tres cosas si el agente
  * sigue preguntándolas de una en una.
+ *
+ * 🔴 **22-sep-2026: eran DOS ejes y solo se nombró uno.** La corrección de
+ * agosto se escribió como «pregunta de todos a la vez, en UN mensaje», y con
+ * `CADENCIA` delante eso quedó autorizando el muro: el día, la hora y los datos
+ * personales, juntos. Los dos ejes son distintos y hay que decirlos por
+ * separado:
+ *
+ * - **Las cosas pedidas** (o los servicios) ENSANCHAN el punto activo: si toca
+ *   elegir opciones, se eligen las de todo lo que pidió, en el mismo mensaje.
+ *   Eso es la lección de agosto y sigue viva.
+ * - **Los puntos del orden** NO se mezclan nunca, por muchas cosas que haya.
+ *   Varias cosas ensanchan el punto; no lo adelantan.
+ *
+ * Quien vuelva a tocar estos bloques: la frase peligrosa es cualquiera que
+ * enumere qué preguntar («el día, la hora y sus datos»). Enumerar productos
+ * está bien; enumerar puntos del orden es el muro.
  */
 export function meta(vertical: "pedidos" | "citas"): string {
   if (vertical === "citas") {
@@ -380,18 +454,25 @@ Lleva la conversación hasta agendar, hablando poco y sin trabarte.
 4. **Su nombre y su celular.**
 5. **Confirmar la cita.**
 
-**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar. Y
-agrupa — si ya eligió servicio, pregúntale el día y la preferencia de persona
-en el MISMO mensaje. Una pregunta por mensaje alarga la conversación y cansa.
+**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar.
+
+${CADENCIA}
 
 ## Si pide VARIOS servicios
 
 Pasa a menudo: *"quiero esto y también aquello"*.
 
-**Anótalos todos** y trátalos como una sola visita: pregunta una vez el día, una
-vez la hora y una vez sus datos. Y cuenta el tiempo de todos juntos — dos
-servicios seguidos no caben en el hueco de uno, así que ofrece horarios donde
-quepa la visita entera.
+**Anótalos todos** y trátalos como una sola visita. Eso importa sobre todo para
+el tiempo: cuenta el tiempo de todos juntos — dos servicios seguidos no caben
+en el hueco de uno, así que ofrece horarios donde quepa la visita entera.
+
+Que sean varios **no cambia la cadencia**. Nada de una ronda de preguntas por
+servicio: sigues en el primer punto sin resolver y lo resuelves para la visita
+entera, de una vez. Y no se mezcla con los demás puntos — el día y la hora son
+un punto, sus datos son otro, y no van en el mismo mensaje.
+
+Lo que la clienta adelante de puntos que todavía no tocaban se apunta igual y
+esos puntos quedan resueltos.
 
 🛑 **Si de verdad no pueden ir juntos** —porque no hay hueco o los hace gente
 distinta—, dilo y propón cómo hacerlo, pero **no des por agendado** lo que no
@@ -415,17 +496,24 @@ Lleva la conversación hasta el pedido cerrado, hablando poco y sin trabarte.
 6. **El resumen y su confirmación.**
 7. **Los datos de pago**, cuando ya confirmó — o antes, si él los pide.
 
-**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar. Y
-agrupa lo que va junto — con lo que ya eligió, pídele las opciones y si es
-regalo en el MISMO mensaje. Una pregunta por mensaje alarga el pedido y cansa.
+**Pide solo lo que falte**: si ya te lo dijo, no lo vuelvas a preguntar.
+
+${CADENCIA}
 
 ## Si pide VARIAS cosas a la vez
 
 Es lo normal: *"uno de esto y dos de aquello"* llega en un solo mensaje.
 
-**Anótalo todo de una vez** y pregunta en UN mensaje lo que falte de cada cosa,
-diciendo de cuál es cada pregunta. Nada de terminar una y empezar la otra: eso
-convierte un pedido en un interrogatorio.
+**Anótalo todo de una vez.** Que sean varias cosas **no cambia la cadencia**:
+el punto activo se resuelve para TODAS en el mismo mensaje, diciendo de cuál es
+cada pregunta. Nada de terminar una y empezar la otra: eso convierte un pedido
+en un interrogatorio.
+
+Lo que **nunca es mezclar puntos**: si el punto activo son las opciones, en ese
+mensaje van las opciones de todo lo que pidió y nada más — ni el nombre, ni la
+entrega, ni el pago. Varias cosas ensanchan el punto, no lo adelantan.
+
+Y si adelanta algo de un punto posterior, se apunta y ese punto queda resuelto.
 
 🛑 **Y lo que ya te dijo de una cosa, no se lo vuelvas a preguntar por estar
 preguntando por otra.** Si te dice *"el primero con esto, el segundo con

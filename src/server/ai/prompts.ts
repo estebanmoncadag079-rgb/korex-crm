@@ -635,22 +635,42 @@ function fotosDisponibles(
  * El servidor ya comprueba el hecho con un guardarraíl (`pipeline.ts`) antes
  * de dejar salir `book_appointment`/`notify_order`; esto es la mitad que le
  * ahorra un reintento al modelo cuando el cliente ya dio el dato de una vez.
+ *
+ * 🔴 **22-sep-2026 — esta sección era munición para el muro de preguntas.**
+ * Terminaba en «Si todavía no te lo ha dado, pregúntaselo con reply»: una
+ * lista de datos pendientes seguida de permiso para pedirlos. Leída junto al
+ * «agrupa lo que va junto» que había en `conducta.ts`, GPT-5 mini hacía lo
+ * único coherente con las dos: preguntarlos TODOS de una vez.
+ *
+ * Saber QUÉ hace falta para cerrar y decidir QUÉ se pide en ESTE mensaje son
+ * dos cosas distintas, y el texto las confundía. Ahora la lista se declara
+ * como requisito de CIERRE y remite al orden y al techo de `CADENCIA`; la
+ * parte que sí era correcta —la acción que guarda el dato— no se toca.
+ *
+ * Exportada desde entonces para poder probarla sola, igual que
+ * `pagoDeCitasParaElPrompt`.
  */
-function requisitosParaElPrompt(
+export function requisitosParaElPrompt(
   requisitos: { id: string; etiqueta: string; obligatorio: boolean }[] | undefined
 ): string | null {
   const obligatorios = requisitos?.filter((r) => r.obligatorio) ?? [];
   if (obligatorios.length === 0) return null;
   const lista = obligatorios.map((r) => `- ${r.id}: ${r.etiqueta}`).join("\n");
   return [
-    "DATOS QUE ESTE NEGOCIO NECESITA ANTES DE CERRAR:",
+    "REQUISITOS PARA CERRAR — lo que este negocio necesita ANTES de cerrar:",
     lista,
+    "",
+    "Esto NO es la lista de lo que preguntas en este mensaje: es lo que no puede",
+    "faltar cuando cierres. Cada uno se pide cuando le toque su turno en el orden,",
+    "con el techo de UN punto por mensaje. Soltarlos todos juntos es justo el muro",
+    "que hace abandonar el pedido.",
     "",
     'Si el cliente ya te dio alguno de estos datos (en este mensaje o antes en la',
     'conversación), emite {"action":"provide_requirement","requisitoId":"<el id de',
     'arriba>","valor":"...","reply":"..."} — nunca lo dejes solo en el reply, sin',
-    "esta acción el dato NO se guarda. Si todavía no te lo ha dado, pregúntaselo",
-    "con reply. No cierres (book_appointment / notify_order) hasta tenerlos todos.",
+    "esta acción el dato NO se guarda.",
+    "",
+    "No cierres (book_appointment / notify_order) hasta tenerlos todos.",
   ].join("\n");
 }
 

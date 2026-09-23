@@ -404,6 +404,56 @@ const ESCENARIOS: Escenario[] = [
     nombre: "pide hablar con una persona",
     guion: ["hola", "quiero hablar con alguien del equipo por favor"],
   },
+  /**
+   * MALIA, 22-sep-2026 — el muro de preguntas (la conversación de Yuli).
+   *
+   * Tres frases de una clienta, y el agente le devolvió en UN mensaje: las
+   * opciones de cada producto, si era regalo, el nombre, el celular, cómo lo
+   * recibía y la forma de pago. Seis puntos del orden de golpe.
+   *
+   * Las comprobaciones son objetivas a propósito, como el resto de este
+   * archivo: no preguntan si la conversación «se siente natural» —eso es del
+   * Laboratorio y su juez—, sino si en un mismo mensaje conviven peticiones
+   * de puntos distintos del orden. Eso se lee o no se lee.
+   *
+   * ⚠️ **Solo tiene sentido DESPUÉS de `pnpm regenerar:flota --aplicar`.** El
+   * agente contesta con el prompt guardado en `agent_profile.instructions`,
+   * no con `conducta.ts`: sin regenerar, esto mide el prompt viejo.
+   *
+   * Uso:  pnpm probar:escenarios <organizationId de MALIA> malia
+   */
+  {
+    nombre: "MALIA · muro de preguntas (Yuli)",
+    guion: [
+      "Hola buen día cómo estás?",
+      "Para encargar por fa dos cremosos de 7 onzas",
+      "Para un detalle",
+    ],
+    espera: {
+      noDebeDecir: [
+        {
+          // Nombre y modalidad de entrega son los puntos 4 y 5 del orden.
+          // Juntos en un mensaje, sin que la clienta haya dado ninguno de
+          // los dos, es el muro. (Aquí no puede haber resumen todavía: el
+          // guion no da ni un dato, así que no hay falso positivo posible.)
+          que: /(nombre[sS]{0,500}(a domicilio|domicilio o|recoger)|(a domicilio|domicilio o|recoger)[sS]{0,500}nombre)/i,
+          porque: "el nombre y la entrega son puntos distintos: no van en el mismo mensaje",
+        },
+        {
+          // La forma de pago es el punto 7. Con la clienta todavía eligiendo
+          // producto, preguntarla es saltarse media lista.
+          que: /(forma de pago|cómo (vas a |)pagar|medio de pago)/i,
+          porque: "el pago es lo último del orden, no se pregunta al elegir el producto",
+        },
+        {
+          // El formato viejo del catálogo: las opciones aplastadas en una
+          // línea con separador de punto medio.
+          que: / · [A-ZÁÉÍÓÚÑ]{3,}[sS]{0,40} · /,
+          porque: "las opciones se presentan como lista, no en una sola línea",
+        },
+      ],
+    },
+  },
 ];
 
 const organizationId = process.argv[2]!;

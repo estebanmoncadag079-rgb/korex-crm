@@ -8,6 +8,16 @@ import type { ProductoDelCatalogo } from "./queries";
  * pretende cambiar cómo se le habla al modelo: solo de dónde sale el dato. Si
  * además cambiara el formato, un fallo después no diría si fue por la tabla o
  * por el texto nuevo.
+ *
+ * 🔴 **22-sep-2026: esa cautela ya cumplió y se levantó en UN punto.** El
+ * bloque de opciones las juntaba en una sola línea con ` · `, y el agente de
+ * MALIA se las mandaba al cliente así, aplastadas — en contra de las reglas
+ * de presentación de su propio prompt. No era el modelo desobedeciendo: es
+ * que copia los datos duros TAL CUAL (`ESTILO`, conducta.ts), así que el
+ * formato con el que llega el dato pesa más que cualquier instrucción de
+ * "haz listas". Ahora van una por línea. Es un arreglo ESTRUCTURAL del dato,
+ * común a los cinco negocios; aquí no hay ni puede haber nada específico de
+ * un cliente.
  */
 
 function pesos(cents: number): string {
@@ -91,13 +101,19 @@ export function renderCatalogoDePedidos(
         existente.productos.push(p.nombre);
         continue;
       }
+      // Una opción por línea, con la misma viñeta que `textoPlanoDeMenu`
+      // (`catalog/menu.ts`) usa para las listas que lee un cliente por
+      // WhatsApp. Estuvo en `" · "` hasta el 22-sep-2026 y el agente las
+      // repetía aplastadas en una línea: el modelo copia los datos duros TAL
+      // CUAL (`ESTILO`, conducta.ts), así que el formato de la LISTA es el
+      // que manda, no la instrucción de "haz listas" que hay más arriba.
       const opciones = g.opciones
         .map((o) =>
           o.precioExtraCents > 0
-            ? `${o.nombre} ${pesos(o.precioExtraCents)}`
-            : o.nombre
+            ? `• ${o.nombre} ${pesos(o.precioExtraCents)}`
+            : `• ${o.nombre}`
         )
-        .join(" · ");
+        .join("\n");
       // Aquí NO va el "elige N": ese número es de cada producto y ya está
       // escrito arriba, junto a él. Aquí solo la lista de lo que hay.
       bloques.set(clave, {
@@ -113,9 +129,13 @@ export function renderCatalogoDePedidos(
     lineas.push("**Opciones que elige el cliente:**");
     for (const b of bloques.values()) {
       const etiqueta = b.obligatorio ? "" : " (opcional)";
+      // La cabecera (qué grupo es y de qué productos) en su línea, y la
+      // lista debajo: pegarle las opciones detrás de los dos puntos es lo que
+      // devolvía el renglón único.
       lineas.push(
-        `${b.nombre.toUpperCase()}${etiqueta} — aplica a: ${b.productos.join(", ")}: ${b.opciones}`
+        `${b.nombre.toUpperCase()}${etiqueta} — aplica a: ${b.productos.join(", ")}:`
       );
+      lineas.push(b.opciones);
     }
   }
 

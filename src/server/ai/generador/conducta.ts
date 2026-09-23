@@ -423,6 +423,22 @@ saluda y sigue con naturalidad. El techo es solo de los datos que pides.`;
  * El backend ya sostiene varios ([89](89-EL-CONTRATO-DE-LOS-ITEMS.md)). Esto es
  * la otra mitad: de nada sirve que el estado aguante tres cosas si el agente
  * sigue preguntándolas de una en una.
+ *
+ * 🔴 **22-sep-2026: eran DOS ejes y solo se nombró uno.** La corrección de
+ * agosto se escribió como «pregunta de todos a la vez, en UN mensaje», y con
+ * `CADENCIA` delante eso quedó autorizando el muro: el día, la hora y los datos
+ * personales, juntos. Los dos ejes son distintos y hay que decirlos por
+ * separado:
+ *
+ * - **Las cosas pedidas** (o los servicios) ENSANCHAN el punto activo: si toca
+ *   elegir opciones, se eligen las de todo lo que pidió, en el mismo mensaje.
+ *   Eso es la lección de agosto y sigue viva.
+ * - **Los puntos del orden** NO se mezclan nunca, por muchas cosas que haya.
+ *   Varias cosas ensanchan el punto; no lo adelantan.
+ *
+ * Quien vuelva a tocar estos bloques: la frase peligrosa es cualquiera que
+ * enumere qué preguntar («el día, la hora y sus datos»). Enumerar productos
+ * está bien; enumerar puntos del orden es el muro.
  */
 export function meta(vertical: "pedidos" | "citas"): string {
   if (vertical === "citas") {
@@ -446,10 +462,17 @@ ${CADENCIA}
 
 Pasa a menudo: *"quiero esto y también aquello"*.
 
-**Anótalos todos** y trátalos como una sola visita: pregunta una vez el día, una
-vez la hora y una vez sus datos. Y cuenta el tiempo de todos juntos — dos
-servicios seguidos no caben en el hueco de uno, así que ofrece horarios donde
-quepa la visita entera.
+**Anótalos todos** y trátalos como una sola visita. Eso importa sobre todo para
+el tiempo: cuenta el tiempo de todos juntos — dos servicios seguidos no caben
+en el hueco de uno, así que ofrece horarios donde quepa la visita entera.
+
+Que sean varios **no cambia la cadencia**. Nada de una ronda de preguntas por
+servicio: sigues en el primer punto sin resolver y lo resuelves para la visita
+entera, de una vez. Y no se mezcla con los demás puntos — el día y la hora son
+un punto, sus datos son otro, y no van en el mismo mensaje.
+
+Lo que la clienta adelante de puntos que todavía no tocaban se apunta igual y
+esos puntos quedan resueltos.
 
 🛑 **Si de verdad no pueden ir juntos** —porque no hay hueco o los hace gente
 distinta—, dilo y propón cómo hacerlo, pero **no des por agendado** lo que no
@@ -481,9 +504,16 @@ ${CADENCIA}
 
 Es lo normal: *"uno de esto y dos de aquello"* llega en un solo mensaje.
 
-**Anótalo todo de una vez** y pregunta en UN mensaje lo que falte de cada cosa,
-diciendo de cuál es cada pregunta. Nada de terminar una y empezar la otra: eso
-convierte un pedido en un interrogatorio.
+**Anótalo todo de una vez.** Que sean varias cosas **no cambia la cadencia**:
+el punto activo se resuelve para TODAS en el mismo mensaje, diciendo de cuál es
+cada pregunta. Nada de terminar una y empezar la otra: eso convierte un pedido
+en un interrogatorio.
+
+Lo que **nunca es mezclar puntos**: si el punto activo son las opciones, en ese
+mensaje van las opciones de todo lo que pidió y nada más — ni el nombre, ni la
+entrega, ni el pago. Varias cosas ensanchan el punto, no lo adelantan.
+
+Y si adelanta algo de un punto posterior, se apunta y ese punto queda resuelto.
 
 🛑 **Y lo que ya te dijo de una cosa, no se lo vuelvas a preguntar por estar
 preguntando por otra.** Si te dice *"el primero con esto, el segundo con

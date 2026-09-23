@@ -115,3 +115,62 @@ describe("los requisitos de cierre no son la lista de preguntas de este turno", 
     expect(requisitosParaElPrompt([{ id: "x", etiqueta: "y", obligatorio: false }])).toBeNull();
   });
 });
+
+/**
+ * Dos instrucciones viejas seguían contradiciendo a `CADENCIA` (22-sep-2026,
+ * detectado en la auditoría del propio dueño antes de regenerar).
+ *
+ * Las dos nacieron el 17-ago-2026 contra un fallo real y distinto: el agente
+ * hacía una RONDA DE PREGUNTAS POR PRODUCTO, y repetía cosas que el cliente ya
+ * había contestado. La corrección de entonces fue "pregunta de todos a la vez",
+ * y era correcta para ese eje.
+ *
+ * El problema es que había DOS ejes y solo se nombró uno. Resolver el punto
+ * activo para TODOS los productos de golpe está bien —ese es el eje de las
+ * cosas pedidas—; juntar el día, la hora y los datos personales en un mensaje
+ * es el muro —ese es el eje de los puntos del orden—. Escritas como estaban,
+ * las dos frases autorizaban lo segundo mientras pedían lo primero.
+ *
+ * Lo que se conserva intacto: anotarlo todo desde el primer mensaje, tratar
+ * varios servicios como UNA visita para calcular el tiempo, y no repreguntar.
+ */
+describe("ningún bloque viejo contradice el techo de un punto por mensaje", () => {
+  it("citas: ya no manda preguntar el día, la hora y los datos de una tacada", () => {
+    // Día y hora son el punto 2; el nombre y el celular son el punto 4.
+    expect(meta("citas")).not.toMatch(/una vez el día, una\s+vez la hora y una vez sus datos/i);
+  });
+
+  it("citas: dice que varios servicios NO cambian la cadencia", () => {
+    const t = meta("citas");
+    expect(t).toMatch(/no cambia la cadencia/i);
+    // Y lo que sí había que conservar de la lección del 17-ago sigue ahí.
+    expect(t).toMatch(/una sola visita/i);
+    expect(t).toMatch(/tiempo de todos juntos/i);
+  });
+
+  it("pedidos: ya no manda preguntar en UN mensaje lo que falte de cada cosa", () => {
+    expect(meta("pedidos")).not.toMatch(/pregunta en UN mensaje lo que falte de cada cosa/i);
+  });
+
+  it("pedidos: el punto activo se resuelve para TODAS las cosas, sin mezclar puntos", () => {
+    const t = meta("pedidos");
+    expect(t).toMatch(/no cambia la cadencia/i);
+    expect(t).toMatch(/el punto activo se resuelve para TODAS/i);
+    expect(t).toMatch(/nunca es mezclar puntos/i);
+    // La lección del 17-ago que sí seguía siendo correcta.
+    expect(t).toMatch(/anótalo todo de una vez/i);
+    expect(t).toMatch(/no se lo vuelvas a preguntar/i);
+  });
+
+  it("EL DETECTOR DETECTA: las frases viejas disparan las comprobaciones de arriba", () => {
+    // Sin esto, los cuatro `not.toMatch` de arriba estarían verdes aunque el
+    // patrón no encontrara nada nunca — que es como un guardarraíl deja de
+    // servir sin avisar (misma cautela que `generador-de-prompt.test.ts`).
+    const viejoCitas =
+      "**Anótalos todos** y trátalos como una sola visita: pregunta una vez el día, una\nvez la hora y una vez sus datos.";
+    const viejoPedidos =
+      "**Anótalo todo de una vez** y pregunta en UN mensaje lo que falte de cada cosa,\ndiciendo de cuál es cada pregunta.";
+    expect(viejoCitas).toMatch(/una vez el día, una\s+vez la hora y una vez sus datos/i);
+    expect(viejoPedidos).toMatch(/pregunta en UN mensaje lo que falte de cada cosa/i);
+  });
+});

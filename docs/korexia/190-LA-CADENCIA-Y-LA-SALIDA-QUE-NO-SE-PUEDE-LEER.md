@@ -108,6 +108,31 @@ pregunta por turno alarga el pedido igual y cuesta lo mismo.
 Contestar, recomendar o saludar **no cuenta** contra el techo. El límite es
 solo de los datos que se piden.
 
+### Los dos ejes que había que separar
+
+Al auditar el cambio antes de regenerar aparecieron **dos instrucciones viejas
+que lo contradecían**: en citas, *"pregunta una vez el día, una vez la hora y
+una vez sus datos"*; en pedidos, *"pregunta en UN mensaje lo que falte de cada
+cosa"*. Las dos son de la corrección del 17-ago-2026, que atacaba un fallo real
+y distinto —el agente hacía una ronda de preguntas por producto— y se escribió
+como *"pregunta de todos a la vez"*.
+
+Era correcta para su eje, pero había dos y solo se nombró uno:
+
+- **Las cosas pedidas ENSANCHAN el punto activo.** Si toca elegir opciones, se
+  eligen las de todo lo que pidió, en el mismo mensaje. Esa es la lección de
+  agosto y sigue viva.
+- **Los puntos del orden NO se mezclan nunca**, por muchas cosas que haya.
+  Varias cosas ensanchan el punto; no lo adelantan.
+
+Escritas como estaban, autorizaban lo segundo mientras pedían lo primero. Los
+dos bloques están reescritos diciendo los dos ejes por separado, y conservando
+lo que sí era correcto: anotarlo todo desde el primer mensaje, tratar varios
+servicios como UNA visita para calcular el tiempo, y no repreguntar.
+
+La regla para quien vuelva a tocarlos: **enumerar productos está bien;
+enumerar puntos del orden es el muro.**
+
 ---
 
 ## 4. La absorción: lo que el cliente adelanta

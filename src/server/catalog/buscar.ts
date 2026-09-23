@@ -103,6 +103,70 @@ function soloCoincideElApellido(
 }
 
 /**
+ * Una especificación de tamaño dentro de un nombre o de una consulta: el
+ * número y la unidad que lo acompaña (16 + oz).
+ */
+type Tamano = { numero: string; unidad: string };
+
+/**
+ * Los pares número+unidad de un texto.
+ *
+ * La unidad es la palabra que va PEGADA al número, y ahí está toda la
+ * gracia: es lo que distingue un tamaño de una cantidad sin tener que
+ * escribir en el núcleo ninguna lista de unidades. En `2 paves de 16 oz`,
+ * el `2` trae `paves` detrás y el `16` trae `oz`; cuál de las dos es la unidad
+ * del catálogo lo decide el catálogo, no este archivo.
+ */
+function tamanos(texto: string): Tamano[] {
+  const encontrados: Tamano[] = [];
+  // Una sola vez, fuera del bucle: `re.exec` avanza con su `lastIndex` sobre
+  // la misma cadena, así que rehacerla en cada vuelta era una copia por
+  // coincidencia encontrada — y dejaba el recorrido dependiendo de que
+  // `normalizar` devolviera siempre lo mismo.
+  const normalizado = normalizar(texto);
+  const re = /([0-9]+) *([a-z]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(normalizado)) !== null) {
+    encontrados.push({ numero: m[1]!, unidad: m[2]! });
+  }
+  return encontrados;
+}
+
+/**
+ * ¿El tamaño de este producto CONTRADICE el que pidió el cliente?
+ *
+ * 22-sep-2026 — el fallo que motiva todo esto: `Pavé Cremoso 7 oz` devolvía
+ * `found: Pavé Cremoso 8 oz`, y ese `found` viaja al prompt como hecho
+ * verificado. El sistema afirmaba que existe un tamaño que no existe.
+ *
+ * Eran DOS mecanismos. `tokens()` descarta lo que mide menos de dos
+ * caracteres, así que un tamaño de UN dígito desaparecía antes de comparar
+ * (`Pavé Cremoso 8 oz` → `[pave, cremoso, oz]`). Y además, también con dos
+ * dígitos, un número que contradice nunca descalificaba: solo bajaba el
+ * `ratio` (`Cremoso Familiar 43 oz` resolvía al de 44). Por eso la
+ * corrección no es aflojar la tokenización —eso tapaba 8 de 17 casos— sino
+ * esto: **la contradicción descalifica**.
+ *
+ * Lo que NO descalifica, y es igual de importante:
+ * - un producto sin tamaño en esa unidad (`Porción Chocolate` sigue
+ *   resolviendo para `torta de chocolate`);
+ * - un número que no lleva detrás una unidad del catálogo, porque eso es una
+ *   CANTIDAD. Sin esta mitad se rompe `orders/policy.ts`, que no le pasa un
+ *   nombre de producto sino el mensaje entero del cliente: `me agregas 2`
+ *   `pavés mas de 16 oz` dejaría de contar como pedido nuevo.
+ */
+function contradiceElTamano(producto: ProductoDelCatalogo, pedidos: Tamano[]): boolean {
+  const suyos = tamanos(producto.nombre).filter((t) =>
+    pedidos.some((p) => p.unidad === t.unidad)
+  );
+  // Sin tamaño propio en esa unidad no hay nada que contradecir.
+  if (!suyos.length) return false;
+  return !suyos.some((s) =>
+    pedidos.some((p) => p.unidad === s.unidad && p.numero === s.numero)
+  );
+}
+
+/**
  * Busca en el catálogo real, tolerando tildes, mayúsculas y nombres
  * parafraseados por el cliente. A diferencia de `buscarServicio` (que
  * devuelve "el mejor o null"), aquí hace falta distinguir *cuántos*
@@ -116,7 +180,38 @@ export function buscarProductos(
   const q = normalizar(consulta);
   if (!q || catalogo.length === 0) return { status: "not_found" };
 
-  const exacto = catalogo.filter((p) => normalizar(p.nombre) === q);
+  /*
+   * Quién puede competir: todo el catálogo salvo quien lleve un tamaño que
+   * contradice al que pidió el cliente (ver `contradiceElTamano`).
+   *
+   * Se filtra ANTES de las tres etapas —exacto, substring, tokens— porque
+   * las tres pueden producir el falso positivo: el nombre exacto nunca, pero
+   * el substring y el solapamiento de tokens sí, y son los que devolvían
+   * `Pavé Cremoso 8 oz` para `Pavé Cremoso 7 oz`.
+   *
+   * Quién decide qué es una unidad: **el nombre del producto**, no una lista
+   * escrita aquí. Un candidato solo se mira contra los números que ÉL mismo
+   * declara, así que `2 pavés` en la consulta no puede contradecir a un
+   * producto que mide en `oz`, y un catálogo sin números —La Churra— no
+   * puede ser filtrado por ninguna consulta. Un negocio futuro que venda en
+   * `ml`, `g` o `und` queda cubierto sin tocar el núcleo.
+   *
+   * Sin números en la consulta, `pedidos` queda vacío y `elegibles` es el
+   * catálogo entero: el algoritmo de siempre, intacto.
+   */
+  const pedidos = tamanos(consulta);
+  const elegibles = pedidos.length
+    ? catalogo.filter((p) => !contradiceElTamano(p, pedidos))
+    : catalogo;
+  /*
+   * Ningún candidato con ese tamaño. `not_found` NO significa "dile al
+   * cliente que no existe": el pipeline lo pasa por `buscarOpciones` y
+   * decide después, exactamente como hace hoy con cualquier otro
+   * `not_found`.
+   */
+  if (elegibles.length === 0) return { status: "not_found" };
+
+  const exacto = elegibles.filter((p) => normalizar(p.nombre) === q);
   if (exacto.length === 1) return { status: "found", producto: exacto[0]! };
   if (exacto.length > 1) return { status: "multiple_matches", productos: exacto };
 
@@ -124,12 +219,12 @@ export function buscarProductos(
   // uno se cae al paso de tokens (igual que buscarServicio, doc 104): tomar
   // el primero por orden alfabético no tiene relación con lo que pide el
   // cliente.
-  const porSubstring = catalogo.filter(
+  const porSubstring = elegibles.filter(
     (p) => normalizar(p.nombre).includes(q) || q.includes(normalizar(p.nombre))
   );
   if (porSubstring.length === 1) return { status: "found", producto: porSubstring[0]! };
 
-  const universo = porSubstring.length > 1 ? porSubstring : catalogo;
+  const universo = porSubstring.length > 1 ? porSubstring : elegibles;
   const qt = tokens(consulta);
   if (!qt.length) return { status: "not_found" };
 
@@ -154,6 +249,12 @@ export function buscarProductos(
 
   if (candidatos.length === 0) return { status: "not_found" };
   if (candidatos.length === 1) {
+    /*
+     * Ojo: aquí va el catálogo COMPLETO, no `elegibles`. Lo que decide esta
+     * función es si un token DISTINGUE al ganador de sus hermanos, y eso se
+     * mide contra el catálogo entero: filtrarlo antes haría parecer
+     * distintivo a un token que solo es de familia.
+     */
     // Fase 8E — ver `soloCoincideElApellido`: un match de puro nombre de
     // familia, con una palabra del cliente sin explicar, no es un hallazgo.
     if (soloCoincideElApellido(catalogo, candidatos[0]!, qt)) return { status: "not_found" };

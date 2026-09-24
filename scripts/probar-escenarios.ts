@@ -553,9 +553,16 @@ const ESCENARIOS: Escenario[] = [
   },
   {
     nombre: "E. dice que es para regalo",
-    guion: ["hola, quiero un cremoso de 7 oz", "es para un regalo"],
+    // El topping va en el primer mensaje (como pide mucha gente): así el pedido
+    // queda COMPLETO y se persiste, y el regalo se valida sobre un pedido real,
+    // no sobre uno vacío. Decisión "Opción 2" del incidente de agregar_item.
+    guion: ["hola, quiero un cremoso de 7 oz con milo", "es para un regalo"],
     espera: {
       estadoFinal: [
+        {
+          que: (e) => Array.isArray(e?.items) && (e.items as unknown[]).length > 0,
+          porque: "el pedido con su topping tiene que haber quedado persistido",
+        },
         {
           que: (e) => e?.paraRegalo === true,
           porque: "«es para un regalo» es un hecho del pedido, y tiene que sobrevivir al turno",

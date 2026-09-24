@@ -29,14 +29,25 @@ const CONTEXTO: ContextoOperaciones = {
   catalogo: [],
   requisitos: [],
   modalidadesOfrecidas: ["domicilio", "recogida"],
-  // El backend solo escribe el regalo con evidencia del cliente (Bloqueador 2).
-  dichoPorElCliente: ["es para un regalo"],
+  // La evidencia del regalo es lo que el cliente dijo EN ESTE turno, no lo que
+  // dijo en un pedido anterior (Bloqueador 2, 2.ª auditoría).
+  mensajeDelTurno: "es para un regalo",
 };
 
-/** Igual, pero con la evidencia que el turno necesite. */
-const conDicho = (dichoPorElCliente: string[]): ContextoOperaciones => ({
+/** Fija lo que el cliente dijo EN ESTE turno (la evidencia aplicable). */
+const conTurno = (mensajeDelTurno: string): ContextoOperaciones => ({
   ...CONTEXTO,
-  dichoPorElCliente,
+  mensajeDelTurno,
+});
+
+/** Un turno con evidencia vieja en el historial pero NO en el mensaje actual. */
+const conHistorialViejo = (
+  mensajeDelTurno: string,
+  historial: string[]
+): ContextoOperaciones => ({
+  ...CONTEXTO,
+  mensajeDelTurno,
+  dichoPorElCliente: historial,
 });
 
 const conPedido = (extra: Partial<EstadoDelPedido> = {}): EstadoDelPedido => ({
@@ -65,7 +76,7 @@ describe("paraRegalo: un hecho que el cliente aporta, con contrato propio", () =
     const r = aplicarOperacion(
       conPedido({ paraRegalo: true }),
       { tipo: "marcar_regalo", esRegalo: false },
-      conDicho(["es para un regalo", "no, finalmente es para mí"])
+      conTurno("no, finalmente es para mí")
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.estado.paraRegalo).toBe(false);
@@ -102,30 +113,30 @@ describe("paraRegalo: el backend exige evidencia, no la palabra del modelo", () 
   const marcar = (esRegalo: boolean) => ({ tipo: "marcar_regalo", esRegalo }) as const;
 
   it('"es para un regalo" es evidencia suficiente', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conDicho(["es para un regalo"])).ok).toBe(true);
+    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para un regalo")).ok).toBe(true);
   });
 
   it('"es para un detalle" también', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conDicho(["es para un detalle"])).ok).toBe(true);
+    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para un detalle")).ok).toBe(true);
   });
 
   it('"es para un amigo secreto" también', () => {
     expect(
-      aplicarOperacion(conPedido(), marcar(true), conDicho(["es para un amigo secreto"])).ok
+      aplicarOperacion(conPedido(), marcar(true), conTurno("es para un amigo secreto")).ok
     ).toBe(true);
   });
 
   it('"lo necesito para el sábado" NO es evidencia de regalo', () => {
-    const r = aplicarOperacion(conPedido(), marcar(true), conDicho(["lo necesito para el sábado"]));
+    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("lo necesito para el sábado"));
     expect(r.ok).toBe(false);
   });
 
   it('"es para mí" NO convierte el pedido en regalo', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conDicho(["es para mí"])).ok).toBe(false);
+    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para mí")).ok).toBe(false);
   });
 
   it("el modelo propone true sin que el cliente lo diga → se rechaza", () => {
-    const r = aplicarOperacion(conPedido(), marcar(true), conDicho(["quiero dos cremosos"]));
+    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("quiero dos cremosos"));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.correccion).toMatch(/regalo/i);
   });
@@ -136,7 +147,7 @@ describe("paraRegalo: el backend exige evidencia, no la palabra del modelo", () 
     const r = aplicarOperacion(
       conPedido({ paraRegalo: true }),
       marcar(false),
-      conDicho(["es para un regalo"])
+      conTurno("es para un regalo")
     );
     expect(r.ok).toBe(false);
   });
@@ -145,17 +156,53 @@ describe("paraRegalo: el backend exige evidencia, no la palabra del modelo", () 
     const r = aplicarOperacion(
       conPedido({ paraRegalo: true }),
       marcar(false),
-      conDicho(["es para un regalo", "finalmente no es para regalo"])
+      conTurno("finalmente no es para regalo")
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.estado.paraRegalo).toBe(false);
   });
 
   it("EL DETECTOR DETECTA: mismo marcar(true), la evidencia decide", () => {
-    const con = aplicarOperacion(conPedido(), marcar(true), conDicho(["es un regalo para mi mamá"]));
-    const sin = aplicarOperacion(conPedido(), marcar(true), conDicho(["me lo llevo el viernes"]));
+    const con = aplicarOperacion(conPedido(), marcar(true), conTurno("es un regalo para mi mamá"));
+    const sin = aplicarOperacion(conPedido(), marcar(true), conTurno("me lo llevo el viernes"));
     expect(con.ok).toBe(true);
     expect(sin.ok).toBe(false);
+  });
+
+  /*
+   * 2.ª auditoría, casos negativos duros. La evidencia tiene que ser del TURNO
+   * actual y de verdad hablar de un regalo — no una palabra suelta ni una frase
+   * de un pedido anterior que quedó en el historial.
+   */
+  it('"torta sorpresa" NO marca regalo: "sorpresa" en el nombre de un producto no es evidencia', () => {
+    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("quiero una torta sorpresa"));
+    expect(r.ok).toBe(false);
+  });
+
+  it('"es para mi consumo" NO marca regalo', () => {
+    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para mi consumo")).ok).toBe(false);
+  });
+
+  it("evidencia de un pedido anterior (en el historial, no en el mensaje del turno) NO se reutiliza", () => {
+    // El cliente dijo "es para un regalo" en un pedido pasado; en ESTE turno
+    // solo pide más cantidad. No se puede marcar regalo por lo viejo.
+    const r = aplicarOperacion(
+      conPedido(),
+      marcar(true),
+      conHistorialViejo("y serían dos", ["es para un regalo", "y serían dos"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("EL DETECTOR DETECTA (scope): misma frase de regalo, en el turno acepta / en el historial no", () => {
+    const enElTurno = aplicarOperacion(conPedido(), marcar(true), conTurno("es para un regalo"));
+    const soloEnElHistorial = aplicarOperacion(
+      conPedido(),
+      marcar(true),
+      conHistorialViejo("dos por favor", ["es para un regalo", "dos por favor"])
+    );
+    expect(enElTurno.ok).toBe(true);
+    expect(soloEnElHistorial.ok).toBe(false);
   });
 });
 

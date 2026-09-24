@@ -1612,6 +1612,7 @@ export async function runAgentTurn(
           // un nombre confirmado de uno que solo estaba en el perfil.
           nombreDePerfil: contactRows[0]?.name ?? null,
           dichoPorElCliente: history.filter((m) => m.direction === "in").map((m) => m.text ?? ""),
+          mensajeDelTurno: lastInbound.text ?? null,
           servicios: contrataCitas(vertical) ? services : undefined,
           hours,
           now: opts?.now,
@@ -5163,6 +5164,8 @@ async function guardarEstadoPropuesto(entrada: {
    */
   nombreDePerfil?: string | null;
   dichoPorElCliente?: readonly string[];
+  /** Lo que el cliente dijo EN ESTE turno: evidencia de `marcar_regalo` (2.ª auditoría). */
+  mensajeDelTurno?: string | null;
   /** El catálogo de servicios YA cargado este turno (citas) — `ContextoOperaciones.servicios`. */
   servicios?: CatalogEntry[];
   /** Solo hace falta para citas (`disponibilidadRealMultiple`, Compuerta 2 de `fijar_horario`). */
@@ -5341,6 +5344,7 @@ async function guardarEstadoPropuesto(entrada: {
       modalidadesOfrecidas: entrada.modalidadesOfrecidas,
       nombreDePerfil: entrada.nombreDePerfil,
       dichoPorElCliente: entrada.dichoPorElCliente,
+      mensajeDelTurno: entrada.mensajeDelTurno,
     };
     const lote = aplicarOperacionesPedidos(estadoBase, parse.data, contexto);
     if (!lote.persistido) {

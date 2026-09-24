@@ -146,11 +146,12 @@ describe("datos.nombre exige procedencia del cliente, no aparición del texto", 
     expect(r.ok).toBe(false);
   });
 
-  it("un nombre suelto, como respuesta directa a '¿a nombre de quién?', SÍ se guarda", () => {
-    // No hay frame de destinatario ni negación: el mensaje ES el nombre.
+  it("un nombre SUELTO no confirma nada: aparecer no es identificarse", () => {
+    // 2.ª auditoría: "aparición de texto ≠ procedencia". Un token que parece
+    // nombre, sin "soy"/"me llamo" ni un teléfono propio, no basta — el backend
+    // no puede saber si es el comprador o una mención.
     const r = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), contexto("Luisa Duque", ["Ana Gómez"]));
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.estado.datos.nombre).toBe("Ana Gómez");
+    expect(r.ok).toBe(false);
   });
 
   it("un nombre junto a su propio teléfono se guarda (son los datos del pedido)", () => {
@@ -171,16 +172,69 @@ describe("datos.nombre exige procedencia del cliente, no aparición del texto", 
     expect(r.ok).toBe(false);
   });
 
-  it("CA8: si ya se confirmó y guardó, sigue válido aunque la evidencia ya no esté en la ventana", () => {
-    // El cliente lo confirmó hace >20 mensajes; el valor ya vive en el estado.
-    // El estado ES la evidencia durable: reafirmarlo no vuelve a exigir la frase.
-    const yaConfirmado = { ...estadoVacio(), datos: { nombre: "Juan Pérez" } };
+  /* Los casos del auditor: el nombre aparece, pero como mención, no como identidad. */
+  it('"El pedido anterior era de Juan Pérez" NO confirma el nombre del cliente actual', () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Juan Pérez"),
+      contexto("Luisa Duque", ["El pedido anterior era de Juan Pérez"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('"¿Juan Pérez está disponible?" NO confirma el nombre', () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Juan Pérez"),
+      contexto("Luisa Duque", ["¿Juan Pérez está disponible?"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('"Me recomendaron a Juan Pérez" NO confirma el nombre', () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Juan Pérez"),
+      contexto("Luisa Duque", ["Me recomendaron a Juan Pérez"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("al confirmar por autoidentificación, el estado guarda la PROCEDENCIA, no solo el valor", () => {
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Juan Pérez"), contexto("Luisa Duque", ["soy Juan Pérez"]));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.estado.datos.nombre).toBe("Juan Pérez");
+      expect(r.estado.procedenciaDelNombre).toBe("cliente");
+    }
+  });
+
+  it("CA8: con procedencia guardada, reafirmar el nombre vale aunque la evidencia ya no esté en la ventana", () => {
+    // El cliente lo confirmó hace >20 mensajes; el estado conserva valor +
+    // procedencia. Reafirmarlo no vuelve a exigir la frase original.
+    const yaConfirmado = {
+      ...estadoVacio(),
+      datos: { nombre: "Juan Pérez" },
+      procedenciaDelNombre: "cliente" as const,
+    };
     const r = aplicarOperacion(
       yaConfirmado,
       fijarNombre("Juan Pérez"),
       contexto("Luisa Duque", ["gracias", "listo", "perfecto"])
     );
     expect(r.ok).toBe(true);
+  });
+
+  it("un valor en datos SIN procedencia no se toma como confirmado (la procedencia es la llave, no el valor)", () => {
+    // Estado heredado con nombre pero sin procedencia: reafirmar un valor
+    // distinto sin evidencia se rechaza.
+    const sinProcedencia = { ...estadoVacio(), datos: { nombre: "Juan Pérez" } };
+    const r = aplicarOperacion(
+      sinProcedencia,
+      fijarNombre("Carlos Ruiz"),
+      contexto("Luisa Duque", ["dos por favor"])
+    );
+    expect(r.ok).toBe(false);
   });
 
   it("EL DETECTOR DETECTA: mismo 'Ana', destinataria rechaza / autoidentificada acepta", () => {

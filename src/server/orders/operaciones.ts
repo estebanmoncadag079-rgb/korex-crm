@@ -183,8 +183,21 @@ export type ContextoOperaciones = {
    * exactamente como antes de que existiera.
    */
   nombreDePerfil?: string | null;
-  /** Lo que el CLIENTE ha escrito en esta conversación. La evidencia. */
+  /**
+   * Lo que el CLIENTE ha escrito en esta conversación, del más viejo al más
+   * reciente. Sirve para la procedencia del nombre (una autoidentificación
+   * vale aunque el modelo la fije un turno después).
+   */
   dichoPorElCliente?: readonly string[];
+  /**
+   * Lo que el cliente dijo EN ESTE turno — el último mensaje entrante.
+   *
+   * 2.ª auditoría (Bloqueador 2): la evidencia de un hecho del pedido tiene que
+   * ser del turno actual, no una frase de un pedido anterior que quedó en el
+   * historial. Un "es para un regalo" de hace tres pedidos no puede marcar
+   * regalo el de ahora. Por eso `marcar_regalo` mira aquí, no en todo lo dicho.
+   */
+  mensajeDelTurno?: string | null;
 };
 
 /**
@@ -467,22 +480,27 @@ const EVIDENCIA_REGALO = [
   /amig[oa] secret[oa]/,
   /\bpara (un |el |mi |)detalle\b/,
   /\bde detalle\b/,
-  /\bsorpresa\b/,
 ];
-function hayEvidenciaDeRegalo(textos: readonly string[]): boolean {
-  return textos.some((t) => {
-    const n = normalizarNombre(t);
-    return EVIDENCIA_REGALO.some((re) => re.test(n));
-  });
+// "sorpresa" quedó FUERA a propósito (2.ª auditoría): "torta sorpresa" es el
+// nombre de un producto, no "es una sorpresa para alguien". Marcar regalo por
+// esa palabra suelta es justo el falso positivo que hay que evitar.
+//
+// Toma UN mensaje —el del turno—, no el historial: un "es para un regalo" de un
+// pedido anterior no puede marcar el de ahora.
+function hayEvidenciaDeRegalo(mensaje: string | null | undefined): boolean {
+  if (!mensaje) return false;
+  const n = normalizarNombre(mensaje);
+  return EVIDENCIA_REGALO.some((re) => re.test(n));
 }
 
 /**
- * ¿El cliente CORRIGIÓ y dijo que NO es un regalo?
+ * ¿El cliente CORRIGIÓ y dijo que NO es un regalo, EN ESTE turno?
  *
  * Simétrico al de arriba: desmarcar el regalo también es escribir en el estado,
- * y también exige evidencia. Una negación ("no es para regalo") o decir que es
- * para sí mismo ("finalmente es para mí") cuentan; un `marcar_regalo(false)`
- * que el modelo suelte sin que el cliente se retracte, no.
+ * y también exige evidencia del turno. Una negación ("no es para regalo") o
+ * decir que es para sí mismo ("finalmente es para mí") cuentan; un
+ * `marcar_regalo(false)` que el modelo suelte sin que el cliente se retracte,
+ * no.
  */
 const EVIDENCIA_NO_REGALO = [
   /\bno\b[^.]{0,20}\bregal/,
@@ -490,11 +508,10 @@ const EVIDENCIA_NO_REGALO = [
   /\bpara mi mism/,
   /\bpara mi consumo\b/,
 ];
-function hayEvidenciaDeNoRegalo(textos: readonly string[]): boolean {
-  return textos.some((t) => {
-    const n = normalizarNombre(t);
-    return EVIDENCIA_NO_REGALO.some((re) => re.test(n));
-  });
+function hayEvidenciaDeNoRegalo(mensaje: string | null | undefined): boolean {
+  if (!mensaje) return false;
+  const n = normalizarNombre(mensaje);
+  return EVIDENCIA_NO_REGALO.some((re) => re.test(n));
 }
 
 function escaparRegex(s: string): string {
@@ -502,11 +519,12 @@ function escaparRegex(s: string): string {
 }
 
 /**
- * ¿El nombre aparece SUELTO en el texto, y no solo como destinatario?
+ * ¿El nombre aparece SUELTO en el texto, y no como destinatario ("para X")?
  *
- * "Ana Gómez" (respuesta a "¿a nombre de quién?") aparece suelto; el "Ana" de
- * "es para Ana" no — está dentro de un marco de destinatario. Se quitan esos
- * marcos y se mira si el nombre sigue estando por su cuenta.
+ * Solo se usa junto a la señal fuerte del teléfono propio: distingue "Ana
+ * Gómez, 300…" (los datos del pedido) de "es para Ana, su cel es 300…" (Ana es
+ * la destinataria). Se quitan los marcos de destinatario y se mira si el nombre
+ * sigue por su cuenta.
  */
 function apareceLibre(textoNormalizado: string, valorNormalizado: string): boolean {
   const v = escaparRegex(valorNormalizado);
@@ -519,22 +537,29 @@ function apareceLibre(textoNormalizado: string, valorNormalizado: string): boole
 
 /**
  * ¿El nombre propuesto para el requisito "nombre" viene DEL CLIENTE? —
- * Bloqueador 3 de la auditoría.
+ * Bloqueador 3, 2.ª auditoría.
  *
- * `datos.nombre` es "el nombre de quien lo pide". No basta con que un nombre
- * aparezca en el texto: hay que distinguir la PROCEDENCIA, porque tres cosas
- * distintas se parecen en la superficie:
+ * `datos.nombre` es "el nombre de quien lo pide". La regla del auditor:
+ * **aparecer en el texto no es identificarse.** Estas cuatro cosas se parecen
+ * en la superficie y NINGUNA confirma el nombre del cliente:
  *
- *   contact.name (el perfil de WhatsApp)  → NO lo confirmó el cliente
- *   el destinatario ("es para Ana")       → NO es quien compra
- *   una inferencia del modelo             → NO es evidencia
+ *   contact.name (el perfil de WhatsApp)     → no lo confirmó él
+ *   el destinatario ("es para Ana")          → no es quien compra
+ *   una mención ("me recomendaron a Ana",
+ *     "¿Ana está?", "el pedido de Ana era…")  → no es él
+ *   una inferencia del modelo                 → no es evidencia
  *
- * La confirmación tampoco puede depender de que la frase siga dentro de la
- * ventana de historial (`HISTORY_LIMIT`): si el dato ya se guardó, el estado
- * mismo ES la evidencia durable (CA8). Por eso el primer chequeo mira el
- * estado, no el texto.
+ * Por eso solo hay DOS formas de confirmar, ambas inequívocas:
+ *   1. autoidentificación: "soy X", "me llamo X", "mi nombre es X";
+ *   2. el nombre junto a su propio teléfono (los datos del pedido).
+ * Se quitó a propósito el "aparece suelto" que tenía la 1.ª versión: era justo
+ * la puerta por la que entraban las menciones.
  *
- * Conservador por diseño: ante la duda, devuelve `false` y el turno vuelve a
+ * Y la confirmación no depende de `HISTORY_LIMIT`: si ya se guardó con
+ * procedencia `"cliente"`, el estado mismo es la evidencia durable (CA8) — ese
+ * es el primer chequeo, y mira el estado, no el texto.
+ *
+ * Conservador por diseño: ante la duda devuelve `false` y el turno vuelve a
  * preguntar. Volver a pedir un nombre molesta; inventarlo corrompe el pedido.
  */
 function nombreTieneProcedenciaDeCliente(
@@ -545,27 +570,29 @@ function nombreTieneProcedenciaDeCliente(
 ): boolean {
   const v = normalizarNombre(valor);
   if (!v) return false;
-  // 0) Ya confirmado y guardado antes: el estado es la evidencia durable (CA8).
-  if (normalizarNombre(estadoActual.datos[requisitoId] ?? "") === v) return true;
+  // 0) Ya confirmado por el cliente y guardado con su procedencia: el estado es
+  //    la evidencia durable (CA8). El valor tiene que coincidir — un valor
+  //    distinto es una corrección y exige evidencia nueva.
+  if (
+    estadoActual.procedenciaDelNombre === "cliente" &&
+    normalizarNombre(estadoActual.datos[requisitoId] ?? "") === v
+  ) {
+    return true;
+  }
   const vEsc = escaparRegex(v);
   const textos = (contexto.dichoPorElCliente ?? []).map(normalizarNombre);
-  // 4) Negado ("no me llamo X", "no soy X"): jamás es evidencia positiva.
+  // Negado ("no me llamo X", "no soy X"): jamás es evidencia positiva.
   const negado = textos.some((t) =>
     new RegExp(`\\bno\\b[^.]{0,12}(soy|me llamo|mi nombre|es)\\b[^.]{0,12}\\b${vEsc}\\b`).test(t)
   );
   if (negado) return false;
-  // 1) Se identificó ("soy X", "me llamo X", "mi nombre es X", "habla X").
+  // 1) Autoidentificación: "soy X", "me llamo X", "mi nombre es X", "habla X".
   const seIdentifico = textos.some((t) =>
     new RegExp(`\\b(soy|me llamo|mi nombre es|le habla|habla)\\b[^.]{0,12}\\b${vEsc}\\b`).test(t)
   );
   if (seIdentifico) return true;
-  // 2) Dio el nombre junto a su propio teléfono, y no como destinatario.
-  const conTelefono = textos.some(
-    (t) => t.includes(v) && /\d{7,}/.test(t) && apareceLibre(t, v)
-  );
-  if (conTelefono) return true;
-  // 3) El nombre aparece suelto (no dentro de "para X"): respuesta directa.
-  return textos.some((t) => apareceLibre(t, v));
+  // 2) El nombre junto a su propio teléfono, y no como destinatario.
+  return textos.some((t) => t.includes(v) && /\d{7,}/.test(t) && apareceLibre(t, v));
 }
 
 export function aplicarOperacion(
@@ -746,9 +773,19 @@ function aplicarOperacionSinTotal(
             `Pregúntale ${requisito.etiqueta} en vez de darlo por sabido.`,
         };
       }
+      const conDato: EstadoDelPedido = {
+        ...estadoActual,
+        datos: { ...estadoActual.datos, [operacion.requisitoId]: operacion.valor },
+      };
+      // Al aceptar el nombre, se guarda su PROCEDENCIA junto al valor: así la
+      // confirmación sobrevive aunque el mensaje original salga de la ventana
+      // de historial (Bloqueador 3, procedencia durable).
       return {
         ok: true,
-        estado: { ...estadoActual, datos: { ...estadoActual.datos, [operacion.requisitoId]: operacion.valor } },
+        estado:
+          requisito.id === "nombre"
+            ? { ...conDato, procedenciaDelNombre: "cliente" }
+            : conDato,
       };
     }
 
@@ -770,11 +807,13 @@ function aplicarOperacionSinTotal(
 
     case "marcar_regalo": {
       // Compuerta de evidencia (Bloqueador 2): el hecho lo aporta el cliente,
-      // no el modelo. Marcar regalo exige que el cliente lo haya dicho;
-      // desmarcarlo, una corrección compatible. Sin evidencia no se toca —
-      // preguntar es mejor que inventar. No depende del catálogo ni de la ficha.
-      const dicho = contexto.dichoPorElCliente ?? [];
-      if (operacion.esRegalo && !hayEvidenciaDeRegalo(dicho)) {
+      // no el modelo. Marcar regalo exige que el cliente lo haya dicho EN ESTE
+      // turno; desmarcarlo, una corrección de este turno. Sin evidencia no se
+      // toca — preguntar es mejor que inventar. No depende del catálogo ni de
+      // la ficha. Mira `mensajeDelTurno`, no el historial: una frase de un
+      // pedido anterior no puede marcar el de ahora.
+      const delTurno = contexto.mensajeDelTurno;
+      if (operacion.esRegalo && !hayEvidenciaDeRegalo(delTurno)) {
         return {
           ok: false,
           motivo: "el cliente no ha dicho que sea un regalo",
@@ -783,7 +822,7 @@ function aplicarOperacionSinTotal(
             "Si crees que puede serlo, pregúntaselo en vez de darlo por hecho.",
         };
       }
-      if (!operacion.esRegalo && !hayEvidenciaDeNoRegalo(dicho)) {
+      if (!operacion.esRegalo && !hayEvidenciaDeNoRegalo(delTurno)) {
         return {
           ok: false,
           motivo: "no hay una corrección del cliente que quite el regalo",

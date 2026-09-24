@@ -165,6 +165,7 @@ for (const e of ESCENARIOS) {
     modalidadesOfrecidas: ["domicilio", "recogida"],
     nombreDePerfil: e.perfil,
     dichoPorElCliente: e.dicho,
+    mensajeDelTurno: e.mensaje,
   };
 
   let veredicto: string;

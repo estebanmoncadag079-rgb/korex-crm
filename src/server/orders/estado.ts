@@ -220,6 +220,25 @@ export type EstadoDelPedido = {
    * pedidos en curso.
    */
   paraRegalo?: boolean;
+  /**
+   * De dónde salió `datos.nombre`. Hoy solo hay un origen válido: `"cliente"`,
+   * cuando el propio cliente se identificó ("soy X", "me llamo X") o dio su
+   * nombre junto a su teléfono.
+   *
+   * 2.ª auditoría (Bloqueador 3). El nombre necesita **procedencia durable**, no
+   * solo valor: si guardáramos únicamente `datos.nombre = "Juan Pérez"`, en un
+   * turno posterior no habría forma de saber si eso lo confirmó el cliente o se
+   * coló del perfil de WhatsApp / de una mención. Con este campo, la
+   * confirmación sobrevive aunque el mensaje original salga de `HISTORY_LIMIT`.
+   *
+   * `contact.name` NUNCA la escribe: el perfil no es evidencia. La escribe
+   * exclusivamente la Compuerta 4 de `fijar_dato`, y solo tras verificar la
+   * evidencia (`nombreTieneProcedenciaDeCliente`).
+   *
+   * Opcional, y por eso `SCHEMA_VERSION` NO sube — mismo criterio que
+   * `paraRegalo`/`modalidadDeEntrega`: un lector viejo ignora la clave.
+   */
+  procedenciaDelNombre?: "cliente";
   /** Lo calcula el servidor. NUNCA el número que diga el modelo. */
   totalCents: number | null;
   /** Texto libre: el modelo devuelve etiquetas que ningún enum previó. */
@@ -797,6 +816,7 @@ export function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
      */
     modalidadDeEntrega: e.modalidadDeEntrega ?? null,
     paraRegalo: e.paraRegalo ?? null,
+    procedenciaDelNombre: e.procedenciaDelNombre ?? null,
     "entrega.tipo": e.entrega?.tipo ?? null,
     "entrega.zonaNombre": e.entrega?.zonaNombre ?? null,
     "entrega.feeCents": e.entrega?.feeCents ?? null,

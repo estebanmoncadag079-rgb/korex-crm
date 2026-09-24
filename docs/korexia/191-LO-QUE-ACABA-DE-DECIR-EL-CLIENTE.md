@@ -96,8 +96,9 @@ nombre, teléfono, dirección, pago, confirmación— de golpe.
 |---|---|---|---|
 | `modalidadDeEntrega` | el cliente, vía `fijar_modalidad` | cómo quiere recibirlo: lo ELIGIÓ | que haya tarifa, zona o dirección |
 | `entrega` | el backend, contra la tabla de zonas | tarifa y zona VERIFICADAS | nada, mientras sea `null` — y con `delivery_source='prompt'` es siempre `null` |
-| `paraRegalo` | el modelo, vía `marcar_regalo`, tras oírselo al cliente | dijo que es un regalo | no es requisito de cierre; no bloquea `notify_order` |
-| `datos.nombre` | el cliente, y solo él | el nombre que escribió | no se rellena desde el perfil |
+| `paraRegalo` | el modelo, vía `marcar_regalo`, con evidencia del turno | dijo que es un regalo | no es requisito de cierre; no bloquea `notify_order` |
+| `datos.nombre` | el cliente, identificándose | el nombre que confirmó | no se rellena desde el perfil ni desde una mención |
+| `procedenciaDelNombre` | la Compuerta 4, al aceptar el nombre | que fue el cliente quien lo confirmó | no la escribe el perfil; durable entre turnos |
 | `contact.name` | WhatsApp | de dónde escribe | **no** es un dato confirmado del pedido |
 
 Los dos primeros son la pareja que más se confunde. En el prompt salen con
@@ -169,29 +170,36 @@ producto no se pierde cuando gana la consulta: viaja en `productoMencionado` y
 el plan se lo recuerda al modelo — *"nombró el besties, no lo dejes caer"*.
 
 **Bloqueador 2 — el regalo era palabra del modelo.** `marcar_regalo` escribía
-`paraRegalo` sin comprobar nada. Ahora exige evidencia: *"es para un regalo"*,
-*"un detalle"*, *"un amigo secreto"* la aportan; *"lo necesito para el sábado"*
-o *"es para mí"* no. Y desmarcar exige una corrección compatible. Sin
-evidencia, se rechaza y el modelo pregunta.
+`paraRegalo` sin comprobar nada. Ahora exige evidencia **del turno actual**:
+*"es para un regalo"*, *"un detalle"*, *"un amigo secreto"* la aportan; *"lo
+necesito para el sábado"*, *"es para mí"* o *"es para mi consumo"* no. Y
+*"torta sorpresa"* tampoco: *"sorpresa"* quedó fuera a propósito — es el nombre
+de un producto, no *"es una sorpresa para alguien"*. Que la evidencia sea del
+turno, no del historial, es deliberado: un *"es para un regalo"* de un pedido
+anterior no puede marcar el de ahora. Desmarcar exige, igual, una corrección de
+este turno. Sin evidencia, se rechaza y el modelo pregunta.
 
-**Bloqueador 3 — el nombre confundía aparecer con proceder.** La defensa vieja
-solo frenaba el nombre del perfil; dejaba pasar *"es para Ana"* → `datos.nombre
-= "Ana"`, cuando Ana es la DESTINATARIA, no quien compra (la etiqueta lo dice:
-*"el nombre de quien lo pide"*). Ahora el backend mira la **procedencia**:
+**Bloqueador 3 — el nombre confundía aparecer con proceder.** La regla del
+auditor: *aparecer en el texto no es identificarse*. La defensa vieja dejaba
+pasar cualquier nombre que apareciera suelto — y *"El pedido anterior era de
+Juan"*, *"¿Juan está disponible?"* o *"me recomendaron a Juan"* son apariciones,
+no identidades. Ahora solo hay **dos** formas de confirmar, ambas inequívocas:
 
-| El cliente… | Verdicto |
+| El cliente… | Veredicto |
 |---|---|
-| se identificó (*"soy Ana"*, *"me llamo Ana"*) | se guarda |
-| dio el nombre con su propio teléfono | se guarda |
-| respondió con el nombre suelto (*"Ana Gómez"*) | se guarda |
+| se identificó (*"soy Ana"*, *"me llamo Ana"*, *"mi nombre es Ana"*) | se guarda |
+| dio el nombre junto a su propio teléfono | se guarda |
 | lo nombró como destinatario (*"es para Ana"*) | **no** — es un regalo, no el comprador |
+| lo mencionó (*"me recomendaron a Ana"*, *"¿Ana está?"*, *"el pedido de Ana era…"*) | **no** |
 | lo negó (*"no me llamo Ana"*) | **no** |
-| nunca lo escribió / es el del perfil | **no** |
+| es el del perfil de WhatsApp, sin que él lo dijera | **no** |
+| solo apareció suelto, sin identificarse | **no** |
 
-Y la confirmación **no depende de la ventana de historial**: si el nombre ya se
-guardó, el estado mismo es la evidencia durable. Reafirmar un dato ya
-confirmado no vuelve a exigir la frase original, aunque hayan pasado veinte
-mensajes.
+Y cuando se guarda, se guarda **valor + procedencia**: el estado lleva
+`procedenciaDelNombre: "cliente"`. Esa procedencia es durable — sobrevive
+aunque el mensaje original salga de la ventana de historial. Reafirmar un
+nombre ya confirmado no vuelve a exigir la frase; un nombre en `datos` sin esa
+procedencia (un estado heredado) no se toma como confirmado.
 
 **§7 — el plan viajaba disfrazado de cliente.** El bloque del plan se
 inyectaba como un `role:"user"` pelado, indistinguible de algo que hubiera

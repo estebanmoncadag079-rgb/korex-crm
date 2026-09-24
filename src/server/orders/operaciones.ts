@@ -73,8 +73,22 @@ export const Operacion = z.discriminatedUnion("tipo", [
   z.object({
     tipo: z.literal("agregar_item"),
     ofrecible: z.string().min(1),
-    opciones: z.array(OpcionPropuestaSchema),
-    cantidad: z.number(),
+    /*
+     * Alineado con el esquema del proveedor —que declara estos campos
+     * nullables— y con la semántica real del dominio: "quiero un cremoso"
+     * (sin topping elegido aún) es un `agregar_item` legítimo. Ausente/`null`
+     * → valor por defecto; una lista real se conserva.
+     *
+     * Antes eran obligatorios no nulos, y GPT-5 mini —siguiendo el contrato
+     * que le damos— mandaba `opciones: null` cuando no había opción elegida,
+     * que Zod rechazaba ("0.opciones Required"): el pedido no se persistía
+     * (24-sep-2026, conv cv_ymsfzdchi5aexoh3ybsr).
+     *
+     * 🛑 `ofrecible` NO lleva default: sin producto no hay nada que agregar, y
+     * eso se SIGUE rechazando. No se relaja Zod indiscriminadamente.
+     */
+    opciones: z.array(OpcionPropuestaSchema).nullish().transform((v) => v ?? []),
+    cantidad: z.number().nullish().transform((v) => v ?? 1),
   }),
   z.object({
     tipo: z.literal("cambiar_cantidad"),

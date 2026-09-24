@@ -259,3 +259,73 @@ describe("Fase 8J: el rechazo del carrito llega al modelo antes de responderle a
     expect(action?.action).not.toBe("handoff");
   });
 });
+
+/**
+ * FASE 4 — el reintento recupera el ESTADO, no solo el texto.
+ *
+ * Antes, cuando el backend rechazaba la propuesta, el reintento recuperaba el
+ * reply que el modelo redactaba, pero NO volvía a persistir las operaciones —
+ * así que un pedido corregido en el segundo intento quedaba sin guardarse
+ * (`conversation_state` vacío). Regla de consistencia: una respuesta textual no
+ * sustituye una mutación de estado.
+ */
+const OPERACION_VALIDA = {
+  action: "reply",
+  text: "¡Listo! Pavé Cremoso 8 oz de Maracuyá 🍮",
+  operaciones: [
+    { tipo: "agregar_item", ofrecible: "Pavé Cremoso 8 oz", cantidad: 1, opciones: [{ grupo: "Sabor", opcion: "Maracuyá" }] },
+  ],
+};
+
+describe("FASE 4: el reintento persiste la corrección estructurada", () => {
+  it("reintento con operación VÁLIDA → el pedido se persiste (no solo el texto)", async () => {
+    queueTurnoBase();
+    chatJson
+      .mockResolvedValueOnce({ ok: true, data: PROPUESTA_INVALIDA, raw: JSON.stringify(PROPUESTA_INVALIDA) })
+      .mockResolvedValueOnce({ ok: true, data: OPERACION_VALIDA, raw: JSON.stringify(OPERACION_VALIDA) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(guardarEstadoMock).toHaveBeenCalledTimes(1);
+    const estado = guardarEstadoMock.mock.calls[0]![0].estado as { items: { ofrecible: { nombre: string } }[] };
+    expect(estado.items).toHaveLength(1);
+    expect(estado.items[0]!.ofrecible.nombre).toMatch(/Pavé Cremoso 8 oz/);
+  });
+
+  it("reintento OTRA VEZ inválido → NO persiste, estado anterior conservado, sin tercer intento", async () => {
+    queueTurnoBase();
+    chatJson
+      .mockResolvedValueOnce({ ok: true, data: PROPUESTA_INVALIDA, raw: JSON.stringify(PROPUESTA_INVALIDA) })
+      .mockResolvedValueOnce({ ok: true, data: PROPUESTA_INVALIDA, raw: JSON.stringify(PROPUESTA_INVALIDA) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(chatJson).toHaveBeenCalledTimes(2); // un solo reintento, no tres
+    expect(guardarEstadoMock).not.toHaveBeenCalled();
+  });
+
+  it("reintento SOLO texto → no se marca el estado como cambiado", async () => {
+    queueTurnoBase();
+    chatJson
+      .mockResolvedValueOnce({ ok: true, data: PROPUESTA_INVALIDA, raw: JSON.stringify(PROPUESTA_INVALIDA) })
+      .mockResolvedValueOnce({ ok: true, data: { action: "reply", text: "De 8 oz manejamos Maracuyá y Fresas con crema. ¿Cuál prefieres?" }, raw: "{}" });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(guardarEstadoMock).not.toHaveBeenCalled();
+  });
+
+  it("no duplica: una propuesta VÁLIDA a la primera guarda UNA sola vez y sin reintento", async () => {
+    queueTurnoBase();
+    chatJson.mockResolvedValueOnce({ ok: true, data: OPERACION_VALIDA, raw: JSON.stringify(OPERACION_VALIDA) });
+
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn("cv_1");
+
+    expect(chatJson).toHaveBeenCalledTimes(1);
+    expect(guardarEstadoMock).toHaveBeenCalledTimes(1);
+  });
+});

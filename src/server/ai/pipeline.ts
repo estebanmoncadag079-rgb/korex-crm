@@ -1726,7 +1726,18 @@ export async function runAgentTurn(
       { role: "assistant", content: result.raw },
       { role: "user", content: correccionDePropuestaRechazada(motivos, preguntas) },
     ];
-    const reintento = await chatJson(AgentAction, messagesReintento);
+    /*
+     * El reintento pide TAMBIÉN operaciones (no solo el reply): así una
+     * corrección estructurada válida se persiste, en vez de recuperar solo el
+     * texto y dejar el estado vacío (FASE 4). Con el estado apagado, sigue
+     * siendo el reintento de texto de siempre.
+     */
+    const reintentoConEstado = estadoEstructurado
+      ? await chatJsonConEstado(messagesReintento, requisitos ?? [], vertical, modalidadesOfrecidas, traza)
+      : null;
+    const reintento = reintentoConEstado
+      ? reintentoConEstado.resultado
+      : await chatJson(AgentAction, messagesReintento);
     await registrarUsoIa(
       organizationId,
       reintento.usage,
@@ -1735,6 +1746,35 @@ export async function runAgentTurn(
     if (reintento.ok) {
       action = reintento.data;
       agregarGuardarrail(traza, "propuesta_rechazada", true);
+      /*
+       * REGLA DE CONSISTENCIA (FASE 4): un reply no sustituye una mutación de
+       * estado. Si la corrección trae operaciones, se persisten — el primer
+       * intento NO guardó nada (fue rechazado), así que no hay duplicación
+       * posible. Si el reintento vuelve a ser inválido, `guardarEstadoPropuesto`
+       * devuelve otro rechazo y el estado anterior se conserva (sin un tercer
+       * intento). Si el reintento es solo texto, no hay nada que persistir y el
+       * estado NUNCA se marca como cambiado.
+       */
+      if (estadoEstructurado && reintentoConEstado?.operaciones?.length) {
+        const reguardado = await guardarEstadoPropuesto({
+          organizationId,
+          conversationId: conversation.id,
+          operaciones: reintentoConEstado.operaciones,
+          requisitos,
+          vertical,
+          modalidadesOfrecidas,
+          nombreDePerfil: contactRows[0]?.name ?? null,
+          dichoPorElCliente: history.filter((m) => m.direction === "in").map((m) => m.text ?? ""),
+          mensajeDelTurno: lastInbound.text ?? null,
+          servicios: contrataCitas(vertical) ? services : undefined,
+          hours,
+          now: opts?.now,
+          entregaConocida: entregaPersistida,
+          estadoGuardado,
+          versionEsperada: versionDeEstadoLeido,
+        });
+        if (reguardado?.estadoFinal) estadoGuardado = reguardado.estadoFinal;
+      }
     } else {
       // El proveedor falló en el reintento: se sigue con la respuesta
       // original, exactamente como se hacía antes de esta fase.

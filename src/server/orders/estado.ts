@@ -262,6 +262,32 @@ export function estadoVacio(): EstadoDelPedido {
 }
 
 /**
+ * El estado con el que EMPIEZA un pedido nuevo cuando el anterior ya se cerró.
+ *
+ * Una conversación NO es un solo pedido — `ejecutarConfirmacionDePedido` ya lo
+ * reconoce al invalidar la entrega verificada tras cerrar. Pero el pedido en sí
+ * no se reiniciaba, así que un SEGUNDO pedido se apilaba sobre el primero
+ * (incidente real: MALIA, Ricardo Paz, 24-sep-2026 — 9 ítems / $120.000 en el
+ * estado mientras el bot mostraba 4 / $48.000; el guardarraíl financiero derivó
+ * a una persona). Un cliente recurrente —el mejor cliente— rompía el flujo.
+ *
+ * Reinicia todo lo del PEDIDO (ítems, opciones, modalidad, entrega, total,
+ * regalo, confirmado, reserva) y CONSERVA quién es el cliente: sus `datos`
+ * (nombre, teléfono, dirección) y la procedencia del nombre. Así no se le
+ * vuelve a interrogar por lo que ya dio.
+ *
+ * Es determinista y del backend: no depende de que el modelo "se acuerde" de
+ * empezar de cero — pasa igual con cualquier modelo.
+ */
+export function estadoParaNuevoPedido(anterior: EstadoDelPedido): EstadoDelPedido {
+  return {
+    ...estadoVacio(),
+    datos: { ...anterior.datos },
+    procedenciaDelNombre: anterior.procedenciaDelNombre,
+  };
+}
+
+/**
  * Lo que el modelo propone, antes de que el backend decida nada.
  *
  * `items` es **opcional aquí y obligatorio en `EstadoPropuesto`**, y la

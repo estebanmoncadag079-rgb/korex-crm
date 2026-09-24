@@ -565,3 +565,41 @@ describe("M — 'no es para regalo' con el modelo proponiendo regalo", () => {
     expect(ultimo?.paraRegalo ?? false).toBe(false);
   });
 });
+
+/**
+ * Un SEGUNDO pedido en la misma conversación no se apila sobre el primero.
+ *
+ * El caso de Ricardo Paz (MALIA): pidió, pagó, y volvió a pedir en la misma
+ * conversación. El segundo pedido se SUMABA al primero (9 ítems, $120.000) y el
+ * guardarraíl financiero derivaba a una persona. Ahora, una operación nueva
+ * sobre un pedido YA confirmado reinicia el pedido conservando al cliente.
+ */
+describe("segundo pedido: no se acumula sobre uno ya confirmado", () => {
+  it("un agregar_item sobre un pedido confirmado empieza limpio (conservando datos)", async () => {
+    estadoActual = estadoConPave({
+      confirmado: true,
+      paso: "confirmado",
+      datos: { nombre: "Ricardo Paz", telefono: "573192244836" },
+      procedenciaDelNombre: "cliente",
+    });
+    versionActual = 5;
+
+    await turno("quiero otro pavé de chocolate", {
+      respuesta: {
+        action: "reply",
+        text: "¡Listo! 🍰",
+        operaciones: [{ tipo: "agregar_item", ofrecible: "Pavé chocolate", opciones: [], cantidad: 1 }],
+      },
+    });
+
+    const ultimo = guardados[guardados.length - 1] as
+      | { items: unknown[]; confirmado: boolean; datos: Record<string, string | null> }
+      | undefined;
+    // Un solo ítem (el nuevo), NO dos: el pedido anterior no se arrastró.
+    expect(ultimo?.items).toHaveLength(1);
+    expect(ultimo?.confirmado).toBe(false);
+    // El cliente se conserva: no se le vuelve a pedir nombre y teléfono.
+    expect(ultimo?.datos?.nombre).toBe("Ricardo Paz");
+    expect(ultimo?.datos?.telefono).toBe("573192244836");
+  });
+});

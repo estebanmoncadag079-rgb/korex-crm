@@ -21,6 +21,15 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
+// Diagnóstico (DIAG=1): se reutilizan las MISMAS funciones que corre el
+// pipeline — no se reimplementa ninguna decisión.
+import { leerIntencion, planDelTurno, bloqueDelPlan } from "@/server/orders/intencion";
+import { requisitosPendientesDe } from "@/server/orders/extraer";
+import { puedeConfirmarPedido } from "@/server/orders/policy";
+import { leerFicha } from "@/server/ai/generador/leer-ficha";
+import { requisitosDe } from "@/server/ai/generador/ficha";
+import { catalogoDePedidos } from "@/server/catalog/queries";
+import { verticalDe, contrataCitas } from "@/server/vertical";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -61,6 +70,18 @@ type Escenario = {
     debeDecir?: { que: RegExp; porque: string }[];
     /** Ninguna respuesta puede casar con esto. */
     noDebeDecir?: { que: RegExp; porque: string }[];
+    /**
+     * Lo que tiene que haber quedado GUARDADO al terminar la conversación.
+     *
+     * 24-sep-2026. Hasta hoy esto solo miraba el texto que salió, y por eso no
+     * cazó nada de lo que se arregló en esta tanda: el bot decía «anotado» y
+     * el estado quedaba vacío, o guardaba como nombre del cliente el del
+     * perfil de WhatsApp. Las dos cosas dan un transcript impecable.
+     *
+     * `estado` llega tal cual está en `conversation_state`, o `null` si no
+     * quedó ninguno — que a veces es justo lo que se espera (el reinicio).
+     */
+    estadoFinal?: { que: (estado: Record<string, unknown> | null) => boolean; porque: string }[];
   };
 };
 
@@ -454,6 +475,178 @@ const ESCENARIOS: Escenario[] = [
       ],
     },
   },
+
+  /* ------------------------------------------------------------------ *
+   * A–J — intención, contexto y estado (24-sep-2026).
+   *
+   * Los diez escenarios del plan. Casi todos comprueban el ESTADO además
+   * del texto, y ese es el punto: los fallos que vinieron a cerrar daban
+   * transcripts impecables. El bot decía «¡anotado!» y no anotaba nada.
+   * ------------------------------------------------------------------ */
+  {
+    nombre: "A. pedido normal de principio a fin",
+    guion: [
+      "hola, quiero un cremoso de 7 oz",
+      "con milo",
+      "es para mí",
+      "Laura Gómez, 3151112233, paso por él al local",
+      "confirmo",
+    ],
+    espera: {
+      estadoFinal: [
+        {
+          que: (e) => Array.isArray(e?.items) && (e.items as unknown[]).length > 0,
+          porque: "un pedido que se cerró tiene que haber quedado guardado",
+        },
+        {
+          que: (e) => Boolean((e?.datos as Record<string, unknown> | undefined)?.nombre),
+          porque: "el nombre que ella misma escribió sí se guarda",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "B. pregunta por el domicilio en mitad del pedido",
+    /*
+     * El caso de MALIA, conv cv_zgm286k69bz1hmprf87a: preguntó el costo del
+     * domicilio y le contestaron «¿qué quieres y cuántos?». Dieciséis
+     * segundos después, sin carrera de turnos de por medio.
+     */
+    guion: ["hola, quiero un cremoso de 7 oz", "y cuánto cuesta el domicilio?"],
+    espera: {
+      debeDecir: [
+        { que: /domicilio|env[íi]o|yango/i, porque: "preguntó por el domicilio: eso se contesta" },
+      ],
+      noDebeDecir: [
+        {
+          que: /(forma de pago|c[oó]mo (vas a |)pagar|medio de pago)/i,
+          porque: "contestar una consulta no autoriza a saltar al último punto del orden",
+        },
+      ],
+      estadoFinal: [
+        {
+          que: (e) => Array.isArray(e?.items) && (e.items as unknown[]).length > 0,
+          porque: "contestar la consulta no puede borrar lo que ya había pedido",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "C. pregunta por el horario en mitad del pedido",
+    guion: ["hola, quiero un cremoso de 7 oz", "hasta qué hora atienden hoy?"],
+    espera: {
+      debeDecir: [{ que: /\d{1,2}[:.]?\d{0,2}\s*(am|pm|a\.m|p\.m|h)/i, porque: "preguntó una hora" }],
+      noDebeDecir: [
+        {
+          que: /(forma de pago|c[oó]mo (vas a |)pagar|medio de pago)/i,
+          porque: "una consulta de horario no adelanta el pago",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "D. pregunta el precio en mitad del pedido",
+    guion: ["hola, quiero un cremoso de 7 oz", "cuánto vale eso?"],
+    espera: {
+      debeDecir: [{ que: /\$|\d\.?\d{3}/, porque: "preguntó un precio: se le da la cifra" }],
+    },
+  },
+  {
+    nombre: "E. dice que es para regalo",
+    guion: ["hola, quiero un cremoso de 7 oz", "es para un regalo"],
+    espera: {
+      estadoFinal: [
+        {
+          que: (e) => e?.paraRegalo === true,
+          porque: "«es para un regalo» es un hecho del pedido, y tiene que sobrevivir al turno",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "F. el nombre del perfil de WhatsApp no es el del cliente",
+    /*
+     * El script crea el contacto con `name = "[Escenario] …"`, así que si el
+     * agente usa el perfil para rellenar el pedido, queda escrito y visible.
+     * Es el caso real de MALIA: `datos.nombre = "Luisa Duque"` sin que Luisa
+     * lo hubiera dicho nunca.
+     */
+    guion: ["hola, quiero un cremoso de 7 oz para un amigo secreto", "con milo"],
+    espera: {
+      estadoFinal: [
+        {
+          que: (e) =>
+            !String((e?.datos as Record<string, unknown> | undefined)?.nombre ?? "").includes(
+              "Escenario"
+            ),
+          porque: "el nombre del perfil de WhatsApp no es un dato que el cliente haya confirmado",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "G. da la modalidad de entrega desde el primer mensaje",
+    guion: [
+      "hola, quiero un cremoso de 7 oz a domicilio",
+      "con milo",
+      "Laura Gómez, 3151112233, Calle 5 #12-34",
+    ],
+    espera: {
+      noDebeDecir: [
+        {
+          que: /(c[oó]mo (lo|la) (recibes|quieres recibir)|domicilio o (lo )?recoges|lo recoges o)/i,
+          porque: "lo dijo en el primer mensaje: volver a preguntarlo es el fallo de Lis y La Churra",
+        },
+      ],
+      estadoFinal: [
+        {
+          que: (e) => Boolean(e?.modalidadDeEntrega),
+          porque: "la modalidad que eligió tiene que quedar registrada, no solo entendida",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "H. domicilio elegido pero sin tarifa verificada",
+    /*
+     * Con `delivery_source='prompt'` el backend NO tiene zonas que consultar,
+     * así que `entrega` debe seguir en null. Es la regla del plan aplicada al
+     * revés: que la modalidad se vea NO autoriza a inventar la tarifa.
+     */
+    guion: ["hola, quiero un cremoso de 7 oz a domicilio", "con milo"],
+    espera: {
+      estadoFinal: [
+        {
+          que: (e) => e?.entrega === null || e?.entrega === undefined,
+          porque: "sin zona verificada, `entrega` se queda en null: no se rellena por inferencia",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "I. reinicio con 0",
+    guion: ["hola, quiero un cremoso de 7 oz", "es para un regalo", "0"],
+    espera: {
+      estadoFinal: [
+        {
+          que: (e) => e === null,
+          porque: "el reinicio borra el pedido entero — el regalo y la modalidad incluidos",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "J. pide un tamaño que no existe",
+    guion: ["hola, me das 2 cremosos de 9 oz"],
+    espera: {
+      noDebeDecir: [
+        {
+          que: /(perfecto|listo|anotado|de una)[^.!?]{0,40}9\s*oz/i,
+          porque: "no existe el de 9 oz: confirmarlo es venderle algo que no se le puede entregar",
+        },
+      ],
+    },
+  },
 ];
 
 const organizationId = process.argv[2]!;
@@ -467,9 +660,80 @@ const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(sql, { schema });
 const { runAgentTurn } = await import("@/server/ai/pipeline");
 
+/*
+ * Modo diagnóstico (DIAG=1): además del veredicto de reglas, imprime por cada
+ * turno la cadena que el auditor quiere observar sobre el sistema REAL —
+ * intención, plan, estado antes/después, requisitos pendientes y posibilidad
+ * de confirmar—, calculada con las MISMAS funciones que usa el pipeline. No
+ * reimplementa nada: `runAgentTurn` es quien de verdad corre el modelo y aplica
+ * las operaciones; esto solo observa las entradas reales y el estado real que
+ * quedó. La operación EXACTA que propuso el modelo y el bloque literal viven
+ * dentro de `runAgentTurn`; aquí se ve su efecto neto (estado antes → después).
+ */
+const DIAG = process.env.DIAG === "1";
+type Diag = { catalogo: Awaited<ReturnType<typeof catalogoDePedidos>>; requisitos: ReturnType<typeof requisitosDe>; exigir: boolean; minimoDomicilioCents?: number };
+let diag: Diag | null = null;
+if (DIAG) {
+  const prof = (
+    await db.select().from(schema.agentProfile).where(eq(schema.agentProfile.organizationId, organizationId))
+  )[0];
+  const ficha = prof?.ficha ? leerFicha(prof.ficha) : null;
+  const vertical = verticalDe(prof?.appointmentsEnabled ?? false);
+  diag = {
+    catalogo: await catalogoDePedidos(organizationId),
+    requisitos: ficha ? requisitosDe(ficha) : [],
+    exigir: prof?.stateSource === "backend" && !contrataCitas(vertical),
+    minimoDomicilioCents: (ficha as { entrega?: { minimoDomicilioCents?: number } } | null)?.entrega
+      ?.minimoDomicilioCents,
+  };
+}
+
+async function leerEstado(conversationId: string): Promise<Record<string, unknown> | null> {
+  const filas = await db
+    .select({ estado: schema.conversationState.estado })
+    .from(schema.conversationState)
+    .where(eq(schema.conversationState.conversationId, conversationId));
+  return (filas[0]?.estado as Record<string, unknown> | undefined) ?? null;
+}
+
+async function imprimirDiagnostico(
+  conversationId: string,
+  mensaje: string,
+  estadoDespues: Record<string, unknown> | null,
+  historia: { direction: string; text: string | null; createdAt: Date }[],
+  respuesta: string
+) {
+  if (!diag) return;
+  const lectura = leerIntencion(mensaje, diag.catalogo);
+  const hayPedido = Array.isArray(estadoDespues?.items) && (estadoDespues!.items as unknown[]).length > 0;
+  const plan = planDelTurno(lectura, hayPedido);
+  const bloque = bloqueDelPlan(lectura, plan, diag.exigir);
+  const pend = requisitosPendientesDe(estadoDespues as never, diag.requisitos, diag.exigir) ?? [];
+  const cierre = await puedeConfirmarPedido({
+    conversationId,
+    productosDelPedido: diag.catalogo,
+    history: historia,
+    estadoGuardado: estadoDespues as never,
+    requisitos: diag.requisitos,
+    ...(diag.minimoDomicilioCents ? { minimoDomicilioCents: diag.minimoDomicilioCents } : {}),
+  });
+  const l = (k: string, v: unknown) => console.log(`      ${k.padEnd(22)} ${v}`);
+  console.log(`   ── diagnóstico del turno ──`);
+  l("mensaje", mensaje);
+  l("intención", `${lectura.intencion} (${lectura.porque})${lectura.productoMencionado ? ` · producto: ${lectura.productoMencionado}` : ""}`);
+  l("plan", bloque ? `responderPrimero=${plan.responderPrimero} continuar=${plan.continuarEnElMismoMensaje}` : "(ninguno)");
+  l("requisitos pendientes", pend.map((r) => r.id).join(", ") || "(ninguno)");
+  l("¿puede confirmar?", cierre.ok ? "SÍ" : `NO — ${cierre.motivo}`);
+  l("procedenciaDelNombre", (estadoDespues?.procedenciaDelNombre as string) ?? "(sin procedencia)");
+  l("paraRegalo", String(estadoDespues?.paraRegalo ?? false));
+  l("respuesta", respuesta.slice(0, 120).replace(/\n/g, " | "));
+}
+
 type Falla = { escenario: string; regla: string; evidencia: string };
 const fallas: Falla[] = [];
 const transcripciones: Record<string, { quien: string; texto: string }[]> = {};
+/** El estado que quedó guardado en cada escenario, para el reporte. */
+const estados: Record<string, Record<string, unknown> | null> = {};
 
 const aProbar = ESCENARIOS.filter(
   (e) => !filtro || e.nombre.toLowerCase().includes(filtro)
@@ -561,6 +825,21 @@ for (const esc of aProbar) {
       });
     }
     for (const m of nuevas) if (m.text) dialogo.push({ quien: "AGENTE", texto: m.text });
+
+    if (DIAG) {
+      const historia = dialogo.map((d) => ({
+        direction: d.quien === "CLIENTE" ? "in" : "out",
+        text: d.texto,
+        createdAt: new Date(),
+      }));
+      await imprimirDiagnostico(
+        conversation.id,
+        texto,
+        await leerEstado(conversation.id),
+        historia,
+        nuevas.map((m) => m.text ?? "").join(" | ")
+      );
+    }
   }
 
   transcripciones[esc.nombre] = dialogo;
@@ -587,6 +866,24 @@ for (const esc of aProbar) {
     }
   }
 
+  if (esc.espera?.estadoFinal?.length) {
+    const filas = await db
+      .select({ estado: schema.conversationState.estado })
+      .from(schema.conversationState)
+      .where(eq(schema.conversationState.conversationId, conversation.id));
+    const estado = (filas[0]?.estado as Record<string, unknown> | undefined) ?? null;
+    estados[esc.nombre] = estado;
+    for (const r of esc.espera.estadoFinal) {
+      if (!r.que(estado)) {
+        fallas.push({
+          escenario: esc.nombre,
+          regla: `el estado guardado no cumple: ${r.porque}`,
+          evidencia: JSON.stringify(estado)?.slice(0, 220) ?? "(sin estado)",
+        });
+      }
+    }
+  }
+
   const marca = fallas.some((f) => f.escenario === esc.nombre) ? "❌" : "✅";
   console.log(`${marca} ${esc.nombre}`);
 }
@@ -598,7 +895,7 @@ for (const f of fallas) {
 
 writeFileSync(
   process.env.SALIDA ?? "escenarios-reporte.json",
-  JSON.stringify({ fallas, transcripciones }, null, 2),
+  JSON.stringify({ fallas, transcripciones, estados }, null, 2),
   "utf8"
 );
 await sql.end();

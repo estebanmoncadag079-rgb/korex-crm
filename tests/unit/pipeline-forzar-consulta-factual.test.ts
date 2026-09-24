@@ -199,7 +199,12 @@ describe("runAgentTurn: verificación factual forzada (docs/korexia/143)", () =>
     await runAgentTurn(conv.id);
 
     expect(chatJson).toHaveBeenCalledTimes(1);
-    const infoSistema = mensajesDeLaLlamada(0).find((m) => m.content.includes("[SISTEMA]"));
+    // Desde la PR #13, una pregunta de precio también inyecta el PLAN DEL TURNO
+    // (otro `[SISTEMA]`). Lo que este caso comprueba es el HECHO del producto,
+    // que convive con el plan; se busca ese, no "cualquier [SISTEMA]".
+    const infoSistema = mensajesDeLaLlamada(0).find(
+      (m) => m.content.includes("[SISTEMA]") && !m.content.includes("PLAN DEL TURNO")
+    );
     expect(infoSistema?.content).toMatch(/\$12\.500|1250000|Encontré "Porción Chocolate"/);
   });
 

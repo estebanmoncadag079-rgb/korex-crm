@@ -59,7 +59,7 @@ describe("la entrega en el bloque PEDIDO EN CURSO", () => {
 
   it("domicilio VERIFICADO: dice modalidad, zona y tarifa", () => {
     const texto = comoTexto(pedido(VERIFICADO));
-    expect(texto).toContain("ENTREGA: domicilio a Villa del Sur");
+    expect(texto).toContain("ENTREGA VERIFICADA: domicilio a Villa del Sur");
     expect(texto).toContain("$8.000");
     expect(texto).toMatch(/la verific|úsala tal cual/i);
   });
@@ -122,5 +122,80 @@ describe("la entrega en el bloque PEDIDO EN CURSO", () => {
     expect(texto.indexOf("ENTREGA:")).toBeLessThan(texto.indexOf("TOTAL"));
     // El total sigue siendo el de productos: este cambio no toca quién calcula.
     expect(texto).toContain("TOTAL (lo calculó el sistema, úsalo tal cual): $20.000");
+  });
+});
+
+/**
+ * La MODALIDAD que eligió el cliente, separada de la ENTREGA verificada.
+ *
+ * Incidente real (Lis, 23-sep-2026, conv cv_oyhwvt9l5vn4hm020mtb):
+ *
+ *     23:18:28  BOT      ¿Cómo lo recibes?
+ *     23:18:45  CLIENTE  Domicilio
+ *     23:19:09  BOT      ¿Cómo lo recibes?        ← 24 segundos después
+ *
+ * No fue una carrera de turnos: el turno tuvo tiempo de sobra. El backend
+ * había guardado `modalidadDeEntrega: "domicilio"` correctamente. Pero el
+ * bloque de arriba lee `estado.entrega` —la zona y la tarifa VERIFICADAS— y
+ * con `delivery_source='prompt'` eso es SIEMPRE `null`. Reconstruido, el
+ * modelo leyó esto, sin una palabra sobre la entrega:
+ *
+ *     PEDIDO EN CURSO — no vuelvas a preguntar nada de esto:
+ *     1 × Cremoso 12 oz (topping: MARACUYÁ, LIMÓN) · …
+ *     No falta nada: ve al resumen.
+ *
+ * Afecta a 3 de los 4 negocios vivos: Lis, La Churra y Lashes están en
+ * `delivery_source='prompt'`; solo MALIA tiene tabla de zonas.
+ *
+ * 🛑 **Lo que NO se hace**: rellenar `estado.entrega` cuando solo hay
+ * modalidad. Son dos hechos distintos con dos autoridades distintas — uno lo
+ * dijo el cliente, el otro lo verificó el sistema— y fundirlos haría que el
+ * agente anunciara como verificada una tarifa que nadie comprobó.
+ */
+const conModalidad = (
+  modalidadDeEntrega: string | null,
+  entrega?: EstadoDelPedido["entrega"]
+): EstadoDelPedido => ({ ...pedido(entrega), modalidadDeEntrega });
+
+describe("la MODALIDAD elegida, separada de la ENTREGA verificada", () => {
+  it("CASO A — domicilio elegido, sin verificar: lo dice, y no inventa tarifa", () => {
+    const texto = comoTexto(conModalidad("domicilio"));
+    expect(texto).toContain("MODALIDAD DE ENTREGA: domicilio");
+    expect(texto).toMatch(/no se la vuelvas a preguntar/i);
+    // Ni una cifra de tarifa: la única en pesos sigue siendo el total.
+    expect(texto.match(/\$[\d.]+/g)).toEqual(["$20.000"]);
+    expect(texto).not.toContain("ENTREGA VERIFICADA");
+  });
+
+  it("CASO B — domicilio elegido Y verificado: aparecen las dos cosas", () => {
+    const texto = comoTexto(conModalidad("domicilio", VERIFICADO));
+    expect(texto).toContain("MODALIDAD DE ENTREGA: domicilio");
+    expect(texto).toContain("ENTREGA VERIFICADA: domicilio a Villa del Sur");
+    expect(texto).toContain("$8.000");
+  });
+
+  it("CASO C — recogida elegida: lo dice, sin zona ni tarifa", () => {
+    const texto = comoTexto(conModalidad("recogida"));
+    expect(texto).toContain("MODALIDAD DE ENTREGA: recogida");
+    expect(texto).not.toMatch(/tarifa|Villa del Sur/i);
+  });
+
+  it("CASO D — sin modalidad: no se inventa ninguna", () => {
+    expect(comoTexto(conModalidad(null))).not.toContain("MODALIDAD");
+    expect(comoTexto(pedido(undefined))).not.toContain("MODALIDAD");
+  });
+
+  it("REGRESIÓN: sin modalidad ni entrega, el bloque sale EXACTAMENTE como antes", () => {
+    // La garantía para citas y para cualquier negocio que aún no haya elegido.
+    const texto = comoTexto(pedido(undefined));
+    expect(texto).not.toMatch(/MODALIDAD|ENTREGA/);
+  });
+
+  it("EL DETECTOR DETECTA: la modalidad sola basta para que aparezca la línea", () => {
+    // Sin esto, las pruebas de arriba estarían verdes aunque la línea
+    // dependiera todavía de `estado.entrega` — que es el bug original.
+    const sinEntrega = comoTexto(conModalidad("domicilio", null));
+    expect(sinEntrega).toContain("MODALIDAD DE ENTREGA: domicilio");
+    expect(sinEntrega).not.toContain("ENTREGA VERIFICADA");
   });
 });

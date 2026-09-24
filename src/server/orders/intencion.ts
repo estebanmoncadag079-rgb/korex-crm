@@ -50,6 +50,20 @@ export type Lectura = {
   esperaRespuesta: boolean;
   /** Qué dispara la clasificación, para poder discutirla sin adivinar. */
   porque: string;
+  /**
+   * El producto que el mensaje nombró, si nombró alguno — **con independencia
+   * de la intención**.
+   *
+   * Nació del Bloqueador 1 de la auditoría (24-sep-2026): *"sería el Besties,
+   * pero ¿cuánto cuesta el domicilio?"* es una `consulta_entrega` (la pregunta
+   * manda), pero el Besties no puede desaparecer de la interpretación del
+   * turno. Antes, en cuanto la consulta ganaba, el producto se perdía y el
+   * modelo contestaba el domicilio y se olvidaba del pedido.
+   *
+   * No es un clasificador aparte: es el mismo `leerIntencion` contando lo que
+   * ya sabía. `null` cuando el mensaje no nombra ninguna presentación.
+   */
+  productoMencionado: string | null;
 };
 
 function llave(s: string): string {
@@ -64,8 +78,58 @@ function llave(s: string): string {
 
 const SALUDOS = ["hola", "buenas", "buenos dias", "buenas tardes", "buenas noches", "hey", "alo"];
 const HORARIO = ["horario", "hora abren", "abren", "abierto", "cierran", "atienden", "hasta que hora"];
-const ENTREGA = ["domicilio", "domi", "entrega", "entregan", "llevan", "demora", "tarda", "cuanto se demora", "envio"];
 const PRECIO = ["precio", "precios", "cuanto vale", "cuanto cuesta", "cuanto sale", "valor"];
+
+/**
+ * Los nombres de la entrega. Aparecen tanto en una PREGUNTA ("¿tienen
+ * domicilio?") como en una SELECCIÓN ("quiero el besties a domicilio"), y por
+ * eso su sola presencia no basta — la distingue `preguntaPorEntrega`.
+ */
+const ENTREGA_TERMINOS = ["domicilio", "domi", "envio", "envios", "entrega", "entregan", "entregas", "llevan", "reparto"];
+/**
+ * Palabras que convierten un término de entrega en una PREGUNTA sobre ella.
+ * "tiene" cubre también "tienen"; "costo" cubre "costos" — por `includes`. Con
+ * ellas, "y que costo tiene el domicilio" (el caso de MALIA, muchas veces sin
+ * signo) se lee como consulta aunque el cliente no ponga "?".
+ */
+const ENTREGA_INDAGA = ["cuanto", "cuesta", "costo", "vale", "sale", "precio", "valor", "cobran", "tiene", "hacen", "hay"];
+
+function preguntaPorHorario(t: string): boolean {
+  return HORARIO.some((p) => t.includes(llave(p)));
+}
+
+function preguntaPorPrecio(t: string): boolean {
+  return PRECIO.some((p) => t.includes(llave(p)));
+}
+
+/**
+ * ¿El mensaje PREGUNTA por la entrega, o solo la ELIGE?
+ *
+ * Bloqueador 1 de la auditoría: eran lo mismo para el clasificador viejo —
+ * cualquier "domicilio" contaba como consulta— y no lo son. "¿cuánto cuesta el
+ * domicilio?" pide respuesta; "quiero el besties a domicilio" es escoger la
+ * modalidad, y ese turno sigue siendo un pedido.
+ *
+ * El criterio, en orden:
+ *  1. "demora"/"tarda" es SIEMPRE una pregunta de tiempo, con término o sin él.
+ *  2. Sin ningún término de entrega, no hay consulta de entrega que valer.
+ *  3. Con una palabra que indaga (cuánto, cuesta, tienen…), es pregunta.
+ *  4. "a domicilio" / "por domicilio" es la forma de ELEGIR: no es pregunta,
+ *     ni siquiera si trae un signo de interrogación por costumbre.
+ *  5. Si no, un término de entrega dentro de una pregunta ("¿me entregan
+ *     mañana?") sí cuenta.
+ *
+ * @param t El mensaje ya normalizado por `llave` (sin signos ni tildes).
+ * @param hayPregunta Si el mensaje ORIGINAL traía "?" o "¿" — `llave` los borra.
+ */
+function preguntaPorEntrega(t: string, hayPregunta: boolean): boolean {
+  if (/\b(demora|tarda)\b/.test(t)) return true;
+  const term = ENTREGA_TERMINOS.some((w) => t.includes(w));
+  if (!term) return false;
+  if (ENTREGA_INDAGA.some((w) => t.includes(w))) return true;
+  if (/\b(a|por) domicilio\b/.test(t)) return false;
+  return hayPregunta;
+}
 
 /**
  * @param mensaje El último mensaje del cliente, tal cual lo escribió.
@@ -87,48 +151,59 @@ export function leerIntencion(
   palabrasDeReinicio: string[] = ["0"]
 ): Lectura {
   const t = llave(mensaje);
+  // `llave` borra los signos, y "?"/"¿" son justo lo que distingue una pregunta
+  // de una selección ("¿me entregan mañana?" vs "a domicilio"). Se miran sobre
+  // el mensaje original, antes de normalizar.
+  const hayPregunta = mensaje.includes("?") || mensaje.includes("¿");
+
+  // El producto se detecta SIEMPRE, gane o no la intención: es lo que hace que
+  // una consulta no borre el pedido que venía en el mismo mensaje (Bloqueador 1).
+  const producto = catalogo.find((p) => t.includes(llave(p.nombre)));
+  const con = (l: Omit<Lectura, "productoMencionado">): Lectura => ({
+    ...l,
+    productoMencionado: producto?.nombre ?? null,
+  });
 
   if (palabrasDeReinicio.some((p) => t === llave(p))) {
-    return { intencion: "reinicio", esperaRespuesta: false, porque: `escribió "${mensaje.trim()}"` };
+    return {
+      intencion: "reinicio",
+      esperaRespuesta: false,
+      porque: `escribió "${mensaje.trim()}"`,
+      productoMencionado: null,
+    };
+  }
+
+  // La consulta explícita gana al producto: «sería el besties, ¿cuánto cuesta
+  // el domi?» es una pregunta de domicilio, no un pedido a secas. El besties no
+  // se pierde — viaja en `productoMencionado`. Y una consulta pesa más que un
+  // saludo de cortesía delante: «hola, hasta qué hora atienden» es una consulta.
+  if (preguntaPorHorario(t)) {
+    return con({ intencion: "consulta_horario", esperaRespuesta: true, porque: "preguntó por horario" });
+  }
+  if (preguntaPorEntrega(t, hayPregunta)) {
+    return con({ intencion: "consulta_entrega", esperaRespuesta: true, porque: "preguntó por entrega" });
+  }
+  if (preguntaPorPrecio(t)) {
+    return con({ intencion: "consulta_precio", esperaRespuesta: true, porque: "preguntó por precio" });
   }
 
   // El producto manda sobre el saludo: «hola, quiero una churrita» es un pedido.
-  const producto = catalogo.find((p) => t.includes(llave(p.nombre)));
   if (producto) {
-    return {
-      intencion: "pedido",
-      esperaRespuesta: false,
-      porque: `nombró ${producto.nombre}`,
-    };
-  }
-
-  // Una consulta pesa más que un saludo de cortesía delante: «hola, hasta qué
-  // hora atienden» es una consulta, no un saludo.
-  const consulta = ([
-    ["consulta_horario", HORARIO],
-    ["consulta_entrega", ENTREGA],
-    ["consulta_precio", PRECIO],
-  ] as const).find(([, palabras]) => palabras.some((p) => t.includes(llave(p))));
-  if (consulta) {
-    return {
-      intencion: consulta[0],
-      esperaRespuesta: true,
-      porque: `preguntó por ${consulta[0].replace("consulta_", "")}`,
-    };
+    return con({ intencion: "pedido", esperaRespuesta: false, porque: `nombró ${producto.nombre}` });
   }
 
   const opcion = catalogo
     .flatMap((p) => p.grupos.flatMap((g) => g.opciones))
     .find((o) => t.includes(llave(o.nombre)) || llave(o.nombre).includes(t));
   if (opcion) {
-    return { intencion: "opcion", esperaRespuesta: false, porque: `dijo ${opcion.nombre}` };
+    return { intencion: "opcion", esperaRespuesta: false, porque: `dijo ${opcion.nombre}`, productoMencionado: null };
   }
 
   if (SALUDOS.some((s) => t === llave(s) || t.startsWith(`${llave(s)} `))) {
-    return { intencion: "saludo", esperaRespuesta: false, porque: "es un saludo suelto" };
+    return { intencion: "saludo", esperaRespuesta: false, porque: "es un saludo suelto", productoMencionado: null };
   }
 
-  return { intencion: "otra", esperaRespuesta: false, porque: "no encaja en nada conocido" };
+  return { intencion: "otra", esperaRespuesta: false, porque: "no encaja en nada conocido", productoMencionado: null };
 }
 
 /**
@@ -196,4 +271,83 @@ export function planDelTurno(lectura: Lectura, hayPedidoEnCurso: boolean): PlanD
     };
   }
   return { reiniciar: false, responderPrimero: null, continuarEnElMismoMensaje: hayPedidoEnCurso };
+}
+
+/**
+ * De qué preguntó el cliente, en palabras que el modelo pueda usar.
+ *
+ * Solo las tres consultas explícitas llegan aquí: son las únicas con
+ * `esperaRespuesta: true`.
+ */
+const TEMA: Partial<Record<Intencion, string>> = {
+  consulta_horario: "el horario del negocio",
+  consulta_entrega: "la entrega o el domicilio",
+  consulta_precio: "los precios",
+};
+
+/**
+ * El plan del turno, escrito para que lo lea el modelo.
+ *
+ * 24-sep-2026 — este módulo llevaba desde el 15-ago con sus pruebas en verde
+ * y sin que lo llamara nadie. Mientras tanto seguía pasando lo que vino a
+ * resolver (MALIA, conv cv_zgm286k69bz1hmprf87a):
+ *
+ *     17:15:42  CLIENTE  Y que costo tiene el domicilio?
+ *     17:15:58  BOT      Perfecto 😊 ¿Qué quieres y cuántos?
+ *
+ * Dieciséis segundos — no fue una carrera de turnos. Fue que la capa que
+ * decide qué preguntar solo miraba qué le falta al pedido.
+ *
+ * Esta función NO redacta la respuesta ni elige producto: traduce el plan a
+ * una instrucción. Devuelve `null` cuando no hay nada que priorizar —la
+ * inmensa mayoría de los turnos— para no meter ruido en un prompt que el
+ * modelo lee entero cada vez.
+ *
+ * 🛑 El REINICIO no se representa aquí. Ya es determinista y corre ANTES de
+ * llamar al modelo (`matchesReinicio`/`borrarEstado` en `pipeline.ts`): pedirle al
+ * modelo que colabore en algo que el servidor ya resolvió solo abre la puerta
+ * a que un turno confuso arrastre un pedido ya cancelado.
+ */
+export function bloqueDelPlan(
+  lectura: Lectura,
+  plan: PlanDelTurno,
+  /**
+   * Si el servidor SABE si hay un pedido a medias, o solo lo supone.
+   *
+   * Con `state_source='prompt'` no hay fila de `conversation_state` que leer,
+   * así que `plan.continuarEnElMismoMensaje` llega en `false` por ignorancia,
+   * no por evidencia. Decirle al modelo «no hay ningún pedido en curso»
+   * entonces es una afirmación que el backend no puede sostener — y en mitad
+   * de un pedido a medias le haría soltar el hilo. Lo destapó
+   * Camilabrandcol, que no tiene nada de esto encendido.
+   *
+   * Es la segunda regla del plan aplicada a sí misma: sin evidencia
+   * suficiente, se representa «no se sabe»; no se rellena por inferencia.
+   */
+  sabemosSiHayPedido = true
+): string | null {
+  if (!plan.responderPrimero) return null;
+  const tema = TEMA[plan.responderPrimero];
+  if (!tema) return null;
+  const seguir = plan.continuarEnElMismoMensaje
+    ? "Y en el MISMO mensaje sigue con el punto del pedido que toque — sin saltarte el orden ni adelantar otros puntos."
+    : sabemosSiHayPedido
+      ? "No hay ningún pedido en curso: contesta y ya. No empieces a pedirle datos que no te ha pedido."
+      : "Si ya venía un pedido a medias, sigue con el punto que toque en el MISMO mensaje — sin saltarte el orden ni adelantar otros puntos. Si no venía ninguno, contesta y ya.";
+  // Cuando la pregunta llega pegada a un producto ("sería el besties, ¿cuánto
+  // cuesta el domi?"), se le recuerda al modelo para que contestar la consulta
+  // no le haga soltar el pedido (Bloqueador 1, §3.3).
+  const producto = lectura.productoMencionado
+    ? `\nEl cliente además nombró ${lectura.productoMencionado}: tómalo como parte del pedido, no lo dejes caer por contestar la pregunta.`
+    : "";
+  return (
+    // `[SISTEMA]`: el mismo canal por el que viaja TODO hecho verificado del
+    // pipeline (ver `pipeline.ts`, los `[SISTEMA]` de producto y de pago). Es
+    // una instrucción del backend, no un mensaje del cliente — la marca evita
+    // que el modelo la lea como si la hubiera escrito la persona (§7).
+    "[SISTEMA] PLAN DEL TURNO (lo decidió el servidor con lo que acaba de escribir el cliente):\n" +
+    `🛑 Antes de pedirle nada más, CONTÉSTALE lo que preguntó: ${tema} (${lectura.porque}).\n` +
+    seguir +
+    producto
+  );
 }

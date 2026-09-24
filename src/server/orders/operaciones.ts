@@ -125,6 +125,19 @@ export const Operacion = z.discriminatedUnion("tipo", [
     modalidad: z.string().min(1),
   }),
   /**
+   * Que el cliente diga que el pedido es un regalo.
+   *
+   * Es un HECHO que aporta, no una intención del turno ni un requisito de
+   * cierre. No se valida contra nada del negocio a propósito: a diferencia de
+   * `fijar_modalidad`, donde una modalidad que el negocio no ofrece corrompería
+   * la lógica de entrega, aquí lo único que hay es contexto para conversar.
+   * Un negocio que no envuelva regalos simplemente no lo usará.
+   */
+  z.object({
+    tipo: z.literal("marcar_regalo"),
+    esRegalo: z.boolean(),
+  }),
+  /**
    * NO hay `cancelar` en esta unión — corrección de diseño del 16-sep-2026.
    * "Empezar de cero"/cancelar el pedido entero ya existe hoy, y es
    * DETERMINÍSTICO, nunca una decisión del modelo:
@@ -163,6 +176,40 @@ export type ContextoOperaciones = {
   modalidadesOfrecidas: readonly string[];
   /** Mismo parámetro opcional que ya recibe `normalizarPedido`. */
   unidadesPorProducto?: Record<string, number>;
+  /**
+   * El nombre del perfil de WhatsApp. **Contexto, nunca dato confirmado.**
+   *
+   * Ausente = la comprobación de abajo no se activa, y todo se comporta
+   * exactamente como antes de que existiera.
+   */
+  nombreDePerfil?: string | null;
+  /**
+   * Lo que el CLIENTE ha escrito en esta conversación, del más viejo al más
+   * reciente. Sirve para la procedencia del nombre (una autoidentificación
+   * vale aunque el modelo la fije un turno después).
+   */
+  dichoPorElCliente?: readonly string[];
+  /**
+   * Lo que el cliente dijo EN ESTE turno — el último mensaje entrante.
+   *
+   * 2.ª auditoría (Bloqueador 2): la evidencia de un hecho del pedido tiene que
+   * ser del turno actual, no una frase de un pedido anterior que quedó en el
+   * historial. Un "es para un regalo" de hace tres pedidos no puede marcar
+   * regalo el de ahora. Por eso `marcar_regalo` mira aquí, no en todo lo dicho.
+   */
+  mensajeDelTurno?: string | null;
+  /**
+   * Si el requisito "nombre" venía PENDIENTE al empezar este turno — es decir,
+   * si el bot lo estaba pidiendo.
+   *
+   * Última auditoría (Bloqueador 3): "¿A nombre de quién queda el pedido?" →
+   * "Ana Gómez" debe confirmar, aunque no diga "soy". La señal de que el bot
+   * lo preguntó la calcula el backend de forma determinista (el nombre estaba
+   * en la lista de pendientes), no adivinando qué escribió el bot. Con ella —y
+   * solo con ella— un mensaje que sea una respuesta LIMPIA de nombre confirma.
+   * Sin ella, un nombre suelto sigue siendo mera aparición.
+   */
+  nombrePendienteAntesDelTurno?: boolean;
 };
 
 /**
@@ -399,6 +446,195 @@ function resolverModificacionDeOpciones(
  * unión `Operacion`, arriba: cancelar el pedido entero ya es determinístico
  * y anterior al modelo (`matchesReinicio`/`borrarEstado`), y no se toca.
  */
+/**
+ * ¿Este valor es el nombre del perfil de WhatsApp, colado sin que el cliente
+ * lo dijera nunca?
+ *
+ * 24-sep-2026, MALIA (conv cv_zgm286k69bz1hmprf87a). La clienta pidió un pavé
+ * "para un endulce de amigos secretos" y jamás dio su nombre; el pedido acabó
+ * con `datos.nombre = "Luisa Duque"`, que es su usuario de WhatsApp. No fue una
+ * alucinación: el prompt le ordenaba usarlo (`fichaDelContacto`).
+ *
+ * La regla es deliberadamente estrecha — un falso positivo aquí obliga a
+ * volver a pedir un nombre que el cliente ya dio:
+ *  - solo mira cuando el valor propuesto ES el del perfil;
+ *  - y lo acepta en cuanto el cliente lo haya escrito, aunque sea de pasada;
+ *  - tolera tildes, mayúsculas y espacios de más.
+ *
+ * Un nombre distinto del perfil no se examina siquiera: el caso normal (el
+ * destinatario de un regalo, por ejemplo) pasa sin tocarse.
+ */
+function esElPerfilSinQueLoDijera(valor: string, contexto: ContextoOperaciones): boolean {
+  const perfil = normalizarNombre(contexto.nombreDePerfil ?? "");
+  if (!perfil) return false;
+  const propuesto = normalizarNombre(valor);
+  if (!propuesto || propuesto !== perfil) return false;
+  return !(contexto.dichoPorElCliente ?? []).some((t) =>
+    normalizarNombre(t).includes(propuesto)
+  );
+}
+
+/**
+ * ¿El cliente dijo que el pedido es un regalo? — Bloqueador 2 de la auditoría.
+ *
+ * `marcar_regalo` es lo único del contrato que el modelo aportaba sin que el
+ * backend lo comprobara contra nada. Pero "el backend es la autoridad" también
+ * vale para un hecho blando: si el modelo puede inventar el nombre, puede
+ * inventar el regalo. Aquí está la evidencia que lo respalda.
+ *
+ * Deliberadamente corta y conservadora: "regalo"/"detalle"/"amigo secreto" son
+ * las formas en que la gente lo dice. "lo necesito para el sábado" no lo es, y
+ * "es para mí" tampoco.
+ */
+const EVIDENCIA_REGALO = [
+  /\bregal(o|os|ar|ito|itos)\b/,
+  /\bobsequi/,
+  /amig[oa] secret[oa]/,
+  /\bpara (un |el |mi |)detalle\b/,
+  /\bde detalle\b/,
+];
+// "sorpresa" quedó FUERA a propósito (2.ª auditoría): "torta sorpresa" es el
+// nombre de un producto, no "es una sorpresa para alguien". Marcar regalo por
+// esa palabra suelta es justo el falso positivo que hay que evitar.
+//
+// Toma UN mensaje —el del turno—, no el historial: un "es para un regalo" de un
+// pedido anterior no puede marcar el de ahora.
+function hayEvidenciaDeRegalo(mensaje: string | null | undefined): boolean {
+  if (!mensaje) return false;
+  const n = normalizarNombre(mensaje);
+  return EVIDENCIA_REGALO.some((re) => re.test(n));
+}
+
+/**
+ * ¿El cliente CORRIGIÓ y dijo que NO es un regalo, EN ESTE turno?
+ *
+ * Simétrico al de arriba: desmarcar el regalo también es escribir en el estado,
+ * y también exige evidencia del turno. Una negación ("no es para regalo") o
+ * decir que es para sí mismo ("finalmente es para mí") cuentan; un
+ * `marcar_regalo(false)` que el modelo suelte sin que el cliente se retracte,
+ * no.
+ */
+const EVIDENCIA_NO_REGALO = [
+  /\bno\b[^.]{0,20}\bregal/,
+  // "para mí" (para uno mismo) SOLO cuando no le sigue otro sustantivo: "es
+  // para mí" sí, pero "para mi mamá"/"para mi novia" es un regalo, no self.
+  /\bpara mi\b(?!\s+\w)/,
+  /\bpara mi mism/,
+  /\bpara mi consumo\b/,
+];
+function hayEvidenciaDeNoRegalo(mensaje: string | null | undefined): boolean {
+  if (!mensaje) return false;
+  const n = normalizarNombre(mensaje);
+  return EVIDENCIA_NO_REGALO.some((re) => re.test(n));
+}
+
+function escaparRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * ¿El nombre aparece SUELTO en el texto, y no como destinatario ("para X")?
+ *
+ * Solo se usa junto a la señal fuerte del teléfono propio: distingue "Ana
+ * Gómez, 300…" (los datos del pedido) de "es para Ana, su cel es 300…" (Ana es
+ * la destinataria). Se quitan los marcos de destinatario y se mira si el nombre
+ * sigue por su cuenta.
+ */
+function apareceLibre(textoNormalizado: string, valorNormalizado: string): boolean {
+  const v = escaparRegex(valorNormalizado);
+  const sinDestinatario = textoNormalizado.replace(
+    new RegExp(`\\bpar[ae]\\b[^.]{0,15}?\\b${v}\\b`, "g"),
+    " "
+  );
+  return new RegExp(`\\b${v}\\b`).test(sinDestinatario);
+}
+
+/**
+ * ¿El nombre propuesto para el requisito "nombre" viene DEL CLIENTE? —
+ * Bloqueador 3, 2.ª auditoría.
+ *
+ * `datos.nombre` es "el nombre de quien lo pide". La regla del auditor:
+ * **aparecer en el texto no es identificarse.** Estas cuatro cosas se parecen
+ * en la superficie y NINGUNA confirma el nombre del cliente:
+ *
+ *   contact.name (el perfil de WhatsApp)     → no lo confirmó él
+ *   el destinatario ("es para Ana")          → no es quien compra
+ *   una mención ("me recomendaron a Ana",
+ *     "¿Ana está?", "el pedido de Ana era…")  → no es él
+ *   una inferencia del modelo                 → no es evidencia
+ *
+ * Por eso solo hay DOS formas de confirmar, ambas inequívocas:
+ *   1. autoidentificación: "soy X", "me llamo X", "mi nombre es X";
+ *   2. el nombre junto a su propio teléfono (los datos del pedido).
+ * Se quitó a propósito el "aparece suelto" que tenía la 1.ª versión: era justo
+ * la puerta por la que entraban las menciones.
+ *
+ * Y la confirmación no depende de `HISTORY_LIMIT`: si ya se guardó con
+ * procedencia `"cliente"`, el estado mismo es la evidencia durable (CA8) — ese
+ * es el primer chequeo, y mira el estado, no el texto.
+ *
+ * Conservador por diseño: ante la duda devuelve `false` y el turno vuelve a
+ * preguntar. Volver a pedir un nombre molesta; inventarlo corrompe el pedido.
+ */
+function nombreTieneProcedenciaDeCliente(
+  valor: string,
+  estadoActual: EstadoDelPedido,
+  requisitoId: string,
+  contexto: ContextoOperaciones
+): boolean {
+  const v = normalizarNombre(valor);
+  if (!v) return false;
+  // 0) Ya confirmado por el cliente y guardado con su procedencia: el estado es
+  //    la evidencia durable (CA8). El valor tiene que coincidir — un valor
+  //    distinto es una corrección y exige evidencia nueva.
+  if (
+    estadoActual.procedenciaDelNombre === "cliente" &&
+    normalizarNombre(estadoActual.datos[requisitoId] ?? "") === v
+  ) {
+    return true;
+  }
+  const vEsc = escaparRegex(v);
+  const textos = (contexto.dichoPorElCliente ?? []).map(normalizarNombre);
+  // Negado ("no me llamo X", "no soy X"): jamás es evidencia positiva.
+  const negado = textos.some((t) =>
+    new RegExp(`\\bno\\b[^.]{0,12}(soy|me llamo|mi nombre|es)\\b[^.]{0,12}\\b${vEsc}\\b`).test(t)
+  );
+  if (negado) return false;
+  // 1) Autoidentificación: "soy X", "me llamo X", "mi nombre es X", "habla X".
+  const seIdentifico = textos.some((t) =>
+    new RegExp(`\\b(soy|me llamo|mi nombre es|le habla|habla)\\b[^.]{0,12}\\b${vEsc}\\b`).test(t)
+  );
+  if (seIdentifico) return true;
+  // 2) El nombre junto a su propio teléfono, y no como destinatario.
+  if (textos.some((t) => t.includes(v) && /\d{7,}/.test(t) && apareceLibre(t, v))) {
+    return true;
+  }
+  // 3) Respuesta DIRECTA a la pregunta del bot (Bloqueador 3): si el nombre
+  //    venía pendiente —el bot lo estaba pidiendo— y el mensaje de este turno es
+  //    una respuesta limpia de nombre, confirma. No es "aparecer basta": exige
+  //    el contexto de la pregunta previa Y que el mensaje no sea destinatario,
+  //    mención ni negación.
+  if (contexto.nombrePendienteAntesDelTurno) {
+    return esRespuestaLimpiaDeNombre(normalizarNombre(contexto.mensajeDelTurno ?? ""), v);
+  }
+  return false;
+}
+
+/**
+ * ¿El mensaje del turno es una respuesta LIMPIA de nombre (y no una mención)?
+ *
+ * "Ana Gómez" lo es; "es para Ana Gómez", "el pedido anterior era de Ana
+ * Gómez", "¿Ana Gómez está?", "me recomendaron a Ana Gómez" y "no me llamo Ana
+ * Gómez" no. El nombre tiene que aparecer libre (no tras "para"), sin negación
+ * y sin marcadores de mención o pregunta.
+ */
+const MENCION_O_PREGUNTA = /[?¿]|recomend|disponible|anterior|\bera de\b|\bpedido\b|\besta\b|\bestas\b/;
+function esRespuestaLimpiaDeNombre(mensajeNormalizado: string, valorNormalizado: string): boolean {
+  if (!mensajeNormalizado || !apareceLibre(mensajeNormalizado, valorNormalizado)) return false;
+  if (/\bno\b/.test(mensajeNormalizado)) return false;
+  return !MENCION_O_PREGUNTA.test(mensajeNormalizado);
+}
+
 export function aplicarOperacion(
   estadoActual: EstadoDelPedido,
   operacion: Operacion,
@@ -550,9 +786,46 @@ function aplicarOperacionSinTotal(
           correccion: `[SISTEMA] Todavía falta ${requisito.etiqueta}.`,
         };
       }
+      // Compuerta 4: procedencia del dato personal.
+      //
+      // Para el NOMBRE de quien pide (Bloqueador 3), no basta con que el valor
+      // aparezca en el texto: hay que saber que viene del cliente y no es un
+      // destinatario ("es para Ana"), el perfil de WhatsApp, o una inferencia.
+      // Para el resto de requisitos, la regla estrecha de siempre: el perfil de
+      // WhatsApp no se cuela como valor sin que el cliente lo dijera.
+      if (requisito.id === "nombre") {
+        if (!nombreTieneProcedenciaDeCliente(operacion.valor, estadoActual, requisito.id, contexto)) {
+          return {
+            ok: false,
+            motivo: `"${operacion.valor}" no consta como el nombre que dio quien hace el pedido`,
+            correccion:
+              "[SISTEMA] Ese nombre no consta como el de quien hace el pedido " +
+              "(el del perfil de WhatsApp, el de otra persona a la que va dirigido, o uno que nadie escribió no cuentan). " +
+              `Pregúntale ${requisito.etiqueta} en vez de darlo por sabido.`,
+          };
+        }
+      } else if (esElPerfilSinQueLoDijera(operacion.valor, contexto)) {
+        return {
+          ok: false,
+          motivo: `"${operacion.valor}" es el nombre del perfil de WhatsApp y el cliente nunca lo dijo`,
+          correccion:
+            "[SISTEMA] Ese nombre es el del perfil de WhatsApp, no uno que el cliente te haya dado. " +
+            `Pregúntale ${requisito.etiqueta} en vez de darlo por sabido.`,
+        };
+      }
+      const conDato: EstadoDelPedido = {
+        ...estadoActual,
+        datos: { ...estadoActual.datos, [operacion.requisitoId]: operacion.valor },
+      };
+      // Al aceptar el nombre, se guarda su PROCEDENCIA junto al valor: así la
+      // confirmación sobrevive aunque el mensaje original salga de la ventana
+      // de historial (Bloqueador 3, procedencia durable).
       return {
         ok: true,
-        estado: { ...estadoActual, datos: { ...estadoActual.datos, [operacion.requisitoId]: operacion.valor } },
+        estado:
+          requisito.id === "nombre"
+            ? { ...conDato, procedenciaDelNombre: "cliente" }
+            : conDato,
       };
     }
 
@@ -570,6 +843,40 @@ function aplicarOperacionSinTotal(
         };
       }
       return { ok: true, estado: { ...estadoActual, modalidadDeEntrega: ofrecida } };
+    }
+
+    case "marcar_regalo": {
+      // Compuerta de evidencia (Bloqueador 2): el hecho lo aporta el cliente,
+      // no el modelo. Marcar regalo exige que el cliente lo haya dicho EN ESTE
+      // turno; desmarcarlo, una corrección de este turno. Sin evidencia no se
+      // toca — preguntar es mejor que inventar. No depende del catálogo ni de
+      // la ficha. Mira `mensajeDelTurno`, no el historial: una frase de un
+      // pedido anterior no puede marcar el de ahora.
+      // La evidencia tiene que ser COMPATIBLE con la operación (última
+      // auditoría): una misma frase no puede valer para true y para false. Para
+      // marcar(true) hace falta evidencia positiva Y que NO sea una negación —
+      // "no es para regalo" contiene "regalo" pero es lo contrario de un regalo.
+      const delTurno = contexto.mensajeDelTurno;
+      const positiva = hayEvidenciaDeRegalo(delTurno);
+      const negativa = hayEvidenciaDeNoRegalo(delTurno);
+      if (operacion.esRegalo && (!positiva || negativa)) {
+        return {
+          ok: false,
+          motivo: "el cliente no ha dicho que sea un regalo",
+          correccion:
+            "[SISTEMA] No marques el pedido como regalo si el cliente no lo ha dicho. " +
+            "Si crees que puede serlo, pregúntaselo en vez de darlo por hecho.",
+        };
+      }
+      if (!operacion.esRegalo && !negativa) {
+        return {
+          ok: false,
+          motivo: "no hay una corrección del cliente que quite el regalo",
+          correccion:
+            "[SISTEMA] No le quites la marca de regalo por tu cuenta: cámbiala solo si el cliente se corrige.",
+        };
+      }
+      return { ok: true, estado: { ...estadoActual, paraRegalo: operacion.esRegalo } };
     }
 
     case "confirmar":

@@ -198,6 +198,47 @@ export type EstadoDelPedido = {
    * igual, sin subir `SCHEMA_VERSION`.
    */
   entrega?: EntregaVerificada | null;
+  /**
+   * Que el cliente haya dicho que el pedido es un regalo.
+   *
+   * 24-sep-2026. `CADENCIA` le pide al agente conservar lo que el cliente
+   * adelanta, pero el estado no tenía dónde: un "es para un detalle" solo
+   * sobrevivía en el historial del chat, y el historial se trunca. Caso real
+   * (MALIA, conv cv_zgm286k69bz1hmprf87a): la clienta dijo "es para un
+   * endulce de amigos secretos" y el estado guardado no tenía ni rastro.
+   *
+   * 🛑 **El backend no lo infiere nunca.** Solo se escribe cuando el modelo
+   * propone `marcar_regalo` tras oírselo al cliente. "Lo necesito para el
+   * sábado" no es un regalo, y aquí no hay heurística que lo convierta.
+   *
+   * 🛑 **No es un requisito de cierre**: nunca entra en `TE FALTA` ni bloquea
+   * `notify_order`. Es contexto para conversar.
+   *
+   * Opcional, y por eso `SCHEMA_VERSION` NO sube — mismo criterio que
+   * `modalidadDeEntrega` y `entrega`: un lector viejo ignora una clave que no
+   * conoce, y subirla haría que un contenedor sin desplegar DESCARTE los
+   * pedidos en curso.
+   */
+  paraRegalo?: boolean;
+  /**
+   * De dónde salió `datos.nombre`. Hoy solo hay un origen válido: `"cliente"`,
+   * cuando el propio cliente se identificó ("soy X", "me llamo X") o dio su
+   * nombre junto a su teléfono.
+   *
+   * 2.ª auditoría (Bloqueador 3). El nombre necesita **procedencia durable**, no
+   * solo valor: si guardáramos únicamente `datos.nombre = "Juan Pérez"`, en un
+   * turno posterior no habría forma de saber si eso lo confirmó el cliente o se
+   * coló del perfil de WhatsApp / de una mención. Con este campo, la
+   * confirmación sobrevive aunque el mensaje original salga de `HISTORY_LIMIT`.
+   *
+   * `contact.name` NUNCA la escribe: el perfil no es evidencia. La escribe
+   * exclusivamente la Compuerta 4 de `fijar_dato`, y solo tras verificar la
+   * evidencia (`nombreTieneProcedenciaDeCliente`).
+   *
+   * Opcional, y por eso `SCHEMA_VERSION` NO sube — mismo criterio que
+   * `paraRegalo`/`modalidadDeEntrega`: un lector viejo ignora la clave.
+   */
+  procedenciaDelNombre?: "cliente";
   /** Lo calcula el servidor. NUNCA el número que diga el modelo. */
   totalCents: number | null;
   /** Texto libre: el modelo devuelve etiquetas que ningún enum previó. */
@@ -735,7 +776,15 @@ export async function borrarEstado(
 }
 
 /** Aplana el estado a `items.0.cantidad`, `datos.telefono`… */
-function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
+/**
+ * El estado, en claves planas, para que el registro de cambios diga CUÁL
+ * cambió en vez de "el pedido es distinto".
+ *
+ * Exportada para poder probarla sola, igual que otras funciones puras del
+ * proyecto. ⚠️ El log no es fuente de verdad: la fuente es el estado
+ * persistido, y esto solo lo hace legible.
+ */
+export function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
   if (!e) return {};
   return {
     // Una clave por ítem y campo, con su posición: así el registro de cambios
@@ -758,6 +807,16 @@ function aplanar(e: EstadoDelPedido | null): Record<string, unknown> {
     "reserva.duracionMin": e.reserva?.duracionMin ?? null,
     "reserva.recursoId": e.reserva?.recursoId ?? null,
     "reserva.recursoNombre": e.reserva?.recursoNombre ?? null,
+    /*
+     * Lo que ELIGIÓ el cliente, separado de lo que VERIFICÓ el sistema.
+     *
+     * Faltaba, y el 23-sep-2026 eso impidió diagnosticar desde el registro
+     * por qué el agente de Lis repreguntaba la modalidad: hubo que abrir el
+     * JSON del estado a mano. Un cambio `null → domicilio` era invisible.
+     */
+    modalidadDeEntrega: e.modalidadDeEntrega ?? null,
+    paraRegalo: e.paraRegalo ?? null,
+    procedenciaDelNombre: e.procedenciaDelNombre ?? null,
     "entrega.tipo": e.entrega?.tipo ?? null,
     "entrega.zonaNombre": e.entrega?.zonaNombre ?? null,
     "entrega.feeCents": e.entrega?.feeCents ?? null,

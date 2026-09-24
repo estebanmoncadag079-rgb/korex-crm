@@ -116,6 +116,7 @@ import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
   estadoVacio,
+  estadoParaNuevoPedido,
   guardarEntregaVerificada,
   guardarEstado,
   leerEntregaVerificada,
@@ -5282,7 +5283,18 @@ async function guardarEstadoPropuesto(entrada: {
   }
 
   try {
-    const estadoBase = entrada.estadoGuardado ?? estadoVacio();
+    /*
+     * Un pedido YA confirmado está cerrado: cualquier operación nueva
+     * (un `agregar_item`, etc.) es el comienzo de OTRO pedido, no un cambio al
+     * anterior. Se reinicia el pedido —conservando quién es el cliente— antes
+     * de aplicar las operaciones, para que el segundo pedido no se apile sobre
+     * el primero (incidente Ricardo Paz, MALIA). No afecta a "¿cuánto demora?"
+     * y demás mensajes sin operaciones: eso ni llega aquí (se salió arriba con
+     * `sin_propuesta`), y el guardarraíl de "pedido ya confirmado" sigue igual.
+     */
+    const estadoBase = entrada.estadoGuardado?.confirmado
+      ? estadoParaNuevoPedido(entrada.estadoGuardado)
+      : entrada.estadoGuardado ?? estadoVacio();
     /*
      * Mismo saneo que ya recibe `accion` más abajo (`sinNulos`): el modo
      * estricto del proveedor obliga a `esquemaDeOperaciones` a declarar

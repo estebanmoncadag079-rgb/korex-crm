@@ -194,6 +194,29 @@ describe("paraRegalo: el backend exige evidencia, no la palabra del modelo", () 
     expect(r.ok).toBe(false);
   });
 
+  /*
+   * Última auditoría: una MISMA frase no puede ser evidencia positiva y
+   * negativa a la vez. "no es para regalo" contiene "regalo", pero es una
+   * negación — para marcar(true) hace falta evidencia positiva inequívoca.
+   */
+  it('"no es para regalo" con marcar(true) → RECHAZADO (la negación no es evidencia positiva)', () => {
+    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("no es para regalo"));
+    expect(r.ok).toBe(false);
+  });
+
+  it('"no es para regalo" con marcar(false) → aceptado (es una corrección válida)', () => {
+    const r = aplicarOperacion(conPedido({ paraRegalo: true }), marcar(false), conTurno("no es para regalo"));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.estado.paraRegalo).toBe(false);
+  });
+
+  it("EL DETECTOR DETECTA (compatibilidad): misma frase, true rechaza / false acepta", () => {
+    const verdad = aplicarOperacion(conPedido(), marcar(true), conTurno("no es para regalo"));
+    const falso = aplicarOperacion(conPedido({ paraRegalo: true }), marcar(false), conTurno("no es para regalo"));
+    expect(verdad.ok).toBe(false);
+    expect(falso.ok).toBe(true);
+  });
+
   it("EL DETECTOR DETECTA (scope): misma frase de regalo, en el turno acepta / en el historial no", () => {
     const enElTurno = aplicarOperacion(conPedido(), marcar(true), conTurno("es para un regalo"));
     const soloEnElHistorial = aplicarOperacion(

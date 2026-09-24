@@ -52,6 +52,7 @@ import type { ProductoDelCatalogo } from "@/server/catalog/queries";
 import { guardarEntregaVerificada, type EstadoDelPedido } from "@/server/orders/estado";
 import type { Requisito } from "@/server/ai/generador/ficha";
 import { enPesos, faltaParaElMinimoDeDomicilio } from "@/server/orders/minimo-de-domicilio";
+import { requisitoSatisfecho } from "@/server/orders/extraer";
 
 /**
  * El veredicto de la Policy sobre una acción irreversible propuesta por el
@@ -188,8 +189,11 @@ export async function puedeConfirmarPedido(input: {
       };
     }
 
+    // El estado en el backend exige procedencia para el nombre (Bloqueador 2):
+    // un `datos.nombre` heredado sin `procedenciaDelNombre === "cliente"` no
+    // basta para cerrar. Aquí SIEMPRE es backend (`estado = input.estadoGuardado`).
     const faltantes = (input.requisitos ?? []).filter(
-      (r) => r.obligatorio && !estado.datos[r.id]?.trim()
+      (r) => r.obligatorio && !requisitoSatisfecho(estado, r, true)
     );
     if (faltantes.length > 0) {
       return {

@@ -58,6 +58,8 @@ type Escenario = {
   hayPedidoEnCurso: boolean;
   /** Con `state_source='backend'` el backend sabe si hay pedido; si no, no. */
   loSabemos: boolean;
+  /** ¿El nombre venía pendiente al empezar el turno? (contexto de la pregunta previa). */
+  nombrePendiente?: boolean;
 };
 
 const ESCENARIOS: Escenario[] = [
@@ -143,6 +145,38 @@ const ESCENARIOS: Escenario[] = [
     hayPedidoEnCurso: false,
     loSabemos: true,
   },
+  {
+    clave: "K — el bot pidió el nombre y el cliente responde suelto",
+    mensaje: "Ana Gómez",
+    estadoPrevio: conCremoso(),
+    perfil: "Luisa Duque",
+    dicho: ["Ana Gómez"],
+    propuesta: { tipo: "fijar_dato", requisitoId: "nombre", valor: "Ana Gómez" },
+    hayPedidoEnCurso: true,
+    loSabemos: true,
+    nombrePendiente: true,
+  },
+  {
+    clave: "L — nombre heredado sin procedencia (no está confirmado)",
+    mensaje: "hola",
+    // Estado heredado: tiene el valor, no la procedencia. El nombre sigue en TE FALTA.
+    estadoPrevio: conCremoso({ datos: { nombre: "Juan Pérez" } }),
+    perfil: "Luisa Duque",
+    dicho: ["hola"],
+    propuesta: null,
+    hayPedidoEnCurso: true,
+    loSabemos: true,
+  },
+  {
+    clave: "M — 'no es para regalo' con el modelo proponiendo regalo",
+    mensaje: "no es para regalo",
+    estadoPrevio: conCremoso(),
+    perfil: "Luisa Duque",
+    dicho: ["no es para regalo"],
+    propuesta: { tipo: "marcar_regalo", esRegalo: true },
+    hayPedidoEnCurso: true,
+    loSabemos: true,
+  },
 ];
 
 function bloque(l: string, cuerpo: string): string {
@@ -156,7 +190,8 @@ for (const e of ESCENARIOS) {
   const lectura = leerIntencion(e.mensaje, CARTA);
   const plan = planDelTurno(lectura, e.hayPedidoEnCurso);
   const planTexto = bloqueDelPlan(lectura, plan, e.loSabemos);
-  const promptEstado = comoTexto(e.estadoPrevio, CARTA, REQS);
+  // El nombre exige procedencia del cliente para darse por satisfecho (backend pedidos).
+  const promptEstado = comoTexto(e.estadoPrevio, CARTA, REQS, "pedidos", undefined, true);
 
   const contexto: ContextoOperaciones = {
     organizationId: "org_traza",
@@ -166,6 +201,7 @@ for (const e of ESCENARIOS) {
     nombreDePerfil: e.perfil,
     dichoPorElCliente: e.dicho,
     mensajeDelTurno: e.mensaje,
+    nombrePendienteAntesDelTurno: e.nombrePendiente ?? false,
   };
 
   let veredicto: string;

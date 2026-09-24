@@ -507,3 +507,61 @@ describe("J — la corrección 2(a) sigue en pie a través del pipeline", () => 
     expect(buscarProductos(catalogo, "2 pavés de 7 oz")).toMatchObject({ status: "not_found" });
   });
 });
+
+/**
+ * K/L/M — la última auditoría, de punta a punta sobre `runAgentTurn`. Ya no es
+ * "la compuerta rechaza": es que el FLUJO COMPLETO respeta la procedencia.
+ */
+describe("K — el bot pedía el nombre y el cliente responde suelto", () => {
+  it("se guarda con procedencia del cliente (contexto de la pregunta previa)", async () => {
+    estadoActual = estadoConPave(); // datos vacíos → el nombre venía pendiente
+    versionActual = 1;
+
+    await turno("Ana Gómez", {
+      contacto: "Luisa Duque",
+      respuesta: {
+        action: "reply",
+        text: "¡Listo, Ana! 😊",
+        operaciones: [{ tipo: "fijar_dato", requisitoId: "nombre", valor: "Ana Gómez" }],
+      },
+    });
+
+    const ultimo = guardados[guardados.length - 1] as
+      | { datos: Record<string, string | null>; procedenciaDelNombre?: string }
+      | undefined;
+    expect(ultimo?.datos?.nombre).toBe("Ana Gómez");
+    expect(ultimo?.procedenciaDelNombre).toBe("cliente");
+  });
+});
+
+describe("L — nombre heredado sin procedencia", () => {
+  it("el prompt lo sigue pidiendo: un valor sin procedencia no está confirmado", async () => {
+    // Estado heredado: tiene el valor, no la procedencia.
+    estadoActual = estadoConPave({ datos: { nombre: "Juan Pérez" } });
+    versionActual = 1;
+
+    const { prompt } = await turno("hola");
+
+    // La ficha de este arnés etiqueta el requisito como "tu nombre".
+    const falta = prompt.split("TE FALTA")[1] ?? "";
+    expect(falta).toContain("tu nombre");
+  });
+});
+
+describe("M — 'no es para regalo' con el modelo proponiendo regalo", () => {
+  it("la negación no marca regalo: la operación se rechaza", async () => {
+    estadoActual = estadoConPave();
+    versionActual = 1;
+
+    await turno("no es para regalo", {
+      respuesta: {
+        action: "reply",
+        text: "De acuerdo 🙂",
+        operaciones: [{ tipo: "marcar_regalo", esRegalo: true }],
+      },
+    });
+
+    const ultimo = guardados[guardados.length - 1] as { paraRegalo?: boolean } | undefined;
+    expect(ultimo?.paraRegalo ?? false).toBe(false);
+  });
+});

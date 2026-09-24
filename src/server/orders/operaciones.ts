@@ -198,6 +198,18 @@ export type ContextoOperaciones = {
    * regalo el de ahora. Por eso `marcar_regalo` mira aquí, no en todo lo dicho.
    */
   mensajeDelTurno?: string | null;
+  /**
+   * Si el requisito "nombre" venía PENDIENTE al empezar este turno — es decir,
+   * si el bot lo estaba pidiendo.
+   *
+   * Última auditoría (Bloqueador 3): "¿A nombre de quién queda el pedido?" →
+   * "Ana Gómez" debe confirmar, aunque no diga "soy". La señal de que el bot
+   * lo preguntó la calcula el backend de forma determinista (el nombre estaba
+   * en la lista de pendientes), no adivinando qué escribió el bot. Con ella —y
+   * solo con ella— un mensaje que sea una respuesta LIMPIA de nombre confirma.
+   * Sin ella, un nombre suelto sigue siendo mera aparición.
+   */
+  nombrePendienteAntesDelTurno?: boolean;
 };
 
 /**
@@ -504,7 +516,9 @@ function hayEvidenciaDeRegalo(mensaje: string | null | undefined): boolean {
  */
 const EVIDENCIA_NO_REGALO = [
   /\bno\b[^.]{0,20}\bregal/,
-  /\bpara m[ií]\b/,
+  // "para mí" (para uno mismo) SOLO cuando no le sigue otro sustantivo: "es
+  // para mí" sí, pero "para mi mamá"/"para mi novia" es un regalo, no self.
+  /\bpara mi\b(?!\s+\w)/,
   /\bpara mi mism/,
   /\bpara mi consumo\b/,
 ];
@@ -592,7 +606,33 @@ function nombreTieneProcedenciaDeCliente(
   );
   if (seIdentifico) return true;
   // 2) El nombre junto a su propio teléfono, y no como destinatario.
-  return textos.some((t) => t.includes(v) && /\d{7,}/.test(t) && apareceLibre(t, v));
+  if (textos.some((t) => t.includes(v) && /\d{7,}/.test(t) && apareceLibre(t, v))) {
+    return true;
+  }
+  // 3) Respuesta DIRECTA a la pregunta del bot (Bloqueador 3): si el nombre
+  //    venía pendiente —el bot lo estaba pidiendo— y el mensaje de este turno es
+  //    una respuesta limpia de nombre, confirma. No es "aparecer basta": exige
+  //    el contexto de la pregunta previa Y que el mensaje no sea destinatario,
+  //    mención ni negación.
+  if (contexto.nombrePendienteAntesDelTurno) {
+    return esRespuestaLimpiaDeNombre(normalizarNombre(contexto.mensajeDelTurno ?? ""), v);
+  }
+  return false;
+}
+
+/**
+ * ¿El mensaje del turno es una respuesta LIMPIA de nombre (y no una mención)?
+ *
+ * "Ana Gómez" lo es; "es para Ana Gómez", "el pedido anterior era de Ana
+ * Gómez", "¿Ana Gómez está?", "me recomendaron a Ana Gómez" y "no me llamo Ana
+ * Gómez" no. El nombre tiene que aparecer libre (no tras "para"), sin negación
+ * y sin marcadores de mención o pregunta.
+ */
+const MENCION_O_PREGUNTA = /[?¿]|recomend|disponible|anterior|\bera de\b|\bpedido\b|\besta\b|\bestas\b/;
+function esRespuestaLimpiaDeNombre(mensajeNormalizado: string, valorNormalizado: string): boolean {
+  if (!mensajeNormalizado || !apareceLibre(mensajeNormalizado, valorNormalizado)) return false;
+  if (/\bno\b/.test(mensajeNormalizado)) return false;
+  return !MENCION_O_PREGUNTA.test(mensajeNormalizado);
 }
 
 export function aplicarOperacion(
@@ -812,8 +852,14 @@ function aplicarOperacionSinTotal(
       // toca — preguntar es mejor que inventar. No depende del catálogo ni de
       // la ficha. Mira `mensajeDelTurno`, no el historial: una frase de un
       // pedido anterior no puede marcar el de ahora.
+      // La evidencia tiene que ser COMPATIBLE con la operación (última
+      // auditoría): una misma frase no puede valer para true y para false. Para
+      // marcar(true) hace falta evidencia positiva Y que NO sea una negación —
+      // "no es para regalo" contiene "regalo" pero es lo contrario de un regalo.
       const delTurno = contexto.mensajeDelTurno;
-      if (operacion.esRegalo && !hayEvidenciaDeRegalo(delTurno)) {
+      const positiva = hayEvidenciaDeRegalo(delTurno);
+      const negativa = hayEvidenciaDeNoRegalo(delTurno);
+      if (operacion.esRegalo && (!positiva || negativa)) {
         return {
           ok: false,
           motivo: "el cliente no ha dicho que sea un regalo",
@@ -822,7 +868,7 @@ function aplicarOperacionSinTotal(
             "Si crees que puede serlo, pregúntaselo en vez de darlo por hecho.",
         };
       }
-      if (!operacion.esRegalo && !hayEvidenciaDeNoRegalo(delTurno)) {
+      if (!operacion.esRegalo && !negativa) {
         return {
           ok: false,
           motivo: "no hay una corrección del cliente que quite el regalo",

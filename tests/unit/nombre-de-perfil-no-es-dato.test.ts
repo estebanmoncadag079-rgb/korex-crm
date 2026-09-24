@@ -244,3 +244,81 @@ describe("datos.nombre exige procedencia del cliente, no aparición del texto", 
     expect(ella.ok).toBe(true);
   });
 });
+
+/**
+ * Bloqueador 3 de la última auditoría: una respuesta DIRECTA a la pregunta del
+ * bot ("¿A nombre de quién queda el pedido?" → "Ana Gómez") sí confirma, aunque
+ * no diga "soy". La solución NO es volver a aceptar cualquier aparición: es
+ * usar el contexto de que el bot venía pidiendo el nombre —representado por
+ * `nombrePendienteAntesDelTurno`— y aun así exigir que el mensaje sea una
+ * respuesta limpia (no un destinatario, ni una mención, ni una negación).
+ */
+const respondiendoAlNombre = (mensajeDelTurno: string): ContextoOperaciones => ({
+  ...contexto("Luisa Duque", [mensajeDelTurno]),
+  mensajeDelTurno,
+  nombrePendienteAntesDelTurno: true,
+});
+
+describe("respuesta directa a la pregunta del nombre (contexto de la pregunta previa)", () => {
+  it("CASO A: el bot pidió el nombre y el cliente responde 'Ana Gómez' → confirma con procedencia", () => {
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), respondiendoAlNombre("Ana Gómez"));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.estado.datos.nombre).toBe("Ana Gómez");
+      expect(r.estado.procedenciaDelNombre).toBe("cliente");
+    }
+  });
+
+  it("CASO B: aunque el bot preguntara, 'es para Ana Gómez' NO la vuelve compradora", () => {
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), respondiendoAlNombre("es para Ana Gómez"));
+    expect(r.ok).toBe(false);
+  });
+
+  it("CASO C: 'El pedido anterior era de Ana Gómez' NO confirma, ni con la pregunta previa", () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Ana Gómez"),
+      respondiendoAlNombre("El pedido anterior era de Ana Gómez")
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("CASO D: '¿Ana Gómez está disponible?' NO confirma", () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Ana Gómez"),
+      respondiendoAlNombre("¿Ana Gómez está disponible?")
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("CASO E: 'Me recomendaron a Ana Gómez' NO confirma", () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Ana Gómez"),
+      respondiendoAlNombre("Me recomendaron a Ana Gómez")
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("CASO F: 'No me llamo Ana Gómez' NO confirma", () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Ana Gómez"),
+      respondiendoAlNombre("No me llamo Ana Gómez")
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("SIN la pregunta previa, 'Ana Gómez' suelto sigue sin confirmar (aparición ≠ procedencia)", () => {
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), contexto("Luisa Duque", ["Ana Gómez"]));
+    expect(r.ok).toBe(false);
+  });
+
+  it("EL DETECTOR DETECTA: mismo 'Ana Gómez', con pregunta previa acepta / sin ella rechaza", () => {
+    const conPregunta = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), respondiendoAlNombre("Ana Gómez"));
+    const sinPregunta = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), contexto("Luisa Duque", ["Ana Gómez"]));
+    expect(conPregunta.ok).toBe(true);
+    expect(sinPregunta.ok).toBe(false);
+  });
+});

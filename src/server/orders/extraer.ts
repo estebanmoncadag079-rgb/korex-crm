@@ -99,6 +99,30 @@ export function leerAporte(
  * lleva escritas ("no vuelvas a preguntar lo que ya te dijeron"): el modelo deja
  * de tener que acordarse, porque se lo recuerda el servidor.
  */
+/**
+ * ¿Está satisfecho este requisito con lo que hay en el estado?
+ *
+ * Para todos, tener el valor basta. Pero para el NOMBRE, en el flujo con estado
+ * en el backend, no: exige `procedenciaDelNombre === "cliente"` (Bloqueador 2,
+ * última auditoría). Un valor sin procedencia —un estado heredado, o uno que se
+ * coló por otra ruta— NO cuenta como confirmado.
+ *
+ * `exigirProcedenciaDeNombre` viene apagado por defecto: en el prompt y en
+ * citas no existe la procedencia, y encenderla ahí dejaría el nombre imposible
+ * de satisfacer. Solo el flujo de pedidos con estado en el backend la pide.
+ */
+export function requisitoSatisfecho(
+  estado: EstadoDelPedido,
+  r: Requisito,
+  exigirProcedenciaDeNombre = false
+): boolean {
+  if (!estado.datos[r.id]?.trim()) return false;
+  if (exigirProcedenciaDeNombre && r.id === "nombre") {
+    return estado.procedenciaDelNombre === "cliente";
+  }
+  return true;
+}
+
 export function loQueFalta(
   estado: EstadoDelPedido,
   /**
@@ -109,7 +133,9 @@ export function loQueFalta(
   /** Lo que este negocio pide para cerrar, en su orden. */
   requisitos: Requisito[] = [],
   /** Vocabulario: "presentación" en pedidos, "servicio" en citas. */
-  vertical: Vertical = "pedidos"
+  vertical: Vertical = "pedidos",
+  /** Exigir procedencia del cliente para dar el nombre por satisfecho. */
+  exigirProcedenciaDeNombre = false
 ): string[] {
   const falta: string[] = [];
   const variosItems = estado.items.length > 1;
@@ -140,7 +166,9 @@ export function loQueFalta(
   // En el orden en que el negocio los declaró: ese orden ES la configuración.
   // Y son del PEDIDO: el nombre se pide una vez, lleve una cosa o cinco.
   for (const r of requisitos) {
-    if (r.obligatorio && !estado.datos[r.id]?.trim()) falta.push(r.etiqueta);
+    if (r.obligatorio && !requisitoSatisfecho(estado, r, exigirProcedenciaDeNombre)) {
+      falta.push(r.etiqueta);
+    }
   }
   return falta;
 }
@@ -169,10 +197,12 @@ export function loQueFalta(
  */
 export function requisitosPendientesDe(
   estado: EstadoDelPedido | null,
-  requisitos: Requisito[] | undefined
+  requisitos: Requisito[] | undefined,
+  /** Exigir procedencia del cliente para dar el nombre por satisfecho (Bloqueador 2). */
+  exigirProcedenciaDeNombre = false
 ): Requisito[] | undefined {
   if (!estado) return requisitos;
-  return requisitos?.filter((r) => !estado.datos[r.id]?.trim());
+  return requisitos?.filter((r) => !requisitoSatisfecho(estado, r, exigirProcedenciaDeNombre));
 }
 
 /**
@@ -197,7 +227,9 @@ export function comoTexto(
    * que el cliente ya eligió sabores y toppings para nada. Avisar a tiempo es
    * la diferencia entre "añade algo más" y un pedido que se cae al final.
    */
-  minimoDomicilioCents?: number
+  minimoDomicilioCents?: number,
+  /** Exigir procedencia del cliente para dar el nombre por satisfecho (Bloqueador 2). */
+  exigirProcedenciaDeNombre = false
 ): string {
   const conAlgo = estado.items.filter((i) => i.ofrecible.id || i.seleccion.length > 0);
   if (conAlgo.length === 0) return "";
@@ -244,7 +276,10 @@ export function comoTexto(
    */
   for (const r of requisitos) {
     const valor = estado.datos[r.id];
-    if (!valor?.trim()) continue;
+    // "Ya recogido" tiene que decir lo mismo que "TE FALTA": un nombre heredado
+    // sin procedencia NO está confirmado, así que no se anuncia como "ya está"
+    // (si no, el modelo veía el nombre en las dos listas a la vez).
+    if (!requisitoSatisfecho(estado, r, exigirProcedenciaDeNombre)) continue;
     const personal = r.tipo !== "texto";
     /*
      * "ya está" y no "ya la dio": la etiqueta la escribe cada negocio y puede
@@ -280,7 +315,7 @@ export function comoTexto(
     partes.push(cuando ? `reserva: ${cuando}${conQuien}` : `reserva:${conQuien}`.trim());
   }
 
-  const falta = loQueFalta(estado, catalogo, requisitos, vertical);
+  const falta = loQueFalta(estado, catalogo, requisitos, vertical, exigirProcedenciaDeNombre);
   /*
    * Cómo se entrega este pedido, tal como lo verificó el backend.
    *

@@ -1270,7 +1270,10 @@ export async function runAgentTurn(
           productos,
           requisitos ?? [],
           vertical,
-          fichaDelNegocio?.entrega?.minimoDomicilioCents
+          fichaDelNegocio?.entrega?.minimoDomicilioCents,
+          // Backend + pedidos: el nombre exige procedencia del cliente para
+          // darse por satisfecho (Bloqueador 2). En citas no hay procedencia.
+          !contrataCitas(vertical)
         );
       }
     }
@@ -1322,7 +1325,7 @@ export async function runAgentTurn(
         catalogoDePedidos,
         estadoDelPedido: bloqueDeEstado,
         fotos,
-        requisitos: requisitosPendientesDe(estadoGuardado, requisitos),
+        requisitos: requisitosPendientesDe(estadoGuardado, requisitos, !contrataCitas(vertical)),
         pagoDeCitas,
         pagoDePedidos,
         tieneZonasDeEntrega: zonasDeEntrega.length > 0,
@@ -5345,6 +5348,12 @@ async function guardarEstadoPropuesto(entrada: {
       nombreDePerfil: entrada.nombreDePerfil,
       dichoPorElCliente: entrada.dichoPorElCliente,
       mensajeDelTurno: entrada.mensajeDelTurno,
+      // ¿El bot venía pidiendo el nombre? El backend lo sabe: el nombre estaba
+      // pendiente en el estado de ANTES de este turno (Bloqueador 3). Con eso,
+      // una respuesta limpia de nombre confirma sin exigir "soy X".
+      nombrePendienteAntesDelTurno: (
+        requisitosPendientesDe(entrada.estadoGuardado ?? null, entrada.requisitos, true) ?? []
+      ).some((r) => r.id === "nombre"),
     };
     const lote = aplicarOperacionesPedidos(estadoBase, parse.data, contexto);
     if (!lote.persistido) {

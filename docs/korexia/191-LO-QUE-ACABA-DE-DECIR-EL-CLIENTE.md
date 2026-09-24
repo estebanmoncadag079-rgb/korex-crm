@@ -223,6 +223,55 @@ intención, el plan, el prompt y el veredicto del backend.
 
 ---
 
+## Tercera ronda: la procedencia gobierna el cierre
+
+La segunda ronda puso la procedencia en la escritura. La tercera la hizo
+mandar en el flujo completo — que es donde la auditoría encontró tres huecos.
+
+**La evidencia del regalo tiene que ser compatible con la operación.** *"no es
+para regalo"* contiene *"regalo"*, y `marcar_regalo(true)` sobre esa frase se
+aceptaba. Ahora una misma frase no puede valer para las dos cosas: `true` exige
+evidencia positiva **y que no sea una negación**; `false` exige la negación. La
+misma frase, *"no es para regalo"*, marca `false` y jamás `true`.
+
+**Un nombre con valor pero sin procedencia NO satisface el requisito — en todo
+el cierre, no solo en la escritura.** La Compuerta 4 impedía escribir un nombre
+sin procedencia, pero un estado HEREDADO (guardado antes de que
+`procedenciaDelNombre` existiera) tenía el valor y ninguna procedencia, y todos
+los consumidores lo daban por bueno. Ahora, en el flujo de pedidos con estado
+en el backend, el nombre está confirmado **solo si** `datos.nombre` existe **y**
+`procedenciaDelNombre === "cliente"`. Se auditaron y corrigieron todos los que
+deciden si el requisito está satisfecho:
+
+- `requisitosPendientesDe` y `loQueFalta` — lo dejan en la lista de pendientes;
+- el bloque de estado (`comoTexto`) — lo pone en `TE FALTA` y **no** lo anuncia
+  como «ya está»; antes salía en las dos listas a la vez;
+- `puedeConfirmarPedido` — el guardarraíl de cierre lo bloquea;
+- el rescate de cierre — su autoridad es `puedeConfirmarPedido`, así que un
+  nombre heredado nunca llega a redactar un cierre.
+
+El prompt (`validarPropuesta`) y citas **no** lo exigen: ahí la procedencia
+nunca se escribió, y exigirla dejaría el nombre imposible de satisfacer. Por eso
+la comprobación es opt-in (`exigirProcedenciaDeNombre`), y solo la enciende el
+flujo de pedidos con estado en el backend.
+
+**Una respuesta directa a la pregunta del bot sí confirma.** *"¿A nombre de
+quién queda el pedido?"* → *"Ana Gómez"* debe guardarse, aunque no diga *"soy"*.
+La solución no es volver a aceptar cualquier aparición: es que el backend sepa,
+de forma determinista, que **el nombre venía pendiente** al empezar el turno
+(`nombrePendienteAntesDelTurno`, calculado desde el estado, no adivinando qué
+escribió el bot) y que el mensaje sea una respuesta LIMPIA de nombre — ni
+destinatario, ni mención, ni negación, ni pregunta. Sin ese contexto, *"Ana
+Gómez"* suelto sigue siendo mera aparición y se rechaza.
+
+La propiedad, de extremo a extremo:
+
+> El modelo interpreta. El backend decide con evidencia y procedencia. El estado
+> conserva la verdad. Sin evidencia suficiente, no se persiste el hecho — y un
+> valor sin procedencia no cierra.
+
+---
+
 ## Cómo revertir
 
 Todo el cambio es de código, sin migración y sin tocar datos. `git revert` del

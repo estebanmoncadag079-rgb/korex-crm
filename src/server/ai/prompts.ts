@@ -387,7 +387,11 @@ export const CONTRATO_DE_ACCIONES = [
   "Reglas duras:",
   "- Si el cliente pide hablar con una persona/humano/asesor → handoff.",
   "- Cuando el cliente confirme un pedido y tengas todos sus datos → notify_order (NO uses reply para eso: sin esta acción el equipo no se entera del pedido).",
-  "- Los datos de la FICHA DEL CLIENTE ya los tienes: no se los preguntes ni los dejes 'por confirmar' en el resumen.",
+  // 24-sep-2026: esta línea decía "los datos de la FICHA DEL CLIENTE ya los
+  // tienes: no se los preguntes", y el nombre del perfil de WhatsApp entraba
+  // ahí de contrabando. Va SIEMPRE en el prompt, así que sin corregirla la
+  // defensa del nombre quedaba a medias (ver `fichaDelContacto`).
+  "- El teléfono del CONTEXTO DEL CONTACTO ya lo tienes: no se lo preguntes ni lo dejes 'por confirmar' en el resumen. El NOMBRE del perfil de WhatsApp es distinto: no cuenta como dato confirmado, y si el negocio necesita saber a nombre de quién va, pregúntaselo.",
   "- JAMÁS emitas notify_order con algo sin decidir. Si falta una elección del cliente (sabor, salsa, tamaño, variante, forma de entrega), PREGÚNTALA y espera: si no te contesta, vuelve a preguntarla, una cosa cada vez y en corto. Escribir 'POR CONFIRMAR', 'pendiente' o dejar un hueco NO es cerrar un pedido — es mandarle a la cocina algo que no se puede preparar, y alguien tendrá que llamar al cliente para terminar lo que era tu trabajo. Un pedido a medias es peor que un pedido lento.",
   "- Si la pregunta NO está cubierta por el conocimiento → NO inventes: responde que lo confirmarás o escala.",
   /*
@@ -545,17 +549,42 @@ export const CONTRATO_DE_ACCIONES_CITAS = [
  * que escribe — pero no estaba en el prompt, así que el agente lo pedía y, si
  * el cliente no lo repetía, cerraba el pedido con "Teléfono: POR CONFIRMAR".
  */
+/**
+ * Lo que el CANAL sabe del contacto. Contexto, nunca dato confirmado.
+ *
+ * 🔴 24-sep-2026 — esta sección se titulaba `FICHA DEL CLIENTE (ya la`
+ * `tienes: no la preguntes)` y terminaba en `Úsala para completar el`
+ * `resumen del pedido`. Dos órdenes, y las dos equivocadas.
+ *
+ * Caso real (MALIA, conv cv_zgm286k69bz1hmprf87a): una clienta pidió un
+ * pavé "para un endulce de amigos secretos" sin decir jamás su nombre, y el
+ * pedido salió "a nombre de Luisa Duque" — su usuario de WhatsApp. No quedó
+ * en la frase: acabó en `estado.datos.nombre`, dando por cumplido un
+ * requisito de cierre que nadie confirmó.
+ *
+ * **El teléfono y el nombre no son lo mismo.** El teléfono lo da el canal,
+ * es verificable y es el número desde el que escribe: se conserva tal cual.
+ * El nombre de un perfil de WhatsApp lo elige su dueño y no lo confirma
+ * nadie.
+ *
+ * Esta es la mitad de prompt de la defensa; la otra vive en el backend
+ * (`esElPerfilSinQueLoDijera`, `orders/operaciones.ts`), porque este caso
+ * demuestra que una instrucción sola no impide que el dato acabe en la base.
+ */
 function fichaDelContacto(
   contact?: { name: string | null; phone: string | null }
 ): string | null {
   if (!contact) return null;
   return [
-    "FICHA DEL CLIENTE (ya la tienes: no la preguntes):",
+    "CONTEXTO DEL CONTACTO (de dónde escribe, no lo que ha confirmado):",
     contact.phone
       ? `- Teléfono de WhatsApp: ${contact.phone}`
       : "- Este cliente usa un nombre de usuario de WhatsApp: no tiene teléfono visible, y NO debes inventarle uno ni pedírselo para el resumen (escribe \"sin teléfono\" si hace falta el dato).",
-    contact.name ? `- Nombre guardado: ${contact.name}` : null,
-    "Úsala para completar el resumen del pedido. Si el cliente te da un nombre distinto durante la charla, vale el que te acaba de dar.",
+    contact.name ? `- Nombre del perfil de WhatsApp: ${contact.name}` : null,
+    contact.name
+      ? "Ese nombre lo eligió él en su perfil y NO confirma nada del pedido: sirve para tratarlo por su nombre, nunca para rellenar un dato. Si este negocio necesita saber a nombre de quién va, pregúntaselo — aunque el perfil traiga uno. Solo vale el nombre que te diga el cliente."
+      : null,
+    contact.phone ? "El teléfono sí lo da el canal: ese puedes usarlo." : null,
   ]
     .filter(Boolean)
     .join("\n");

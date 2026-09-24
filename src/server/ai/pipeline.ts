@@ -142,6 +142,7 @@ import {
 } from "@/server/ai/generador/ficha";
 import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
 import { comoTexto, requisitosPendientesDe } from "@/server/orders/extraer";
+import { bloqueDelPlan, leerIntencion, planDelTurno } from "@/server/orders/intencion";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
   CORRECCION_DE_SALIDA_DEGENERADA,
@@ -1412,6 +1413,52 @@ export async function runAgentTurn(
     });
   }
 
+  /*
+   * QUÉ ACABA DE DECIR EL CLIENTE — la prioridad del turno.
+   *
+   * `orders/intencion.ts` se escribió el 15-ago-2026 para esto exacto, con
+   * sus pruebas en verde, y hasta hoy (24-sep) **no lo llamaba nadie**: el
+   * único fichero que lo importaba era su propio test. Mientras tanto seguía
+   * ocurriendo el caso que documenta su cabecera — MALIA, conv
+   * cv_zgm286k69bz1hmprf87a:
+   *
+   *     CLIENTE  Y que costo tiene el domicilio?
+   *     BOT      Perfecto 😊 ¿Qué quieres y cuántos?
+   *
+   * Dieciséis segundos entre uno y otro: no fue una carrera de turnos. Fue
+   * que la capa que decide qué preguntar solo miraba qué le falta al pedido,
+   * nunca qué acaba de escribir el cliente.
+   *
+   * Va como hecho del turno, igual que el listado de catálogo de arriba: el
+   * servidor clasifica, el modelo redacta. No decide la respuesta ni sustituye
+   * a `CADENCIA`, que sigue mandando sobre el ORDEN de lo que se pide.
+   *
+   * El reinicio NO se le pasa al modelo: ya lo resolvió `matchesReinicio` más
+   * arriba, de forma determinista y antes de esta llamada.
+   *
+   * 🛑 Y NO corre en citas, aunque el bug es igual de real ahí (a Lashes
+   * también le preguntan el precio a mitad de una reserva). El motivo no es
+   * prudencia: es que la mitad útil del plan —`continuarEnElMismoMensaje`—
+   * se calcula con `estadoGuardado.items`, que solo existe en pedidos. En
+   * citas saldría siempre en `false`, y el bloque le diría al modelo «no hay
+   * nada en curso, contesta y ya» justo en mitad de una reserva a medias.
+   * Sería mentira dicha por el servidor, que es peor que el silencio de hoy.
+   * Para cubrir citas hace falta antes un equivalente de «reserva en curso»;
+   * queda anotado, fuera de este lote.
+   */
+  if (lastInbound.text && !contrataCitas(vertical)) {
+    const lectura = leerIntencion(lastInbound.text, productosDelPedido);
+    const hayPedidoEnCurso = (estadoGuardado?.items.length ?? 0) > 0;
+    const bloque = bloqueDelPlan(lectura, planDelTurno(lectura, hayPedidoEnCurso));
+    if (bloque) {
+      console.warn(
+        `[intencion] ${conversationId}: ${lectura.intencion} (${lectura.porque}) — se responde antes de seguir el pedido`
+      );
+      traza.deteccionFactual = traza.deteccionFactual ?? `(intención: ${lectura.intencion})`;
+      messages.push({ role: "user", content: bloque });
+    }
+  }
+
   let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
   if (
     profile.consultasVerificadasEnabled &&
@@ -1541,6 +1588,11 @@ export async function runAgentTurn(
           requisitos,
           vertical,
           modalidadesOfrecidas,
+          // El perfil de WhatsApp y lo que el cliente escribió de verdad: la
+          // compuerta 4 de `fijar_dato` necesita las dos cosas para distinguir
+          // un nombre confirmado de uno que solo estaba en el perfil.
+          nombreDePerfil: contactRows[0]?.name ?? null,
+          dichoPorElCliente: history.filter((m) => m.direction === "in").map((m) => m.text ?? ""),
           servicios: contrataCitas(vertical) ? services : undefined,
           hours,
           now: opts?.now,
@@ -5085,6 +5137,13 @@ async function guardarEstadoPropuesto(entrada: {
   vertical: Vertical;
   /** Contra qué se resuelve la modalidad que proponga el modelo (pedidos). */
   modalidadesOfrecidas: readonly string[];
+  /**
+   * El nombre del perfil de WhatsApp y lo que el cliente ha escrito, para la
+   * compuerta 4 de `fijar_dato`: el perfil es contexto, nunca un dato que el
+   * cliente haya confirmado (ver `esElPerfilSinQueLoDijera`).
+   */
+  nombreDePerfil?: string | null;
+  dichoPorElCliente?: readonly string[];
   /** El catálogo de servicios YA cargado este turno (citas) — `ContextoOperaciones.servicios`. */
   servicios?: CatalogEntry[];
   /** Solo hace falta para citas (`disponibilidadRealMultiple`, Compuerta 2 de `fijar_horario`). */
@@ -5261,6 +5320,8 @@ async function guardarEstadoPropuesto(entrada: {
       catalogo: productos,
       requisitos: entrada.requisitos ?? [],
       modalidadesOfrecidas: entrada.modalidadesOfrecidas,
+      nombreDePerfil: entrada.nombreDePerfil,
+      dichoPorElCliente: entrada.dichoPorElCliente,
     };
     const lote = aplicarOperacionesPedidos(estadoBase, parse.data, contexto);
     if (!lote.persistido) {
@@ -5383,6 +5444,7 @@ export function esquemaDeOperaciones(
     "declinar_grupo",
     ...(modalidadesOfrecidas.length > 1 ? ["fijar_modalidad"] : []),
     "fijar_dato",
+    "marcar_regalo",
     "confirmar",
   ];
   const tiposDeCitas = ["fijar_servicio", "fijar_horario", "fijar_especialista", "fijar_dato", "confirmar"];
@@ -5441,6 +5503,11 @@ export function esquemaDeOperaciones(
          */
         requisitoId: { type: ["string", "null"], enum: [...requisitos.map((r) => r.id), null] },
         valor: { type: ["string", "null"] },
+        /*
+         * `marcar_regalo`: un hecho que aporta el cliente, no un requisito.
+         * Sin `enum` porque no depende de datos del negocio — solo es sí o no.
+         */
+        esRegalo: { type: ["boolean", "null"] },
         servicio: {
           type: ["string", "null"],
           description: "El nombre del servicio tal como aparece en el catálogo de citas — nunca un id.",
@@ -5462,6 +5529,7 @@ export function esquemaDeOperaciones(
         "modalidad",
         "requisitoId",
         "valor",
+        "esRegalo",
         "servicio",
         "fecha",
         "hora",
@@ -5532,6 +5600,9 @@ async function chatJsonConEstado(
     (modalidadesOfrecidas.length > 1
       ? ` Usa "fijar_modalidad" con "modalidad" (uno de: ${modalidadesOfrecidas.join(", ")}) cuando diga cómo quiere recibirlo.`
       : "") +
+    // Un hecho que aporta el cliente, no un dato que haya que reunir: por eso
+    // se dice "cuando lo diga" y nunca "pregúntaselo".
+    ' Usa "marcar_regalo" con "esRegalo" cuando el cliente diga que el pedido es (o no es) un regalo — solo si lo dice él, nunca lo supongas.' +
     ' Usa "confirmar" cuando el cliente confirme que eso es todo.';
 
   const instruccionesDeCitas =

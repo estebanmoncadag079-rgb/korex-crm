@@ -156,3 +156,81 @@ describe("un pedido a medias vale hasta el final del día (decisión del dueño)
     expect(pedidoSigueVigente(ayer, hoy)).toBe(false);
   });
 });
+
+/**
+ * El plan del turno, escrito para que lo lea el modelo.
+ *
+ * 24-sep-2026. Este módulo existía desde el 15-ago, con sus pruebas en verde,
+ * y **no lo llamaba nadie**: el único fichero que lo importaba era este test.
+ * Mientras tanto seguía pasando lo que vino a resolver — caso real de MALIA
+ * (conv cv_zgm286k69bz1hmprf87a):
+ *
+ *     17:15:42  CLIENTE  Y que costo tiene el domicilio?
+ *     17:15:58  BOT      Perfecto 😊 ¿Qué quieres y cuántos?
+ *
+ * Dieciséis segundos: no fue una carrera de turnos. Fue que la capa que decide
+ * qué preguntar solo miraba qué le falta al pedido, nunca qué acaba de decir
+ * el cliente.
+ *
+ * Esta función NO redacta la respuesta ni elige el producto: traduce el plan a
+ * una instrucción que el modelo pueda seguir. Devuelve `null` cuando no hay
+ * nada que priorizar — la inmensa mayoría de los turnos— para no meter ruido
+ * en un prompt que el modelo lee entero cada vez.
+ */
+import { bloqueDelPlan } from "@/server/orders/intencion";
+
+describe("bloqueDelPlan: la prioridad, dicha en palabras", () => {
+  const plan = (m: string, hayPedido: boolean) => {
+    const lectura = leerIntencion(m, CARTA);
+    return { lectura, plan: planDelTurno(lectura, hayPedido) };
+  };
+
+  it("BUG REAL: una pregunta de domicilio manda contestarla primero", () => {
+    const { lectura, plan: p } = plan("cuanto sale el domi?", true);
+    const bloque = bloqueDelPlan(lectura, p);
+    expect(bloque).toMatch(/PLAN DEL TURNO/);
+    expect(bloque).toMatch(/CONTÉSTALE/);
+    expect(bloque).toMatch(/entrega|domicilio/i);
+  });
+
+  it("con un pedido en curso, manda seguir en el MISMO mensaje", () => {
+    const { lectura, plan: p } = plan("cuanto sale el domi?", true);
+    expect(bloqueDelPlan(lectura, p)).toMatch(/MISMO mensaje/);
+  });
+
+  it("sin pedido en curso, NO manda empezar a pedir datos", () => {
+    const { lectura, plan: p } = plan("¿Qué horario tienen?", false);
+    const bloque = bloqueDelPlan(lectura, p)!;
+    expect(bloque).toMatch(/horario/i);
+    expect(bloque).not.toMatch(/MISMO mensaje/);
+    expect(bloque).toMatch(/no empieces a pedirle/i);
+  });
+
+  it("los precios también cuentan como pregunta explícita", () => {
+    const { lectura, plan: p } = plan("que precios tienen los churros?", true);
+    expect(bloqueDelPlan(lectura, p)).toMatch(/precio/i);
+  });
+
+  it("un pedido normal NO genera bloque: no hay nada que priorizar", () => {
+    const { lectura, plan: p } = plan("Quiero una churrita", true);
+    expect(bloqueDelPlan(lectura, p)).toBeNull();
+  });
+
+  it("una opción suelta tampoco", () => {
+    const { lectura, plan: p } = plan("Chocolate", true);
+    expect(bloqueDelPlan(lectura, p)).toBeNull();
+  });
+
+  it("y un mensaje que no encaja en nada TAMPOCO inventa prioridad", () => {
+    // `otra` sigue siendo válida: no se deduce una intención que no está.
+    const { lectura, plan: p } = plan("Bueno, entonces hagamos eso", true);
+    expect(lectura.intencion).toBe("otra");
+    expect(bloqueDelPlan(lectura, p)).toBeNull();
+  });
+
+  it("el reinicio no genera bloque: de eso se encarga el pipeline, no el modelo", () => {
+    const { lectura, plan: p } = plan("0", true);
+    expect(p.reiniciar).toBe(true);
+    expect(bloqueDelPlan(lectura, p)).toBeNull();
+  });
+});

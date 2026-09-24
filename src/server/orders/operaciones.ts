@@ -125,6 +125,19 @@ export const Operacion = z.discriminatedUnion("tipo", [
     modalidad: z.string().min(1),
   }),
   /**
+   * Que el cliente diga que el pedido es un regalo.
+   *
+   * Es un HECHO que aporta, no una intención del turno ni un requisito de
+   * cierre. No se valida contra nada del negocio a propósito: a diferencia de
+   * `fijar_modalidad`, donde una modalidad que el negocio no ofrece corrompería
+   * la lógica de entrega, aquí lo único que hay es contexto para conversar.
+   * Un negocio que no envuelva regalos simplemente no lo usará.
+   */
+  z.object({
+    tipo: z.literal("marcar_regalo"),
+    esRegalo: z.boolean(),
+  }),
+  /**
    * NO hay `cancelar` en esta unión — corrección de diseño del 16-sep-2026.
    * "Empezar de cero"/cancelar el pedido entero ya existe hoy, y es
    * DETERMINÍSTICO, nunca una decisión del modelo:
@@ -163,6 +176,15 @@ export type ContextoOperaciones = {
   modalidadesOfrecidas: readonly string[];
   /** Mismo parámetro opcional que ya recibe `normalizarPedido`. */
   unidadesPorProducto?: Record<string, number>;
+  /**
+   * El nombre del perfil de WhatsApp. **Contexto, nunca dato confirmado.**
+   *
+   * Ausente = la comprobación de abajo no se activa, y todo se comporta
+   * exactamente como antes de que existiera.
+   */
+  nombreDePerfil?: string | null;
+  /** Lo que el CLIENTE ha escrito en esta conversación. La evidencia. */
+  dichoPorElCliente?: readonly string[];
 };
 
 /**
@@ -399,6 +421,34 @@ function resolverModificacionDeOpciones(
  * unión `Operacion`, arriba: cancelar el pedido entero ya es determinístico
  * y anterior al modelo (`matchesReinicio`/`borrarEstado`), y no se toca.
  */
+/**
+ * ¿Este valor es el nombre del perfil de WhatsApp, colado sin que el cliente
+ * lo dijera nunca?
+ *
+ * 24-sep-2026, MALIA (conv cv_zgm286k69bz1hmprf87a). La clienta pidió un pavé
+ * "para un endulce de amigos secretos" y jamás dio su nombre; el pedido acabó
+ * con `datos.nombre = "Luisa Duque"`, que es su usuario de WhatsApp. No fue una
+ * alucinación: el prompt le ordenaba usarlo (`fichaDelContacto`).
+ *
+ * La regla es deliberadamente estrecha — un falso positivo aquí obliga a
+ * volver a pedir un nombre que el cliente ya dio:
+ *  - solo mira cuando el valor propuesto ES el del perfil;
+ *  - y lo acepta en cuanto el cliente lo haya escrito, aunque sea de pasada;
+ *  - tolera tildes, mayúsculas y espacios de más.
+ *
+ * Un nombre distinto del perfil no se examina siquiera: el caso normal (el
+ * destinatario de un regalo, por ejemplo) pasa sin tocarse.
+ */
+function esElPerfilSinQueLoDijera(valor: string, contexto: ContextoOperaciones): boolean {
+  const perfil = normalizarNombre(contexto.nombreDePerfil ?? "");
+  if (!perfil) return false;
+  const propuesto = normalizarNombre(valor);
+  if (!propuesto || propuesto !== perfil) return false;
+  return !(contexto.dichoPorElCliente ?? []).some((t) =>
+    normalizarNombre(t).includes(propuesto)
+  );
+}
+
 export function aplicarOperacion(
   estadoActual: EstadoDelPedido,
   operacion: Operacion,
@@ -550,6 +600,17 @@ function aplicarOperacionSinTotal(
           correccion: `[SISTEMA] Todavía falta ${requisito.etiqueta}.`,
         };
       }
+      // Compuerta 4: el perfil de WhatsApp es contexto, no un dato que el
+      // cliente haya confirmado. Ver `esElPerfilSinQueLoDijera`.
+      if (esElPerfilSinQueLoDijera(operacion.valor, contexto)) {
+        return {
+          ok: false,
+          motivo: `"${operacion.valor}" es el nombre del perfil de WhatsApp y el cliente nunca lo dijo`,
+          correccion:
+            "[SISTEMA] Ese nombre es el del perfil de WhatsApp, no uno que el cliente te haya dado. " +
+            `Pregúntale ${requisito.etiqueta} en vez de darlo por sabido.`,
+        };
+      }
       return {
         ok: true,
         estado: { ...estadoActual, datos: { ...estadoActual.datos, [operacion.requisitoId]: operacion.valor } },
@@ -571,6 +632,11 @@ function aplicarOperacionSinTotal(
       }
       return { ok: true, estado: { ...estadoActual, modalidadDeEntrega: ofrecida } };
     }
+
+    case "marcar_regalo":
+      // Sin compuertas: el hecho lo aporta el cliente y no depende de nada
+      // del catálogo ni de la ficha.
+      return { ok: true, estado: { ...estadoActual, paraRegalo: operacion.esRegalo } };
 
     case "confirmar":
       return { ok: true, estado: { ...estadoActual, confirmado: true } };

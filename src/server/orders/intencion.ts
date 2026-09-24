@@ -197,3 +197,52 @@ export function planDelTurno(lectura: Lectura, hayPedidoEnCurso: boolean): PlanD
   }
   return { reiniciar: false, responderPrimero: null, continuarEnElMismoMensaje: hayPedidoEnCurso };
 }
+
+/**
+ * De qué preguntó el cliente, en palabras que el modelo pueda usar.
+ *
+ * Solo las tres consultas explícitas llegan aquí: son las únicas con
+ * `esperaRespuesta: true`.
+ */
+const TEMA: Partial<Record<Intencion, string>> = {
+  consulta_horario: "el horario del negocio",
+  consulta_entrega: "la entrega o el domicilio",
+  consulta_precio: "los precios",
+};
+
+/**
+ * El plan del turno, escrito para que lo lea el modelo.
+ *
+ * 24-sep-2026 — este módulo llevaba desde el 15-ago con sus pruebas en verde
+ * y sin que lo llamara nadie. Mientras tanto seguía pasando lo que vino a
+ * resolver (MALIA, conv cv_zgm286k69bz1hmprf87a):
+ *
+ *     17:15:42  CLIENTE  Y que costo tiene el domicilio?
+ *     17:15:58  BOT      Perfecto 😊 ¿Qué quieres y cuántos?
+ *
+ * Dieciséis segundos — no fue una carrera de turnos. Fue que la capa que
+ * decide qué preguntar solo miraba qué le falta al pedido.
+ *
+ * Esta función NO redacta la respuesta ni elige producto: traduce el plan a
+ * una instrucción. Devuelve `null` cuando no hay nada que priorizar —la
+ * inmensa mayoría de los turnos— para no meter ruido en un prompt que el
+ * modelo lee entero cada vez.
+ *
+ * 🛑 El REINICIO no se representa aquí. Ya es determinista y corre ANTES de
+ * llamar al modelo (`matchesReinicio`/`borrarEstado` en `pipeline.ts`): pedirle al
+ * modelo que colabore en algo que el servidor ya resolvió solo abre la puerta
+ * a que un turno confuso arrastre un pedido ya cancelado.
+ */
+export function bloqueDelPlan(lectura: Lectura, plan: PlanDelTurno): string | null {
+  if (!plan.responderPrimero) return null;
+  const tema = TEMA[plan.responderPrimero];
+  if (!tema) return null;
+  const seguir = plan.continuarEnElMismoMensaje
+    ? "Y en el MISMO mensaje sigue con el punto del pedido que toque — sin saltarte el orden ni adelantar otros puntos."
+    : "No hay ningún pedido en curso: contesta y ya. No empieces a pedirle datos que no te ha pedido.";
+  return (
+    "PLAN DEL TURNO (lo decidió el servidor con lo que acaba de escribir el cliente):\n" +
+    `🛑 Antes de pedirle nada más, CONTÉSTALE lo que preguntó: ${tema} (${lectura.porque}).\n` +
+    seguir
+  );
+}

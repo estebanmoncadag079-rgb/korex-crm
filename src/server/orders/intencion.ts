@@ -233,13 +233,32 @@ const TEMA: Partial<Record<Intencion, string>> = {
  * modelo que colabore en algo que el servidor ya resolvió solo abre la puerta
  * a que un turno confuso arrastre un pedido ya cancelado.
  */
-export function bloqueDelPlan(lectura: Lectura, plan: PlanDelTurno): string | null {
+export function bloqueDelPlan(
+  lectura: Lectura,
+  plan: PlanDelTurno,
+  /**
+   * Si el servidor SABE si hay un pedido a medias, o solo lo supone.
+   *
+   * Con `state_source='prompt'` no hay fila de `conversation_state` que leer,
+   * así que `plan.continuarEnElMismoMensaje` llega en `false` por ignorancia,
+   * no por evidencia. Decirle al modelo «no hay ningún pedido en curso»
+   * entonces es una afirmación que el backend no puede sostener — y en mitad
+   * de un pedido a medias le haría soltar el hilo. Lo destapó
+   * Camilabrandcol, que no tiene nada de esto encendido.
+   *
+   * Es la segunda regla del plan aplicada a sí misma: sin evidencia
+   * suficiente, se representa «no se sabe»; no se rellena por inferencia.
+   */
+  sabemosSiHayPedido = true
+): string | null {
   if (!plan.responderPrimero) return null;
   const tema = TEMA[plan.responderPrimero];
   if (!tema) return null;
   const seguir = plan.continuarEnElMismoMensaje
     ? "Y en el MISMO mensaje sigue con el punto del pedido que toque — sin saltarte el orden ni adelantar otros puntos."
-    : "No hay ningún pedido en curso: contesta y ya. No empieces a pedirle datos que no te ha pedido.";
+    : sabemosSiHayPedido
+      ? "No hay ningún pedido en curso: contesta y ya. No empieces a pedirle datos que no te ha pedido."
+      : "Si ya venía un pedido a medias, sigue con el punto que toque en el MISMO mensaje — sin saltarte el orden ni adelantar otros puntos. Si no venía ninguno, contesta y ya.";
   return (
     "PLAN DEL TURNO (lo decidió el servidor con lo que acaba de escribir el cliente):\n" +
     `🛑 Antes de pedirle nada más, CONTÉSTALE lo que preguntó: ${tema} (${lectura.porque}).\n` +

@@ -1448,8 +1448,19 @@ export async function runAgentTurn(
    */
   if (lastInbound.text && !contrataCitas(vertical)) {
     const lectura = leerIntencion(lastInbound.text, productosDelPedido);
+    /*
+     * Solo con el estado en el backend hay una fila que leer. Con
+     * `state_source='prompt'` —Camilabrandcol hoy— un `false` aquí
+     * significaría "no lo sé", nunca "no hay pedido", y el bloque se redacta
+     * en consecuencia (ver `bloqueDelPlan`).
+     */
+    const loSabemos = profile.stateSource === "backend";
     const hayPedidoEnCurso = (estadoGuardado?.items.length ?? 0) > 0;
-    const bloque = bloqueDelPlan(lectura, planDelTurno(lectura, hayPedidoEnCurso));
+    const bloque = bloqueDelPlan(
+      lectura,
+      planDelTurno(lectura, hayPedidoEnCurso),
+      loSabemos
+    );
     if (bloque) {
       console.warn(
         `[intencion] ${conversationId}: ${lectura.intencion} (${lectura.porque}) — se responde antes de seguir el pedido`

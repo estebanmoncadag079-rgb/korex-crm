@@ -234,3 +234,45 @@ describe("bloqueDelPlan: la prioridad, dicha en palabras", () => {
     expect(bloqueDelPlan(lectura, p)).toBeNull();
   });
 });
+
+/**
+ * La tercera posibilidad: que el servidor NO SEPA si hay un pedido a medias.
+ *
+ * Con `state_source='prompt'` no existe fila de `conversation_state`, así que
+ * `continuarEnElMismoMensaje` llega en `false` por ignorancia y no por
+ * evidencia. Lo destapó Camilabrandcol al probar los cinco negocios juntos:
+ * el bloque le afirmaba «no hay ningún pedido en curso» a un negocio donde
+ * eso no se puede saber — y en mitad de un pedido le habría hecho soltar el
+ * hilo.
+ */
+describe("cuando el backend no sabe si hay un pedido en curso", () => {
+  const lecturaDeEntrega = leerIntencion("y el domicilio cuánto sale?");
+
+  it("no afirma que no hay pedido: deja las dos puertas abiertas", () => {
+    const p = planDelTurno(lecturaDeEntrega, false);
+    const bloque = bloqueDelPlan(lecturaDeEntrega, p, false);
+
+    expect(bloque).toContain("Si ya venía un pedido a medias");
+    expect(bloque).not.toContain("No hay ningún pedido en curso");
+  });
+
+  it("sigue mandando contestar primero lo que preguntó", () => {
+    const p = planDelTurno(lecturaDeEntrega, false);
+    expect(bloqueDelPlan(lecturaDeEntrega, p, false)).toContain("la entrega o el domicilio");
+  });
+
+  it("y cuando SÍ se sabe, se dice sin rodeos — las dos ramas siguen distintas", () => {
+    const p = planDelTurno(lecturaDeEntrega, false);
+
+    expect(bloqueDelPlan(lecturaDeEntrega, p, true)).toContain("No hay ningún pedido en curso");
+    expect(bloqueDelPlan(lecturaDeEntrega, p, true)).not.toContain("Si ya venía");
+  });
+
+  it("con un pedido confirmado manda continuarlo, se sepa o no del resto", () => {
+    // `true` es evidencia positiva: ahí no hay ambigüedad que representar.
+    const p = planDelTurno(lecturaDeEntrega, true);
+
+    expect(bloqueDelPlan(lecturaDeEntrega, p, false)).toContain("en el MISMO mensaje");
+    expect(bloqueDelPlan(lecturaDeEntrega, p, false)).not.toContain("Si ya venía");
+  });
+});

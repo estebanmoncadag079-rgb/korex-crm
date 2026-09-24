@@ -151,6 +151,70 @@ módulo volvería a pasar el día que alguien lo desconecte.
 
 ---
 
+## Segunda ronda: los tres bloqueadores de la auditoría
+
+La primera entrega se auditó contra el plan y aparecieron tres huecos, todos
+de la misma familia: una defensa que dependía de que el modelo se portara bien,
+en vez de que el backend lo impidiera.
+
+**Bloqueador 1 — la pregunta perdía contra el producto.** `leerIntencion`
+detectaba el producto ANTES que la consulta, así que *"sería el besties,
+¿cuánto cuesta el domi?"* se leía como un pedido a secas y la pregunta de
+domicilio se quedaba sin contestar — el caso original, otra vez. Ahora la
+consulta se evalúa primero, pero con una distinción que antes no existía:
+**preguntar por la entrega no es lo mismo que elegirla.** *"¿cuánto cuesta el
+domicilio?"* es consulta; *"quiero el besties a domicilio"* es escoger la
+modalidad, y ese turno sigue siendo un pedido (`preguntaPorEntrega`). Y el
+producto no se pierde cuando gana la consulta: viaja en `productoMencionado` y
+el plan se lo recuerda al modelo — *"nombró el besties, no lo dejes caer"*.
+
+**Bloqueador 2 — el regalo era palabra del modelo.** `marcar_regalo` escribía
+`paraRegalo` sin comprobar nada. Ahora exige evidencia: *"es para un regalo"*,
+*"un detalle"*, *"un amigo secreto"* la aportan; *"lo necesito para el sábado"*
+o *"es para mí"* no. Y desmarcar exige una corrección compatible. Sin
+evidencia, se rechaza y el modelo pregunta.
+
+**Bloqueador 3 — el nombre confundía aparecer con proceder.** La defensa vieja
+solo frenaba el nombre del perfil; dejaba pasar *"es para Ana"* → `datos.nombre
+= "Ana"`, cuando Ana es la DESTINATARIA, no quien compra (la etiqueta lo dice:
+*"el nombre de quien lo pide"*). Ahora el backend mira la **procedencia**:
+
+| El cliente… | Verdicto |
+|---|---|
+| se identificó (*"soy Ana"*, *"me llamo Ana"*) | se guarda |
+| dio el nombre con su propio teléfono | se guarda |
+| respondió con el nombre suelto (*"Ana Gómez"*) | se guarda |
+| lo nombró como destinatario (*"es para Ana"*) | **no** — es un regalo, no el comprador |
+| lo negó (*"no me llamo Ana"*) | **no** |
+| nunca lo escribió / es el del perfil | **no** |
+
+Y la confirmación **no depende de la ventana de historial**: si el nombre ya se
+guardó, el estado mismo es la evidencia durable. Reafirmar un dato ya
+confirmado no vuelve a exigir la frase original, aunque hayan pasado veinte
+mensajes.
+
+**§7 — el plan viajaba disfrazado de cliente.** El bloque del plan se
+inyectaba como un `role:"user"` pelado, indistinguible de algo que hubiera
+escrito la persona. Ahora lleva el prefijo `[SISTEMA]`, el mismo canal por el
+que viaja TODO hecho verificado del pipeline (los `[SISTEMA]` de producto y de
+pago). Sigue siendo `role:"user"` a propósito: es la convención del código —
+mover un hecho verificado a `role:"system"` a mitad de conversación sería la
+excepción, no la regla, y los proveedores no lo tratan igual. La marca es lo
+que impide que el modelo lo lea como un turno del cliente.
+
+Los tres comparten una pregunta, la que gobierna la arquitectura:
+
+> **¿Esto es algo que el cliente confirmó, o algo que el modelo pudo inferir?**
+> Si es inferencia, no se confirma. Si el backend no puede saberlo, se
+> representa «no se sabe» — nunca se rellena.
+
+La traza determinista de los diez escenarios está en
+[`scripts/trazar-intencion.ts`](../../scripts/trazar-intencion.ts): corre sin
+base de datos, sin modelo y sin producción, y enseña para cada uno la
+intención, el plan, el prompt y el veredicto del backend.
+
+---
+
 ## Cómo revertir
 
 Todo el cambio es de código, sin migración y sin tocar datos. `git revert` del

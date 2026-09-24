@@ -296,3 +296,34 @@ describe("el pipeline usa la capa de intención (F1)", () => {
     expect(promptDelModelo()).not.toContain("PLAN DEL TURNO");
   });
 });
+
+/**
+ * Un pedido ya CONFIRMADO es terminal: el plan del turno no debe inyectarse.
+ * Un "¿cuánto demora?" tras confirmar dispara `consulta_entrega`, pero el turno
+ * lo gobierna el manejo de "ya fue confirmado", no la cadencia — pedirle al
+ * modelo que "continúe" un pedido cerrado es justo lo que se evita en citas y
+ * en el reinicio. Salió al correr la suite completa.
+ */
+describe("un pedido confirmado no recibe plan del turno", () => {
+  it("tras confirmar, '¿cuánto demora?' no inyecta el bloque", async () => {
+    const { estadoVacio } = await import("@/server/orders/estado");
+    estadoActual = {
+      ...estadoVacio(),
+      items: [
+        {
+          ofrecible: { id: "p1", nombre: "Pavé chocolate" },
+          cantidad: 1,
+          seleccion: [],
+          gruposDeclinados: [],
+        },
+      ],
+      paso: "confirmado",
+      confirmado: true,
+    };
+    versionActual = 5;
+
+    await turno("¿cuánto demora?");
+
+    expect(promptDelModelo()).not.toContain("PLAN DEL TURNO");
+  });
+});

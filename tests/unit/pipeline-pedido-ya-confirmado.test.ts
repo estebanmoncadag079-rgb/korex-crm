@@ -220,9 +220,12 @@ describe("Incidente real: notify_order es TERMINAL por pedido (Caso B — mensaj
     expect(clavesYaRegistradas.size).toBe(0);
 
     // El mensaje de corrección que vio el modelo es explícito: ya está
-    // confirmado, no lo repitas.
+    // confirmado, no lo repitas. (Desde la PR #13 el PLAN DEL TURNO es otro
+    // `[SISTEMA]`; aquí se busca la corrección, no "cualquier [SISTEMA]".)
     const segundaLlamada = chatJson.mock.calls[1]![1] as { role: string; content: string }[];
-    const correccion = segundaLlamada.find((m) => m.content.includes("[SISTEMA]"));
+    const correccion = segundaLlamada.find(
+      (m) => m.content.includes("[SISTEMA]") && !m.content.includes("PLAN DEL TURNO")
+    );
     expect(correccion?.content).toMatch(/YA fue confirmado/);
   });
 

@@ -76,9 +76,12 @@ describe("la tabla obligatoria del dueño", () => {
 describe("cómo escribe la gente de verdad", () => {
   it("el caso real que destapó el problema: pide Y pregunta a la vez", () => {
     // «seria el besties cuanto sale el domi?» — el sistema respondía "¿cuáles
-    // salsas desea?" sin contestar el domicilio.
+    // salsas desea?" sin contestar el domicilio. La pregunta de domicilio tiene
+    // prioridad conversacional AUNQUE el mensaje también nombre un producto.
     const r = leerIntencion("seria el besties cuanto sale el domi?", CARTA);
-    expect(r.intencion).toBe("pedido");
+    expect(r.intencion).toBe("consulta_entrega");
+    // …pero el producto no desaparece de la interpretación del turno.
+    expect(r.productoMencionado).toBe("BESTIES");
   });
 
   it("un saludo con consulta detrás es consulta, no saludo", () => {
@@ -100,6 +103,62 @@ describe("cómo escribe la gente de verdad", () => {
 
   it("lo que no encaja se marca como tal en vez de forzarlo", () => {
     expect(leerIntencion("gracias, muy amable", CARTA).intencion).toBe("otra");
+  });
+});
+
+/**
+ * Bloqueador 1 de la auditoría de la PR #13: una PREGUNTA sobre la entrega no
+ * es lo mismo que ELEGIR la entrega. "¿cuánto cuesta el domicilio?" pide
+ * respuesta; "quiero el besties a domicilio" es una selección de modalidad y
+ * el turno debe seguir siendo un pedido. Antes, cualquier aparición de
+ * "domicilio" que ganara al producto se habría vuelto una consulta.
+ */
+describe("pregunta de entrega ≠ selección de entrega", () => {
+  it('"quiero el besties a domicilio" NO es una consulta: es elegir la modalidad', () => {
+    const r = leerIntencion("quiero el besties a domicilio", CARTA);
+    expect(r.intencion).not.toBe("consulta_entrega");
+    expect(r.intencion).toBe("pedido");
+    expect(r.productoMencionado).toBe("BESTIES");
+  });
+
+  it('"me lo mandan a domicilio" tampoco es una consulta', () => {
+    expect(leerIntencion("me lo mandan a domicilio", CARTA).intencion).not.toBe(
+      "consulta_entrega"
+    );
+  });
+
+  it('"¿tienen domicilio?" SÍ es una consulta de entrega', () => {
+    const r = leerIntencion("¿tienen domicilio?", CARTA);
+    expect(r.intencion).toBe("consulta_entrega");
+    expect(r.esperaRespuesta).toBe(true);
+  });
+
+  it('"¿cuánto se demora el domicilio?" SÍ es una consulta de entrega', () => {
+    expect(leerIntencion("¿cuánto se demora el domicilio?", CARTA).intencion).toBe(
+      "consulta_entrega"
+    );
+  });
+
+  it('"quiero el besties a domicilio?" con signo no vuelca a consulta: "a domicilio" manda', () => {
+    // El signo de pregunta por costumbre no convierte una selección en consulta
+    // mientras no haya una palabra que de verdad indague (cuánto, cuesta…).
+    expect(leerIntencion("quiero el besties a domicilio?", CARTA).intencion).toBe("pedido");
+  });
+
+  it("una consulta gana al producto, pero el producto no se pierde", () => {
+    const r = leerIntencion("sería el Besties, pero ¿cuánto cuesta el domicilio?", CARTA);
+    expect(r.intencion).toBe("consulta_entrega");
+    expect(r.productoMencionado).toBe("BESTIES");
+  });
+
+  it("un pedido normal deja constancia del producto, sin consulta", () => {
+    const r = leerIntencion("quiero una churrita", CARTA);
+    expect(r.intencion).toBe("pedido");
+    expect(r.productoMencionado).toBe("CHURRITA");
+  });
+
+  it("sin producto ni consulta, productoMencionado es null", () => {
+    expect(leerIntencion("gracias", CARTA).productoMencionado).toBeNull();
   });
 });
 
@@ -274,5 +333,33 @@ describe("cuando el backend no sabe si hay un pedido en curso", () => {
 
     expect(bloqueDelPlan(lecturaDeEntrega, p, false)).toContain("en el MISMO mensaje");
     expect(bloqueDelPlan(lecturaDeEntrega, p, false)).not.toContain("Si ya venía");
+  });
+});
+
+/**
+ * §7 de la auditoría: el bloque del plan es una instrucción del BACKEND, no un
+ * mensaje del cliente. Viaja por el mismo canal que TODO hecho verificado del
+ * pipeline —`role:"user"` con prefijo `[SISTEMA]`— para que el modelo no lo
+ * confunda con algo que escribió la persona. Aquí se prueba la marca; que el
+ * mensaje real del cliente siga siendo distinto se prueba en el pipeline.
+ */
+describe("el plan viaja marcado como del sistema, no como del cliente", () => {
+  it("lleva el prefijo [SISTEMA], igual que los demás hechos verificados", () => {
+    const lectura = leerIntencion("cuanto sale el domi?", CARTA);
+    const bloque = bloqueDelPlan(lectura, planDelTurno(lectura, true))!;
+    expect(bloque.startsWith("[SISTEMA]")).toBe(true);
+  });
+
+  it("cuando la consulta trae un producto, se lo recuerda al modelo para que no lo deje caer", () => {
+    const lectura = leerIntencion("sería el Besties, pero ¿cuánto cuesta el domicilio?", CARTA);
+    const bloque = bloqueDelPlan(lectura, planDelTurno(lectura, false))!;
+    expect(bloque).toMatch(/BESTIES/);
+    expect(bloque).toMatch(/no lo dejes caer/i);
+  });
+
+  it("sin producto nombrado, no se inventa la línea del producto", () => {
+    const lectura = leerIntencion("cuanto sale el domi?", CARTA);
+    const bloque = bloqueDelPlan(lectura, planDelTurno(lectura, true))!;
+    expect(bloque).not.toMatch(/no lo dejes caer/i);
   });
 });

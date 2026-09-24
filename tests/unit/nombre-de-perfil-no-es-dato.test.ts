@@ -93,19 +93,9 @@ describe("el perfil de WhatsApp no se convierte en nombre del pedido", () => {
     expect(r.ok).toBe(true);
   });
 
-  it("un nombre DISTINTO del perfil se guarda sin mirar nada más", () => {
-    // El caso normal: la clienta da el nombre del destinatario del regalo.
-    const r = aplicarOperacion(
-      estadoVacio(),
-      fijarNombre("Ana"),
-      contexto("Luisa Duque", ["es para Ana"])
-    );
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.estado.datos.nombre).toBe("Ana");
-  });
-
-  it("sin nombre de perfil, la regla no se activa nunca", () => {
-    const r = aplicarOperacion(estadoVacio(), fijarNombre("Luisa Duque"), contexto(null, []));
+  it("sin nombre de perfil, la regla del perfil no se activa (pero sí la de procedencia)", () => {
+    // Sin perfil que comparar, un nombre que el cliente escribió se guarda.
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Luisa Duque"), contexto(null, ["soy Luisa Duque"]));
     expect(r.ok).toBe(true);
   });
 
@@ -126,5 +116,77 @@ describe("el perfil de WhatsApp no se convierte en nombre del pedido", () => {
     const con = aplicarOperacion(estadoVacio(), fijarNombre("Luisa Duque"), contexto("Luisa Duque", ["soy Luisa Duque"]));
     expect(sin.ok).toBe(false);
     expect(con.ok).toBe(true);
+  });
+});
+
+/**
+ * Bloqueador 3 de la auditoría: `datos.nombre` es el nombre de QUIEN PIDE
+ * (la etiqueta lo dice: "el nombre de quien lo pide"). No basta con que un
+ * nombre aparezca en algún mensaje — hay que distinguir la PROCEDENCIA:
+ *
+ *   el cliente se identificó       → se guarda
+ *   es el destinatario ("para Ana") → NO es el comprador
+ *   nunca apareció / lo negó        → no se guarda
+ *
+ * Y la confirmación no puede depender de que el mensaje siga dentro de la
+ * ventana de historial: si ya se guardó, el estado mismo es la evidencia (CA8).
+ */
+describe("datos.nombre exige procedencia del cliente, no aparición del texto", () => {
+  it('"es para Ana" NO convierte a Ana en el comprador (es la destinataria)', () => {
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Ana"), contexto("Luisa Duque", ["es para Ana"]));
+    expect(r.ok).toBe(false);
+  });
+
+  it("un nombre que el cliente nunca escribió no se guarda, aunque no sea el del perfil", () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Juan Pérez"),
+      contexto("Luisa Duque", ["quiero uno para Ana"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("un nombre suelto, como respuesta directa a '¿a nombre de quién?', SÍ se guarda", () => {
+    // No hay frame de destinatario ni negación: el mensaje ES el nombre.
+    const r = aplicarOperacion(estadoVacio(), fijarNombre("Ana Gómez"), contexto("Luisa Duque", ["Ana Gómez"]));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.estado.datos.nombre).toBe("Ana Gómez");
+  });
+
+  it("un nombre junto a su propio teléfono se guarda (son los datos del pedido)", () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Ana Gómez"),
+      contexto("Luisa Duque", ["Ana Gómez, 3155551234, Calle 5 # 12-34"])
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('"no me llamo Juan Pérez" NO es evidencia de que se llame así', () => {
+    const r = aplicarOperacion(
+      estadoVacio(),
+      fijarNombre("Juan Pérez"),
+      contexto("Luisa Duque", ["no me llamo Juan Pérez"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it("CA8: si ya se confirmó y guardó, sigue válido aunque la evidencia ya no esté en la ventana", () => {
+    // El cliente lo confirmó hace >20 mensajes; el valor ya vive en el estado.
+    // El estado ES la evidencia durable: reafirmarlo no vuelve a exigir la frase.
+    const yaConfirmado = { ...estadoVacio(), datos: { nombre: "Juan Pérez" } };
+    const r = aplicarOperacion(
+      yaConfirmado,
+      fijarNombre("Juan Pérez"),
+      contexto("Luisa Duque", ["gracias", "listo", "perfecto"])
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it("EL DETECTOR DETECTA: mismo 'Ana', destinataria rechaza / autoidentificada acepta", () => {
+    const destinataria = aplicarOperacion(estadoVacio(), fijarNombre("Ana"), contexto("Luisa Duque", ["es para Ana"]));
+    const ella = aplicarOperacion(estadoVacio(), fijarNombre("Ana"), contexto("Luisa Duque", ["soy Ana"]));
+    expect(destinataria.ok).toBe(false);
+    expect(ella.ok).toBe(true);
   });
 });

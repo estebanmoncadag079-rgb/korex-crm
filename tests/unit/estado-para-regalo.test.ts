@@ -29,7 +29,15 @@ const CONTEXTO: ContextoOperaciones = {
   catalogo: [],
   requisitos: [],
   modalidadesOfrecidas: ["domicilio", "recogida"],
+  // El backend solo escribe el regalo con evidencia del cliente (Bloqueador 2).
+  dichoPorElCliente: ["es para un regalo"],
 };
+
+/** Igual, pero con la evidencia que el turno necesite. */
+const conDicho = (dichoPorElCliente: string[]): ContextoOperaciones => ({
+  ...CONTEXTO,
+  dichoPorElCliente,
+});
 
 const conPedido = (extra: Partial<EstadoDelPedido> = {}): EstadoDelPedido => ({
   ...estadoVacio(),
@@ -57,7 +65,7 @@ describe("paraRegalo: un hecho que el cliente aporta, con contrato propio", () =
     const r = aplicarOperacion(
       conPedido({ paraRegalo: true }),
       { tipo: "marcar_regalo", esRegalo: false },
-      CONTEXTO
+      conDicho(["es para un regalo", "no, finalmente es para mí"])
     );
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.estado.paraRegalo).toBe(false);
@@ -81,6 +89,73 @@ describe("paraRegalo: un hecho que el cliente aporta, con contrato propio", () =
     // `estadoVacio()` es lo que deja `borrarEstado` en el reinicio por palabra
     // clave. No debe arrastrar el regalo del pedido anterior.
     expect(estadoVacio().paraRegalo).toBeUndefined();
+  });
+});
+
+/**
+ * Bloqueador 2 de la auditoría: `marcar_regalo` NO puede escribir el hecho solo
+ * porque el modelo lo proponga — el backend es la autoridad. Solo se acepta con
+ * evidencia de que el cliente lo dijo, y solo se desmarca con una corrección
+ * compatible. Sin evidencia, se rechaza: es preferible preguntar a inventar.
+ */
+describe("paraRegalo: el backend exige evidencia, no la palabra del modelo", () => {
+  const marcar = (esRegalo: boolean) => ({ tipo: "marcar_regalo", esRegalo }) as const;
+
+  it('"es para un regalo" es evidencia suficiente', () => {
+    expect(aplicarOperacion(conPedido(), marcar(true), conDicho(["es para un regalo"])).ok).toBe(true);
+  });
+
+  it('"es para un detalle" también', () => {
+    expect(aplicarOperacion(conPedido(), marcar(true), conDicho(["es para un detalle"])).ok).toBe(true);
+  });
+
+  it('"es para un amigo secreto" también', () => {
+    expect(
+      aplicarOperacion(conPedido(), marcar(true), conDicho(["es para un amigo secreto"])).ok
+    ).toBe(true);
+  });
+
+  it('"lo necesito para el sábado" NO es evidencia de regalo', () => {
+    const r = aplicarOperacion(conPedido(), marcar(true), conDicho(["lo necesito para el sábado"]));
+    expect(r.ok).toBe(false);
+  });
+
+  it('"es para mí" NO convierte el pedido en regalo', () => {
+    expect(aplicarOperacion(conPedido(), marcar(true), conDicho(["es para mí"])).ok).toBe(false);
+  });
+
+  it("el modelo propone true sin que el cliente lo diga → se rechaza", () => {
+    const r = aplicarOperacion(conPedido(), marcar(true), conDicho(["quiero dos cremosos"]));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.correccion).toMatch(/regalo/i);
+  });
+
+  it("desmarcar sin ninguna corrección del cliente → se rechaza", () => {
+    // El cliente dijo que era regalo y nunca se retractó: el modelo no puede
+    // borrarlo por su cuenta.
+    const r = aplicarOperacion(
+      conPedido({ paraRegalo: true }),
+      marcar(false),
+      conDicho(["es para un regalo"])
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('"finalmente no es para regalo" SÍ desmarca', () => {
+    const r = aplicarOperacion(
+      conPedido({ paraRegalo: true }),
+      marcar(false),
+      conDicho(["es para un regalo", "finalmente no es para regalo"])
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.estado.paraRegalo).toBe(false);
+  });
+
+  it("EL DETECTOR DETECTA: mismo marcar(true), la evidencia decide", () => {
+    const con = aplicarOperacion(conPedido(), marcar(true), conDicho(["es un regalo para mi mamá"]));
+    const sin = aplicarOperacion(conPedido(), marcar(true), conDicho(["me lo llevo el viernes"]));
+    expect(con.ok).toBe(true);
+    expect(sin.ok).toBe(false);
   });
 });
 

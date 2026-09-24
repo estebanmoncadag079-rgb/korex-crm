@@ -449,6 +449,125 @@ function esElPerfilSinQueLoDijera(valor: string, contexto: ContextoOperaciones):
   );
 }
 
+/**
+ * ¿El cliente dijo que el pedido es un regalo? — Bloqueador 2 de la auditoría.
+ *
+ * `marcar_regalo` es lo único del contrato que el modelo aportaba sin que el
+ * backend lo comprobara contra nada. Pero "el backend es la autoridad" también
+ * vale para un hecho blando: si el modelo puede inventar el nombre, puede
+ * inventar el regalo. Aquí está la evidencia que lo respalda.
+ *
+ * Deliberadamente corta y conservadora: "regalo"/"detalle"/"amigo secreto" son
+ * las formas en que la gente lo dice. "lo necesito para el sábado" no lo es, y
+ * "es para mí" tampoco.
+ */
+const EVIDENCIA_REGALO = [
+  /\bregal(o|os|ar|ito|itos)\b/,
+  /\bobsequi/,
+  /amig[oa] secret[oa]/,
+  /\bpara (un |el |mi |)detalle\b/,
+  /\bde detalle\b/,
+  /\bsorpresa\b/,
+];
+function hayEvidenciaDeRegalo(textos: readonly string[]): boolean {
+  return textos.some((t) => {
+    const n = normalizarNombre(t);
+    return EVIDENCIA_REGALO.some((re) => re.test(n));
+  });
+}
+
+/**
+ * ¿El cliente CORRIGIÓ y dijo que NO es un regalo?
+ *
+ * Simétrico al de arriba: desmarcar el regalo también es escribir en el estado,
+ * y también exige evidencia. Una negación ("no es para regalo") o decir que es
+ * para sí mismo ("finalmente es para mí") cuentan; un `marcar_regalo(false)`
+ * que el modelo suelte sin que el cliente se retracte, no.
+ */
+const EVIDENCIA_NO_REGALO = [
+  /\bno\b[^.]{0,20}\bregal/,
+  /\bpara m[ií]\b/,
+  /\bpara mi mism/,
+  /\bpara mi consumo\b/,
+];
+function hayEvidenciaDeNoRegalo(textos: readonly string[]): boolean {
+  return textos.some((t) => {
+    const n = normalizarNombre(t);
+    return EVIDENCIA_NO_REGALO.some((re) => re.test(n));
+  });
+}
+
+function escaparRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * ¿El nombre aparece SUELTO en el texto, y no solo como destinatario?
+ *
+ * "Ana Gómez" (respuesta a "¿a nombre de quién?") aparece suelto; el "Ana" de
+ * "es para Ana" no — está dentro de un marco de destinatario. Se quitan esos
+ * marcos y se mira si el nombre sigue estando por su cuenta.
+ */
+function apareceLibre(textoNormalizado: string, valorNormalizado: string): boolean {
+  const v = escaparRegex(valorNormalizado);
+  const sinDestinatario = textoNormalizado.replace(
+    new RegExp(`\\bpar[ae]\\b[^.]{0,15}?\\b${v}\\b`, "g"),
+    " "
+  );
+  return new RegExp(`\\b${v}\\b`).test(sinDestinatario);
+}
+
+/**
+ * ¿El nombre propuesto para el requisito "nombre" viene DEL CLIENTE? —
+ * Bloqueador 3 de la auditoría.
+ *
+ * `datos.nombre` es "el nombre de quien lo pide". No basta con que un nombre
+ * aparezca en el texto: hay que distinguir la PROCEDENCIA, porque tres cosas
+ * distintas se parecen en la superficie:
+ *
+ *   contact.name (el perfil de WhatsApp)  → NO lo confirmó el cliente
+ *   el destinatario ("es para Ana")       → NO es quien compra
+ *   una inferencia del modelo             → NO es evidencia
+ *
+ * La confirmación tampoco puede depender de que la frase siga dentro de la
+ * ventana de historial (`HISTORY_LIMIT`): si el dato ya se guardó, el estado
+ * mismo ES la evidencia durable (CA8). Por eso el primer chequeo mira el
+ * estado, no el texto.
+ *
+ * Conservador por diseño: ante la duda, devuelve `false` y el turno vuelve a
+ * preguntar. Volver a pedir un nombre molesta; inventarlo corrompe el pedido.
+ */
+function nombreTieneProcedenciaDeCliente(
+  valor: string,
+  estadoActual: EstadoDelPedido,
+  requisitoId: string,
+  contexto: ContextoOperaciones
+): boolean {
+  const v = normalizarNombre(valor);
+  if (!v) return false;
+  // 0) Ya confirmado y guardado antes: el estado es la evidencia durable (CA8).
+  if (normalizarNombre(estadoActual.datos[requisitoId] ?? "") === v) return true;
+  const vEsc = escaparRegex(v);
+  const textos = (contexto.dichoPorElCliente ?? []).map(normalizarNombre);
+  // 4) Negado ("no me llamo X", "no soy X"): jamás es evidencia positiva.
+  const negado = textos.some((t) =>
+    new RegExp(`\\bno\\b[^.]{0,12}(soy|me llamo|mi nombre|es)\\b[^.]{0,12}\\b${vEsc}\\b`).test(t)
+  );
+  if (negado) return false;
+  // 1) Se identificó ("soy X", "me llamo X", "mi nombre es X", "habla X").
+  const seIdentifico = textos.some((t) =>
+    new RegExp(`\\b(soy|me llamo|mi nombre es|le habla|habla)\\b[^.]{0,12}\\b${vEsc}\\b`).test(t)
+  );
+  if (seIdentifico) return true;
+  // 2) Dio el nombre junto a su propio teléfono, y no como destinatario.
+  const conTelefono = textos.some(
+    (t) => t.includes(v) && /\d{7,}/.test(t) && apareceLibre(t, v)
+  );
+  if (conTelefono) return true;
+  // 3) El nombre aparece suelto (no dentro de "para X"): respuesta directa.
+  return textos.some((t) => apareceLibre(t, v));
+}
+
 export function aplicarOperacion(
   estadoActual: EstadoDelPedido,
   operacion: Operacion,
@@ -600,9 +719,25 @@ function aplicarOperacionSinTotal(
           correccion: `[SISTEMA] Todavía falta ${requisito.etiqueta}.`,
         };
       }
-      // Compuerta 4: el perfil de WhatsApp es contexto, no un dato que el
-      // cliente haya confirmado. Ver `esElPerfilSinQueLoDijera`.
-      if (esElPerfilSinQueLoDijera(operacion.valor, contexto)) {
+      // Compuerta 4: procedencia del dato personal.
+      //
+      // Para el NOMBRE de quien pide (Bloqueador 3), no basta con que el valor
+      // aparezca en el texto: hay que saber que viene del cliente y no es un
+      // destinatario ("es para Ana"), el perfil de WhatsApp, o una inferencia.
+      // Para el resto de requisitos, la regla estrecha de siempre: el perfil de
+      // WhatsApp no se cuela como valor sin que el cliente lo dijera.
+      if (requisito.id === "nombre") {
+        if (!nombreTieneProcedenciaDeCliente(operacion.valor, estadoActual, requisito.id, contexto)) {
+          return {
+            ok: false,
+            motivo: `"${operacion.valor}" no consta como el nombre que dio quien hace el pedido`,
+            correccion:
+              "[SISTEMA] Ese nombre no consta como el de quien hace el pedido " +
+              "(el del perfil de WhatsApp, el de otra persona a la que va dirigido, o uno que nadie escribió no cuentan). " +
+              `Pregúntale ${requisito.etiqueta} en vez de darlo por sabido.`,
+          };
+        }
+      } else if (esElPerfilSinQueLoDijera(operacion.valor, contexto)) {
         return {
           ok: false,
           motivo: `"${operacion.valor}" es el nombre del perfil de WhatsApp y el cliente nunca lo dijo`,
@@ -633,10 +768,31 @@ function aplicarOperacionSinTotal(
       return { ok: true, estado: { ...estadoActual, modalidadDeEntrega: ofrecida } };
     }
 
-    case "marcar_regalo":
-      // Sin compuertas: el hecho lo aporta el cliente y no depende de nada
-      // del catálogo ni de la ficha.
+    case "marcar_regalo": {
+      // Compuerta de evidencia (Bloqueador 2): el hecho lo aporta el cliente,
+      // no el modelo. Marcar regalo exige que el cliente lo haya dicho;
+      // desmarcarlo, una corrección compatible. Sin evidencia no se toca —
+      // preguntar es mejor que inventar. No depende del catálogo ni de la ficha.
+      const dicho = contexto.dichoPorElCliente ?? [];
+      if (operacion.esRegalo && !hayEvidenciaDeRegalo(dicho)) {
+        return {
+          ok: false,
+          motivo: "el cliente no ha dicho que sea un regalo",
+          correccion:
+            "[SISTEMA] No marques el pedido como regalo si el cliente no lo ha dicho. " +
+            "Si crees que puede serlo, pregúntaselo en vez de darlo por hecho.",
+        };
+      }
+      if (!operacion.esRegalo && !hayEvidenciaDeNoRegalo(dicho)) {
+        return {
+          ok: false,
+          motivo: "no hay una corrección del cliente que quite el regalo",
+          correccion:
+            "[SISTEMA] No le quites la marca de regalo por tu cuenta: cámbiala solo si el cliente se corrige.",
+        };
+      }
       return { ok: true, estado: { ...estadoActual, paraRegalo: operacion.esRegalo } };
+    }
 
     case "confirmar":
       return { ok: true, estado: { ...estadoActual, confirmado: true } };

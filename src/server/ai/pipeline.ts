@@ -1446,7 +1446,15 @@ export async function runAgentTurn(
    * Para cubrir citas hace falta antes un equivalente de «reserva en curso»;
    * queda anotado, fuera de este lote.
    */
-  if (lastInbound.text && !contrataCitas(vertical)) {
+  /*
+   * Un pedido ya CONFIRMADO es terminal: no hay punto que continuar, y quien
+   * gobierna el turno es el manejo de "ya fue confirmado", no la cadencia.
+   * Meterle aquí un plan que diga "contesta y sigue con el pedido" le pediría
+   * al modelo continuar algo cerrado — el mismo error que evitamos en citas y
+   * en el reinicio. Encontrado al correr la suite: un "¿cuánto demora?" tras
+   * confirmar disparaba `consulta_entrega` y colaba el bloque.
+   */
+  if (lastInbound.text && !contrataCitas(vertical) && !estadoGuardado?.confirmado) {
     const lectura = leerIntencion(lastInbound.text, productosDelPedido);
     /*
      * Solo con el estado en el backend hay una fila que leer. Con

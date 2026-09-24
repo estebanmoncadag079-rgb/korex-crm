@@ -21,6 +21,15 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/lib/db/schema";
 import { newId } from "@/lib/db/ids";
+// Diagnóstico (DIAG=1): se reutilizan las MISMAS funciones que corre el
+// pipeline — no se reimplementa ninguna decisión.
+import { leerIntencion, planDelTurno, bloqueDelPlan } from "@/server/orders/intencion";
+import { requisitosPendientesDe } from "@/server/orders/extraer";
+import { puedeConfirmarPedido } from "@/server/orders/policy";
+import { leerFicha } from "@/server/ai/generador/leer-ficha";
+import { requisitosDe } from "@/server/ai/generador/ficha";
+import { catalogoDePedidos } from "@/server/catalog/queries";
+import { verticalDe, contrataCitas } from "@/server/vertical";
 
 function envVar(name: string): string | undefined {
   if (process.env[name]) return process.env[name];
@@ -651,6 +660,75 @@ const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(sql, { schema });
 const { runAgentTurn } = await import("@/server/ai/pipeline");
 
+/*
+ * Modo diagnóstico (DIAG=1): además del veredicto de reglas, imprime por cada
+ * turno la cadena que el auditor quiere observar sobre el sistema REAL —
+ * intención, plan, estado antes/después, requisitos pendientes y posibilidad
+ * de confirmar—, calculada con las MISMAS funciones que usa el pipeline. No
+ * reimplementa nada: `runAgentTurn` es quien de verdad corre el modelo y aplica
+ * las operaciones; esto solo observa las entradas reales y el estado real que
+ * quedó. La operación EXACTA que propuso el modelo y el bloque literal viven
+ * dentro de `runAgentTurn`; aquí se ve su efecto neto (estado antes → después).
+ */
+const DIAG = process.env.DIAG === "1";
+type Diag = { catalogo: Awaited<ReturnType<typeof catalogoDePedidos>>; requisitos: ReturnType<typeof requisitosDe>; exigir: boolean; minimoDomicilioCents?: number };
+let diag: Diag | null = null;
+if (DIAG) {
+  const prof = (
+    await db.select().from(schema.agentProfile).where(eq(schema.agentProfile.organizationId, organizationId))
+  )[0];
+  const ficha = prof?.ficha ? leerFicha(prof.ficha) : null;
+  const vertical = verticalDe(prof?.appointmentsEnabled ?? false);
+  diag = {
+    catalogo: await catalogoDePedidos(organizationId),
+    requisitos: ficha ? requisitosDe(ficha) : [],
+    exigir: prof?.stateSource === "backend" && !contrataCitas(vertical),
+    minimoDomicilioCents: (ficha as { entrega?: { minimoDomicilioCents?: number } } | null)?.entrega
+      ?.minimoDomicilioCents,
+  };
+}
+
+async function leerEstado(conversationId: string): Promise<Record<string, unknown> | null> {
+  const filas = await db
+    .select({ estado: schema.conversationState.estado })
+    .from(schema.conversationState)
+    .where(eq(schema.conversationState.conversationId, conversationId));
+  return (filas[0]?.estado as Record<string, unknown> | undefined) ?? null;
+}
+
+async function imprimirDiagnostico(
+  conversationId: string,
+  mensaje: string,
+  estadoDespues: Record<string, unknown> | null,
+  historia: { direction: string; text: string | null; createdAt: Date }[],
+  respuesta: string
+) {
+  if (!diag) return;
+  const lectura = leerIntencion(mensaje, diag.catalogo);
+  const hayPedido = Array.isArray(estadoDespues?.items) && (estadoDespues!.items as unknown[]).length > 0;
+  const plan = planDelTurno(lectura, hayPedido);
+  const bloque = bloqueDelPlan(lectura, plan, diag.exigir);
+  const pend = requisitosPendientesDe(estadoDespues as never, diag.requisitos, diag.exigir) ?? [];
+  const cierre = await puedeConfirmarPedido({
+    conversationId,
+    productosDelPedido: diag.catalogo,
+    history: historia,
+    estadoGuardado: estadoDespues as never,
+    requisitos: diag.requisitos,
+    ...(diag.minimoDomicilioCents ? { minimoDomicilioCents: diag.minimoDomicilioCents } : {}),
+  });
+  const l = (k: string, v: unknown) => console.log(`      ${k.padEnd(22)} ${v}`);
+  console.log(`   ── diagnóstico del turno ──`);
+  l("mensaje", mensaje);
+  l("intención", `${lectura.intencion} (${lectura.porque})${lectura.productoMencionado ? ` · producto: ${lectura.productoMencionado}` : ""}`);
+  l("plan", bloque ? `responderPrimero=${plan.responderPrimero} continuar=${plan.continuarEnElMismoMensaje}` : "(ninguno)");
+  l("requisitos pendientes", pend.map((r) => r.id).join(", ") || "(ninguno)");
+  l("¿puede confirmar?", cierre.ok ? "SÍ" : `NO — ${cierre.motivo}`);
+  l("procedenciaDelNombre", (estadoDespues?.procedenciaDelNombre as string) ?? "(sin procedencia)");
+  l("paraRegalo", String(estadoDespues?.paraRegalo ?? false));
+  l("respuesta", respuesta.slice(0, 120).replace(/\n/g, " | "));
+}
+
 type Falla = { escenario: string; regla: string; evidencia: string };
 const fallas: Falla[] = [];
 const transcripciones: Record<string, { quien: string; texto: string }[]> = {};
@@ -747,6 +825,21 @@ for (const esc of aProbar) {
       });
     }
     for (const m of nuevas) if (m.text) dialogo.push({ quien: "AGENTE", texto: m.text });
+
+    if (DIAG) {
+      const historia = dialogo.map((d) => ({
+        direction: d.quien === "CLIENTE" ? "in" : "out",
+        text: d.texto,
+        createdAt: new Date(),
+      }));
+      await imprimirDiagnostico(
+        conversation.id,
+        texto,
+        await leerEstado(conversation.id),
+        historia,
+        nuevas.map((m) => m.text ?? "").join(" | ")
+      );
+    }
   }
 
   transcripciones[esc.nombre] = dialogo;

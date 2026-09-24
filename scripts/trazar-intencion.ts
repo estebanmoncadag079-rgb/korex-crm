@@ -1,24 +1,28 @@
 /**
- * La traza determinista de los escenarios B–J de la auditoría de la PR #13.
+ * Traza de DECISIÓN del backend, escenarios A–M. NO es un test de comportamiento.
  *
- * §13 pide correr el laboratorio real y registrar, por escenario: el mensaje,
- * la intención detectada, el plan, el prompt, la operación propuesta, si el
- * backend la aceptó o la rechazó, y el estado final.
+ * ⚠️ QUÉ ES Y QUÉ NO ES — para no engañarse (auditoría, FASE 1):
  *
- * El laboratorio REAL necesita el túnel a producción y gasta saldo de
- * OpenRouter (el mismo que paga a los bots vivos) — y §10 dice "no tocar
- * producción". Así que esto traza lo que el backend DECIDE, que es lo que la
- * auditoría necesita comprobar y es 100% determinista: `leerIntencion`,
- * `planDelTurno`, `bloqueDelPlan`, `comoTexto` y las compuertas de
- * `aplicarOperaciones` corren sin base de datos y sin modelo. La "operación
- * propuesta" es la que el modelo emitiría en ese punto (escrita a mano, y
- * marcada como tal); lo que se PRUEBA es qué hace el backend con ella.
+ *   - Corre de VERDAD el backend que decide: `leerIntencion`, `planDelTurno`,
+ *     `bloqueDelPlan`, `comoTexto`, `requisitosPendientesDe` y las compuertas de
+ *     `aplicarOperaciones`. Eso es real y determinista.
+ *   - **La operación es una MUESTRA escrita a mano, NO la que emitiría el modelo
+ *     real.** Este script NO llama al modelo. Prueba "dado ESTE propósito, ¿qué
+ *     decide el backend?", no "¿qué propone el modelo?".
+ *   - Por eso B1 (intención/plan) sí queda demostrado de punta a punta aquí,
+ *     pero B2/B3 solo quedan demostrados en la parte del BACKEND (la compuerta
+ *     acepta/rechaza bien la muestra). Que el MODELO real proponga bien es lo
+ *     que comprueba `probar-escenarios.ts` (con DIAG=1) contra el sistema vivo.
+ *
+ * Ventaja: no toca base de datos, no llama al modelo, no gasta saldo y no roza
+ * producción. Sirve para razonar la lógica del backend, no para firmar que el
+ * bot desplegado se comporta bien — eso lo firma la prueba controlada en prod.
  *
  *   esbuild scripts/trazar-intencion.ts --bundle --platform=node --format=esm \
  *     --outfile=.tmp-traza.mjs --alias:@=./src --packages=external && node .tmp-traza.mjs
  */
 import { leerIntencion, planDelTurno, bloqueDelPlan } from "@/server/orders/intencion";
-import { comoTexto } from "@/server/orders/extraer";
+import { comoTexto, requisitosPendientesDe } from "@/server/orders/extraer";
 import { aplicarOperaciones, type Operacion, type ContextoOperaciones } from "@/server/orders/operaciones";
 import { estadoVacio, type EstadoDelPedido } from "@/server/orders/estado";
 import type { ProductoDelCatalogo } from "@/server/catalog/queries";
@@ -238,10 +242,15 @@ for (const e of ESCENARIOS) {
   console.log(bloque("bloque del plan (al modelo)", planTexto ?? "(ninguno)"));
   console.log(bloque("estado que ve el modelo", promptEstado));
   console.log(
-    bloque("operación propuesta (modelo)", e.propuesta ? JSON.stringify(e.propuesta) : "(ninguna)")
+    bloque(
+      "operación de MUESTRA (escrita a mano, NO del modelo real)",
+      e.propuesta ? JSON.stringify(e.propuesta) : "(ninguna)"
+    )
   );
   console.log(bloque("veredicto del backend", veredicto));
   console.log(bloque("estado final", JSON.stringify(estadoFinal)));
+  const pend = requisitosPendientesDe(estadoFinal as EstadoDelPedido, REQS, true) ?? [];
+  console.log(bloque("requisitos pendientes", pend.map((r) => r.id).join(", ") || "(ninguno)"));
 }
 
 console.log("\n" + "─".repeat(72));

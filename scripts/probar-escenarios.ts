@@ -664,6 +664,31 @@ const ESCENARIOS: Escenario[] = [
    *
    * ⚠️ Es de MALIA: correr con el filtro `malia` contra su organizationId.
    */
+  /*
+   * MALIA · Bug 4 (25-sep-2026): "¿hacen domicilio?" recibía la ficha entera
+   * (restricciones de conjuntos, quién paga, apps de reparto) en vez de una
+   * respuesta corta. La política completa está bien PARA EL RESUMEN; no para
+   * una pregunta suelta a mitad del pedido.
+   */
+  {
+    nombre: "MALIA · pregunta corta de domicilio, respuesta corta",
+    guion: ["hola, quiero un pavé cremoso de 8 oz de leche klim", "hacen domicilio?"],
+    espera: {
+      debeDecir: [
+        { que: /domicilio/i, porque: "preguntó por el domicilio: eso se contesta" },
+      ],
+      noDebeDecir: [
+        {
+          que: /conjuntos|centros comerciales|recepci[oó]n|apartamento/i,
+          porque: "las restricciones de entrega van en el resumen, no en una pregunta suelta",
+        },
+        {
+          que: /debe pagarlo junto con todo el pedido|antes de despachar/i,
+          porque: "la política de quién paga va en el resumen, no en una pregunta suelta",
+        },
+      ],
+    },
+  },
   {
     nombre: "MALIA · la hoja lista no aplaza el resumen",
     guion: [

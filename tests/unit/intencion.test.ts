@@ -337,6 +337,41 @@ describe("cuando el backend no sabe si hay un pedido en curso", () => {
 });
 
 /**
+ * "¿Hacen domicilio?" → una frase corta, no la ficha entera (Bug 4,
+ * 25-sep-2026). El backend YA sabe que es una consulta puntual
+ * (`consulta_entrega`); lo que faltaba era decirle al modelo CUÁNTO
+ * contestar. Sin esto, el modelo vuelca el bloque completo de la ficha
+ * ("## Cómo lo recibe": domicilio + restricciones + quién paga), que
+ * está pensado para el resumen del pedido, no para una pregunta suelta.
+ *
+ * Acotado a `consulta_entrega`: es donde se reportó el problema real. No
+ * se generaliza a horario/precio sin evidencia (regla del proyecto).
+ */
+describe("consulta_entrega: contesta corto, sin la política completa", () => {
+  const plan = (m: string, hayPedido: boolean) => {
+    const lectura = leerIntencion(m, CARTA);
+    return { lectura, plan: planDelTurno(lectura, hayPedido) };
+  };
+
+  it("añade la instrucción de brevedad, acotada a la entrega", () => {
+    const { lectura, plan: p } = plan("hacen domicilio?", true);
+    const bloque = bloqueDelPlan(lectura, p)!;
+    expect(bloque).toMatch(/corta|una frase|breve/i);
+    expect(bloque).toMatch(/restricciones|pol[íi]tica/i);
+  });
+
+  it("NO añade esa instrucción para horario ni precio (acotado a entrega)", () => {
+    const horario = plan("¿Qué horario tienen?", false);
+    const bloqueHorario = bloqueDelPlan(horario.lectura, horario.plan)!;
+    expect(bloqueHorario).not.toMatch(/restricciones|pol[íi]tica/i);
+
+    const precio = plan("que precios tienen los churros?", true);
+    const bloquePrecio = bloqueDelPlan(precio.lectura, precio.plan)!;
+    expect(bloquePrecio).not.toMatch(/restricciones|pol[íi]tica/i);
+  });
+});
+
+/**
  * §7 de la auditoría: el bloque del plan es una instrucción del BACKEND, no un
  * mensaje del cliente. Viaja por el mismo canal que TODO hecho verificado del
  * pipeline —`role:"user"` con prefijo `[SISTEMA]`— para que el modelo no lo

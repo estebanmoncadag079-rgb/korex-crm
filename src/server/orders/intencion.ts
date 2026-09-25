@@ -312,6 +312,25 @@ const TEMA: Partial<Record<Intencion, string>> = {
 };
 
 /**
+ * Instrucción de brevedad, SOLO para `consulta_entrega` (Bug 4, 25-sep-2026).
+ *
+ * El conocimiento del negocio trae el domicilio, sus restricciones y quién
+ * paga todo junto en un solo bloque ("## Cómo lo recibe", `generador/generar.ts`)
+ * — pensado para el RESUMEN del pedido, no para una pregunta suelta. Sin esta
+ * instrucción, "¿hacen domicilio?" recibía ese bloque entero. El backend ya
+ * sabe con certeza que la pregunta fue puntual (`consulta_entrega`); esto le
+ * dice al modelo CUÁNTO contestar, sin tocar la ficha ni quitarle al backend
+ * ninguna autoridad sobre precios o cifras.
+ *
+ * Acotado a `consulta_entrega` a propósito: es donde se reportó el problema
+ * real. No se generaliza a horario/precio sin evidencia de que les pase igual.
+ */
+const ACOTADO: Partial<Record<Intencion, string>> = {
+  consulta_entrega:
+    "Contesta en una frase corta si hacen domicilio o no (y el tiempo aproximado, si lo sabes). NO listes restricciones, política de quién paga el domicilio ni otras condiciones — eso va en el resumen final del pedido, no aquí. Si el cliente pregunta directamente por una de esas cosas, ahí sí contéstala.",
+};
+
+/**
  * El plan del turno, escrito para que lo lea el modelo.
  *
  * 24-sep-2026 — este módulo llevaba desde el 15-ago con sus pruebas en verde
@@ -366,6 +385,7 @@ export function bloqueDelPlan(
   const producto = lectura.productoMencionado
     ? `\nEl cliente además nombró ${lectura.productoMencionado}: tómalo como parte del pedido, no lo dejes caer por contestar la pregunta.`
     : "";
+  const acotado = ACOTADO[plan.responderPrimero] ? `\n${ACOTADO[plan.responderPrimero]}` : "";
   return (
     // `[SISTEMA]`: el mismo canal por el que viaja TODO hecho verificado del
     // pipeline (ver `pipeline.ts`, los `[SISTEMA]` de producto y de pago). Es
@@ -374,6 +394,7 @@ export function bloqueDelPlan(
     "[SISTEMA] PLAN DEL TURNO (lo decidió el servidor con lo que acaba de escribir el cliente):\n" +
     `🛑 Antes de pedirle nada más, CONTÉSTALE lo que preguntó: ${tema} (${lectura.porque}).\n` +
     seguir +
-    producto
+    producto +
+    acotado
   );
 }

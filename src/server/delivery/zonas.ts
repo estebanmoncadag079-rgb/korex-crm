@@ -47,6 +47,40 @@ function tokens(s: string): string[] {
     .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
 }
 
+/**
+ * Vocabulario de DIRECCIÓN: palabras que aparecen en cualquier dirección y por
+ * eso no identifican un barrio. Solo importan las de 4+ letras (las cortas ya
+ * no pueden ser distintivas, ver `esDistintivo`).
+ */
+const PALABRAS_DE_DIRECCION = new Set([
+  "calle", "carrera", "avenida", "avda", "diagonal", "transversal", "autopista",
+  "numero", "apto", "apartamento", "apartaestudio", "torre", "bloque", "piso",
+  "local", "oficina", "edificio", "edif", "conjunto", "casa", "manzana", "lote",
+  "etapa", "sector", "barrio", "unidad", "residencial", "urbanizacion", "ciudad",
+  "cali", "valle", "cauca", "colombia", "comuna", "norte", "oeste", "este",
+  "oriente", "occidente", "centro", "comercial", "center", "plaza", "mall",
+  "frente", "cerca", "entre", "esquina", "porteria", "recepcion", "universidad",
+  "clinica", "hospital", "colegio", "interior",
+]);
+
+/**
+ * ¿Esta palabra puede identificar un barrio por sí sola?
+ *
+ * 25-sep-2026, medido contra 49 direcciones REALES de pedidos cerrados de
+ * MALIA: sin esto, un número de la calle o una palabra de dirección bastaban
+ * para "encontrar" una zona. "Calle 119#20-66 Decepaz" → "20 de Julio" (por el
+ * "20"), "Carrera 94 2 1A-oeste" → "Alfonso López 1a Etapa" (cobró $10.000 en
+ * vez de $8.000), "…Centro, Cali" → "Calima"/"Calipso" (por "cali"). Con la
+ * verificación automática corriendo en TODO pedido a domicilio, eso es cobrar
+ * mal en silencio — peor que preguntar el barrio.
+ *
+ * Los números y la nomenclatura SÍ pueden desempatar (siguen contando en el
+ * `overlap`), pero nunca ser la única base de la coincidencia.
+ */
+function esDistintivo(t: string): boolean {
+  return /^[a-z]+$/.test(t) && t.length >= 4 && !PALABRAS_DE_DIRECCION.has(t);
+}
+
 function coincide(a: string, b: string): boolean {
   if (a === b) return true;
   const min = Math.min(a.length, b.length);
@@ -135,6 +169,12 @@ export function resolverZonaDeEntrega(
     if (!zt.length) continue;
     const overlap = zt.filter((t) => qt.some((u) => coincide(t, u))).length;
     if (!overlap) continue;
+    // Sin al menos una palabra DISTINTIVA en común —distintiva en la zona Y en
+    // lo que escribió el cliente—, no es esta zona: ver `esDistintivo`.
+    const hayDistintiva = zt.some(
+      (t) => esDistintivo(t) && qt.some((u) => esDistintivo(u) && coincide(t, u))
+    );
+    if (!hayDistintiva) continue;
     const ratio = overlap / zt.length;
     if (
       overlap > mejorPuntaje.overlap ||
@@ -192,6 +232,32 @@ export function textoDeResultadoDomicilio(consulta: string, resultado: Resultado
     return `[SISTEMA] "${consulta}" coincide con varias zonas registradas (${nombres}). Pregúntale al cliente cuál es, no asumas ninguna.`;
   }
   return `[SISTEMA] No encontré "${consulta}" entre las zonas de domicilio registradas. No inventes una tarifa: dile al cliente que vas a confirmar el valor del domicilio a esa zona, o pregúntale por una zona conocida.`;
+}
+
+export type PasoDelDomicilio = "cobrar" | "pedir-barrio" | "pasar-al-equipo";
+
+/**
+ * Qué hace el bot con el resultado de buscar la zona (instrucción del dueño,
+ * 25-sep-2026). La tabla está por BARRIOS: si la dirección no la identifica,
+ * se pide el barrio UNA vez; si aun así no hay tarifa, se pasa al equipo.
+ * Nunca se cierra ni se da un total sin el domicilio, y nunca se pregunta en
+ * bucle.
+ */
+export function siguientePasoDelDomicilio(p: {
+  resultado: ResultadoBusquedaZona;
+  barrioYaPedido: boolean;
+}): PasoDelDomicilio {
+  if (p.resultado.status === "found") return "cobrar";
+  return p.barrioYaPedido ? "pasar-al-equipo" : "pedir-barrio";
+}
+
+/** Hecho para el modelo cuando la dirección no identifica un barrio de la tabla. */
+export function textoDePedirBarrio(consulta: string, opciones?: ZonaDeEntrega[]): string {
+  const cuales =
+    opciones && opciones.length > 1
+      ? ` Coincide con varias zonas (${opciones.map((z) => z.nombre).join(", ")}): pregúntale cuál es.`
+      : "";
+  return `[SISTEMA] La dirección "${consulta}" no identifica un barrio de la tabla de domicilios, que está organizada por BARRIOS.${cuales} Pídele al cliente el barrio con estas palabras u otras equivalentes: "Por favor, dime el barrio para ayudarte con el total con el domicilio". No inventes una tarifa, no des un total y no cierres el pedido hasta tener el barrio.`;
 }
 
 /** Texto del hecho verificado tras `consultar_domicilio` con `recogida:true` — Fase 10V-X. */

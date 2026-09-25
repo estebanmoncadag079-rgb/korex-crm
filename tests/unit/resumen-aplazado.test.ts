@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   resumenAplazado,
+  ofreceResumen,
+  turnoSinAvance,
   CORRECCION_DE_RESUMEN_APLAZADO,
 } from "@/server/ai/anuncio-de-cierre";
 
@@ -46,9 +48,77 @@ describe("resumenAplazado: detecta que el agente promete el resumen y no lo mues
       "Voy a preparar el resumen de tu pedido.",
       "Enseguida te armo el resumen para confirmar.",
       "Dame un momento y preparo el resumen.",
+      // Medido con el modelo real (MALIA, 25-sep-2026): el mismo aplazamiento
+      // con otro verbo. Con "preparo/armo" solamente, se escapaba.
+      "Perfecto, Maye Díaz — guardé tu celular 3145602573. Ahora te muestro el resumen para que confirmes.",
+      "Ya te envío el resumen del pedido.",
+      "En un momento te paso el resumen.",
+      "Enseguida te comparto el resumen.",
     ]) {
       expect(resumenAplazado(t), t).toBe(true);
     }
+  });
+});
+
+/*
+ * Medido con el modelo real (MALIA, 25-sep-2026): con todo listo, el bot
+ * preguntó "¿Quieres que te muestre el resumen para confirmar?". No aplaza,
+ * OFRECE — una vuelta más que el cliente no pidió. Solo cuenta con la hoja
+ * lista (eso lo decide el backend en el pipeline); aquí solo el texto.
+ */
+describe("ofreceResumen: con la hoja lista, ofrecer el resumen es una vuelta de más", () => {
+  it("reconoce la oferta", () => {
+    for (const t of [
+      "Perfecto Maye 😊 Ya guardé tu nombre y tu celular (3145602573). ¿Quieres que te muestre el resumen para confirmar?",
+      "¿Te preparo el resumen del pedido?",
+      "¿Te envío el resumen?",
+    ]) {
+      expect(ofreceResumen(t), t).toBe(true);
+    }
+  });
+
+  it("no salta si el mensaje ya trae el resumen con total, ni en mensajes normales", () => {
+    expect(ofreceResumen("Resumen:\n• 2 × Pavé — $20.000\nTotal: $30.000\n¿Confirmas?")).toBe(false);
+    expect(ofreceResumen("¿Me das tu nombre y celular?")).toBe(false);
+    expect(ofreceResumen(null)).toBe(false);
+  });
+});
+
+/*
+ * Medido con el modelo real (MALIA, 25-sep-2026): con todo completo, el bot
+ * contestó "Perfecto, Maye Díaz ✅ Guardé tu nombre y celular." y nada más — ni
+ * resumen ni pregunta. La clienta no tiene nada que contestar: la venta se
+ * estanca igual que con "ahora te preparo el resumen", sin frase delatora.
+ */
+describe("turnoSinAvance: con la hoja lista, un mensaje sin resumen ni pregunta estanca el pedido", () => {
+  it("el caso medido", () => {
+    expect(
+      turnoSinAvance({
+        texto: "Perfecto, Maye Díaz ✅ Guardé tu nombre y celular.",
+        ultimaRespuestaPrevia: "Perfecto, guardé la dirección. ¿Me das tu nombre y celular?",
+      })
+    ).toBe(true);
+  });
+
+  it("si pregunta algo, avanza: no salta", () => {
+    expect(
+      turnoSinAvance({ texto: "Guardé tu nombre. ¿Pagas por transferencia o Nequi?", ultimaRespuestaPrevia: null })
+    ).toBe(false);
+  });
+
+  it("si trae el resumen con su total, no salta", () => {
+    expect(
+      turnoSinAvance({ texto: "Resumen… Total: $30.000. Confirma cuando quieras.", ultimaRespuestaPrevia: null })
+    ).toBe(false);
+  });
+
+  it("si el resumen YA se mostró en el mensaje anterior, no se repite (caso Natalia)", () => {
+    expect(
+      turnoSinAvance({
+        texto: "¡Listo, gracias! 😊",
+        ultimaRespuestaPrevia: "Resumen:\n• 2 × Pavé — $20.000\nTotal: $30.000\n¿Confirmas el pedido?",
+      })
+    ).toBe(false);
   });
 });
 

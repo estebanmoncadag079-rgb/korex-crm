@@ -678,6 +678,10 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
  */
 const PROMETE_RESUMEN: RegExp[] = [
   /\b(?:prepar\w+|arm\w+)\s+(?:el\s+|tu\s+|un\s+)?resumen\b/i,
+  // "Ahora te muestro / ya te envío / te paso / te comparto el resumen" — el
+  // mismo aplazamiento con otro verbo (medido con el modelo real, 25-sep-2026).
+  // Si el mensaje trae el resumen con su total, `TIENE_TOTAL` lo deja pasar.
+  /\bte\s+(?:muestr\w+|mostrar\w*|env[ií]\w+|pas[oa]\w*|compart\w+)\s+(?:el\s+|tu\s+|un\s+)?resumen\b/i,
 ];
 
 /**
@@ -696,9 +700,105 @@ export function resumenAplazado(texto: string | null | undefined): boolean {
   });
 }
 
+/**
+ * El agente OFRECE el resumen en vez de mostrarlo: "¿quieres que te muestre el
+ * resumen?". Medido con el modelo real (MALIA, 25-sep-2026). Con la hoja lista
+ * es una vuelta de más que el cliente no pidió. Solo el texto: si la hoja está
+ * lista lo decide el pipeline, y sin ella una oferta es correcta.
+ */
+export function ofreceResumen(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  if (TIENE_TOTAL.test(texto)) return false;
+  return /\b(?:prepar\w*|arm\w*|muestr\w*|mostrar\w*|env[ií]\w*|pas[oea]\w*|compart\w*)\s+(?:el\s+|tu\s+|un\s+)?resumen\b[^?]*\?/i.test(
+    texto
+  );
+}
+
+/**
+ * Con la hoja lista, el mensaje ni muestra el resumen ni pregunta nada: el
+ * cliente no tiene qué contestar y la venta se estanca. Medido con el modelo
+ * real (MALIA, 25-sep-2026): "Perfecto, Maye Díaz ✅ Guardé tu nombre y
+ * celular." y nada más.
+ *
+ * No salta si el resumen YA se mostró en el mensaje anterior del agente: ahí lo
+ * que toca es cerrar, no repetirlo (el caso Natalia, `confirmoPeroNoSeCerro`).
+ * Si la hoja está lista lo decide el pipeline; esto mira solo el texto.
+ */
+export function turnoSinAvance(input: {
+  texto: string | null | undefined;
+  ultimaRespuestaPrevia: string | null | undefined;
+}): boolean {
+  const texto = input.texto ?? "";
+  if (TIENE_TOTAL.test(texto) || texto.includes("?")) return false;
+  const previa = input.ultimaRespuestaPrevia ?? "";
+  if (TIENE_TOTAL.test(previa) || pideConfirmarPedido(previa)) return false;
+  return true;
+}
+
 /** La corrección cuando aplaza el resumen teniendo la hoja lista. */
 export const CORRECCION_DE_RESUMEN_APLAZADO =
-  "ALTO. Le dijiste al cliente que 'ahora preparas' el resumen, pero no lo mostraste en este mensaje: el cliente se queda esperando y el pedido no avanza. La hoja del pedido YA está completa. Muestra el resumen COMPLETO AHORA, en ESTE mismo mensaje —cada producto con su cantidad y precio, los datos de entrega, la línea del domicilio si aplica, y el total con su cifra— y pídele que confirme. No lo dejes para el mensaje siguiente. Responde ÚNICAMENTE el objeto JSON.";
+  "ALTO. Le dijiste al cliente que 'ahora preparas' el resumen, o le ofreciste mostrarlo, pero no lo mostraste en este mensaje: el cliente se queda esperando y el pedido no avanza. La hoja del pedido YA está completa. Muestra el resumen COMPLETO AHORA, en ESTE mismo mensaje —cada producto con su cantidad y precio, los datos de entrega, la línea del domicilio si aplica, y el total con su cifra— y pídele que confirme. No lo dejes para el mensaje siguiente. Responde ÚNICAMENTE el objeto JSON.";
+
+/* ============================================================
+ * El resumen sin el domicilio (25-sep-2026)
+ * ============================================================ */
+
+/**
+ * El resumen dice un "Total" que no suma el domicilio verificado.
+ *
+ * Caso real (MALIA, Maye Díaz): "Total: $20.000" con 2 pavés a domicilio — la
+ * clienta confirmó un total que no era el que iba a pagar. El cierre ya se
+ * comprueba (`inconsistenciaFinancieraDePedido`); el RESUMEN previo, que es lo
+ * que el cliente acepta, no. Solo mira mensajes que ya traen un total
+ * (`TIENE_TOTAL`); lo demás no es un resumen y no se toca.
+ */
+export function resumenSinDomicilio(input: {
+  texto: string | null | undefined;
+  subtotalCents: number;
+  feeCents: number;
+}): boolean {
+  if (!input.texto || !TIENE_TOTAL.test(input.texto)) return false;
+  const totalReal = input.subtotalCents + input.feeCents;
+  if (!figurasDeTotalEnCents(input.texto).includes(totalReal)) return true;
+  /*
+   * El total puede estar bien y aun así faltar la LÍNEA del domicilio: el
+   * cliente ve un total sin saber de dónde sale. Regla del dueño: el resumen
+   * lleva productos + domicilio + total. Medido con el modelo real (25-sep):
+   * "Barrio: Floralia … Total: $30.000", sin decir cuánto era el domicilio.
+   * Basta una línea que nombre el domicilio (o envío/tarifa) con su cifra.
+   */
+  const cifra = enPesos(input.feeCents).slice(1); // "10.000"
+  const muestraElDomicilio = input.texto
+    .split("\n")
+    .some((l) => /domicilio|env[íi]o|tarifa/i.test(l) && l.includes(cifra));
+  return !muestraElDomicilio;
+}
+
+/**
+ * Mientras se espera el barrio (se le pidió y aún no hay tarifa), el mensaje
+ * tiene que pedirlo. Medido con el modelo real (25-sep-2026): la clienta
+ * contestó con su nombre y el bot dijo "Ahora preparo el resumen con el total"
+ * — un total que no existe sin el barrio.
+ */
+export function faltaPedirElBarrio(input: {
+  texto: string | null | undefined;
+  entrega: { tipo: "domicilio" | "recogida"; feeCents: number | null; barrioPedido?: boolean } | null | undefined;
+}): boolean {
+  const e = input.entrega;
+  if (!(e?.tipo === "domicilio" && e.feeCents === null && e.barrioPedido === true)) return false;
+  return !/barrio/i.test(input.texto ?? "");
+}
+
+/** Si el modelo no lo pide ni corregido, la pregunta la pone el backend. */
+export const PREGUNTA_DEL_BARRIO = "Por favor, dime el barrio para ayudarte con el total con el domicilio 🙏";
+
+export const CORRECCION_DE_BARRIO_PENDIENTE =
+  "ALTO. Todavía falta el BARRIO de la entrega: la tabla de domicilios va por barrios y sin él no hay valor de domicilio ni total. No prometas el resumen ni des un total: pídele el barrio al cliente en este mensaje (\"Por favor, dime el barrio para ayudarte con el total con el domicilio\"). Responde ÚNICAMENTE el objeto JSON.";
+
+/** La corrección, con las cifras exactas del backend: el modelo copia, no suma. */
+export function correccionDeResumenSinDomicilio(c: { subtotalCents: number; feeCents: number }): string {
+  return `ALTO. El total de tu resumen no incluye el domicilio. Las cifras reales, calculadas por el sistema: productos ${enPesos(c.subtotalCents)} + domicilio ${enPesos(c.feeCents)} = total ${enPesos(c.subtotalCents + c.feeCents)}. Rehaz el resumen con la línea del domicilio y ese total exacto, sin sumar ni redondear por tu cuenta. Responde ÚNICAMENTE el objeto JSON.`;
+}
 
 /* ============================================================
  * Confirmó y no se cerró (3-sep-2026)
@@ -1070,6 +1170,11 @@ export type InconsistenciaFinanciera =
    * cifra fuera la CORRECTA y ninguno que estuviera.
    */
   | "domicilio-omitido"
+  /**
+   * Pedido a domicilio, negocio con tabla de zonas, y el cierre sin tarifa
+   * porque nunca se buscó (25-sep-2026, caso Maye). Ver el chequeo.
+   */
+  | "domicilio-pendiente-en-tabla"
   | "resumen-contradice-tarifa"
   | "subtotal-no-verificado"
   | "subtotal-no-coincide-con-el-carrito"
@@ -1326,6 +1431,35 @@ export function inconsistenciaFinancieraDePedido(input: {
     return "domicilio-omitido";
   }
 
+  /**
+   * Pedido A DOMICILIO en un negocio con tabla de zonas, y la tarifa no se
+   * verificó nunca: el cierre sale con los productos solos y el domicilio
+   * "pendiente de cotización" (25-sep-2026).
+   *
+   * Caso real (MALIA, Maye Díaz, cv_dgih82h6duslfe7be5gm): 2 pavés a
+   * domicilio, "Total: $20.000". Ningún código de arriba saltaba: todos
+   * comprueban la tarifa que el cierre TRAE, y este no traía ninguna. Donde
+   * hay tabla, el domicilio se busca antes de cerrar — siempre. En los
+   * negocios que cotizan aparte (`puedeVerificarDomicilio=false`), el
+   * domicilio pendiente sigue siendo lo normal y esto no aplica.
+   *
+   * Si una PERSONA del negocio ya dijo ese total en el chat, se respeta: es la
+   * misma excepción de abajo (el equipo cotizó a mano).
+   */
+  if (
+    input.puedeVerificarDomicilio &&
+    esPedidoADomicilio &&
+    // El cliente dijo explícitamente que RECOGE (consultar_domicilio con
+    // recogida:true): esa señal gana sobre una modalidad que no se actualizó.
+    // Cobrarle domicilio a quien recoge es peor que no detectar nada.
+    input.entregaPersistida?.tipo !== "recogida" &&
+    !zonaEfectiva &&
+    (deliveryFeeCents === undefined || deliveryFeeCents === null) &&
+    !(totalCents !== undefined && (input.totalesDichosPorUnaPersona ?? []).includes(totalCents))
+  ) {
+    return "domicilio-pendiente-en-tabla";
+  }
+
   if (subtotalCents !== undefined && totalCents !== undefined) {
     const esperado = subtotalCents + (deliveryFeeCents ?? 0);
     if (totalCents !== esperado) return "total-no-cuadra";
@@ -1531,6 +1665,9 @@ export function correccionDeInconsistenciaFinanciera(fallo: InconsistenciaFinanc
   }
   if (fallo === "domicilio-nunca-verificado") {
     return 'ALTO. Este pedido cobra un domicilio que NO se ha verificado en ningún momento de esta conversación: no puedes inventar ni recordar una tarifa. ANTES de cerrar, emite {"action":"consultar_domicilio","zona":"<la dirección o barrio que te dio el cliente>"} para que el servidor te dé la tarifa real. Si el cliente pasa a recoger, usa recogida:true. Responde ÚNICAMENTE el objeto JSON.';
+  }
+  if (fallo === "domicilio-pendiente-en-tabla") {
+    return 'ALTO. Este pedido va A DOMICILIO y el valor del domicilio todavía no se ha buscado: no se puede cerrar con los productos solos ni con el domicilio "pendiente". ANTES de cerrar, emite {"action":"consultar_domicilio","zona":"<el barrio o la dirección que te dio el cliente>"} para que el servidor te dé la tarifa real y el total. Si el cliente pasa a recoger, usa recogida:true. Responde ÚNICAMENTE el objeto JSON.';
   }
   if (fallo === "domicilio-omitido")
     return "ALTO. Este pedido va A DOMICILIO y su tarifa ya está verificada en esta conversación, pero notify_order no la cobra: falta deliveryFeeCents, y el summary y el farewell deben mostrar la línea del domicilio y un total que lo sume. No lo omitas — si el cliente cambió a recogida, usa consultar_domicilio con recogida:true en vez de dejarlo en blanco. Responde ÚNICAMENTE el objeto JSON.";

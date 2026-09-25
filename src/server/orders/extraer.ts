@@ -245,6 +245,72 @@ export function hojaListaParaResumen(input: {
 }
 
 /**
+ * La dirección de entrega que dio el cliente: el valor del requisito de TIPO
+ * `direccion` del negocio, se llame como se llame su id (cada negocio pone el
+ * suyo desde el CRM).
+ */
+export function direccionDelPedido(
+  estado: { datos: Record<string, string | undefined | null> } | null | undefined,
+  requisitos: Requisito[] | undefined
+): string | null {
+  if (!estado) return null;
+  for (const r of requisitos ?? []) {
+    if (r.tipo !== "direccion") continue;
+    const v = estado.datos[r.id]?.trim();
+    if (v) return v;
+  }
+  return null;
+}
+
+/** Misma dirección salvo mayúsculas y espacios. */
+export function mismaDireccion(a: string | null | undefined, b: string | null | undefined): boolean {
+  const n = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  return n(a) !== "" && n(a) === n(b);
+}
+
+/**
+ * ¿El backend debe verificar YA la tarifa del domicilio? (25-sep-2026)
+ *
+ * Caso real (MALIA, Maye Díaz): pedido a domicilio con dirección, la clienta
+ * nunca preguntó cuánto costaba el envío, y el resumen salió con el total de
+ * los productos solos. La verificación dependía de que el MODELO decidiera
+ * consultarla. Con tabla de zonas, la tarifa es un dato del backend: la busca
+ * él en cuanto tiene la dirección, pregunte el cliente o no.
+ *
+ * Solo en negocios con tabla (`delivery_source='tabla'`): donde el domicilio
+ * se cotiza aparte (por app), no hay nada que buscar. Se decide por
+ * configuración, nunca por el nombre del negocio.
+ */
+export function debeVerificarDomicilio(input: {
+  tieneTablaDeZonas: boolean;
+  modalidadDeEntrega: string | null | undefined;
+  direccion: string | null | undefined;
+  entrega:
+    | { tipo: "domicilio" | "recogida"; feeCents: number | null; direccion?: string | null; barrioPedido?: boolean }
+    | null
+    | undefined;
+}): boolean {
+  if (!input.tieneTablaDeZonas) return false;
+  if (!esModalidadADomicilio(input.modalidadDeEntrega)) return false;
+  if (!input.direccion?.trim()) return false;
+  const e = input.entrega;
+  // El cliente dijo explícitamente que recoge: no se le busca (ni cobra) domicilio.
+  if (e?.tipo === "recogida") return false;
+  if (e?.tipo === "domicilio" && mismaDireccion(e.direccion, input.direccion)) {
+    // Ya resuelta para esta dirección, o ya se le pidió el barrio por ella: no
+    // se repite la misma búsqueda (daría lo mismo). Lo siguiente lo trae el
+    // cliente con su barrio, o lo resuelve el cierre.
+    return false;
+  }
+  return true;
+}
+
+/** Mismo criterio que el guardarraíl de cierre (`esPedidoADomicilio`). */
+export function esModalidadADomicilio(modalidad: string | null | undefined): boolean {
+  return /domicilio|env[íi]o|entrega a/i.test(modalidad ?? "");
+}
+
+/**
  * El bloque que se le da al modelo en cada turno.
  *
  * Corto a propósito: sustituye instrucciones, no las añade. Si esto crece, el
@@ -435,10 +501,31 @@ export function comoTexto(
     const donde = e.zonaNombre ? ` a ${e.zonaNombre}` : "";
     return `\nENTREGA VERIFICADA: domicilio${donde} — tarifa ${cuanto} (la verificó el sistema, úsala tal cual).`;
   })();
+  /*
+   * El total que se le da al modelo, calculado COMPLETO por el backend.
+   *
+   * Hasta el 25-sep-2026 esto decía "TOTAL (…úsalo tal cual)" con el subtotal
+   * de productos aun con el domicilio verificado, y el modelo obedecía: fue el
+   * "Total: $20.000" de Maye Díaz (MALIA). Solo cambia cuando hay una entrega
+   * de DOMICILIO guardada, que solo escriben los negocios con tabla de zonas;
+   * sin ella (Lis, La Churra, citas) sale igual que siempre.
+   */
+  const entregaADomicilio = estado.entrega?.tipo === "domicilio" ? estado.entrega : null;
   const total =
     estado.totalCents === null
       ? ""
-      : `\nTOTAL (lo calculó el sistema, úsalo tal cual): $${(estado.totalCents / 100).toLocaleString("es-CO")}`;
+      : entregaADomicilio && typeof entregaADomicilio.feeCents === "number"
+        ? `\nPRODUCTOS ${enPesos(estado.totalCents)} + DOMICILIO ${enPesos(entregaADomicilio.feeCents)} = TOTAL ${enPesos(
+            estado.totalCents + entregaADomicilio.feeCents
+          )} (lo calculó el sistema, úsalo tal cual; el resumen muestra las tres líneas).`
+        : entregaADomicilio
+          ? `\nPRODUCTOS (lo calculó el sistema): ${enPesos(estado.totalCents)} — el domicilio aún no tiene valor: esto NO es el total, no lo presentes como total ni cierres el pedido.`
+          : `\nTOTAL (lo calculó el sistema, úsalo tal cual): $${(estado.totalCents / 100).toLocaleString("es-CO")}`;
+  // Ya se le pidió el barrio y no lo ha dado: es lo primero que falta, antes
+  // que cualquier resumen (la tabla de domicilios va por barrios).
+  if (entregaADomicilio && entregaADomicilio.feeCents === null && entregaADomicilio.barrioPedido) {
+    falta.unshift("el barrio de la entrega (la tabla de domicilios va por barrios; sin él no hay total)");
+  }
   const encabezado = vertical === "citas" ? "CITA EN CURSO" : "PEDIDO EN CURSO";
 
   /*

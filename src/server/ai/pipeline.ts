@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -309,6 +309,65 @@ export function entrantesSinResponder<
   }
   const ultimoSaliente = history.map((m) => m.direction).lastIndexOf("out");
   return history.slice(ultimoSaliente + 1).filter((m) => m.direction === "in");
+}
+
+/**
+ * ¿Se debe SUPRIMIR esta respuesta porque el cliente mandó mensajes nuevos
+ * mientras el turno pensaba? (Bug 3, supersesión).
+ *
+ * El cliente escribe en ráfaga y el modelo tarda 15-30 s; un mensaje que llega
+ * durante ese rato se volvía un turno aparte y generaba una segunda respuesta
+ * casi idéntica. Si al ir a enviar hay entrantes nuevos, esta respuesta ya
+ * nació incompleta: no se envía, y el turno que la cola ya encoló para esos
+ * mensajes contesta TODO junto, una sola vez. Solo se suprime un `reply`
+ * conversacional: una acción con efecto (cierre, cita, handoff…) nunca.
+ */
+export function debeSuprimirRespuesta(input: {
+  action: string;
+  hayEntrantesNuevos: boolean;
+}): boolean {
+  return input.action === "reply" && input.hayEntrantesNuevos;
+}
+
+/**
+ * Los entrantes que este turno NO procesó — decidido por IDENTIDAD, nunca por
+ * hora.
+ *
+ * ⚠️ 25-sep-2026: la primera versión decidía "nuevo" con `created_at > marca`.
+ * Postgres guarda microsegundos (`.420650`) y la marca es un Date de JS
+ * (milisegundos, `.420`): el propio mensaje procesado salía "más nuevo" que la
+ * marca, cada reply se suprimía a sí mismo y el bot quedó MUDO en todos los
+ * negocios ~3,5 h (revertido en PR #20). La hora solo sirve para acotar la
+ * consulta; quién es nuevo lo dice el ID.
+ */
+export function entrantesNoProcesados<T extends { id: string }>(
+  entrantes: T[],
+  idsProcesados: ReadonlySet<string>
+): T[] {
+  return entrantes.filter((m) => !idsProcesados.has(m.id));
+}
+
+/**
+ * Los entrantes de la conversación desde `desde` (INCLUSIVO), leídos frescos de
+ * la base: el `history` del turno se cargó ANTES de la llamada al modelo y no
+ * incluye lo que llegó mientras tanto. Inclusivo a propósito: la marca está
+ * truncada a milisegundos, así que `>=` nunca deja fuera un mensaje real; el
+ * que sobra (el propio procesado) lo descarta `entrantesNoProcesados` por ID.
+ */
+export async function entrantesDesde(
+  conversationId: string,
+  desde: Date
+): Promise<{ id: string }[]> {
+  return getDb()
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.conversationId, conversationId),
+        eq(schema.message.direction, "in"),
+        gte(schema.message.createdAt, desde)
+      )
+    );
 }
 
 /**
@@ -3921,6 +3980,40 @@ export async function runAgentTurn(
     }
     action = accionRescatada;
     agregarGuardarrail(traza, "salida_degenerada", true);
+  }
+
+  /*
+   * Supersesión (Bug 3): el cliente escribió mensajes nuevos mientras el modelo
+   * pensaba. Esta respuesta ya nació incompleta, así que NO se envía: el turno
+   * que la cola ya encoló para esos mensajes contestará todo junto, una sola
+   * vez (caso real Tatiana, 17-sep: dos "¿San Judas I o II?" con 8 s).
+   *
+   * "Nuevo" = entrante que este turno NO procesó (por ID, `entrantesNoProcesados`),
+   * nunca por hora — la versión por hora dejó al bot mudo (PR #20).
+   *
+   * Corre TAMBIÉN en `is_test`, a propósito: en el banco de escenarios los
+   * turnos van en serie, así que aquí nunca hay nuevos y NO debe suprimir. Que
+   * corra allí es lo que hace que cualquier escenario detecte si esto vuelve a
+   * silenciar al bot ("se quedó mudo") — la primera versión lo excluía y por eso
+   * ninguna prueba vio el silencio.
+   */
+  if (action.action === "reply") {
+    const nuevos = entrantesNoProcesados(
+      await entrantesDesde(conversation.id, hastaAqui),
+      pendientesIds
+    );
+    if (debeSuprimirRespuesta({ action: action.action, hayEntrantesNuevos: nuevos.length > 0 })) {
+      console.warn(
+        `[supersesion] ${conversationId}: ${nuevos.length} mensaje(s) nuevo(s) durante el turno; no se envía esta respuesta, contesta el siguiente turno`
+      );
+      // Red de seguridad: la ingesta ya encoló un turno al llegar el mensaje
+      // nuevo; volver a encolar (se fusiona por conversación) garantiza la
+      // respuesta aunque aquel encolado hubiera fallado.
+      await scheduleAgentTurn(conversation.id);
+      traza.accionFinal = "superseded";
+      registrarTrazaDelTurno(traza);
+      return null;
+    }
   }
 
   if (action.action === "move_stage") {

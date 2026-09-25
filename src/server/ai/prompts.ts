@@ -178,12 +178,23 @@ export function horarioLegible(
    */
   const cerrados = DIAS_DE_LA_SEMANA.filter((d) => !horario[d]);
   if (cerrados.length) {
-    partes.push(
-      `${cerrados.map((d) => DIAS_CORTOS[d - 1]).join(", ")} CERRADO (no ofrezcas nada esos días)`
-    );
+    partes.push(`${cerrados.map((d) => DIAS_CORTOS[d - 1]).join(", ")} CERRADO`);
   }
 
-  const base = `HORARIO DEL NEGOCIO (di exactamente esto si te preguntan, no lo redondees ni lo cambies): ${partes.join(" · ")}.`;
+  /*
+   * DATO e INSTRUCCIÓN, separados. Antes iban en la misma frase, con la orden
+   * metida entre paréntesis justo detrás de la etiqueta —"HORARIO DEL NEGOCIO
+   * (di exactamente esto si te preguntan...)"— y gpt-5-mini se la repetía al
+   * cliente al pie de la letra (incidente real, 24-sep-2026): el cliente veía
+   * la instrucción interna. La etiqueta va seguida SOLO del dato, que es lo
+   * único que se puede decir tal cual; la guía de cómo usarlo va aparte y
+   * marcada como "para TI, no se la repitas al cliente", igual que el resto de
+   * este prompt hace con lo interno.
+   */
+  const dato = `HORARIO DEL NEGOCIO: ${partes.join(" · ")}.`;
+  const guia =
+    " Instrucción para TI, no se la repitas al cliente: si te preguntan el horario, dilo tal cual —sin redondearlo ni cambiarlo— y no ofrezcas nada en los días marcados CERRADO.";
+  const base = `${dato}${guia}`;
   if (!citas) return base;
 
   return `${base} Para CITAS, esa hora de cierre es hasta cuándo se RECIBEN citas (el límite para EMPEZARLAS), no la hora en que el servicio debe estar terminado: se puede agendar hasta el cierre exacto y el servicio corre después si hace falta.`;

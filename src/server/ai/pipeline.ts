@@ -142,8 +142,13 @@ import {
   type Requisito,
 } from "@/server/ai/generador/ficha";
 import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
-import { comoTexto, requisitosPendientesDe } from "@/server/orders/extraer";
-import { bloqueDelPlan, leerIntencion, planDelTurno } from "@/server/orders/intencion";
+import { comoTexto, hojaListaParaResumen, requisitosPendientesDe } from "@/server/orders/extraer";
+import {
+  bloqueDelPlan,
+  leerIntencion,
+  pedidoQuedoAbandonado,
+  planDelTurno,
+} from "@/server/orders/intencion";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
   CORRECCION_DE_SALIDA_DEGENERADA,
@@ -182,6 +187,8 @@ import {
   correccionDeResumen,
   niegaDisponibilidadSinVerificar,
   resumenMalArmado,
+  resumenAplazado,
+  CORRECCION_DE_RESUMEN_APLAZADO,
   elClienteVioUnTotal,
   MENSAJE_RETIRADO,
   dijoOtroValorDeDomicilio,
@@ -1241,6 +1248,39 @@ export async function runAgentTurn(
       const filaDeEstado = await leerEstadoConVersion(conversation.id, organizationId);
       estadoGuardado = filaDeEstado?.estado ?? null;
       versionDeEstadoLeido = filaDeEstado?.version;
+      /*
+       * Reinicio por abandono (Bug 2, 25-sep-2026): un pedido con ítems que
+       * quedó de un día anterior y lleva varias horas sin actividad se da por
+       * abandonado y empieza limpio, conservando quién es el cliente
+       * (`estadoParaNuevoPedido`). No toca un pedido de la misma jornada ni uno
+       * que el cliente sigue armando pasada la medianoche —`pedidoQuedoAbandonado`
+       * exige otro día Y varias horas sin actividad, la decisión del dueño—.
+       * Es la red por tiempo que complementa el reinicio tras cierre del bot
+       * (PR #15, que ya cubre el caso en que el propio bot confirmó el anterior).
+       */
+      if (
+        estadoGuardado &&
+        estadoGuardado.items.length > 0 &&
+        filaDeEstado?.updatedAt instanceof Date &&
+        pedidoQuedoAbandonado(filaDeEstado.updatedAt, opts?.now ?? new Date())
+      ) {
+        const reiniciado = estadoParaNuevoPedido(estadoGuardado);
+        const guardado = await guardarEstado({
+          conversationId: conversation.id,
+          organizationId,
+          estado: reiniciado,
+          actor: "pipeline",
+          proceso: "reinicio-por-abandono",
+          versionEsperada: versionDeEstadoLeido,
+        });
+        if (guardado.ok) {
+          estadoGuardado = reiniciado;
+          versionDeEstadoLeido = (versionDeEstadoLeido ?? 0) + 1;
+          console.warn(
+            `[estado] ${organizationId}: pedido de un día anterior sin actividad reiniciado en ${conversation.id}`
+          );
+        }
+      }
       /*
        * Ahora sí se sabe cómo quiere recibirlo el cliente, así que los
        * requisitos se resuelven con las DOS mitades: lo que el negocio ofrece
@@ -3621,6 +3661,51 @@ export async function runAgentTurn(
       console.error(
         `[agente] el resumen sigue mal (${falloDeResumen}) tras la corrección; sale como está`
       );
+    }
+  }
+
+  /*
+   * Noveno guardarraíl: el resumen APLAZADO (Bug 5, 24-sep-2026, MALIA).
+   *
+   * Con la hoja del pedido ya completa, el agente PROMETE el resumen para más
+   * tarde —"ahora preparo el resumen"— en vez de mostrarlo. Estanca la venta
+   * (Diana Manrique: la clienta no volvió a escribir) o cierra sobre un "está
+   * bien" a un resumen que el cliente nunca vio (aymara cruz).
+   *
+   * Quién decide "la hoja está lista" es el BACKEND desde el ESTADO
+   * (`hojaListaParaResumen`: ítems resueltos, total calculado, requisitos
+   * completos, domicilio verificado si aplica), nunca el texto — el modelo solo
+   * redacta. Un aplazamiento con la hoja aún incompleta es correcto y no salta.
+   * Solo en pedidos y solo sobre `reply`: un `notify_order` ya cierra, no aplaza.
+   * Como los demás de esta familia, NO deriva a una persona si insiste.
+   */
+  if (!contrataCitas(vertical) && action.action === "reply") {
+    const pendientesParaResumen =
+      requisitosPendientesDe(estadoGuardado ?? null, requisitos, !contrataCitas(vertical)) ?? [];
+    const hojaLista = hojaListaParaResumen({
+      itemsResueltos: estadoGuardado?.items.length ?? 0,
+      totalCents: estadoGuardado?.totalCents,
+      requisitosPendientes: pendientesParaResumen.length,
+      entrega: estadoGuardado?.entrega ?? null,
+      modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+    });
+    if (hojaLista && resumenAplazado(textosAlCliente(action).join(" "))) {
+      console.warn(
+        `[agente] resumen aplazado con la hoja lista en ${conversationId}; rehaciendo el turno`
+      );
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: result.raw },
+        { role: "user", content: CORRECCION_DE_RESUMEN_APLAZADO },
+      ]);
+      await registrarUsoIa(
+        organizationId,
+        reintento.usage,
+        `conv:${conversationId}/resumen-aplazado`
+      );
+      if (reintento.ok && !resumenAplazado(textosAlCliente(reintento.data).join(" "))) {
+        action = reintento.data;
+      }
     }
   }
 

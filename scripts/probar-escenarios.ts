@@ -654,6 +654,40 @@ const ESCENARIOS: Escenario[] = [
       ],
     },
   },
+  /*
+   * MALIA · Bug 5 (24-sep-2026): con la hoja lista, el bot decía "ahora preparo
+   * el resumen" y se quedaba (Diana Manrique) o cerraba a ciegas sobre un "está
+   * bien" (aymara cruz). Domicilio a Floralia (que en producción verifica una
+   * tarifa real), producto real de 8 oz, y todos los datos: la hoja queda lista
+   * (domicilio verificado). El backend debe forzar el resumen —con su total— en
+   * el mismo turno, en vez de aplazarlo.
+   *
+   * ⚠️ Es de MALIA: correr con el filtro `malia` contra su organizationId.
+   */
+  {
+    nombre: "MALIA · la hoja lista no aplaza el resumen",
+    guion: [
+      "hola, quiero un pavé cremoso de 8 oz de leche klim",
+      "es para mí, a domicilio",
+      "Calle 72 -1 # 3 n 45 barrio floralia",
+      "cuánto me queda con el domicilio?",
+      "Diana Torres, 3145602573",
+    ],
+    espera: {
+      debeDecir: [
+        {
+          que: /total\b[^\n$]{0,40}\$\s*[\d]/i,
+          porque: "con la hoja lista, muestra el resumen con su total en el mismo turno — no lo aplaza",
+        },
+      ],
+      estadoFinal: [
+        {
+          que: (e) => Array.isArray(e?.items) && (e.items as unknown[]).length > 0,
+          porque: "el pedido tiene que haber quedado guardado",
+        },
+      ],
+    },
+  },
 ];
 
 const organizationId = process.argv[2]!;

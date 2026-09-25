@@ -659,6 +659,48 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
 }
 
 /* ============================================================
+ * El resumen APLAZADO (Bug 5, 24-sep-2026)
+ * ============================================================ */
+
+/**
+ * El agente PROMETE el resumen para más tarde —"ahora preparo el resumen"— en
+ * vez de mostrarlo en este turno. Con la hoja del pedido ya completa, ese
+ * aplazamiento estanca la venta (Diana Manrique: la clienta no volvió a
+ * escribir) o termina cerrando sobre un "está bien" a un resumen que el cliente
+ * nunca vio (aymara cruz). Misma familia que `prometeRecurso`/`prometeHumano`:
+ * el modelo anuncia algo que no hace en el mismo mensaje.
+ *
+ * Este detector es SOLO la mitad de texto. La otra mitad —si la hoja de verdad
+ * está lista para el resumen— la decide el BACKEND en `pipeline.ts` desde el
+ * estado (requisitos completos, ítems resueltos, total calculable), nunca desde
+ * el texto. Un mensaje que aplaza mientras la hoja aún NO está lista es
+ * correcto y no se rehace.
+ */
+const PROMETE_RESUMEN: RegExp[] = [
+  /\b(?:prepar\w+|arm\w+)\s+(?:el\s+|tu\s+|un\s+)?resumen\b/i,
+];
+
+/**
+ * `true` si alguna ORACIÓN (no una pregunta) promete preparar el resumen sin
+ * mostrarlo. Si el mensaje YA trae el total (`TIENE_TOTAL`), no aplazó nada: lo
+ * mostró, y no salta. Mismo criterio por-oración que `prometeRecurso`, para que
+ * una oferta ("¿te preparo el resumen?") no cuente como promesa.
+ */
+export function resumenAplazado(texto: string | null | undefined): boolean {
+  if (!texto) return false;
+  if (TIENE_TOTAL.test(texto)) return false;
+  const oraciones = texto.split(/(?<=[.!?])\s+|\n+/);
+  return oraciones.some((oracion) => {
+    if (oracion.includes("¿") || /\?\s*$/.test(oracion.trim())) return false;
+    return PROMETE_RESUMEN.some((re) => re.test(oracion));
+  });
+}
+
+/** La corrección cuando aplaza el resumen teniendo la hoja lista. */
+export const CORRECCION_DE_RESUMEN_APLAZADO =
+  "ALTO. Le dijiste al cliente que 'ahora preparas' el resumen, pero no lo mostraste en este mensaje: el cliente se queda esperando y el pedido no avanza. La hoja del pedido YA está completa. Muestra el resumen COMPLETO AHORA, en ESTE mismo mensaje —cada producto con su cantidad y precio, los datos de entrega, la línea del domicilio si aplica, y el total con su cifra— y pídele que confirme. No lo dejes para el mensaje siguiente. Responde ÚNICAMENTE el objeto JSON.";
+
+/* ============================================================
  * Confirmó y no se cerró (3-sep-2026)
  * ============================================================ */
 

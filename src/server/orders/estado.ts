@@ -553,7 +553,7 @@ function formaReconocida(guardado: unknown): guardado is EstadoDelPedido {
 async function leerFilaDeEstado(
   conversationId: string,
   organizationId?: string
-): Promise<{ estado: EstadoDelPedido; version: number } | null> {
+): Promise<{ estado: EstadoDelPedido; version: number; updatedAt: Date } | null> {
   const db = getDb();
   const condicion = organizationId
     ? scoped(
@@ -582,7 +582,7 @@ async function leerFilaDeEstado(
   if (guardado.schema_version > SCHEMA_VERSION) {
     return null;
   }
-  return { estado: guardado, version: fila.version };
+  return { estado: guardado, version: fila.version, updatedAt: fila.updatedAt };
 }
 
 export async function leerEstado(
@@ -603,7 +603,7 @@ export async function leerEstado(
 export async function leerEstadoConVersion(
   conversationId: string,
   organizationId?: string
-): Promise<{ estado: EstadoDelPedido; version: number } | null> {
+): Promise<{ estado: EstadoDelPedido; version: number; updatedAt: Date } | null> {
   return leerFilaDeEstado(conversationId, organizationId);
 }
 

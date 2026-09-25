@@ -233,6 +233,32 @@ export function pedidoSigueVigente(
   return dia(ultimaActividad) === dia(ahora);
 }
 
+/**
+ * Horas sin actividad para dar un pedido por abandonado. Varias horas a
+ * propósito: un cliente que sigue pidiendo pasada la medianoche pausa minutos,
+ * no horas — así el reinicio nunca le borra el carrito en mitad del pedido.
+ */
+export const HORAS_PARA_DAR_POR_ABANDONADO = 6;
+
+/**
+ * ¿Este pedido viejo quedó abandonado y debe reiniciarse? (Bug 2, 25-sep-2026)
+ *
+ * Decisión del dueño: reiniciar SOLO si se dan las dos cosas juntas —es de otro
+ * día (hora de Colombia) Y lleva `HORAS_PARA_DAR_POR_ABANDONADO` sin actividad—.
+ * El día por sí solo no basta: borraría el carrito de quien pide a las 11:50pm
+ * y sigue a las 12:10am. El mismo día tampoco reinicia, aunque hayan pasado
+ * horas: el cliente puede volver a retomar su pedido dentro de la jornada.
+ */
+export function pedidoQuedoAbandonado(
+  ultimaActividad: Date,
+  ahora: Date = new Date(),
+  timeZone = "America/Bogota"
+): boolean {
+  if (pedidoSigueVigente(ultimaActividad, ahora, timeZone)) return false;
+  const horasSinActividad = (ahora.getTime() - ultimaActividad.getTime()) / 3_600_000;
+  return horasSinActividad >= HORAS_PARA_DAR_POR_ABANDONADO;
+}
+
 /** Lo que toca hacer en este turno, con la intención y el estado delante. */
 export type PlanDelTurno = {
   /** Vaciar el pedido antes de nada. */

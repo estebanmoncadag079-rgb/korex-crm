@@ -206,6 +206,45 @@ export function requisitosPendientesDe(
 }
 
 /**
+ * ¿La hoja del pedido está lista para MOSTRAR el resumen? — la mitad de backend
+ * del Bug 5 (24-sep-2026).
+ *
+ * Lo decide el ESTADO, nunca el texto del modelo (Principio 7): ítems
+ * resueltos, subtotal calculado, requisitos obligatorios completos, y un total
+ * CALCULABLE incluyendo el domicilio. Si el pedido es a domicilio y la tarifa
+ * aún no está verificada, la hoja NO está lista — primero se verifica el
+ * domicilio (no se fuerza un resumen sin él). Recibe primitivos ya calculados
+ * por el pipeline para no reimplementar `requisitosPendientesDe` ni el total.
+ */
+export function hojaListaParaResumen(input: {
+  /** Cuántos ítems resueltos lleva el pedido. */
+  itemsResueltos: number;
+  /** El subtotal que el backend calculó contra el catálogo (`estado.totalCents`). */
+  totalCents: number | null | undefined;
+  /** Cuántos requisitos obligatorios faltan (de `requisitosPendientesDe`). */
+  requisitosPendientes: number;
+  /** La entrega ya verificada y persistida, si la hay. */
+  entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+  /** La modalidad que eligió el cliente, cuando no hay `entrega` verificada. */
+  modalidadDeEntrega?: string | null;
+}): boolean {
+  if (input.itemsResueltos <= 0) return false;
+  if (typeof input.totalCents !== "number" || !Number.isFinite(input.totalCents)) return false;
+  if (input.requisitosPendientes > 0) return false;
+
+  // El total tiene que ser completo: un domicilio sin tarifa verificada aún no
+  // tiene total, así que la hoja no está lista para el resumen.
+  const entrega = input.entrega;
+  if (entrega?.tipo === "domicilio") return typeof entrega.feeCents === "number";
+  if (entrega?.tipo === "recogida") return true;
+
+  // Sin entrega verificada, solo la recogida da un total seguro (= subtotal).
+  // Un domicilio sin verificar, o una modalidad desconocida, no está listo.
+  const modalidad = (input.modalidadDeEntrega ?? "").toLowerCase();
+  return /recog/.test(modalidad);
+}
+
+/**
  * El bloque que se le da al modelo en cada turno.
  *
  * Corto a propósito: sustituye instrucciones, no las añade. Si esto crece, el

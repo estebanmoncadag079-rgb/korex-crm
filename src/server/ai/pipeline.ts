@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db";
 import { newId } from "@/lib/db/ids";
 import { scoped } from "@/lib/db/tenant";
@@ -309,6 +309,47 @@ export function entrantesSinResponder<
   }
   const ultimoSaliente = history.map((m) => m.direction).lastIndexOf("out");
   return history.slice(ultimoSaliente + 1).filter((m) => m.direction === "in");
+}
+
+/**
+ * ¿Se debe SUPRIMIR esta respuesta porque el cliente mandó mensajes nuevos
+ * mientras el turno pensaba? (Bug 3, supersesión, 25-sep-2026).
+ *
+ * El cliente escribe en ráfaga y el modelo tarda 15-30 s; un mensaje que llega
+ * durante ese rato se vuelve un turno aparte y genera una segunda respuesta
+ * casi idéntica. Si al ir a enviar hay entrantes nuevos sin responder, esta
+ * respuesta ya nació incompleta: no se envía, y el turno que la cola ya encoló
+ * para esos mensajes contesta TODO junto, una sola vez. No aumenta el costo (la
+ * misma cantidad de turnos corre; solo se dejan de enviar las respuestas
+ * redundantes). Solo se suprime un `reply` conversacional: una acción con
+ * efecto (cierre, cita, handoff, mover etapa…) nunca se suprime.
+ */
+export function debeSuprimirRespuesta(input: {
+  action: string;
+  hayEntrantesNuevos: boolean;
+}): boolean {
+  return input.action === "reply" && input.hayEntrantesNuevos;
+}
+
+/**
+ * ¿Llegó algún mensaje entrante del cliente DESPUÉS de `marca`? Se consulta
+ * fresco contra la base al momento de enviar, porque el `history` del turno se
+ * cargó ANTES de la (lenta) llamada al modelo y no incluye lo que llegó
+ * mientras tanto. Es la señal de la supersesión (`debeSuprimirRespuesta`).
+ */
+async function hayEntrantesNuevosDesde(conversationId: string, marca: Date): Promise<boolean> {
+  const filas = await getDb()
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.conversationId, conversationId),
+        eq(schema.message.direction, "in"),
+        gt(schema.message.createdAt, marca)
+      )
+    )
+    .limit(1);
+  return filas.length > 0;
 }
 
 /**
@@ -3921,6 +3962,33 @@ export async function runAgentTurn(
     }
     action = accionRescatada;
     agregarGuardarrail(traza, "salida_degenerada", true);
+  }
+
+  /*
+   * Supersesión (Bug 3, 25-sep-2026): el cliente escribió mensajes nuevos
+   * mientras el modelo pensaba (tarda 15-30 s). Esta respuesta ya nació
+   * incompleta —contesta solo hasta `hastaAqui`—, así que NO se envía: el turno
+   * que la cola ya encoló para esos mensajes contestará TODO junto, una sola
+   * vez. Caso real Tatiana (17-sep): dos "¿San Judas I o II?" con 8 s de
+   * diferencia. Solo se suprime un `reply` (las acciones con efecto no); no
+   * corre en `is_test` (el banco y el Laboratorio ejecutan los turnos en serie,
+   * sin mensajes concurrentes). No aumenta el costo: la misma cantidad de turnos
+   * corre; solo se dejan de enviar las respuestas redundantes.
+   */
+  if (action.action === "reply" && !conversation.isTest) {
+    const hayNuevos = await hayEntrantesNuevosDesde(conversation.id, hastaAqui);
+    if (debeSuprimirRespuesta({ action: action.action, hayEntrantesNuevos: hayNuevos })) {
+      console.warn(
+        `[supersesion] ${conversationId}: llegaron mensajes nuevos durante el turno; no se envía esta respuesta, contesta el siguiente turno`
+      );
+      // Red de seguridad: la ingesta ya encoló un turno al llegar el mensaje
+      // nuevo; volver a encolar (se fusiona por conversación) garantiza que la
+      // ráfaga se conteste aunque aquel encolado hubiera fallado.
+      await scheduleAgentTurn(conversation.id);
+      traza.accionFinal = "superseded";
+      registrarTrazaDelTurno(traza);
+      return null;
+    }
   }
 
   if (action.action === "move_stage") {

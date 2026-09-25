@@ -176,9 +176,14 @@ describe("consultar_domicilio: resuelve la tarifa real contra delivery_zone", ()
     );
     const consulta = { action: "consultar_domicilio", zona: "Marte" };
     const respuesta = { action: "reply", text: "Voy a confirmar el valor del domicilio a esa zona, dame un momento." };
+    // 25-sep-2026: con tabla de zonas, "voy a confirmar el valor" ya no es una
+    // salida válida — la tabla va por barrios y se le pide el barrio. La
+    // respuesta de arriba dispara la corrección, y esta es la corregida.
+    const pideBarrio = { action: "reply", text: "Por favor, dime el barrio para ayudarte con el total con el domicilio." };
     chatJson
       .mockResolvedValueOnce({ ok: true, data: consulta, raw: JSON.stringify(consulta) })
-      .mockResolvedValueOnce({ ok: true, data: respuesta, raw: JSON.stringify(respuesta) });
+      .mockResolvedValueOnce({ ok: true, data: respuesta, raw: JSON.stringify(respuesta) })
+      .mockResolvedValueOnce({ ok: true, data: pideBarrio, raw: JSON.stringify(pideBarrio) });
 
     const { runAgentTurn } = await import("@/server/ai/pipeline");
     await runAgentTurn("cv_pedidos");
@@ -186,6 +191,9 @@ describe("consultar_domicilio: resuelve la tarifa real contra delivery_zone", ()
     // El mensaje inyectado al modelo debe decir explícitamente que no invente.
     const infoInyectada = chatJson.mock.calls[0]![1] as Array<{ content: string }>;
     expect(String(infoInyectada.at(-1)?.content ?? "")).toMatch(/no inventes/i);
+    // Y la corrección le pide el barrio, no "confirmar el valor".
+    const correccion = chatJson.mock.calls[2]![1] as Array<{ content: string }>;
+    expect(String(correccion.at(-1)?.content ?? "")).toMatch(/Todavía falta el BARRIO/);
   });
 });
 

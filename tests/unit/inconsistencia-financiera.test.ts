@@ -966,10 +966,15 @@ describe("el domicilio verificado no se puede dejar de cobrar", () => {
     ).toBeNull();
   });
 
-  it("sin ninguna verificación previa, tampoco dispara", () => {
+  it("sin ninguna verificación previa: no es 'omitido', pero tampoco pasa — falta buscar la tarifa", () => {
+    // Hasta el 25-sep-2026 esto daba null: un pedido A DOMICILIO en un negocio
+    // con tabla cerraba sin tarifa ("pendiente de cotización"). Fue el caso de
+    // Maye Díaz (MALIA): "Total: $20.000", solo productos. Decisión del dueño:
+    // con tabla, el domicilio se busca y se suma antes de confirmar. Ver
+    // `domicilio-siempre-incluido.test.ts`.
     expect(
       inconsistenciaFinancieraDePedido({ ...conDomicilioPersistido, entregaPersistida: null })
-    ).toBeNull();
+    ).toBe("domicilio-pendiente-en-tabla");
   });
 
   it("PREGUNTÓ LA TARIFA POR CURIOSIDAD y pidió para recoger: no se le cobra", () => {

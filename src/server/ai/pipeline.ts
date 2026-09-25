@@ -108,10 +108,9 @@ import { resolverMetodoDePago } from "@/server/pagos/metodo";
 import {
   resolverZonaDeEntrega,
   zonasDeEntregaQuery,
-  textoDeResultadoDomicilio,
-  textoDeResultadoRecogida,
   type ZonaDeEntrega,
 } from "@/server/delivery/zonas";
+import { verificarDomicilio } from "@/server/delivery/verificacion";
 import { contrataCitas, verticalDe, type Vertical } from "@/server/vertical";
 import {
   borrarEstado,
@@ -142,7 +141,14 @@ import {
   type Requisito,
 } from "@/server/ai/generador/ficha";
 import { capturar, faltantes as requisitosFaltantes } from "@/server/contacts";
-import { comoTexto, hojaListaParaResumen, requisitosPendientesDe } from "@/server/orders/extraer";
+import {
+  comoTexto,
+  debeVerificarDomicilio,
+  direccionDelPedido,
+  esModalidadADomicilio,
+  hojaListaParaResumen,
+  requisitosPendientesDe,
+} from "@/server/orders/extraer";
 import {
   bloqueDelPlan,
   leerIntencion,
@@ -189,6 +195,8 @@ import {
   resumenMalArmado,
   resumenAplazado,
   CORRECCION_DE_RESUMEN_APLAZADO,
+  ofreceResumen,
+  turnoSinAvance,
   elClienteVioUnTotal,
   MENSAJE_RETIRADO,
   dijoOtroValorDeDomicilio,
@@ -204,6 +212,11 @@ import {
   CORRECCION_DE_DATOS_DE_CUENTA,
   correccionDePropuestaRechazada,
   cifrasEnPesosDelTexto,
+  resumenSinDomicilio,
+  correccionDeResumenSinDomicilio,
+  faltaPedirElBarrio,
+  PREGUNTA_DEL_BARRIO,
+  CORRECCION_DE_BARRIO_PENDIENTE,
 } from "@/server/ai/anuncio-de-cierre";
 import { registrarUsoIa } from "@/server/usage";
 import { encolarTurno, siguePoseyendoElTrabajo } from "@/server/ai/cola";
@@ -526,6 +539,48 @@ export function toChatHistory(
     resultado.push({ role: "assistant", content: JSON.stringify({ action: "reply", text: texto }) });
   }
   return resultado;
+}
+
+type AccionQueContestaYSigue = Extract<
+  AgentActionType,
+  { action: "reply" | "provide_requirement" | "update_lead" }
+>;
+
+/**
+ * ¿La acción contesta al cliente en texto libre y sigue la conversación?
+ *
+ * Medido con el modelo real (MALIA, 25-sep-2026): a mitad del pedido, cuando el
+ * cliente da un dato, el bot contesta con `provide_requirement` (registra el
+ * dato Y contesta en `reply`), no con `reply`. Los guardarraíles de texto que
+ * miraban solo `reply` no veían esos mensajes — "Ahora te preparo el resumen"
+ * volvió a salir por esa puerta. Los que corrigen lo que el cliente LEE a mitad
+ * del pedido usan esta función, no `action === "reply"`.
+ */
+export function contestaYSigue(action: AgentActionType): action is AccionQueContestaYSigue {
+  return (
+    action.action === "reply" ||
+    action.action === "provide_requirement" ||
+    action.action === "update_lead"
+  );
+}
+
+/**
+ * Aplica la corrección de un guardarraíl de texto sin perder lo que la acción
+ * original registraba: si la original guardaba un dato y la corrección es un
+ * `reply`, se conserva el registro con el texto nuevo. Cualquier otra
+ * corrección (una acción completa distinta) la reemplaza.
+ */
+export function conTextoCorregido(
+  original: AgentActionType,
+  corregida: AgentActionType
+): AgentActionType {
+  if (
+    corregida.action === "reply" &&
+    (original.action === "provide_requirement" || original.action === "update_lead")
+  ) {
+    return { ...original, reply: corregida.text };
+  }
+  return corregida;
 }
 
 /** Los textos de una acción que llegan a ojos del cliente. */
@@ -2302,6 +2357,54 @@ export async function runAgentTurn(
    * una lista vacía y devuelve `not_found` para cualquier consulta, que es
    * el comportamiento seguro (nunca inventa una tarifa).
    */
+  /**
+   * El DOMICILIO lo busca el backend, no espera a que el cliente pregunte
+   * (25-sep-2026).
+   *
+   * Caso real (MALIA, Maye Díaz, cv_dgih82h6duslfe7be5gm): pedido a domicilio,
+   * dirección dada, nunca preguntó el valor del envío — y el resumen salió con
+   * "Total: $20.000", solo productos. La búsqueda solo ocurría si el MODELO
+   * emitía `consultar_domicilio`, y su contrato decía hacerlo cuando el cliente
+   * preguntara el precio. Con tabla de zonas, la tarifa es un dato del backend:
+   * en cuanto el pedido es a domicilio y hay dirección sin tarifa verificada
+   * para ella, el backend entra por el MISMO bucle de abajo (resolver, guardar,
+   * devolverle el hecho al modelo) y el modelo responde ya con productos +
+   * domicilio = total, o pidiendo el barrio si la dirección no está en la tabla.
+   *
+   * Solo sobre un `reply`: nunca reemplaza una acción con efecto. Y solo con
+   * `delivery_source='tabla'` y estado en backend — por configuración.
+   */
+  const hayTablaDeZonas = domicilioEstructurado && zonasDeEntrega.length > 0;
+  const direccionDelCliente = estadoEstructurado
+    ? direccionDelPedido(estadoGuardado, requisitos)
+    : null;
+  /**
+   * La acción que el modelo había decidido antes de que el backend buscara el
+   * domicilio. Medido con el modelo real (25-sep-2026): el turno en que la
+   * clienta da su dirección no suele ser un `reply` sino `provide_requirement`
+   * (registra el dato Y contesta). Si solo se miraba `reply`, la verificación no
+   * se disparaba justo en el turno que importa. Se guarda para no perder lo que
+   * esa acción registra: tras verificar, solo se le cambia el texto.
+   */
+  let accionAntesDeVerificar: AgentActionType | null = null;
+  if (
+    contestaYSigue(action) &&
+    estadoEstructurado &&
+    debeVerificarDomicilio({
+      tieneTablaDeZonas: hayTablaDeZonas,
+      modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+      direccion: direccionDelCliente,
+      entrega: entregaPersistida,
+    })
+  ) {
+    console.warn(
+      `[domicilio] ${organizationId}: pedido a domicilio con dirección y sin tarifa verificada; la busca el backend`
+    );
+    agregarGuardarrail(traza, "domicilio_verificado_por_backend", true);
+    accionAntesDeVerificar = action;
+    action = { action: "consultar_domicilio", zona: direccionDelCliente! };
+  }
+
   const MAX_CONSULTAS_DOMICILIO = 2;
   let consultasDomicilio = 0;
   /**
@@ -2331,47 +2434,29 @@ export async function runAgentTurn(
      * por omisión. `recogida:true` hace lo mismo para "el cliente ya no
      * quiere domicilio", sin pasar por el buscador de zonas.
      */
-    let infoZona: string;
-    let nuevaEntrega: EntregaVerificada;
-    if (action.recogida === true) {
-      resultadoZona = null;
-      console.warn(`[domicilio] ${organizationId}: cliente registrado como recogida (sin domicilio)`);
-      agregarHecho(traza, {
-        tipo: "domicilio",
-        consulta: "recogida",
-        resultado: "recogida",
-        origen: "backend",
-      });
-      infoZona = textoDeResultadoRecogida();
-      nuevaEntrega = {
-        tipo: "recogida",
-        zonaId: null,
-        zonaNombre: null,
-        feeCents: null,
-        verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
-        verificadoEn: new Date().toISOString(),
-      };
-    } else {
-      resultadoZona = resolverZonaDeEntrega(zonasDeEntrega, action.zona);
-      console.warn(
-        `[domicilio] ${organizationId}: zona="${action.zona}" status=${resultadoZona.status}`
-      );
-      agregarHecho(traza, {
-        tipo: "domicilio",
-        consulta: action.zona,
-        resultado: resultadoZona.status,
-        origen: "backend",
-      });
-      infoZona = textoDeResultadoDomicilio(action.zona, resultadoZona);
-      nuevaEntrega = {
-        tipo: "domicilio",
-        zonaId: resultadoZona.status === "found" ? resultadoZona.zona.id : null,
-        zonaNombre: resultadoZona.status === "found" ? resultadoZona.zona.nombre : null,
-        feeCents: resultadoZona.status === "found" ? resultadoZona.zona.feeCents : null,
-        verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
-        verificadoEn: new Date().toISOString(),
-      };
-    }
+    const verificacion = verificarDomicilio({
+      consulta: { zona: action.zona, recogida: action.recogida },
+      zonas: zonasDeEntrega,
+      hayTablaDeZonas,
+      direccionDelCliente,
+      entregaPrevia: entregaPersistida,
+      subtotalCents: estadoGuardado?.totalCents,
+      mensajeId: pendientes.at(-1)?.id ?? null,
+    });
+    resultadoZona = verificacion.resultado;
+    const infoZona = verificacion.infoZona;
+    const nuevaEntrega = verificacion.entrega;
+    console.warn(
+      `[domicilio] ${organizationId}: zona="${action.recogida === true ? "recogida" : action.zona}" status=${
+        resultadoZona?.status ?? "recogida"
+      } paso=${verificacion.paso}`
+    );
+    agregarHecho(traza, {
+      tipo: "domicilio",
+      consulta: action.recogida === true ? "recogida" : action.zona,
+      resultado: resultadoZona?.status ?? "recogida",
+      origen: "backend",
+    });
     if (domicilioEstructurado) {
       const guardado = await guardarEntregaVerificada({
         conversationId: conversation.id,
@@ -2399,6 +2484,27 @@ export async function runAgentTurn(
           `[domicilio] ${organizationId}: no se pudo persistir la verificación de domicilio (carrera perdida); sigue vigente solo este turno`
         );
       }
+    }
+    /**
+     * Ya se le pidió el barrio y sigue sin tarifa: aquí se pasa al equipo, con
+     * el motivo escrito para que sepan qué confirmar. Instrucción del dueño
+     * (25-sep-2026): preguntar el barrio una vez; si no lo da, se le pasa.
+     */
+    if (verificacion.paso === "pasar-al-equipo") {
+      console.warn(
+        `[domicilio] ${organizationId}: sin barrio de la tabla tras pedirlo; lo toma el equipo`
+      );
+      agregarGuardarrail(traza, "domicilio_sin_barrio", false);
+      await derivarAUnaPersona(conversation, {
+        reason: "modelo",
+        teamSummary: `Pedido a domicilio sin tarifa: se le pidió el barrio al cliente y no está en la tabla de domicilios (dijo: "${action.zona}"${
+          direccionDelCliente ? `; dirección: "${direccionDelCliente}"` : ""
+        }). Confírmale el valor del domicilio y el total.`,
+      });
+      registrarHandoff(traza, "domicilio_sin_barrio");
+      traza.accionFinal = "handoff";
+      registrarTrazaDelTurno(traza);
+      return { action: "handoff", reason: "error" };
     }
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     // Repetir el mismo hecho no lo saca del bucle: la segunda vez va la
@@ -2472,6 +2578,12 @@ export async function runAgentTurn(
       registrarTrazaDelTurno(traza);
       return { action: "handoff", reason: "error" };
     }
+  }
+  // La verificación la disparó el backend sobre una acción que registraba un
+  // dato: si el modelo contestó ahora con un `reply` simple, se conserva la
+  // acción original (su registro) con el texto nuevo, que ya trae el domicilio.
+  if (accionAntesDeVerificar) {
+    action = conTextoCorregido(accionAntesDeVerificar, action);
   }
 
   /**
@@ -2764,10 +2876,12 @@ export async function runAgentTurn(
      * sin verificar). Entonces no se adjunta nada y todo sigue como antes,
      * chequeos de texto incluidos.
      */
-    const cifrasDelBackend = bloqueDeCifrasVerificadas({
+    let cifrasDelBackend = bloqueDeCifrasVerificadas({
       subtotalCents: estadoGuardado?.totalCents,
       entrega: entregaPersistida,
     });
+    /** La corrección terminó pidiendo el barrio en vez de cerrar (ver abajo). */
+    let pidioElBarrioAlCerrar = false;
 
     const fallo = inconsistenciaFinancieraDePedido({
       cifrasLasEscribeElBackend: cifrasDelBackend !== null,
@@ -2814,37 +2928,35 @@ export async function runAgentTurn(
        * 14-sep, y del pedido de $48.000 de Brenda: la zona existía en la
        * tabla, solo que nadie la había consultado.
        */
+      /**
+       * Pedido a domicilio en un negocio con tabla que intenta cerrar sin haber
+       * buscado nunca la tarifa (caso Maye). La corrección no vuelve a pedir
+       * un cierre a ciegas: el backend busca la zona con la dirección que el
+       * cliente dio, aunque el modelo no lo haga.
+       */
+      const consultaDeLaCorreccion =
+        reintento.ok && reintento.data.action === "consultar_domicilio"
+          ? reintento.data
+          : fallo === "domicilio-pendiente-en-tabla" && direccionDelCliente
+            ? { action: "consultar_domicilio" as const, zona: direccionDelCliente }
+            : null;
       if (
-        fallo === "domicilio-nunca-verificado" &&
-        reintento.ok &&
-        reintento.data.action === "consultar_domicilio"
+        (fallo === "domicilio-nunca-verificado" || fallo === "domicilio-pendiente-en-tabla") &&
+        consultaDeLaCorreccion
       ) {
-        const pedido = reintento.data;
-        let infoZona: string;
-        let nuevaEntrega: EntregaVerificada;
-        if (pedido.recogida === true) {
-          resultadoZona = null;
-          infoZona = textoDeResultadoRecogida();
-          nuevaEntrega = {
-            tipo: "recogida",
-            zonaId: null,
-            zonaNombre: null,
-            feeCents: null,
-            verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
-            verificadoEn: new Date().toISOString(),
-          };
-        } else {
-          resultadoZona = resolverZonaDeEntrega(zonasDeEntrega, pedido.zona);
-          infoZona = textoDeResultadoDomicilio(pedido.zona, resultadoZona);
-          nuevaEntrega = {
-            tipo: "domicilio",
-            zonaId: resultadoZona.status === "found" ? resultadoZona.zona.id : null,
-            zonaNombre: resultadoZona.status === "found" ? resultadoZona.zona.nombre : null,
-            feeCents: resultadoZona.status === "found" ? resultadoZona.zona.feeCents : null,
-            verificadoEnMensajeId: pendientes.at(-1)?.id ?? null,
-            verificadoEn: new Date().toISOString(),
-          };
-        }
+        const pedido = consultaDeLaCorreccion;
+        const verificacion = verificarDomicilio({
+          consulta: { zona: pedido.zona, recogida: pedido.recogida },
+          zonas: zonasDeEntrega,
+          hayTablaDeZonas,
+          direccionDelCliente,
+          entregaPrevia: entregaPersistida,
+          subtotalCents: estadoGuardado?.totalCents,
+          mensajeId: pendientes.at(-1)?.id ?? null,
+        });
+        resultadoZona = verificacion.resultado;
+        const infoZona = verificacion.infoZona;
+        const nuevaEntrega = verificacion.entrega;
         console.warn(
           `[pedido] ${organizationId}: el modelo verificó el domicilio al corregir (zona="${
             pedido.recogida === true ? "recogida" : pedido.zona
@@ -2866,6 +2978,25 @@ export async function runAgentTurn(
           });
           if (guardado.ok) entregaPersistida = nuevaEntrega;
         }
+        if (verificacion.paso === "pasar-al-equipo") {
+          agregarGuardarrail(traza, "domicilio_sin_barrio", false);
+          await derivarAUnaPersona(conversation, {
+            reason: "modelo",
+            teamSummary: `Pedido a domicilio sin tarifa: se le pidió el barrio al cliente y no está en la tabla de domicilios (dijo: "${pedido.zona}"${
+              direccionDelCliente ? `; dirección: "${direccionDelCliente}"` : ""
+            }). Confírmale el valor del domicilio y el total antes de cerrar.`,
+          });
+          registrarHandoff(traza, "domicilio_sin_barrio");
+          traza.accionFinal = "handoff";
+          registrarTrazaDelTurno(traza);
+          return { action: "handoff", reason: "error" };
+        }
+        // Con la tarifa ya persistida, las cifras del cierre las vuelve a
+        // escribir el backend (antes se calculaban sin ella).
+        cifrasDelBackend = bloqueDeCifrasVerificadas({
+          subtotalCents: estadoGuardado?.totalCents,
+          entrega: entregaPersistida,
+        });
         reintento = await chatJson(AgentAction, [
           ...messages,
           { role: "assistant", content: JSON.stringify(pedido) },
@@ -2876,9 +3007,23 @@ export async function runAgentTurn(
           reintento.usage,
           `conv:${conversationId}/cierre-tras-verificar`
         );
+        /**
+         * La dirección no está en la tabla: no se cierra, se pide el barrio.
+         * Esto es un resultado CORRECTO del turno, no un fallo — no se deriva.
+         * Si el modelo no devuelve una pregunta, la pregunta la pone el backend.
+         */
+        if (verificacion.paso === "pedir-barrio") {
+          agregarGuardarrail(traza, "domicilio_pide_barrio", true);
+          action =
+            reintento.ok && reintento.data.action === "reply"
+              ? reintento.data
+              : { action: "reply", text: "Para darte el total con el domicilio, ¿me dices por favor el barrio? 🙏" };
+          pidioElBarrioAlCerrar = true;
+        }
       }
-      const reintentoFallo =
-        reintento.ok && reintento.data.action === "notify_order"
+      const reintentoFallo = pidioElBarrioAlCerrar
+        ? null
+        : reintento.ok && reintento.data.action === "notify_order"
           ? inconsistenciaFinancieraDePedido({
               cifrasLasEscribeElBackend: cifrasDelBackend !== null,
               summary: reintento.data.summary,
@@ -2894,7 +3039,9 @@ export async function runAgentTurn(
               totalesDichosPorUnaPersona,
             })
           : "total-no-cuadra";
-      if (reintento.ok && reintento.data.action === "notify_order" && !reintentoFallo) {
+      if (pidioElBarrioAlCerrar) {
+        // `action` ya es la pregunta del barrio: el pedido espera esa respuesta.
+      } else if (reintento.ok && reintento.data.action === "notify_order" && !reintentoFallo) {
         action = reintento.data;
         agregarGuardarrail(traza, "inconsistencia_financiera", true);
       } else {
@@ -3738,7 +3885,10 @@ export async function runAgentTurn(
    * Solo en pedidos y solo sobre `reply`: un `notify_order` ya cierra, no aplaza.
    * Como los demás de esta familia, NO deriva a una persona si insiste.
    */
-  if (!contrataCitas(vertical) && action.action === "reply") {
+  // `contestaYSigue`, no solo `reply`: medido con el modelo real (25-sep-2026),
+  // "Ahora te preparo el resumen" también sale dentro de un `provide_requirement`
+  // (el turno en que el cliente da su último dato).
+  if (!contrataCitas(vertical) && contestaYSigue(action)) {
     const pendientesParaResumen =
       requisitosPendientesDe(estadoGuardado ?? null, requisitos, !contrataCitas(vertical)) ?? [];
     const hojaLista = hojaListaParaResumen({
@@ -3748,7 +3898,14 @@ export async function runAgentTurn(
       entrega: estadoGuardado?.entrega ?? null,
       modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
     });
-    if (hojaLista && resumenAplazado(textosAlCliente(action).join(" "))) {
+    // Aplazar ("ahora te preparo el resumen") u OFRECER ("¿quieres que te
+    // muestre el resumen?") con la hoja lista son la misma vuelta de más.
+    // Y quedarse callado sin resumen ni pregunta (medido, 25-sep-2026: "Guardé
+    // tu nombre y celular." y nada más) estanca igual.
+    const noAvanza = (t: string) =>
+      resumenAplazado(t) || ofreceResumen(t) || turnoSinAvance({ texto: t, ultimaRespuestaPrevia });
+    const textoDelTurno = textosAlCliente(action).join(" ");
+    if (hojaLista && noAvanza(textoDelTurno)) {
       console.warn(
         `[agente] resumen aplazado con la hoja lista en ${conversationId}; rehaciendo el turno`
       );
@@ -3762,8 +3919,83 @@ export async function runAgentTurn(
         reintento.usage,
         `conv:${conversationId}/resumen-aplazado`
       );
-      if (reintento.ok && !resumenAplazado(textosAlCliente(reintento.data).join(" "))) {
-        action = reintento.data;
+      const textoCorregido = reintento.ok ? textosAlCliente(reintento.data).join(" ") : "";
+      if (reintento.ok && !noAvanza(textoCorregido)) {
+        action = conTextoCorregido(action, reintento.data);
+      }
+    }
+  }
+
+  /*
+   * Décimo guardarraíl: el resumen SIN el domicilio (25-sep-2026, MALIA).
+   *
+   * Caso Maye Díaz: "Total: $20.000" con 2 pavés a domicilio — la clienta
+   * confirmó un total que no era el que iba a pagar. El cierre ya se comprueba
+   * número contra número; el resumen previo, que es lo que el cliente acepta,
+   * no. Con la tarifa verificada, el total que diga el resumen tiene que ser
+   * subtotal + domicilio, y la corrección le da las tres cifras hechas: el
+   * modelo copia, no suma (Principio 7). Solo en negocios con tabla de zonas y
+   * pedidos a domicilio; NO deriva si insiste.
+   */
+  if (!contrataCitas(vertical) && contestaYSigue(action) && hayTablaDeZonas) {
+    const entrega = entregaPersistida;
+    const subtotal = estadoGuardado?.totalCents;
+    const texto = textosAlCliente(action).join("\n");
+    if (
+      entrega?.tipo === "domicilio" &&
+      typeof entrega.feeCents === "number" &&
+      typeof subtotal === "number" &&
+      esModalidadADomicilio(estadoGuardado?.modalidadDeEntrega) &&
+      resumenSinDomicilio({ texto, subtotalCents: subtotal, feeCents: entrega.feeCents })
+    ) {
+      console.warn(
+        `[agente] resumen con un total sin el domicilio en ${conversationId}; rehaciendo con las cifras del backend`
+      );
+      const cifras = { subtotalCents: subtotal, feeCents: entrega.feeCents };
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: JSON.stringify(action) },
+        { role: "user", content: correccionDeResumenSinDomicilio(cifras) },
+      ]);
+      await registrarUsoIa(organizationId, reintento.usage, `conv:${conversationId}/resumen-sin-domicilio`);
+      const corregido =
+        reintento.ok &&
+        reintento.data.action === "reply" &&
+        !resumenSinDomicilio({ texto: reintento.data.text, ...cifras });
+      agregarGuardarrail(traza, "resumen_sin_domicilio", corregido);
+      if (corregido && reintento.ok) action = conTextoCorregido(action, reintento.data);
+    }
+
+    /*
+     * Se le pidió el barrio y aún no hay tarifa: el mensaje tiene que pedirlo
+     * (medido, 25-sep-2026: "Ahora preparo el resumen con el total" sin barrio).
+     * Si ni corregido lo pide, la pregunta la agrega el backend: nunca queda un
+     * turno que prometa un total imposible.
+     */
+    if (
+      contestaYSigue(action) &&
+      faltaPedirElBarrio({ texto: textosAlCliente(action).join("\n"), entrega: entregaPersistida })
+    ) {
+      console.warn(`[agente] barrio pendiente y el mensaje no lo pide en ${conversationId}; rehaciendo`);
+      const reintento = await chatJson(AgentAction, [
+        ...messages,
+        { role: "assistant", content: JSON.stringify(action) },
+        { role: "user", content: CORRECCION_DE_BARRIO_PENDIENTE },
+      ]);
+      await registrarUsoIa(organizationId, reintento.usage, `conv:${conversationId}/barrio-pendiente`);
+      const corregido =
+        reintento.ok &&
+        contestaYSigue(reintento.data) &&
+        !faltaPedirElBarrio({ texto: textosAlCliente(reintento.data).join("\n"), entrega: entregaPersistida });
+      agregarGuardarrail(traza, "barrio_pendiente", corregido);
+      if (corregido && reintento.ok) {
+        action = conTextoCorregido(action, reintento.data);
+      } else if (contestaYSigue(action)) {
+        const texto = textosAlCliente(action).join("\n").trim();
+        action = conTextoCorregido(action, {
+          action: "reply",
+          text: texto ? `${texto}\n\n${PREGUNTA_DEL_BARRIO}` : PREGUNTA_DEL_BARRIO,
+        });
       }
     }
   }

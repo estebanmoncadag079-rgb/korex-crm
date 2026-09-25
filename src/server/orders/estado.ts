@@ -149,6 +149,23 @@ export type EntregaVerificada = {
   verificadoEnMensajeId: string | null;
   /** ISO. Cuándo se resolvió (o se invalidó) esta entrega. */
   verificadoEn: string;
+  /**
+   * La dirección del cliente PARA LA QUE se verificó (25-sep-2026). Si el
+   * cliente cambia de dirección, la tarifa vieja ya no vale y el backend
+   * vuelve a verificar. Opcional: una entrega guardada antes no la tiene, y
+   * por eso cuenta como no verificada para la dirección actual.
+   */
+  direccion?: string | null;
+  /**
+   * Ya se le pidió el barrio al cliente porque su dirección no estaba en la
+   * tabla. La siguiente vez que tampoco se resuelva, se pasa al equipo: el bot
+   * pregunta UNA vez, nunca en bucle.
+   */
+  barrioPedido?: boolean;
+  /** En cuántos mensajes distintos se le ha pedido el barrio (máx. 2 antes de pasar al equipo). */
+  vecesPedidoBarrio?: number;
+  /** La búsqueda que no encontró zona: repetirla no cuenta como respuesta del cliente. */
+  consultaSinZona?: string;
 };
 
 export type EstadoDelPedido = {

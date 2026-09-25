@@ -13,6 +13,60 @@ function zona(id: string, nombre: string, feeCents: number) {
   return { id, nombre, feeCents };
 }
 
+/**
+ * 25-sep-2026 — medido contra 49 direcciones REALES de pedidos cerrados de
+ * MALIA (con la tarifa que de verdad se cobró): el buscador daba por buena una
+ * zona apoyándose SOLO en un número de la calle o en una palabra de dirección.
+ * "Calle 119#20-66 Decepaz" → "20 de Julio" (por el "20"); "Carrera 94 2
+ * 1A-oeste" → "Alfonso López 1a Etapa" (cobró $10.000 en vez de $8.000);
+ * "… Centro, Cali" → "Calima"/"Calipso" (por "cali"). Con el backend
+ * verificando SIEMPRE, una coincidencia así cobra mal en silencio: es peor que
+ * preguntar el barrio.
+ */
+describe("resolverZonaDeEntrega: un número o una palabra de dirección no bastan", () => {
+  const ZONAS = [
+    zona("dz_20j", "20 de Julio", 1000000),
+    zona("dz_alf", "Alfonso López P. 1a. Etapa", 1000000),
+    zona("dz_cma", "Calima", 1000000),
+    zona("dz_cps", "Calipso", 1000000),
+    zona("dz_cen", "Centenario", 800000),
+    zona("dz_flo", "Floralia", 1000000),
+    zona("dz_ref", "El Refugio", 800000),
+  ];
+
+  it("el número de la calle NO identifica un barrio (Decepaz ≠ 20 de Julio)", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    expect(resolverZonaDeEntrega(ZONAS, "Calle 119#20-66 Decepaz").status).not.toBe("found");
+  });
+
+  it("un '1A' de la nomenclatura NO es la '1a Etapa' de un barrio (cobraba $10.000 en vez de $8.000)", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    expect(resolverZonaDeEntrega(ZONAS, "Carrera 94 2 1A-oeste-10").status).not.toBe("found");
+  });
+
+  it("'Cali' es la ciudad, no Calima ni Calipso", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    expect(
+      resolverZonaDeEntrega(ZONAS, "Edificio Colombia Carrera 3 #10-12 oficina 404, Centro, Cali").status
+    ).toBe("not_found");
+  });
+
+  it("'center' de un centro comercial no es el barrio Centenario", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    expect(
+      resolverZonaDeEntrega(ZONAS, "Calle 14 #4-49 c.c makao center frente a la joyeria").status
+    ).not.toBe("found");
+  });
+
+  it("CONTROL: con el barrio en la dirección, sigue encontrándolo", async () => {
+    const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");
+    const flo = resolverZonaDeEntrega(ZONAS, "Calle 72L # 4n 86, Floralia");
+    expect(flo.status === "found" && flo.zona.nombre).toBe("Floralia");
+    const ref = resolverZonaDeEntrega(ZONAS, "Cl. 4 #66B-52, edificio miro barrio el refugio");
+    expect(ref.status === "found" && ref.zona.nombre).toBe("El Refugio");
+  });
+});
+
 describe("resolverZonaDeEntrega", () => {
   it("A: Kachipay con tarifa real ($12.000 = 1.200.000 centavos) — match exacto, reproduce el incidente real", async () => {
     const { resolverZonaDeEntrega } = await import("@/server/delivery/zonas");

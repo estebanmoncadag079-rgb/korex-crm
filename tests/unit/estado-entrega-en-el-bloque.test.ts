@@ -117,10 +117,36 @@ describe("la entrega en el bloque PEDIDO EN CURSO", () => {
     expect(texto).not.toMatch(/ENTREGA|domicilio|recoge/i);
   });
 
-  it("la línea de entrega va ANTES del total, y el total no cambia", () => {
+  it("la línea de entrega va ANTES del total, y el TOTAL suma el domicilio verificado", () => {
+    // Hasta el 25-sep-2026 este bloque decía "TOTAL (…úsalo tal cual): $20.000"
+    // —el subtotal de productos— aun con el domicilio verificado. El modelo
+    // obedecía: fue el "Total: $20.000" de Maye Díaz (MALIA). El total lo
+    // calcula el backend, y ahora lo calcula completo.
     const texto = comoTexto(pedido(VERIFICADO));
     expect(texto.indexOf("ENTREGA:")).toBeLessThan(texto.indexOf("TOTAL"));
-    // El total sigue siendo el de productos: este cambio no toca quién calcula.
+    expect(texto).toContain("PRODUCTOS $20.000 + DOMICILIO $8.000 = TOTAL $28.000");
+    expect(texto).not.toContain("TOTAL (lo calculó el sistema, úsalo tal cual): $20.000");
+  });
+
+  it("domicilio con tarifa PENDIENTE: el subtotal no se presenta como total", () => {
+    const texto = comoTexto(
+      pedido({ ...VERIFICADO, zonaId: null, zonaNombre: null, feeCents: null })
+    );
+    expect(texto).toContain("PRODUCTOS (lo calculó el sistema): $20.000");
+    expect(texto).not.toMatch(/\nTOTAL/);
+  });
+
+  it("ya se le pidió el barrio: es lo PRIMERO que falta", () => {
+    const texto = comoTexto(
+      pedido({ ...VERIFICADO, zonaId: null, zonaNombre: null, feeCents: null, barrioPedido: true })
+    );
+    expect(texto).toMatch(/TE FALTA, en este orden: el barrio/);
+  });
+
+  it("recogida: el total es el de productos, como siempre", () => {
+    const texto = comoTexto(
+      pedido({ ...VERIFICADO, tipo: "recogida", zonaId: null, zonaNombre: null, feeCents: null })
+    );
     expect(texto).toContain("TOTAL (lo calculó el sistema, úsalo tal cual): $20.000");
   });
 });

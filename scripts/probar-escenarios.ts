@@ -713,6 +713,78 @@ const ESCENARIOS: Escenario[] = [
       ],
     },
   },
+  /*
+   * MALIA · domicilio siempre incluido (25-sep-2026, caso Maye Díaz): pedido a
+   * domicilio con dirección, la clienta NUNCA pregunta cuánto vale el envío, y
+   * el resumen salió con "Total: $20.000", solo productos. El backend debe
+   * buscar la tarifa por su cuenta y el total debe llevar el domicilio.
+   */
+  {
+    nombre: "MALIA · el domicilio va en el total sin que lo pregunten",
+    guion: [
+      "hola, quiero 2 pavés cremosos de 8 oz de leche klim",
+      "a domicilio, es para mí",
+      "Calle 72 -1 # 3 n 45 barrio floralia",
+      "Maye Díaz, 3145602573",
+    ],
+    espera: {
+      debeDecir: [
+        {
+          // 80 y no 40: el resumen real escribe la dirección entre la palabra y
+          // la cifra ("Domicilio: Calle 72 … barrio floralia — tarifa: $10.000").
+          que: /(domicilio|env[ií]o)[^\n]{0,80}\$\s*\d/i,
+          porque: "el domicilio tiene que aparecer con su valor aunque la clienta no lo haya preguntado",
+        },
+        {
+          que: /total\b[^\n$]{0,40}\$\s*[\d]/i,
+          porque: "con todo completo, el resumen sale con su total (que ya incluye el domicilio)",
+        },
+      ],
+      estadoFinal: [
+        {
+          que: (e) => typeof (e?.entrega as { feeCents?: unknown } | null)?.feeCents === "number",
+          porque: "la tarifa la verifica el backend y queda guardada, sin esperar a que pregunten",
+        },
+      ],
+    },
+  },
+  /*
+   * MALIA · dirección fuera de la tabla (instrucción del dueño, 25-sep-2026):
+   * la tabla está por BARRIOS. "Centro, Cali" no es un barrio de la tabla:
+   * el bot pide el barrio —no inventa ni dice "te confirmo"— y con el barrio
+   * el backend busca y suma.
+   */
+  {
+    nombre: "MALIA · dirección sin barrio: pide el barrio y luego suma",
+    guion: [
+      "hola, quiero 2 pavés cremosos de 8 oz de leche klim",
+      "a domicilio, es para mí",
+      "Edificio Colombia, Carrera 5 # 12-30, Centro, Cali",
+      "Maye Díaz, 3145602573",
+      "barrio floralia",
+    ],
+    espera: {
+      debeDecir: [
+        { que: /barrio/i, porque: "la dirección no está en la tabla: tiene que pedir el barrio" },
+        {
+          que: /(domicilio|env[ií]o)[^\n]{0,80}\$\s*\d/i,
+          porque: "con el barrio, el domicilio aparece con su valor",
+        },
+      ],
+      noDebeDecir: [
+        {
+          que: /(vamos|voy) a confirmar(te)? el valor del domicilio/i,
+          porque: "con tabla por barrios, primero se pide el barrio, no se promete confirmarlo",
+        },
+      ],
+      estadoFinal: [
+        {
+          que: (e) => typeof (e?.entrega as { feeCents?: unknown } | null)?.feeCents === "number",
+          porque: "con el barrio, la tarifa queda verificada y guardada",
+        },
+      ],
+    },
+  },
 ];
 
 const organizationId = process.argv[2]!;

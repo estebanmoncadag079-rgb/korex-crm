@@ -89,11 +89,6 @@ import { armarMenuDeIntenciones, armarMenuDelCatalogo, textoPlanoDeMenu } from "
 import type { MenuInteractivo } from "@/server/catalog/menu";
 import { buscarProductos, buscarOpciones } from "@/server/catalog/buscar";
 import {
-  detectarConsultaFactualDeProducto,
-  detectarConsultaDeListadoDeProducto,
-} from "@/server/catalog/deteccion";
-import { detectarConsultaFactualDeMedioPago } from "@/server/pagos/deteccion";
-import {
   agregarGuardarrail,
   agregarHecho,
   crearTraza,
@@ -104,7 +99,7 @@ import {
   type TrazaDelTurno,
   registrarModelo,
 } from "@/server/ai/traza";
-import { resolverMetodoDePago } from "@/server/pagos/metodo";
+import { textoDePoliticaDePago } from "@/server/pagos/politica";
 import {
   resolverZonaDeEntrega,
   zonasDeEntregaQuery,
@@ -149,12 +144,7 @@ import {
   hojaListaParaResumen,
   requisitosPendientesDe,
 } from "@/server/orders/extraer";
-import {
-  bloqueDelPlan,
-  leerIntencion,
-  pedidoQuedoAbandonado,
-  planDelTurno,
-} from "@/server/orders/intencion";
+import { pedidoQuedoAbandonado } from "@/server/orders/intencion";
 import { renderCatalogoDePedidos } from "@/server/catalog/render";
 import {
   CORRECCION_DE_SALIDA_DEGENERADA,
@@ -182,10 +172,8 @@ import {
   contradiceProductoEncontrado,
   asumeProductoAmbiguoSinPreguntar,
   handoffPorHechoDeEspecialistaSinVerificar,
-  niegaMetodoDePagoPermitido,
   CORRECCION_DE_PRODUCTO_CONTRADICHO,
   CORRECCION_DE_PRODUCTO_AMBIGUO_SIN_PREGUNTAR,
-  CORRECCION_DE_PAGO_CONTRADICHO,
   noDioElTotal,
   productosOlvidados,
   prometeRecurso,
@@ -992,35 +980,6 @@ function textoDeResultadoCatalogo(
 }
 
 /**
- * Arma el mensaje `[SISTEMA]` para una consulta de LISTADO abierto ("¿qué
- * sabores tienen?"), a diferencia de `textoDeResultadoProducto` (un producto
- * puntual). Reutiliza `renderCatalogoDePedidos` tal cual — el mismo texto que
- * ya arma el system prompt — para no duplicar el formato del catálogo en dos
- * sitios distintos.
- */
-function textoDeListadoDeProducto(productos: ProductoDelCatalogo[]): string {
-  return (
-    `[SISTEMA] Este es el catálogo real y ACTUAL de este negocio. Respóndele al ` +
-    `cliente con base en esta lista, no en lo que se haya dicho antes en la ` +
-    `conversación (puede estar desactualizado):\n${renderCatalogoDePedidos(productos)}`
-  );
-}
-
-/** Mismo principio que `textoDeResultadoProducto`, para métodos de pago (caso Nequi). */
-function textoDeResultadoPago(
-  metodo: string,
-  resultado: ReturnType<typeof resolverMetodoDePago>
-): string {
-  if (resultado.status === "recognized" && resultado.allowed) {
-    return `[SISTEMA] "${metodo}" SÍ está entre las formas de pago de este negocio. Confírmalo con seguridad, no lo pongas en duda.`;
-  }
-  if (resultado.status === "recognized") {
-    return `[SISTEMA] "${metodo}" NO está entre las formas de pago de este negocio. Dilo con naturalidad y sigue con el resto del pedido.`;
-  }
-  return `[SISTEMA] No reconozco "${metodo}" con certeza contra las formas de pago declaradas. No lo rechaces categóricamente: sigue tus reglas de siempre (di que lo confirmas con el equipo y continúa).`;
-}
-
-/**
  * Ejecuta UN turno del agente ahora (el Laboratorio lo llama directo, con
  * debounce 0 y sin pasar por el coalesce).
  *
@@ -1044,6 +1003,13 @@ export async function runAgentTurn(
      * válido de la generación — ver `asegurarOwnershipVigente`.
      */
     jobOwnership?: { jobId: string; generation: number };
+    /**
+     * El prompt del negocio generado EN MEMORIA, para probar un cambio de
+     * conducta con el modelo real antes de regenerar producción (doc 198).
+     * Solo se usa en conversaciones de prueba (`isTest`); en una real se
+     * ignora siempre.
+     */
+    instruccionesDePrueba?: string;
   }
 ): Promise<AgentActionType | null> {
   if (!isAiConfigured()) return null;
@@ -1067,8 +1033,12 @@ export async function runAgentTurn(
     .from(schema.agentProfile)
     .where(eq(schema.agentProfile.organizationId, organizationId))
     .limit(1);
-  const profile = profileRows[0];
-  if (!profile) return null;
+  const profileGuardado = profileRows[0];
+  if (!profileGuardado) return null;
+  const profile =
+    conversation.isTest && opts?.instruccionesDePrueba
+      ? { ...profileGuardado, instructions: opts.instruccionesDePrueba }
+      : profileGuardado;
   // El toggle global aplica a conversaciones reales; el Laboratorio evalúa el
   // comportamiento configurado aunque el agente aún no esté encendido.
   if (!conversation.isTest && !profile.enabled) return null;
@@ -1527,205 +1497,21 @@ export async function runAgentTurn(
   const saltoDeHistorial = mayorSaltoDeHistorial(history);
   if (saltoDeHistorial !== null) registrarSaltoDeHistorial(traza, saltoDeHistorial);
 
-  /**
-   * Consulta de LISTADO abierto ("¿qué sabores tienen?"), no de un producto
-   * puntual — auditoría de jerarquía de verdad (1-sep-2026), incidente real
-   * de Malía: un mensaje humano desactualizado en el historial ("no tenemos
-   * Leche Klim") quedó como la última palabra porque la pregunta real
-   * ("¿cuáles son los sabores que tienes?") no calzaba con
-   * `detectarConsultaFactualDeProducto` (pide un producto, no una lista).
-   *
-   * Se evalúa ANTES que la consulta de producto puntual (hallazgo Fase C,
-   * 1-sep-2026): con el orden inverso, "¿Qué sabores tienen disponibles?"
-   * caía en `PATRON_EXISTENCIA` (que matchea "tienen" en cualquier
-   * posición) y capturaba "disponibles" como si fuera el nombre de un
-   * producto buscado — `SEÑALES_ABIERTAS` no lo excluía porque exige "que"
-   * inmediatamente antes del verbo, y aquí hay un sustantivo de por medio
-   * ("sabores"). Evaluar el listado primero es seguro: es deliberadamente
-   * conservador (ver `deteccion.ts`) y nunca dispara en una pregunta de
-   * producto identificable ("¿tienen Pavé de leche Klim?", "¿qué tienen de
-   * chocolate?"), así que no le quita precedencia a esos casos.
-   */
-  let huboListado = false;
-  if (
-    profile.consultasVerificadasEnabled &&
-    !contrataCitas(vertical) &&
-    productosDelPedido.length > 0 &&
-    lastInbound.text &&
-    detectarConsultaDeListadoDeProducto(lastInbound.text)
-  ) {
-    huboListado = true;
-    console.warn(
-      `[producto] ${organizationId}: consulta de listado detectada (verificado antes de llamar al modelo)`
-    );
-    traza.deteccionFactual = "(listado de catálogo)";
-    agregarHecho(traza, {
-      tipo: "producto",
-      consulta: "(listado completo)",
-      resultado: "listado",
-      origen: "backend",
-    });
-    messages.push({
-      role: "user",
-      content: textoDeListadoDeProducto(productosDelPedido),
-    });
-  }
-
   /*
-   * QUÉ ACABA DE DECIR EL CLIENTE — la prioridad del turno.
-   *
-   * `orders/intencion.ts` se escribió el 15-ago-2026 para esto exacto, con
-   * sus pruebas en verde, y hasta hoy (24-sep) **no lo llamaba nadie**: el
-   * único fichero que lo importaba era su propio test. Mientras tanto seguía
-   * ocurriendo el caso que documenta su cabecera — MALIA, conv
-   * cv_zgm286k69bz1hmprf87a:
-   *
-   *     CLIENTE  Y que costo tiene el domicilio?
-   *     BOT      Perfecto 😊 ¿Qué quieres y cuántos?
-   *
-   * Dieciséis segundos entre uno y otro: no fue una carrera de turnos. Fue
-   * que la capa que decide qué preguntar solo miraba qué le falta al pedido,
-   * nunca qué acaba de escribir el cliente.
-   *
-   * Va como hecho del turno, igual que el listado de catálogo de arriba: el
-   * servidor clasifica, el modelo redacta. No decide la respuesta ni sustituye
-   * a `CADENCIA`, que sigue mandando sobre el ORDEN de lo que se pide.
-   *
-   * El reinicio NO se le pasa al modelo: ya lo resolvió `matchesReinicio` más
-   * arriba, de forma determinista y antes de esta llamada.
-   *
-   * 🛑 Y NO corre en citas, aunque el bug es igual de real ahí (a Lashes
-   * también le preguntan el precio a mitad de una reserva). El motivo no es
-   * prudencia: es que la mitad útil del plan —`continuarEnElMismoMensaje`—
-   * se calcula con `estadoGuardado.items`, que solo existe en pedidos. En
-   * citas saldría siempre en `false`, y el bloque le diría al modelo «no hay
-   * nada en curso, contesta y ya» justo en mitad de una reserva a medias.
-   * Sería mentira dicha por el servidor, que es peor que el silencio de hoy.
-   * Para cubrir citas hace falta antes un equivalente de «reserva en curso»;
-   * queda anotado, fuera de este lote.
+   * El backend NO lee el mensaje del cliente para decidir qué pregunta (doc 198,
+   * decisión del dueño 25-sep-2026). Aquí corrían cuatro detectores de palabras
+   * clave —listado, "plan del turno", producto y forma de pago— que le
+   * inyectaban al modelo su conclusión como HECHO. Adivinaban mal: Lis, "hoy
+   * tienes de qué sabores" → buscó el producto «de que sabores» → derivó; MALIA,
+   * "¿efectivo cuando llegue el domicilio?" → "SÍ, confírmalo con seguridad".
+   * Entender al cliente es del modelo; cuando necesita un dato, lo pide
+   * (consultar_producto, consultar_medio_pago, consultar_domicilio) y el backend
+   * responde desde datos estructurados.
    */
-  /*
-   * Un pedido ya CONFIRMADO es terminal: no hay punto que continuar, y quien
-   * gobierna el turno es el manejo de "ya fue confirmado", no la cadencia.
-   * Meterle aquí un plan que diga "contesta y sigue con el pedido" le pediría
-   * al modelo continuar algo cerrado — el mismo error que evitamos en citas y
-   * en el reinicio. Encontrado al correr la suite: un "¿cuánto demora?" tras
-   * confirmar disparaba `consulta_entrega` y colaba el bloque.
-   */
-  if (lastInbound.text && !contrataCitas(vertical) && !estadoGuardado?.confirmado) {
-    const lectura = leerIntencion(lastInbound.text, productosDelPedido);
-    /*
-     * Solo con el estado en el backend hay una fila que leer. Con
-     * `state_source='prompt'` —Camilabrandcol hoy— un `false` aquí
-     * significaría "no lo sé", nunca "no hay pedido", y el bloque se redacta
-     * en consecuencia (ver `bloqueDelPlan`).
-     */
-    const loSabemos = profile.stateSource === "backend";
-    const hayPedidoEnCurso = (estadoGuardado?.items.length ?? 0) > 0;
-    const bloque = bloqueDelPlan(
-      lectura,
-      planDelTurno(lectura, hayPedidoEnCurso),
-      loSabemos
-    );
-    if (bloque) {
-      console.warn(
-        `[intencion] ${conversationId}: ${lectura.intencion} (${lectura.porque}) — se responde antes de seguir el pedido`
-      );
-      traza.deteccionFactual = traza.deteccionFactual ?? `(intención: ${lectura.intencion})`;
-      messages.push({ role: "user", content: bloque });
-    }
-  }
-
   let resultadoProducto: ReturnType<typeof buscarProductos> | null = null;
-  if (
-    profile.consultasVerificadasEnabled &&
-    !contrataCitas(vertical) &&
-    productosDelPedido.length > 0 &&
-    lastInbound.text &&
-    !huboListado
-  ) {
-    const consultaFactual = detectarConsultaFactualDeProducto(lastInbound.text);
-    if (consultaFactual) {
-      resultadoProducto = buscarProductos(productosDelPedido, consultaFactual);
-      /**
-       * Incidente real de La Churra (4-sep-2026) — "¿tienen chocolate
-       * blanco?" es una pregunta factual como cualquier otra, pero
-       * "chocolate blanco" es una SALSA (una opción dentro de cada
-       * producto), no un producto en sí. `buscarProductos` solo busca
-       * entre nombres de producto, así que devolvía `not_found` y el
-       * `[SISTEMA]` de abajo le decía al modelo "no lo tienen" sobre algo
-       * que sí estaba en el catálogo, un nivel más abajo. "No encontrado
-       * entre los productos" nunca puede convertirse en "no existe" sin
-       * revisar también las opciones — ver `buscarOpciones`.
-       */
-      const resultadoOpcion =
-        resultadoProducto.status === "not_found"
-          ? buscarOpciones(productosDelPedido, consultaFactual)
-          : null;
-      console.warn(
-        `[producto] ${organizationId}: consulta factual detectada="${consultaFactual}" status=${resultadoProducto.status}` +
-          (resultadoOpcion ? ` status_opcion=${resultadoOpcion.status}` : "") +
-          ` (verificado antes de llamar al modelo)`
-      );
-      traza.deteccionFactual = consultaFactual;
-      agregarHecho(traza, {
-        tipo: "producto",
-        consulta: consultaFactual,
-        resultado:
-          resultadoOpcion && resultadoOpcion.status !== "not_found"
-            ? `opcion_${resultadoOpcion.status}`
-            : resultadoProducto.status,
-        origen: "backend",
-      });
-      messages.push({
-        role: "user",
-        content: `${textoDeResultadoCatalogo(consultaFactual, resultadoProducto, resultadoOpcion)} (Esto ya está verificado: no hace falta que uses la acción consultar_producto para lo mismo.)`,
-      });
-    }
-  }
 
-  /**
-   * Mismo principio, para medios de pago (docs/korexia/146): la prueba
-   * controlada del doc 145 mostró que "¿Puedo pagar por Nequi?" obtenía la
-   * respuesta correcta SIN pasar por `consultar_medio_pago` — el modelo
-   * respondió leyendo `ficha.pago.formas` en prosa, la misma ruta
-   * probabilística que ya se corrigió para productos. `pagoDePedidos` solo
-   * existe con `payment_source='ficha'`; sin eso no hay contra qué
-   * verificar.
-   */
   /** La última zona de domicilio verificada EN ESTE TURNO (Fase 10N-J) — nunca sobrevive a otro turno, ver el comentario del guardarraíl financiero. */
   let resultadoZona: ReturnType<typeof resolverZonaDeEntrega> | null = null;
-  let resultadoPago: ReturnType<typeof resolverMetodoDePago> | null = null;
-  if (
-    profile.consultasVerificadasEnabled &&
-    !contrataCitas(vertical) &&
-    pagoDePedidos &&
-    lastInbound.text
-  ) {
-    const metodoFactual = detectarConsultaFactualDeMedioPago(lastInbound.text);
-    if (metodoFactual) {
-      resultadoPago = resolverMetodoDePago(pagoDePedidos.formas, metodoFactual);
-      console.warn(
-        `[pago] ${organizationId}: consulta factual detectada="${metodoFactual}" status=${resultadoPago.status}` +
-          (resultadoPago.status === "recognized" ? ` allowed=${resultadoPago.allowed}` : "") +
-          " (verificado antes de llamar al modelo)"
-      );
-      traza.deteccionFactualPago = metodoFactual;
-      agregarHecho(traza, {
-        tipo: "medio_pago",
-        consulta: metodoFactual,
-        resultado:
-          resultadoPago.status === "recognized"
-            ? `recognized:${resultadoPago.allowed ? "allowed" : "not_allowed"}`
-            : resultadoPago.status,
-        origen: "backend",
-      });
-      messages.push({
-        role: "user",
-        content: `${textoDeResultadoPago(metodoFactual, resultadoPago)} (Esto ya está verificado: no hace falta que uses la acción consultar_medio_pago para lo mismo.)`,
-      });
-    }
-  }
 
   /*
    * Con el estado encendido, la propuesta viaja en la MISMA llamada que la
@@ -2251,10 +2037,11 @@ export async function runAgentTurn(
   }
 
   /**
-   * `consultar_medio_pago`: mismo principio, para el caso Nequi
-   * (24-ago-2026, Lis). `pagoDePedidos` puede no existir (payment_source
-   * distinto de 'ficha'); en ese caso `resolverMetodoDePago` recibe "" y
-   * devuelve `unknown` para casi todo, que es el comportamiento seguro.
+   * `consultar_medio_pago` (caso Nequi, 24-ago-2026, Lis): el MODELO pregunta
+   * y el backend le da la política LITERAL del negocio y la modalidad del
+   * pedido, sin veredicto — las formas de pago son texto libre y el backend no
+   * las puede interpretar (doc 198, caso Sofía). Sin `pagoDePedidos`
+   * (payment_source distinto de 'ficha') le dice que lo confirma el equipo.
    */
   const MAX_CONSULTAS_PAGO = 2;
   let consultasPago = 0;
@@ -2263,21 +2050,19 @@ export async function runAgentTurn(
     consultasPago < MAX_CONSULTAS_PAGO
   ) {
     consultasPago++;
-    resultadoPago = resolverMetodoDePago(pagoDePedidos?.formas ?? "", action.metodo);
-    console.warn(
-      `[pago] ${organizationId}: metodo="${action.metodo}" status=${resultadoPago.status}` +
-        (resultadoPago.status === "recognized" ? ` allowed=${resultadoPago.allowed}` : "")
-    );
+    // Sin veredicto: la política literal y la modalidad del pedido (doc 198).
+    console.warn(`[pago] ${organizationId}: metodo="${action.metodo}" → política literal al modelo`);
     agregarHecho(traza, {
       tipo: "medio_pago",
       consulta: action.metodo,
-      resultado:
-        resultadoPago.status === "recognized"
-          ? `recognized:${resultadoPago.allowed ? "allowed" : "not_allowed"}`
-          : resultadoPago.status,
+      resultado: "politica_literal",
       origen: "backend",
     });
-    const infoPago = textoDeResultadoPago(action.metodo, resultadoPago);
+    const infoPago = textoDePoliticaDePago({
+      formas: pagoDePedidos?.formas ?? "",
+      metodo: action.metodo,
+      modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+    });
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoPago });
     const siguiente = await chatJson(AgentAction, messages, {
@@ -2309,45 +2094,6 @@ export async function runAgentTurn(
     return { action: "handoff", reason: "error" };
   }
 
-  /** Mismo criterio que el guardarraíl de producto, para el método de pago. */
-  if (
-    resultadoPago?.status === "recognized" &&
-    resultadoPago.allowed &&
-    action.action === "reply" &&
-    niegaMetodoDePagoPermitido(action.text, resultadoPago.method)
-  ) {
-    console.warn("[pago] contradijo el método permitido; rehaciendo el turno");
-    const reintento = await chatJson(AgentAction, [
-      ...messages,
-      { role: "assistant", content: result.raw },
-      { role: "user", content: CORRECCION_DE_PAGO_CONTRADICHO },
-    ]);
-    await registrarUsoIa(
-      organizationId,
-      reintento.usage,
-      `conv:${conversationId}/pago-contradicho`
-    );
-    if (
-      reintento.ok &&
-      !(
-        reintento.data.action === "reply" &&
-        niegaMetodoDePagoPermitido(reintento.data.text, resultadoPago.method)
-      )
-    ) {
-      action = reintento.data;
-      agregarGuardarrail(traza, "pago_contradicho", true);
-    } else {
-      console.error(
-        "[pago] sigue contradiciendo el método permitido; lo toma una persona"
-      );
-      agregarGuardarrail(traza, "pago_contradicho", false);
-      await derivarAUnaPersona(conversation);
-      registrarHandoff(traza, "model_output_recovery_failed");
-      traza.accionFinal = "handoff";
-      registrarTrazaDelTurno(traza);
-      return { action: "handoff", reason: "error" };
-    }
-  }
 
   /**
    * `consultar_domicilio`: mismo principio, para la tarifa de domicilio

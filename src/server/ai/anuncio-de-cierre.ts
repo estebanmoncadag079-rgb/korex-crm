@@ -2076,14 +2076,6 @@ export function contradiceProductoEncontrado(
   return contradiceEnLaMismaOracion(texto, nombreProducto);
 }
 
-/** El sistema confirmó que el método de pago SÍ está permitido; el texto dice lo contrario. */
-export function niegaMetodoDePagoPermitido(
-  texto: string | null | undefined,
-  metodo: string
-): boolean {
-  return contradiceEnLaMismaOracion(texto, metodo);
-}
-
 export const CORRECCION_DE_PRODUCTO_CONTRADICHO =
   "ALTO. El sistema ya confirmó, en este mismo turno, que SÍ existe el producto que preguntaron — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí lo tienen, con el precio que te dio el sistema. Responde ÚNICAMENTE el objeto JSON.";
 
@@ -2112,16 +2104,13 @@ export function asumeProductoAmbiguoSinPreguntar(
 export const CORRECCION_DE_PRODUCTO_AMBIGUO_SIN_PREGUNTAR =
   "ALTO. El sistema encontró VARIOS productos que podrían ser lo que pidió el cliente, y tu respuesta asumió uno sin preguntar cuál. No inventes cuál de ellos es: reescribe tu respuesta preguntando cuál de esos productos quiere, antes de dar un precio o confirmar que lo tienen. Responde ÚNICAMENTE el objeto JSON.";
 
-export const CORRECCION_DE_PAGO_CONTRADICHO =
-  "ALTO. El sistema ya confirmó, en este mismo turno, que ese método de pago SÍ está permitido — y tu respuesta dice lo contrario. Ese dato es real, no lo pongas en duda: reescribe tu respuesta confirmando que sí se acepta. Responde ÚNICAMENTE el objeto JSON.";
-
 /*
  * ============================================================
  * Fidelidad de datos de cuenta (Fase 8C, auditoría de Fase 8B)
  * ============================================================
  *
  * Hueco encontrado en la Fase 8B: `resolverMetodoDePago`/
- * `niegaMetodoDePagoPermitido` verifican el MÉTODO de pago (transferencia,
+ * `niegaMetodoDePagoPermitido` (retirados el 25-sep-2026, doc 198) verificaban el MÉTODO de pago (transferencia,
  * Nequi, efectivo...) contra `ficha.pago.formas`, pero nada verifica que los
  * DÍGITOS de una cuenta que el modelo cita coincidan con
  * `ficha.pago.datosDeCuenta` real. El prompt ya pide "cópialos TAL CUAL, sin

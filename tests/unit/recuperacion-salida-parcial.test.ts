@@ -288,20 +288,28 @@ describe("recuperación de salidas parcialmente válidas del LLM (docs/korexia/1
     expect(action?.action).toBe("handoff");
   });
 
-  it("CASO 7 — regresión de productos: la verificación factual sigue funcionando con Fase 2 encendida", async () => {
+  it("CASO 7 — regresión de productos: la consulta que pide el modelo funciona con Fase 2 encendida", async () => {
     const conv = conversacion("org_1");
     const perfil = { ...perfilConEstado("org_1"), consultasVerificadasEnabled: true };
     queueTurnoBase(conv, perfil, historial("¿Tienen torta de chocolate?"));
-    chatJson.mockResolvedValueOnce(
-      respuestaConEstado({ action: "reply", text: "¡Sí! Tenemos Porción Chocolate a $12.500." })
-    );
+    // Doc 198: la consulta la pide el MODELO (el backend ya no adivina la
+    // pregunta); el catálogo estructurado responde igual con el estado encendido.
+    chatJson
+      .mockResolvedValueOnce(respuestaConEstado({ action: "consultar_producto", consulta: "torta de chocolate" }))
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "¡Sí! Tenemos Porción Chocolate a $12.500." },
+        raw: "{}",
+      });
 
     const { runAgentTurn } = await import("@/server/ai/pipeline");
     const action = await runAgentTurn(conv.id);
 
-    expect(chatJson).toHaveBeenCalledTimes(1);
+    expect(chatJson).toHaveBeenCalledTimes(2);
     const primeraLlamada = chatJson.mock.calls[0]![1] as { role: string; content: string }[];
-    const infoSistema = primeraLlamada.find((m) => m.content.includes("[SISTEMA]"));
+    expect(primeraLlamada.some((m) => m.content.includes("Encontré"))).toBe(false);
+    const segundaLlamada = chatJson.mock.calls[1]![1] as { role: string; content: string }[];
+    const infoSistema = segundaLlamada.find((m) => m.content.includes("[SISTEMA]"));
     expect(infoSistema?.content).toMatch(/Encontré "Porción Chocolate"/);
     expect(action?.action).toBe("reply");
   });

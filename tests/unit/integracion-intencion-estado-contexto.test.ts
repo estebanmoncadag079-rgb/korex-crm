@@ -271,15 +271,16 @@ beforeEach(() => {
 });
 
 describe("A — pregunta por el domicilio con un pedido abierto", () => {
-  it("el plan manda contestar la entrega y seguir en el mismo mensaje", async () => {
+  it("el backend no le dice al modelo qué preguntó el cliente; el estado del pedido sí llega", async () => {
+    // Doc 198 (25-sep-2026): entender la pregunta es del modelo. El backend
+    // solo aporta datos estructurados: el pedido en curso.
     estadoActual = estadoConPave();
     versionActual = 1;
 
     const { prompt } = await turno("cuánto cuesta el domicilio?");
 
-    expect(prompt).toContain("PLAN DEL TURNO");
-    expect(prompt).toContain("la entrega o el domicilio");
-    expect(prompt).toContain("en el MISMO mensaje");
+    expect(prompt).not.toContain("PLAN DEL TURNO");
+    expect(prompt).toContain("PEDIDO EN CURSO");
   });
 });
 
@@ -439,7 +440,7 @@ describe("I — la consulta intermedia no dispara el muro de preguntas", () => {
    * el plan diga explícitamente dónde continuar, y que CADENCIA —que ya
    * manda sobre el orden— siga estando.
    */
-  it("el plan dice dónde seguir, y sin adelantar los demás puntos", async () => {
+  it("la regla de cadencia llega entera al modelo", async () => {
     estadoActual = estadoConPave();
     versionActual = 1;
 
@@ -448,8 +449,7 @@ describe("I — la consulta intermedia no dispara el muro de preguntas", () => {
       perfil: { instructions: CADENCIA },
     });
 
-    expect(prompt).toContain("sin saltarte el orden ni adelantar otros puntos");
-    // El plan prioriza, no sustituye: la regla de cadencia sigue entera.
+    // La cadencia sigue entera (el "plan del turno" del backend se retiró, doc 198).
     expect(prompt).toContain("Nunca juntes preguntas de dos puntos en el mismo mensaje");
   });
 });

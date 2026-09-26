@@ -201,59 +201,6 @@ beforeEach(() => {
 });
 
 describe("el pipeline usa la capa de intención (F1)", () => {
-  it("el caso de MALIA: preguntó por el domicilio y el plan se lo pone delante al modelo", async () => {
-    await turno("Y que costo tiene el domicilio?");
-
-    const prompt = promptDelModelo();
-    expect(prompt).toContain("PLAN DEL TURNO");
-    expect(prompt).toContain("la entrega o el domicilio");
-  });
-
-  it("pregunta por el horario: el tema que se nombra es el horario, no el domicilio", async () => {
-    await turno("hasta que hora atienden hoy?");
-
-    const prompt = promptDelModelo();
-    expect(prompt).toContain("el horario del negocio");
-    expect(prompt).not.toContain("la entrega o el domicilio");
-  });
-
-  it("pregunta por precios: el tema que se nombra son los precios", async () => {
-    await turno("cuanto vale todo eso?");
-
-    expect(promptDelModelo()).toContain("los precios");
-  });
-
-  it("sin pedido en curso le dice que conteste y ya, sin ponerse a pedir datos", async () => {
-    await turno("tienen domicilio?");
-
-    const prompt = promptDelModelo();
-    expect(prompt).toContain("contesta y ya");
-    expect(prompt).not.toContain("en el MISMO mensaje");
-  });
-
-  it("con un pedido a medias le dice que conteste Y siga en el mismo mensaje", async () => {
-    const { estadoVacio } = await import("@/server/orders/estado");
-    estadoActual = {
-      ...estadoVacio(),
-      items: [
-        {
-          ofrecible: { id: "p1", nombre: "Pavé chocolate" },
-          cantidad: 1,
-          seleccion: [],
-          gruposDeclinados: [],
-        },
-      ],
-      paso: "eligiendo",
-    };
-    versionActual = 3;
-
-    await turno("y el domicilio cuanto sale?");
-
-    const prompt = promptDelModelo();
-    expect(prompt).toContain("en el MISMO mensaje");
-    expect(prompt).not.toContain("contesta y ya");
-  });
-
   /*
    * El bloque cuesta tokens en CADA turno de CADA cliente de la flota. Que
    * aparezca solo cuando hay algo que priorizar no es una optimización: un

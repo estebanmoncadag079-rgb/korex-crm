@@ -28,6 +28,8 @@ import { requisitosPendientesDe } from "@/server/orders/extraer";
 import { puedeConfirmarPedido } from "@/server/orders/policy";
 import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import { requisitosDe } from "@/server/ai/generador/ficha";
+import { generarPerfil } from "@/server/ai/generador/generar";
+import { opcionesDeGeneracion } from "@/server/ai/generador/fuentes";
 import { catalogoDePedidos } from "@/server/catalog/queries";
 import { verticalDe, contrataCitas } from "@/server/vertical";
 
@@ -785,6 +787,77 @@ const ESCENARIOS: Escenario[] = [
       ],
     },
   },
+  /*
+   * Doc 198 (25-sep-2026): el backend dejó de interpretar al cliente y el trato
+   * de la ficha manda. Un escenario por caso real.
+   */
+  {
+    nombre: "MALIA · efectivo en domicilio: no se aprueba (Sofía)",
+    guion: [
+      "hola, quiero un pavé cremoso de 16 oz de milo",
+      "a domicilio, es para mí",
+      "Calle 72 -1 # 3 n 45 barrio floralia",
+      "Entonces te puedo pagar en efectivo cuando llegue el domicilio?",
+    ],
+    espera: {
+      noDebeDecir: [
+        {
+          que: /s[ií],?\s+(puedes|se puede|claro)[^.\n]{0,30}efectivo/i,
+          porque: "MALIA: para domicilios solo transferencia; efectivo solo recogiendo en planta",
+        },
+      ],
+      debeDecir: [{ que: /transferencia/i, porque: "para domicilio el medio es transferencia" }],
+    },
+  },
+  {
+    nombre: "MALIA · efectivo al recoger en planta: sí",
+    guion: [
+      "hola, quiero un pavé cremoso de 16 oz de milo",
+      "lo paso a recoger a la planta, ¿puedo pagar en efectivo?",
+    ],
+    espera: {
+      noDebeDecir: [
+        {
+          que: /no\s+(aceptamos|recibimos|manejamos)[^.\n]{0,20}efectivo/i,
+          porque: "recogiendo en planta, el efectivo SÍ se acepta",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "LIS · efectivo: no se aprueba",
+    guion: ["hola, ¿puedo pagar en efectivo?"],
+    espera: {
+      noDebeDecir: [
+        {
+          que: /s[ií],?\s+(puedes|se puede|claro|aceptamos|recibimos)[^.\n]{0,30}efectivo/i,
+          porque: "Lis: \"No se recibe efectivo\"",
+        },
+      ],
+    },
+  },
+  {
+    nombre: "LIS · ¿de qué sabores? se contesta, no se deriva",
+    guion: ["Holaa, hoy tienes de qué sabores"],
+    espera: {
+      noDebeDecir: [
+        { que: /te comunico con|persona del equipo/i, porque: "es una pregunta del catálogo: se contesta" },
+      ],
+      debeDecir: [{ que: /sabor|cremoso|cat[aá]logo|carta/i, porque: "preguntó por los sabores" }],
+    },
+  },
+  {
+    nombre: "LIS · ¿alcanzo a pedir? primero se responde, con cariño (Tatiana)",
+    guion: ["Hola chicos buenas noches, de pronto alcanzo a pedir?"],
+    espera: {
+      debeDecir: [
+        { que: /(claro|s[ií]\b|a[uú]n|todav[ií]a|con gusto)/i, porque: "preguntó si alcanza a pedir: se le responde primero" },
+      ],
+      noDebeDecir: [
+        { que: /qu[eé] quieres y cu[aá]ntos/i, porque: "es el título del punto copiado: suena a formulario" },
+      ],
+    },
+  },
 ];
 
 const organizationId = process.argv[2]!;
@@ -808,6 +881,26 @@ const { runAgentTurn } = await import("@/server/ai/pipeline");
  * quedó. La operación EXACTA que propuso el modelo y el bloque literal viven
  * dentro de `runAgentTurn`; aquí se ve su efecto neto (estado antes → después).
  */
+/*
+ * PROMPT_LOCAL=1 — prueba la conducta del CÓDIGO LOCAL con el modelo real, sin
+ * regenerar producción (doc 198): el prompt del negocio se genera en memoria
+ * desde su ficha y se le pasa al turno. Solo aplica a conversaciones de prueba.
+ */
+let instruccionesDePrueba: string | undefined;
+if (process.env.PROMPT_LOCAL === "1") {
+  const [prof] = await db
+    .select()
+    .from(schema.agentProfile)
+    .where(eq(schema.agentProfile.organizationId, organizationId));
+  const ficha = prof?.ficha ? leerFicha(prof.ficha) : null;
+  if (!prof || !ficha) {
+    console.error("[escenarios] PROMPT_LOCAL=1 pero el negocio no tiene ficha: no se puede generar el prompt");
+    process.exit(1);
+  }
+  instruccionesDePrueba = generarPerfil(ficha, opcionesDeGeneracion(prof)).instructions;
+  console.log(`[escenarios] PROMPT_LOCAL: prompt generado en memoria (${instruccionesDePrueba.length} caracteres)`);
+}
+
 const DIAG = process.env.DIAG === "1";
 type Diag = { catalogo: Awaited<ReturnType<typeof catalogoDePedidos>>; requisitos: ReturnType<typeof requisitosDe>; exigir: boolean; minimoDomicilioCents?: number };
 let diag: Diag | null = null;
@@ -922,7 +1015,7 @@ for (const esc of aProbar) {
     dialogo.push({ quien: "CLIENTE", texto });
 
     try {
-      await runAgentTurn(conversation.id);
+      await runAgentTurn(conversation.id, { instruccionesDePrueba });
     } catch (err) {
       fallas.push({
         escenario: esc.nombre,

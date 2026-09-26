@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vitest";
+import {
+  pedidoAbierto,
+  turnoSinAvance,
+  correccionDeTurnoSinAvance,
+  preguntaDeLoQueFalta,
+} from "@/server/ai/anuncio-de-cierre";
+
+/**
+ * El objetivo del bot es CERRAR el pedido (instrucción del dueño, 25-sep-2026).
+ *
+ * Caso real (MALIA, cv_zjqnven23xp2i6jiwd05, 16:26): el cliente mandó
+ * "esteban , 3155136091" y el bot contestó "Perfecto Esteban, ya lo anoté 🙂"
+ * — sin pedir la dirección que faltaba. El cliente tuvo que escribir "gracias"
+ * para que el bot siguiera. El detector de turno sin avance (T1) solo miraba
+ * con la hoja ya LISTA; a mitad del pedido, nada lo vigilaba.
+ */
+describe("pedidoAbierto: hay un pedido en curso que todavía no se cierra", () => {
+  it("con productos y sin confirmar → abierto", () => {
+    expect(pedidoAbierto({ items: [{}], confirmado: false })).toBe(true);
+  });
+
+  it("sin productos todavía, confirmado, o sin estado → no aplica", () => {
+    expect(pedidoAbierto({ items: [], confirmado: false })).toBe(false);
+    expect(pedidoAbierto({ items: [{}], confirmado: true })).toBe(false);
+    expect(pedidoAbierto(null)).toBe(false);
+  });
+});
+
+describe("turnoSinAvance, a mitad del pedido", () => {
+  it("el caso de Esteban: 'ya lo anoté' sin pedir nada → no avanza", () => {
+    expect(
+      turnoSinAvance({
+        texto: "Perfecto Esteban, ya lo anoté 🙂",
+        ultimaRespuestaPrevia: "Perfecto 🙂 ¿A nombre de quién lo dejo?",
+      })
+    ).toBe(true);
+  });
+
+  it("si pide lo siguiente, avanza", () => {
+    expect(
+      turnoSinAvance({
+        texto: "Perfecto Esteban 😊 ¿Me pasas la dirección con el barrio?",
+        ultimaRespuestaPrevia: "¿A nombre de quién lo dejo?",
+      })
+    ).toBe(false);
+  });
+});
+
+describe("la corrección y la pregunta de respaldo usan lo que de verdad falta", () => {
+  it("la corrección nombra lo que falta, en orden", () => {
+    const c = correccionDeTurnoSinAvance(["la dirección de entrega", "el medio de pago"]);
+    expect(c).toMatch(/la dirección de entrega/);
+    expect(c).toMatch(/Responde ÚNICAMENTE el objeto JSON\.$/);
+  });
+
+  it("la pregunta de respaldo pide lo primero que falta", () => {
+    expect(preguntaDeLoQueFalta(["la dirección de entrega", "el medio de pago"])).toMatch(
+      /la dirección de entrega/
+    );
+  });
+
+  it("si no falta nada (hoja lista), la pregunta de respaldo lleva a confirmar", () => {
+    expect(preguntaDeLoQueFalta([])).toMatch(/\?/);
+  });
+});

@@ -328,8 +328,21 @@ export function generarPerfil(
     // al final, y ahí se convierte en "**Lashen Valen **": el asterisco queda
     // separado y WhatsApp deja de pintarlo en negrita.
     `Eres la voz de **${ficha.nombre.trim()}**${ficha.ubicacion?.trim() ? ` (${ficha.ubicacion.trim()})` : ""} en WhatsApp. ${ficha.queVende.trim()}`,
+    /*
+     * El trato que escribió el negocio va ANTES que el estilo genérico y se
+     * declara por encima de él (doc 198, 25-sep-2026). Iba como una línea
+     * después de ESTILO —"Habla lo menos posible"— y perdía: Lis pedía "nunca
+     * frío ni cortante" y el bot contestaba "¿Qué quieres y cuántos?". La
+     * fuente de verdad del trato es la ficha de cada negocio.
+     */
+    [
+      "# Tu trato con los clientes",
+      "",
+      `Así lo pidió ${ficha.nombre.trim()}: ${ficha.tono.trim()}`,
+      "",
+      "Este trato manda sobre cualquier otra instrucción de estilo de este prompt: si algo de lo que sigue te hace sonar frío, cortante o de formulario, gana el trato.",
+    ].join("\n"),
     ESTILO,
-    `**El tono de este negocio:** ${ficha.tono.trim()}`,
     meta(vertical),
     vertical === "citas"
       ? "# Lo que ofreces y cómo te pagan"

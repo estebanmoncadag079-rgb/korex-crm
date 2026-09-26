@@ -234,7 +234,7 @@ describe("runAgentTurn: consultar_producto / consultar_medio_pago (docs/korexia/
     expect(infoSistema?.content).toMatch(/varios productos/);
   });
 
-  it("método de pago permitido (Nequi ~ transferencia): lo confirma con seguridad", async () => {
+  it("método de pago consultado: el backend da la política LITERAL, sin veredicto (doc 198)", async () => {
     const conv = conversacion("org_1");
     queueTurnoBase(conv, perfil("org_1", "Transferencia bancaria"), historial("¿Aceptan Nequi?"));
     catalogoDePedidosMock.mockResolvedValue([]);
@@ -258,10 +258,11 @@ describe("runAgentTurn: consultar_producto / consultar_medio_pago (docs/korexia/
     expect(action?.action).toBe("reply");
     const segundaLlamada = chatJson.mock.calls[1]![1] as { role: string; content: string }[];
     const infoSistema = segundaLlamada.find((m) => m.content.includes("[SISTEMA]"));
-    expect(infoSistema?.content).toMatch(/SÍ está entre las formas de pago/);
+    expect(infoSistema?.content).toContain("«Transferencia bancaria»");
+    expect(infoSistema?.content).not.toMatch(/SÍ está entre|con seguridad/);
   });
 
-  it("método de pago NO permitido: lo rechaza contradiciendo el guardarraíl y lo corrige", async () => {
+  it("método de pago no incluido: el modelo lo aplica con la política literal y no hay guardarraíl que lo contradiga", async () => {
     const conv = conversacion("org_1");
     queueTurnoBase(conv, perfil("org_1", "Solo efectivo"), historial("¿Aceptan tarjeta de crédito?"));
     catalogoDePedidosMock.mockResolvedValue([]);
@@ -288,7 +289,8 @@ describe("runAgentTurn: consultar_producto / consultar_medio_pago (docs/korexia/
     expect(action?.action).toBe("reply");
     const segundaLlamada = chatJson.mock.calls[1]![1] as { role: string; content: string }[];
     const infoSistema = segundaLlamada.find((m) => m.content.includes("[SISTEMA]"));
-    expect(infoSistema?.content).toMatch(/NO está entre las formas de pago/);
+    expect(infoSistema?.content).toContain("«Solo efectivo»");
+    expect(infoSistema?.content).not.toMatch(/NO está entre/);
   });
 
   it("aislamiento multi-tenant: la consulta de una organización nunca ve el catálogo de otra", async () => {

@@ -1,0 +1,117 @@
+diff --git a/src/server/ai/anuncio-de-cierre.ts b/src/server/ai/anuncio-de-cierre.ts
+index 3eb53ce..5e70124 100644
+--- a/src/server/ai/anuncio-de-cierre.ts
++++ b/src/server/ai/anuncio-de-cierre.ts
+@@ -735,6 +735,36 @@ export function turnoSinAvance(input: {
+   return true;
+ }
+ 
++/**
++ * ¿Hay un pedido en curso que todavía no se cierra? Con productos y sin
++ * confirmar. Es la condición para exigir que cada mensaje AVANCE: el objetivo
++ * del bot es cerrar el pedido (instrucción del dueño, 25-sep-2026).
++ */
++export function pedidoAbierto(
++  estado: { items: unknown[]; confirmado?: boolean | null } | null | undefined
++): boolean {
++  return !!estado && estado.items.length > 0 && estado.confirmado !== true;
++}
++
++/**
++ * La corrección cuando, a mitad del pedido, el mensaje no pide nada. Caso real
++ * (MALIA, 25-sep-2026): "Perfecto Esteban, ya lo anoté 🙂" con la dirección
++ * pendiente; el cliente tuvo que escribir "gracias" para que el bot siguiera.
++ * `falta` es la misma lista que el backend le da al modelo como TE FALTA.
++ */
++export function correccionDeTurnoSinAvance(falta: string[]): string {
++  return `ALTO. Tu mensaje no le pide nada al cliente y el pedido sigue abierto: se queda sin saber qué contestar y la venta se detiene. Tu objetivo es CERRAR el pedido. Conserva lo que dijiste y termina el mensaje pidiendo lo que falta, en este orden: ${falta.join(", ")}. Si son datos de contacto o de entrega, pídelos juntos en una sola pregunta. Responde ÚNICAMENTE el objeto JSON.`;
++}
++
++/**
++ * Si ni corregido avanza, la pregunta la pone el backend: nunca queda un turno
++ * muerto a mitad del pedido.
++ */
++export function preguntaDeLoQueFalta(falta: string[]): string {
++  if (falta.length === 0) return "¿Te muestro el resumen para confirmar tu pedido? 😊";
++  return `Para seguir con tu pedido, ¿me compartes ${falta[0]}? 😊`;
++}
++
+ /** La corrección cuando aplaza el resumen teniendo la hoja lista. */
+ export const CORRECCION_DE_RESUMEN_APLAZADO =
+   "ALTO. Le dijiste al cliente que 'ahora preparas' el resumen, o le ofreciste mostrarlo, pero no lo mostraste en este mensaje: el cliente se queda esperando y el pedido no avanza. La hoja del pedido YA está completa. Muestra el resumen COMPLETO AHORA, en ESTE mismo mensaje —cada producto con su cantidad y precio, los datos de entrega, la línea del domicilio si aplica, y el total con su cifra— y pídele que confirme. No lo dejes para el mensaje siguiente. Responde ÚNICAMENTE el objeto JSON.";
+diff --git a/src/server/ai/pipeline.ts b/src/server/ai/pipeline.ts
+index c90f148..399ec82 100644
+--- a/src/server/ai/pipeline.ts
++++ b/src/server/ai/pipeline.ts
+@@ -147,6 +147,7 @@ import {
+   direccionDelPedido,
+   esModalidadADomicilio,
+   hojaListaParaResumen,
++  loQueFalta,
+   requisitosPendientesDe,
+ } from "@/server/orders/extraer";
+ import {
+@@ -197,6 +198,9 @@ import {
+   CORRECCION_DE_RESUMEN_APLAZADO,
+   ofreceResumen,
+   turnoSinAvance,
++  pedidoAbierto,
++  correccionDeTurnoSinAvance,
++  preguntaDeLoQueFalta,
+   elClienteVioUnTotal,
+   MENSAJE_RETIRADO,
+   dijoOtroValorDeDomicilio,
+@@ -3922,6 +3926,53 @@ export async function runAgentTurn(
+       const textoCorregido = reintento.ok ? textosAlCliente(reintento.data).join(" ") : "";
+       if (reintento.ok && !noAvanza(textoCorregido)) {
+         action = conTextoCorregido(action, reintento.data);
++      } else if (turnoSinAvance({ texto: textoDelTurno, ultimaRespuestaPrevia })) {
++        // Ni corregido avanzó: al menos la pregunta que lleva a confirmar.
++        action = conTextoCorregido(action, {
++          action: "reply",
++          text: `${textoDelTurno.trim()}\n\n${preguntaDeLoQueFalta([])}`.trim(),
++        });
++      }
++    } else if (
++      /*
++       * A MITAD del pedido (25-sep-2026, instrucción del dueño: el objetivo es
++       * cerrar el pedido). Caso real MALIA: "esteban , 3155136091" → "Perfecto
++       * Esteban, ya lo anoté 🙂", sin pedir la dirección; el cliente tuvo que
++       * escribir "gracias" para que el bot siguiera. Con un pedido abierto,
++       * cada mensaje pide lo siguiente que falta. El barrio pendiente lo cubre
++       * su propio guardarraíl (más abajo), así que aquí no se duplica.
++       */
++      !hojaLista &&
++      pedidoAbierto(estadoGuardado) &&
++      !(entregaPersistida?.tipo === "domicilio" && entregaPersistida.feeCents === null && entregaPersistida.barrioPedido) &&
++      turnoSinAvance({ texto: textoDelTurno, ultimaRespuestaPrevia })
++    ) {
++      const falta = estadoGuardado
++        ? loQueFalta(estadoGuardado, productosDelPedido, requisitos ?? [], vertical, true)
++        : [];
++      if (falta.length > 0) {
++        console.warn(
++          `[agente] turno sin avance con el pedido abierto en ${conversationId}; rehaciendo para pedir: ${falta.join(", ")}`
++        );
++        const reintento = await chatJson(AgentAction, [
++          ...messages,
++          { role: "assistant", content: JSON.stringify(action) },
++          { role: "user", content: correccionDeTurnoSinAvance(falta) },
++        ]);
++        await registrarUsoIa(organizationId, reintento.usage, `conv:${conversationId}/turno-sin-avance`);
++        const corregido =
++          reintento.ok &&
++          contestaYSigue(reintento.data) &&
++          !turnoSinAvance({ texto: textosAlCliente(reintento.data).join(" "), ultimaRespuestaPrevia });
++        agregarGuardarrail(traza, "turno_sin_avance", corregido);
++        if (corregido && reintento.ok) {
++          action = conTextoCorregido(action, reintento.data);
++        } else {
++          action = conTextoCorregido(action, {
++            action: "reply",
++            text: `${textoDelTurno.trim()}\n\n${preguntaDeLoQueFalta(falta)}`.trim(),
++          });
++        }
+       }
+     }
+   }

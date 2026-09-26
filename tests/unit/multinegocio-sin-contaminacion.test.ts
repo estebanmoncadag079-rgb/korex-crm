@@ -317,7 +317,7 @@ describe("Camilabrandcol: sin configurar, se queda como estaba", () => {
    * romper: un negocio que todavía lo tiene todo en el prompt no puede
    * empezar a recibir bloques de una arquitectura que no tiene encendida.
    */
-  it("no recibe bloque de estado, y el plan no afirma lo que el backend no sabe", async () => {
+  it("no recibe bloque de estado, ni un plan del backend que interprete al cliente", async () => {
     const prompt = await turnoDe(NEGOCIOS.camila, "cuánto cuesta el domicilio?");
 
     // Nada de la arquitectura que no tiene encendida.
@@ -325,15 +325,9 @@ describe("Camilabrandcol: sin configurar, se queda como estaba", () => {
     expect(prompt).not.toContain("TE FALTA");
     expect(prompt).toContain("Regla de Camilabrandcol");
 
-    /*
-     * La prioridad SÍ le sirve —preguntar por el domicilio es preguntar por
-     * el domicilio en cualquier negocio—, pero sin fila de estado que leer el
-     * servidor no puede afirmar que no haya un pedido a medias. Si lo
-     * afirmara, le haría soltar el hilo justo en mitad de uno.
-     */
-    expect(prompt).toContain("PLAN DEL TURNO");
-    expect(prompt).not.toContain("No hay ningún pedido en curso");
-    expect(prompt).toContain("Si ya venía un pedido a medias");
+    // Doc 198 (25-sep-2026): el backend ya no clasifica el mensaje del cliente
+    // con palabras clave; entenderlo es del modelo, en todos los negocios.
+    expect(prompt).not.toContain("PLAN DEL TURNO");
   });
 
   it("no se le lee ni se le escribe estado", async () => {

@@ -274,3 +274,36 @@ describe("instruccionesDePrueba: prompt en memoria, solo en conversaciones de pr
     expect(prompt).not.toContain("PROMPT EN MEMORIA");
   });
 });
+
+/*
+ * Doc 200: el mensaje que el cliente lee cuando se le pasa a una persona es del
+ * negocio (`ficha.mensajes.derivar`), no un texto fijo igual para todos.
+ */
+describe("mensaje propio al pasar la conversación al equipo", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENROUTER_API_TOKEN", "token-test");
+    chatJson.mockReset();
+    catalogoDePedidosMock.mockReset();
+    selectQueue.length = 0;
+    inserted.length = 0;
+  });
+
+  async function derivarCon(ficha: string | undefined) {
+    const conv = conversacion("org_1");
+    queueTurnoBase(conv, perfil("org_1", { consultasVerificadasEnabled: false, ficha }), historial("quiero hablar con un asesor"));
+    catalogoDePedidosMock.mockResolvedValue([]);
+    const { runAgentTurn } = await import("@/server/ai/pipeline");
+    await runAgentTurn(conv.id);
+    return inserted.map((i) => String(i.values.text ?? "")).join("\n");
+  }
+
+  it("usa el mensaje de la ficha, tal cual", async () => {
+    const enviado = await derivarCon(JSON.stringify({ mensajes: { derivar: "Ya te paso con alguien del equipo 💗" } }));
+    expect(enviado).toContain("Ya te paso con alguien del equipo 💗");
+    expect(enviado).not.toContain("Dame un momentico");
+  });
+
+  it("sin mensaje propio, el de siempre", async () => {
+    expect(await derivarCon(undefined)).toContain("Dame un momentico");
+  });
+});

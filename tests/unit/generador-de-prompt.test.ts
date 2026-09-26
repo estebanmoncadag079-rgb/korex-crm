@@ -184,16 +184,13 @@ describe("se adapta al negocio sin dejar huecos", () => {
    * queda muy suelto con esto". Sin orden explícito pedía la dirección antes
    * que el producto, o los datos de a poquitos.
    */
-  it("dice el ORDEN en que preguntar, no solo qué necesita", () => {
+  it("dice QUÉ necesita para cerrar (sin guion fijo) y que el pago va tras confirmar", () => {
+    // Doc 200 (26-sep-2026): el "orden en que preguntas" numerado se retiró;
+    // lo que no cambia es que el pago va después del resumen y la confirmación.
     const p = generarPerfil(LIS).instructions;
-    expect(p).toContain("El orden en que preguntas");
-    // El orden importa: el pago va al final, después de confirmar.
-    expect(p.indexOf("Qué quiere pedir y cuántos")).toBeLessThan(
-      p.indexOf("Su nombre y su celular")
-    );
-    expect(p.indexOf("Su nombre y su celular")).toBeLessThan(
-      p.indexOf("Los datos de pago")
-    );
+    expect(p).toContain("Lo que necesitas para cerrar");
+    expect(p).toContain("Qué quiere pedir y cuántos");
+    expect(p).toMatch(/Después del resumen y la confirmación vienen los datos de\s+pago/);
   });
 
   it("manda agrupar las preguntas en vez de ir de una en una", () => {
@@ -275,8 +272,10 @@ describe("se adapta al negocio sin dejar huecos", () => {
     });
     expect(p.instructions).toContain("## Reglas propias de este negocio");
     expect(p.instructions).toContain("a domicilio solo agua");
-    // Van antes del cierre: son del día a día, no una advertencia final.
-    expect(p.instructions.indexOf("Reglas propias")).toBeLessThan(
+    // Doc 200 (26-sep-2026): van AL FINAL, después del cierre, para que
+    // "mandan sobre todo lo anterior" sea verdad. Antes iban antes del cierre
+    // y el cierre les ganaba el empate (p. ej. cuándo dar la cuenta).
+    expect(p.instructions.indexOf("Reglas propias")).toBeGreaterThan(
       p.instructions.indexOf("MOMENTO 1")
     );
   });

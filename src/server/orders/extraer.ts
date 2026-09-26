@@ -116,6 +116,8 @@ export function requisitoSatisfecho(
   r: Requisito,
   exigirProcedenciaDeNombre = false
 ): boolean {
+  // Un dato del regalo solo hace falta si el pedido ES un regalo (doc 200).
+  if (r.soloSiRegalo && estado.paraRegalo !== true) return true;
   if (!estado.datos[r.id]?.trim()) return false;
   if (exigirProcedenciaDeNombre && r.id === "nombre") {
     return estado.procedenciaDelNombre === "cliente";

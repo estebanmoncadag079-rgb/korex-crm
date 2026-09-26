@@ -40,9 +40,20 @@ export const SECCIONES = {
     "tono",
     "regalos",
     "preguntasFrecuentes",
+    // Doc 200: la política de cancelación (citas) es del negocio, como el horario.
+    "politicaDeCancelacion",
   ],
   /** Lo que ajusta el operador: el orden y las palabras de la conversación. */
-  flujo: ["reglasPropias", "saludoInicial", "cierre", "menu"],
+  flujo: [
+    "reglasPropias",
+    "saludoInicial",
+    "cierre",
+    "menu",
+    // Doc 200: conducta que decide el negocio y lo que el bot envía tal cual.
+    "fueraDeHorario",
+    "respuestaAPublicaciones",
+    "mensajes",
+  ],
   /**
    * Las reglas que se escriben **después de un incidente**: cuándo pasar a una
    * persona y qué no se puede prometer nunca (salud, por ejemplo).

@@ -149,3 +149,40 @@ describe("sin regresión: la tarifa verificada sigue funcionando igual", () => {
     expect(bloque).not.toContain("pendiente");
   });
 });
+
+/*
+ * Doc 200 (26-sep-2026), auditoría 199 §1.3: en los negocios SIN tabla de zonas
+ * (Lis, La Churra) no existe `entrega` guardada, así que el pendiente nunca se
+ * activaba y el backend cerraba con "Subtotal $19.000 / Total: $19.000" — un
+ * total que no incluye el domicilio (visto en cierres reales de Lis, 21-sep).
+ * Lo que dice que es a domicilio es la MODALIDAD que eligió el cliente.
+ */
+describe("sin tabla de zonas: la modalidad a domicilio basta para decir 'pendiente'", () => {
+  const A_DOMICILIO = { subtotalCents: SUBTOTAL, entrega: null, modalidadDeEntrega: "domicilio" };
+
+  it("el bloque de cifras NO afirma un total cuando es a domicilio sin tarifa", () => {
+    expect(bloqueDeCifrasVerificadas(A_DOMICILIO)).toBeNull();
+  });
+
+  it("el pendiente sí se escribe, sin 'Total:'", () => {
+    const b = bloqueDeDomicilioPendiente(A_DOMICILIO)!;
+    expect(b).toContain("Subtotal de productos: $20.000");
+    expect(b).toContain("pendiente de cotización");
+    expect(b).not.toMatch(/Total:/);
+  });
+
+  it("con el mensaje propio del negocio, usa ese texto tal cual", () => {
+    const b = bloqueDeDomicilioPendiente({ ...A_DOMICILIO, mensaje: "Domicilio: te lo confirma el equipo 💗" })!;
+    expect(b).toContain("Domicilio: te lo confirma el equipo 💗");
+    expect(b).not.toContain("pendiente de cotización");
+  });
+
+  it("para recoger, el total sigue siendo el de productos", () => {
+    expect(
+      bloqueDeCifrasVerificadas({ subtotalCents: SUBTOTAL, entrega: null, modalidadDeEntrega: "recogida" })
+    ).toContain("Total: $20.000");
+    expect(
+      bloqueDeDomicilioPendiente({ subtotalCents: SUBTOTAL, entrega: null, modalidadDeEntrega: "recogida" })
+    ).toBeNull();
+  });
+});

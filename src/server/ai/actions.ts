@@ -200,6 +200,12 @@ export const AgentAction = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("consultar_medio_pago"),
     metodo: z.string().min(1),
+    /**
+     * Qué método es, dicho por el MODELO (doc 200): él entiende al cliente
+     * ("contraentrega" = efectivo, "Nequi" = transferencia). Con esto y las
+     * formas por modalidad de la ficha, el backend responde con un dato.
+     */
+    tipo: z.enum(["transferencia", "efectivo", "tarjeta"]).optional(),
   }),
   /**
    * Mismo principio para la tarifa de domicilio (Fase 10N-J, incidente real

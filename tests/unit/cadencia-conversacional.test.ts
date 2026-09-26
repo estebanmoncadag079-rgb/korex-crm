@@ -35,19 +35,24 @@ describe("el contrato de cadencia limita lo que el bot PIDE", () => {
     expect(t).not.toMatch(/pregúntale el día y la preferencia de persona\s*\n?\s*en el MISMO mensaje/i);
   });
 
-  it("el techo es UN punto del orden por mensaje, y está escrito", () => {
-    expect(CADENCIA).toMatch(/el primer punto que sigue sin resolver, y solo ese/i);
+  /*
+   * Doc 200 (26-sep-2026): el techo ya no es "un punto de un orden numerado"
+   * —ese guion se retiró—, sino una regla por defecto sobre QUÉ va junto. Lo
+   * que estas pruebas protegen sigue igual: ni el muro de Yuli, ni un
+   * formulario de una pregunta por turno.
+   */
+  it("sin guion fijo: responde y pide lo que falta en el orden natural", () => {
+    expect(CADENCIA).toMatch(/No hay un guion fijo/);
   });
 
-  it("prohíbe explícitamente mezclar preguntas de dos puntos distintos", () => {
-    expect(CADENCIA).toMatch(/nunca juntes preguntas de dos puntos/i);
+  it("prohíbe el muro: no mezclar elegir lo que quiere con pedir datos personales", () => {
+    expect(CADENCIA).toMatch(/No mezcles\*\* elegir lo que quiere con pedir datos personales/);
+    expect(CADENCIA).toMatch(/ni le sueltes de golpe todo lo que falta/i);
   });
 
-  it("NO degenera en 'una pregunta por mensaje': un punto puede llevar varias", () => {
-    // El fallo contrario. Sin esta línea, el techo de arriba se lee como un
-    // formulario de una pregunta por turno, que alarga el pedido igual.
-    expect(CADENCIA).toMatch(/no es "una pregunta por mensaje"/i);
-    expect(CADENCIA).toMatch(/varias preguntas si van juntas/i);
+  it("NO degenera en 'una pregunta por mensaje': los datos de contacto y entrega van juntos", () => {
+    expect(CADENCIA).toMatch(/datos de contacto y de entrega\*\*[\s\S]{0,200}pídelos juntos, en un solo mensaje/i);
+    expect(CADENCIA).toMatch(/de TODO lo que pidió, en el mismo mensaje/);
   });
 
   it("contestar, recomendar o saludar no cuenta contra el techo", () => {
@@ -60,16 +65,12 @@ describe("la regla de absorción: el límite no alcanza al cliente", () => {
     expect(CADENCIA).toMatch(/el límite es de lo que TÚ pides, nunca de lo que él te puede dar/i);
   });
 
-  it("lo que el cliente adelanta se apunta y da esos puntos por resueltos", () => {
-    expect(CADENCIA).toMatch(/apúntala toda\s+y da esos puntos por resueltos/i);
+  it("lo que el cliente adelanta se apunta y se da por resuelto", () => {
+    expect(CADENCIA).toMatch(/apúntala toda y\s+dala por resuelta/i);
   });
 
-  it("y no se le vuelve a preguntar cuando llegue ese punto", () => {
-    expect(CADENCIA).toMatch(/ni se\s+la vuelvas a preguntar cuando llegues ahí/i);
-  });
-
-  it("absorber hace SALTAR puntos: el siguiente objetivo es el primero en blanco", () => {
-    expect(CADENCIA).toMatch(/saltar varios puntos de una vez/i);
+  it("y no se le vuelve a preguntar después", () => {
+    expect(CADENCIA).toMatch(/ni se la vuelvas a\s+preguntar después/i);
   });
 });
 
@@ -99,9 +100,10 @@ describe("los requisitos de cierre no son la lista de preguntas de este turno", 
     expect(t).toMatch(/no es la lista de lo que preguntas en este mensaje/i);
   });
 
-  it("remite al orden y al techo de un punto por mensaje", () => {
+  it("remite a la regla de cómo pedir: los datos juntos, no un muro", () => {
     const t = requisitosParaElPrompt(REQS)!;
-    expect(t).toMatch(/cuando le toque su turno en el orden/i);
+    expect(t).toMatch(/Cómo lo pides/);
+    expect(t).not.toMatch(/su turno en el orden/i);
   });
 
   it("mantiene intacta la parte que SÍ era correcta: la acción que guarda el dato", () => {
@@ -140,9 +142,9 @@ describe("ningún bloque viejo contradice el techo de un punto por mensaje", () 
     expect(meta("citas")).not.toMatch(/una vez el día, una\s+vez la hora y una vez sus datos/i);
   });
 
-  it("citas: dice que varios servicios NO cambian la cadencia", () => {
+  it("citas: varios servicios son una sola visita, sin una ronda por servicio", () => {
     const t = meta("citas");
-    expect(t).toMatch(/no cambia la cadencia/i);
+    expect(t).toMatch(/Nada\s+de una ronda de preguntas por servicio/i);
     // Y lo que sí había que conservar de la lección del 17-ago sigue ahí.
     expect(t).toMatch(/una sola visita/i);
     expect(t).toMatch(/tiempo de todos juntos/i);
@@ -152,11 +154,9 @@ describe("ningún bloque viejo contradice el techo de un punto por mensaje", () 
     expect(meta("pedidos")).not.toMatch(/pregunta en UN mensaje lo que falte de cada cosa/i);
   });
 
-  it("pedidos: el punto activo se resuelve para TODAS las cosas, sin mezclar puntos", () => {
+  it("pedidos: las opciones de TODAS las cosas en el mismo mensaje", () => {
     const t = meta("pedidos");
-    expect(t).toMatch(/no cambia la cadencia/i);
-    expect(t).toMatch(/el punto activo se resuelve para TODAS/i);
-    expect(t).toMatch(/nunca es mezclar puntos/i);
+    expect(t).toMatch(/pregunta las opciones de TODAS las cosas en el\s+mismo mensaje/i);
     // La lección del 17-ago que sí seguía siendo correcta.
     expect(t).toMatch(/anótalo todo de una vez/i);
     expect(t).toMatch(/no se lo vuelvas a preguntar/i);

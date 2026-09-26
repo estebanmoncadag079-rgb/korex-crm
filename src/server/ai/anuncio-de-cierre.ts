@@ -479,6 +479,8 @@ export function bloqueDeCifrasVerificadas(input: {
   subtotalCents: number | null | undefined;
   /** La entrega ya verificada y persistida, si la hay. */
   entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+  /** La modalidad que eligió el cliente (doc 200): cubre a los negocios sin tabla. */
+  modalidadDeEntrega?: string | null;
 }): string | null {
   const { subtotalCents, entrega } = input;
   if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
@@ -508,12 +510,27 @@ export function bloqueDeCifrasVerificadas(input: {
   } else if (entrega?.tipo === "recogida") {
     lineas.push("Recoges en el local (sin domicilio)");
     lineas.push(`Total: ${enPesos(subtotalCents)}`);
+  } else if (esADomicilio(input.modalidadDeEntrega)) {
+    /*
+     * A domicilio SIN tarifa guardada: los negocios sin tabla de zonas (Lis,
+     * La Churra), donde el domicilio lo cotiza el equipo. Hasta el 26-sep-2026
+     * esto caía en la rama de abajo y cerraba con "Total: $19.000" — un total
+     * que no incluye el domicilio (doc 199 §1.3). Mismo criterio que el
+     * domicilio pendiente de arriba: no hay total que afirmar; la aclaración va
+     * por `bloqueDeDomicilioPendiente`.
+     */
+    return null;
   } else {
     // Sin modalidad resuelta todavía: solo se afirma lo que es seguro.
     lineas.push(`Total: ${enPesos(subtotalCents)}`);
   }
 
   return lineas.join("\n");
+}
+
+/** La modalidad que eligió el cliente es a domicilio. */
+function esADomicilio(modalidad: string | null | undefined): boolean {
+  return /domicilio|env[íi]o|entrega a/i.test(modalidad ?? "");
 }
 
 /**
@@ -542,14 +559,20 @@ export function bloqueDeCifrasVerificadas(input: {
 export function bloqueDeDomicilioPendiente(input: {
   subtotalCents: number | null | undefined;
   entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+  /** Doc 200: sin entrega guardada (negocios sin tabla), decide la modalidad. */
+  modalidadDeEntrega?: string | null;
+  /** Doc 200: la línea propia del negocio (`ficha.mensajes.domicilioPendiente`), tal cual. */
+  mensaje?: string | null;
 }): string | null {
   const { subtotalCents, entrega } = input;
   if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
-  if (entrega?.tipo !== "domicilio") return null;
-  if (typeof entrega.feeCents === "number") return null;
+  const pendiente = entrega
+    ? entrega.tipo === "domicilio" && typeof entrega.feeCents !== "number"
+    : esADomicilio(input.modalidadDeEntrega);
+  if (!pendiente) return null;
   return [
     `Subtotal de productos: ${enPesos(subtotalCents)}`,
-    "Domicilio: pendiente de cotización — te confirmamos el valor aparte",
+    input.mensaje?.trim() || "Domicilio: pendiente de cotización — te confirmamos el valor aparte",
   ].join("\n");
 }
 
@@ -622,7 +645,18 @@ export type FalloDeResumen = "cierre-prematuro" | "sin-contenido" | null;
 
 /** Qué le pasa al resumen que el agente va a mandar. `null` = está bien. */
 export function resumenMalArmado(
-  texto: string | null | undefined
+  texto: string | null | undefined,
+  opciones?: {
+    /**
+     * El mensaje ANTERIOR del agente ya mostró el resumen con su total. E2E del
+     * 26-sep-2026 (MALIA): tras el resumen, la clienta preguntó por el efectivo
+     * y la respuesta ("…con el comprobante dejamos tu pedido en firme") se
+     * tomó por un resumen vacío y se reemplazó por el resumen: la pregunta
+     * quedó sin responder. Con el resumen ya visto, un mensaje que no ANUNCIA
+     * uno nuevo no es un resumen roto.
+     */
+    resumenYaMostrado?: boolean;
+  }
 ): FalloDeResumen {
   if (!texto) return null;
 
@@ -644,6 +678,7 @@ export function resumenMalArmado(
    * confirmando un precio que nadie le dijo.
    */
   if ((anunciaResumen || pideConfirmar) && !TIENE_TOTAL.test(texto)) {
+    if (!anunciaResumen && opciones?.resumenYaMostrado) return null;
     return "sin-contenido";
   }
 
@@ -655,7 +690,7 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
   if (fallo === "cierre-prematuro") {
     return "ALTO. En el MISMO mensaje le pides al cliente que confirme su pedido y ya te despides (o le das los datos de pago). Son DOS momentos distintos: el cliente todavía NO ha confirmado. Tu mensaje debe TERMINAR justo después de preguntar si está todo correcto — sin despedida, sin 'marca 0', sin datos de pago, sin decir que ya lo estás preparando. Esos textos van en el mensaje SIGUIENTE, cuando el cliente diga que sí. Reescribe SOLO el resumen y la petición de confirmación. Responde ÚNICAMENTE el objeto JSON.";
   }
-  return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Responde ÚNICAMENTE el objeto JSON.";
+  return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Si el cliente te hizo una pregunta en su último mensaje, respóndela también, primero y en el mismo mensaje: no la dejes sin contestar. Responde ÚNICAMENTE el objeto JSON.";
 }
 
 /* ============================================================

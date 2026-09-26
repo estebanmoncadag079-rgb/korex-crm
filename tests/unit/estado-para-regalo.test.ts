@@ -40,15 +40,6 @@ const conTurno = (mensajeDelTurno: string): ContextoOperaciones => ({
   mensajeDelTurno,
 });
 
-/** Un turno con evidencia vieja en el historial pero NO en el mensaje actual. */
-const conHistorialViejo = (
-  mensajeDelTurno: string,
-  historial: string[]
-): ContextoOperaciones => ({
-  ...CONTEXTO,
-  mensajeDelTurno,
-  dichoPorElCliente: historial,
-});
 
 const conPedido = (extra: Partial<EstadoDelPedido> = {}): EstadoDelPedido => ({
   ...estadoVacio(),
@@ -104,128 +95,28 @@ describe("paraRegalo: un hecho que el cliente aporta, con contrato propio", () =
 });
 
 /**
- * Bloqueador 2 de la auditoría: `marcar_regalo` NO puede escribir el hecho solo
- * porque el modelo lo proponga — el backend es la autoridad. Solo se acepta con
- * evidencia de que el cliente lo dijo, y solo se desmarca con una corrección
- * compatible. Sin evidencia, se rechaza: es preferible preguntar a inventar.
+ * Doc 198/200 (26-sep-2026, decisión del dueño): el backend NO interpreta al
+ * cliente. Hasta hoy `marcar_regalo` exigía "evidencia" buscando palabras de
+ * regalo SOLO en el mensaje del turno (el antiguo Bloqueador 2 de la auditoría).
+ * En el E2E de MALIA la clienta escribió "quiero enviar un regalo" y, dos
+ * mensajes después, "es para mi mamá, a domicilio": la regla rechazó marcar el
+ * regalo —esa frase no trae la palabra— y, como el lote es atómico, se perdieron
+ * también los demás datos de ese turno. Entender si es regalo es del modelo;
+ * el backend guarda lo que el modelo concluye.
  */
-describe("paraRegalo: el backend exige evidencia, no la palabra del modelo", () => {
+describe("paraRegalo: lo decide el modelo, el backend lo guarda", () => {
   const marcar = (esRegalo: boolean) => ({ tipo: "marcar_regalo", esRegalo }) as const;
 
-  it('"es para un regalo" es evidencia suficiente', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para un regalo")).ok).toBe(true);
+  it('el caso de MALIA: "es para mi mamá" (sin la palabra regalo) se guarda como regalo', () => {
+    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("es para mi mamá, a domicilio"));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.estado.paraRegalo).toBe(true);
   });
 
-  it('"es para un detalle" también', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para un detalle")).ok).toBe(true);
-  });
-
-  it('"es para un amigo secreto" también', () => {
-    expect(
-      aplicarOperacion(conPedido(), marcar(true), conTurno("es para un amigo secreto")).ok
-    ).toBe(true);
-  });
-
-  it('"lo necesito para el sábado" NO es evidencia de regalo', () => {
-    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("lo necesito para el sábado"));
-    expect(r.ok).toBe(false);
-  });
-
-  it('"es para mí" NO convierte el pedido en regalo', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para mí")).ok).toBe(false);
-  });
-
-  it("el modelo propone true sin que el cliente lo diga → se rechaza", () => {
-    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("quiero dos cremosos"));
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.correccion).toMatch(/regalo/i);
-  });
-
-  it("desmarcar sin ninguna corrección del cliente → se rechaza", () => {
-    // El cliente dijo que era regalo y nunca se retractó: el modelo no puede
-    // borrarlo por su cuenta.
-    const r = aplicarOperacion(
-      conPedido({ paraRegalo: true }),
-      marcar(false),
-      conTurno("es para un regalo")
-    );
-    expect(r.ok).toBe(false);
-  });
-
-  it('"finalmente no es para regalo" SÍ desmarca', () => {
-    const r = aplicarOperacion(
-      conPedido({ paraRegalo: true }),
-      marcar(false),
-      conTurno("finalmente no es para regalo")
-    );
+  it("desmarcar también es decisión del modelo", () => {
+    const r = aplicarOperacion(conPedido({ paraRegalo: true }), marcar(false), conTurno("mejor para mí"));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.estado.paraRegalo).toBe(false);
-  });
-
-  it("EL DETECTOR DETECTA: mismo marcar(true), la evidencia decide", () => {
-    const con = aplicarOperacion(conPedido(), marcar(true), conTurno("es un regalo para mi mamá"));
-    const sin = aplicarOperacion(conPedido(), marcar(true), conTurno("me lo llevo el viernes"));
-    expect(con.ok).toBe(true);
-    expect(sin.ok).toBe(false);
-  });
-
-  /*
-   * 2.ª auditoría, casos negativos duros. La evidencia tiene que ser del TURNO
-   * actual y de verdad hablar de un regalo — no una palabra suelta ni una frase
-   * de un pedido anterior que quedó en el historial.
-   */
-  it('"torta sorpresa" NO marca regalo: "sorpresa" en el nombre de un producto no es evidencia', () => {
-    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("quiero una torta sorpresa"));
-    expect(r.ok).toBe(false);
-  });
-
-  it('"es para mi consumo" NO marca regalo', () => {
-    expect(aplicarOperacion(conPedido(), marcar(true), conTurno("es para mi consumo")).ok).toBe(false);
-  });
-
-  it("evidencia de un pedido anterior (en el historial, no en el mensaje del turno) NO se reutiliza", () => {
-    // El cliente dijo "es para un regalo" en un pedido pasado; en ESTE turno
-    // solo pide más cantidad. No se puede marcar regalo por lo viejo.
-    const r = aplicarOperacion(
-      conPedido(),
-      marcar(true),
-      conHistorialViejo("y serían dos", ["es para un regalo", "y serían dos"])
-    );
-    expect(r.ok).toBe(false);
-  });
-
-  /*
-   * Última auditoría: una MISMA frase no puede ser evidencia positiva y
-   * negativa a la vez. "no es para regalo" contiene "regalo", pero es una
-   * negación — para marcar(true) hace falta evidencia positiva inequívoca.
-   */
-  it('"no es para regalo" con marcar(true) → RECHAZADO (la negación no es evidencia positiva)', () => {
-    const r = aplicarOperacion(conPedido(), marcar(true), conTurno("no es para regalo"));
-    expect(r.ok).toBe(false);
-  });
-
-  it('"no es para regalo" con marcar(false) → aceptado (es una corrección válida)', () => {
-    const r = aplicarOperacion(conPedido({ paraRegalo: true }), marcar(false), conTurno("no es para regalo"));
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.estado.paraRegalo).toBe(false);
-  });
-
-  it("EL DETECTOR DETECTA (compatibilidad): misma frase, true rechaza / false acepta", () => {
-    const verdad = aplicarOperacion(conPedido(), marcar(true), conTurno("no es para regalo"));
-    const falso = aplicarOperacion(conPedido({ paraRegalo: true }), marcar(false), conTurno("no es para regalo"));
-    expect(verdad.ok).toBe(false);
-    expect(falso.ok).toBe(true);
-  });
-
-  it("EL DETECTOR DETECTA (scope): misma frase de regalo, en el turno acepta / en el historial no", () => {
-    const enElTurno = aplicarOperacion(conPedido(), marcar(true), conTurno("es para un regalo"));
-    const soloEnElHistorial = aplicarOperacion(
-      conPedido(),
-      marcar(true),
-      conHistorialViejo("dos por favor", ["es para un regalo", "dos por favor"])
-    );
-    expect(enElTurno.ok).toBe(true);
-    expect(soloEnElHistorial.ok).toBe(false);
   });
 });
 

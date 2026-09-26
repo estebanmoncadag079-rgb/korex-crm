@@ -142,3 +142,27 @@ describe("verificarDomicilio", () => {
     expect(r.entrega.barrioPedido).toBeUndefined();
   });
 });
+
+describe("doc 200: la pregunta del barrio es la del negocio, si la escribió", () => {
+  it("usa el mensaje propio en la instrucción para el modelo", () => {
+    const r = verificarDomicilio({
+      ...BASE,
+      consulta: { zona: "Centro, Cali" },
+      mensajePedirBarrio: "¿Me regalas el barrio, porfa? 💕",
+    });
+    expect(r.paso).toBe("pedir-barrio");
+    expect(r.infoZona).toContain("¿Me regalas el barrio, porfa? 💕");
+  });
+});
+
+/*
+ * E2E 26-sep-2026 (MALIA): tras pedir el barrio, la clienta respondió "barrio San
+ * Antonio" y el modelo guardó la dirección como "San Antonio" — se perdió la
+ * calle. La instrucción del barrio pide guardar la dirección COMPLETA.
+ */
+describe("al recibir el barrio, la dirección se completa, no se reemplaza", () => {
+  it("la instrucción pide guardar la dirección que ya tenía más el barrio", () => {
+    const r = verificarDomicilio({ ...BASE, consulta: { zona: "Carrera 5 # 12-30, Centro, Cali" } });
+    expect(r.infoZona).toMatch(/dirección COMPLETA/);
+  });
+});

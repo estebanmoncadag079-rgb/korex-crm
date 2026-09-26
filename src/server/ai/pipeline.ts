@@ -183,6 +183,7 @@ import {
   resumenMalArmado,
   resumenAplazado,
   CORRECCION_DE_RESUMEN_APLAZADO,
+  TIENE_TOTAL,
   ofreceResumen,
   turnoSinAvance,
   elClienteVioUnTotal,
@@ -1010,6 +1011,11 @@ export async function runAgentTurn(
      * ignora siempre.
      */
     instruccionesDePrueba?: string;
+    /**
+     * La ficha (JSON) EN MEMORIA, para probar una migración de fichas con el
+     * modelo real antes de escribirla. Mismo candado: solo con `isTest`.
+     */
+    fichaDePrueba?: string;
   }
 ): Promise<AgentActionType | null> {
   if (!isAiConfigured()) return null;
@@ -1035,10 +1041,15 @@ export async function runAgentTurn(
     .limit(1);
   const profileGuardado = profileRows[0];
   if (!profileGuardado) return null;
-  const profile =
-    conversation.isTest && opts?.instruccionesDePrueba
-      ? { ...profileGuardado, instructions: opts.instruccionesDePrueba }
-      : profileGuardado;
+  const profile = conversation.isTest
+    ? {
+        ...profileGuardado,
+        ...(opts?.instruccionesDePrueba ? { instructions: opts.instruccionesDePrueba } : {}),
+        ...(opts?.fichaDePrueba ? { ficha: opts.fichaDePrueba } : {}),
+      }
+    : profileGuardado;
+  conversation.mensajeAlDerivar = leerFicha(profile.ficha)?.mensajes?.derivar?.trim() || undefined;
+
   // El toggle global aplica a conversaciones reales; el Laboratorio evalúa el
   // comportamiento configurado aunque el agente aún no esté encendido.
   if (!conversation.isTest && !profile.enabled) return null;
@@ -2062,6 +2073,9 @@ export async function runAgentTurn(
       formas: pagoDePedidos?.formas ?? "",
       metodo: action.metodo,
       modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+      // Doc 200: con las formas por modalidad de la ficha, la respuesta es un dato.
+      tipo: action.tipo,
+      porModalidad: pagoDePedidos?.porModalidad,
     });
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoPago });
@@ -2188,6 +2202,7 @@ export async function runAgentTurn(
       entregaPrevia: entregaPersistida,
       subtotalCents: estadoGuardado?.totalCents,
       mensajeId: pendientes.at(-1)?.id ?? null,
+      mensajePedirBarrio: fichaDelNegocio?.mensajes?.pedirBarrio,
     });
     resultadoZona = verificacion.resultado;
     const infoZona = verificacion.infoZona;
@@ -2625,6 +2640,7 @@ export async function runAgentTurn(
     let cifrasDelBackend = bloqueDeCifrasVerificadas({
       subtotalCents: estadoGuardado?.totalCents,
       entrega: entregaPersistida,
+      modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
     });
     /** La corrección terminó pidiendo el barrio en vez de cerrar (ver abajo). */
     let pidioElBarrioAlCerrar = false;
@@ -2699,6 +2715,7 @@ export async function runAgentTurn(
           entregaPrevia: entregaPersistida,
           subtotalCents: estadoGuardado?.totalCents,
           mensajeId: pendientes.at(-1)?.id ?? null,
+          mensajePedirBarrio: fichaDelNegocio?.mensajes?.pedirBarrio,
         });
         resultadoZona = verificacion.resultado;
         const infoZona = verificacion.infoZona;
@@ -2742,6 +2759,7 @@ export async function runAgentTurn(
         cifrasDelBackend = bloqueDeCifrasVerificadas({
           subtotalCents: estadoGuardado?.totalCents,
           entrega: entregaPersistida,
+          modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
         });
         reintento = await chatJson(AgentAction, [
           ...messages,
@@ -2763,7 +2781,12 @@ export async function runAgentTurn(
           action =
             reintento.ok && reintento.data.action === "reply"
               ? reintento.data
-              : { action: "reply", text: "Para darte el total con el domicilio, ¿me dices por favor el barrio? 🙏" };
+              : {
+                  action: "reply",
+                  text:
+                    fichaDelNegocio?.mensajes?.pedirBarrio?.trim() ||
+                    "Para darte el total con el domicilio, ¿me dices por favor el barrio? 🙏",
+                };
           pidioElBarrioAlCerrar = true;
         }
       }
@@ -2845,6 +2868,8 @@ export async function runAgentTurn(
       const pendiente = bloqueDeDomicilioPendiente({
         subtotalCents: estadoGuardado?.totalCents,
         entrega: entregaPersistida,
+        modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+        mensaje: fichaDelNegocio?.mensajes?.domicilioPendiente,
       });
       if (pendiente) {
         action = {
@@ -3591,7 +3616,10 @@ export async function runAgentTurn(
   const falloDeResumen =
     action.action === "notify_order" || contrataCitas(vertical)
       ? null
-      : resumenMalArmado(textosAlCliente(action).join(" "));
+      : resumenMalArmado(textosAlCliente(action).join(" "), {
+          // E2E 26-sep-2026: una respuesta tras el resumen ya visto no es un resumen vacío.
+          resumenYaMostrado: TIENE_TOTAL.test(ultimaRespuestaPrevia ?? ""),
+        });
   if (falloDeResumen) {
     console.warn(`[agente] resumen mal armado (${falloDeResumen}); rehaciendo el turno`);
     const reintento = await chatJson(AgentAction, [
@@ -3606,7 +3634,9 @@ export async function runAgentTurn(
     );
     if (
       reintento.ok &&
-      resumenMalArmado(textosAlCliente(reintento.data).join(" ")) === null
+      resumenMalArmado(textosAlCliente(reintento.data).join(" "), {
+        resumenYaMostrado: TIENE_TOTAL.test(ultimaRespuestaPrevia ?? ""),
+      }) === null
     ) {
       action = reintento.data;
     } else {
@@ -3738,9 +3768,11 @@ export async function runAgentTurn(
         action = conTextoCorregido(action, reintento.data);
       } else if (contestaYSigue(action)) {
         const texto = textosAlCliente(action).join("\n").trim();
+        // Doc 200: la pregunta propia del negocio, si la escribió.
+        const preguntaDelBarrio = fichaDelNegocio?.mensajes?.pedirBarrio?.trim() || PREGUNTA_DEL_BARRIO;
         action = conTextoCorregido(action, {
           action: "reply",
-          text: texto ? `${texto}\n\n${PREGUNTA_DEL_BARRIO}` : PREGUNTA_DEL_BARRIO,
+          text: texto ? `${texto}\n\n${preguntaDelBarrio}` : preguntaDelBarrio,
         });
       }
     }
@@ -4192,7 +4224,7 @@ export async function runAgentTurn(
        * hace; esto es la red para cuando no. Nunca pisa su texto: solo
        * cubre la ausencia.
        */
-      await deliverReply(conversation, action.farewell || AVISO_DE_DERIVACION);
+      await deliverReply(conversation, action.farewell || conversation.mensajeAlDerivar || AVISO_DE_DERIVACION);
       await applyHandoff(conversationId, organizationId, "modelo");
       // Fase 10T — bug real: este camino (decisión del MODELO, no error ni
       // FR-022) marcaba el handoff sin avisar nunca al equipo por WhatsApp —
@@ -4738,6 +4770,13 @@ type Conversation = typeof schema.conversation.$inferSelect & {
    * comportamiento para esos caminos.
    */
   jobOwnership?: { jobId: string; generation: number };
+  /**
+   * Doc 200: lo que el cliente lee cuando se le pasa a una persona, tal cual
+   * lo escribió el negocio (`ficha.mensajes.derivar`). Viaja en la
+   * conversación por la misma razón que `jobOwnership`: ningún punto que
+   * deriva necesita un parámetro nuevo. Ausente = el texto de siempre.
+   */
+  mensajeAlDerivar?: string;
 };
 
 /**
@@ -4869,7 +4908,7 @@ async function derivarAUnaPersona(
   const teamSummary = opts?.teamSummary ?? AVISO_EQUIPO_ERROR;
 
   try {
-    await deliverReply(conversation, AVISO_DE_DERIVACION, { esAviso: true });
+    await deliverReply(conversation, conversation.mensajeAlDerivar ?? AVISO_DE_DERIVACION, { esAviso: true });
   } catch (err) {
     /**
      * Fase 6B — hallazgo de auditoría: este catch trataba
@@ -5535,7 +5574,20 @@ async function guardarEstadoPropuesto(entrada: {
     const parse = OperacionPedidos.array().safeParse(operacionesSaneadas);
     if (!parse.success) {
       const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
-      metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle}`);
+      /*
+       * Qué operación falló, por su FORMA (tipo y campos presentes), sin sus
+       * valores: los valores pueden ser datos personales. Sin esto el registro
+       * decía "2.ofrecible Required" y no había forma de saber de qué operación
+       * se trataba (E2E del 26-sep-2026, MALIA y Lis).
+       */
+      const forma = operacionesSaneadas
+        .map((op, i) =>
+          op && typeof op === "object"
+            ? `${i}:${String((op as Record<string, unknown>).tipo)}{${Object.keys(op as object).join(",")}}`
+            : `${i}:${typeof op}`
+        )
+        .join(" ");
+      metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle} · lote: ${forma}`);
       // T030-A (auditoría 16-sep-2026): antes devolvía `null` sin señal —
       // ver el comentario simétrico arriba, en la rama de citas.
       return {

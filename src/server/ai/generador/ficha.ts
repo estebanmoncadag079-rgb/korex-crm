@@ -81,7 +81,25 @@ export type Requisito = {
    * (`modalidadesDeEntrega`), nunca contra una lista escrita en el núcleo.
    */
   soloEnModalidades?: readonly string[];
+  /**
+   * Solo hace falta si el pedido ES un regalo (`estado.paraRegalo`). Lo decide
+   * `requisitoSatisfecho` (`orders/extraer.ts`), el único punto que usan "lo
+   * que falta", el aviso al modelo y el candado del cierre. Doc 200.
+   */
+  soloSiRegalo?: boolean;
 };
+
+/**
+ * Los datos propios de un REGALO (E2E 26-sep-2026). Existen solo en negocios
+ * que hacen regalos (`ficha.regalos`) y solo cuentan cuando el pedido es un
+ * regalo. Antes no había dónde guardarlos: el nombre de quien recibía reemplazó
+ * al del cliente (MALIA) y un dato sin `requisitoId` tumbó un lote (Lis).
+ */
+export const REQUISITOS_DE_REGALO: readonly Requisito[] = [
+  { id: "destinatario", tipo: "texto", etiqueta: "el nombre de quien recibe el regalo", obligatorio: true, soloSiRegalo: true },
+  { id: "telefonoDestinatario", tipo: "telefono", etiqueta: "el celular de quien recibe el regalo", obligatorio: true, soloSiRegalo: true },
+  { id: "mensajeTarjeta", tipo: "texto", etiqueta: "el mensaje de la tarjeta, si quiere una", obligatorio: false, soloSiRegalo: true },
+];
 
 /**
  * Las modalidades de entrega que este negocio OFRECE, derivadas de su ficha.
@@ -213,6 +231,40 @@ export type Pago = {
    * (ver `docs/korexia/13-AUDIO-E-IMAGENES.md`).
    */
   compruebaUnaPersona: boolean;
+  /**
+   * Las formas de pago como DATO, por modalidad (doc 200, 26-sep-2026).
+   *
+   * `formas` es texto libre y el backend no lo puede interpretar: MALIA dice
+   * "efectivo pero solo recogiendo en planta" y se aprobó efectivo contra
+   * entrega (caso Sofía, doc 198). Con esto el backend responde con certeza.
+   * Ausente = se usa `formas` como hasta hoy.
+   */
+  porModalidad?: { domicilio?: MetodoDePago[]; recoger?: MetodoDePago[] };
+  /**
+   * Cuándo se dan los datos de la cuenta. Ausente = `si_la_piden` (lo de hoy:
+   * si el cliente pregunta cómo pagar, se le contesta). `nunca` = solo al cerrar,
+   * después de que confirme (Lis: "no dar la cuenta antes de la confirmación").
+   */
+  cuentaAntesDeConfirmar?: "si_la_piden" | "nunca";
+};
+
+/** Las formas de pago que el backend sabe distinguir. Nequi, Daviplata y llaves son transferencia. */
+export type MetodoDePago = "transferencia" | "efectivo" | "tarjeta";
+export const METODOS_DE_PAGO: readonly MetodoDePago[] = ["transferencia", "efectivo", "tarjeta"];
+
+/**
+ * Lo que el bot envía TAL CUAL al cliente en momentos fijos (doc 200). Cada uno
+ * es opcional: vacío = el texto por defecto de la plataforma.
+ */
+export type MensajesDelBot = {
+  /** Cuando pasa la conversación a una persona del equipo. */
+  derivar?: string;
+  /** Cuando el negocio está cerrado y se toma el pedido para después. */
+  fueraDeHorario?: string;
+  /** Cuando la dirección no identifica un barrio de la tabla de domicilios. */
+  pedirBarrio?: string;
+  /** La línea del cierre cuando el domicilio lo cotiza el equipo aparte. */
+  domicilioPendiente?: string;
 };
 
 /**
@@ -351,6 +403,25 @@ export type FichaDelNegocio = {
 
   // ── 4. Cómo te pagan ───────────────────────────────────────────────────────
   pago: Pago;
+
+  /**
+   * Solo CITAS: la política de cancelación y cambios, tal cual se la dice el
+   * bot al cliente cuando pregunta (doc 200). 💬 literal.
+   */
+  politicaDeCancelacion?: string;
+
+  // ── Conducta que decide el negocio (doc 200) ───────────────────────────────
+  /** ¿Se toman pedidos con el negocio cerrado? Ausente = sí (lo de hoy). */
+  fueraDeHorario?: { tomaPedidos: boolean };
+  /**
+   * Qué hacer cuando el cliente responde a una historia/estado y pregunta por
+   * lo que vio (el bot no puede ver la publicación). Ausente = `responder`:
+   * contesta lo que pueda con su conocimiento y, si no sabe de qué habla,
+   * pregunta. `pasar_al_equipo` = lo de antes del 26-sep-2026.
+   */
+  respuestaAPublicaciones?: "responder" | "pasar_al_equipo";
+  /** Lo que el bot envía tal cual en momentos fijos. */
+  mensajes?: MensajesDelBot;
 
   // ── 5. Cómo debe hablarle a sus clientes ───────────────────────────────────
   /** El tono, con las palabras del dueño. Ej: "cercano, con emojis, hablamos de nosotros". */
@@ -511,8 +582,16 @@ export function requisitosDe(
   pedido?: { modalidadDeEntrega?: string | null }
 ): Requisito[] | undefined {
   const declarados = ficha.cierre?.requisitos;
-  if (!declarados) return undefined;
-  return declarados.filter((r) => aplica(r, ficha, pedido?.modalidadDeEntrega ?? null));
+  // Los del regalo se suman SIEMPRE que el negocio haga regalos, para poder
+  // guardarlos en el mismo mensaje en que el cliente dice que es regalo; que
+  // cuenten como pendientes o no lo decide `requisitoSatisfecho`.
+  const deRegalo = ficha.regalos?.trim()
+    ? REQUISITOS_DE_REGALO.filter((r) => !declarados?.some((d) => d.id === r.id))
+    : [];
+  if (!declarados && !deRegalo.length) return undefined;
+  return [...(declarados ?? []), ...deRegalo].filter((r) =>
+    aplica(r, ficha, pedido?.modalidadDeEntrega ?? null)
+  );
 }
 
 /**

@@ -252,12 +252,20 @@ export function siguientePasoDelDomicilio(p: {
 }
 
 /** Hecho para el modelo cuando la dirección no identifica un barrio de la tabla. */
-export function textoDePedirBarrio(consulta: string, opciones?: ZonaDeEntrega[]): string {
+export function textoDePedirBarrio(
+  consulta: string,
+  opciones?: ZonaDeEntrega[],
+  /** Doc 200: la pregunta propia del negocio (`ficha.mensajes.pedirBarrio`). */
+  mensajePropio?: string
+): string {
   const cuales =
     opciones && opciones.length > 1
       ? ` Coincide con varias zonas (${opciones.map((z) => z.nombre).join(", ")}): pregúntale cuál es.`
       : "";
-  return `[SISTEMA] La dirección "${consulta}" no identifica un barrio de la tabla de domicilios, que está organizada por BARRIOS.${cuales} Pídele al cliente el barrio con estas palabras u otras equivalentes: "Por favor, dime el barrio para ayudarte con el total con el domicilio". No inventes una tarifa, no des un total y no cierres el pedido hasta tener el barrio.`;
+  const como = mensajePropio?.trim()
+    ? `con este mensaje del negocio, tal cual: "${mensajePropio.trim()}"`
+    : `con estas palabras u otras equivalentes: "Por favor, dime el barrio para ayudarte con el total con el domicilio"`;
+  return `[SISTEMA] La dirección "${consulta}" no identifica un barrio de la tabla de domicilios, que está organizada por BARRIOS.${cuales} Pídele al cliente el barrio ${como}. No inventes una tarifa, no des un total y no cierres el pedido hasta tener el barrio. Cuando te lo dé, guarda la dirección COMPLETA —la que ya tenías más el barrio—, nunca el barrio solo: la calle no se puede perder.`;
 }
 
 /** Texto del hecho verificado tras `consultar_domicilio` con `recogida:true` — Fase 10V-X. */

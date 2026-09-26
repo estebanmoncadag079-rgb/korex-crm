@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   contradiceProductoEncontrado,
-  niegaMetodoDePagoPermitido,
   contradiceDatosDeCuenta,
 } from "@/server/ai/anuncio-de-cierre";
 
@@ -42,22 +41,6 @@ describe("contradiceProductoEncontrado", () => {
     expect(contradiceProductoEncontrado(null, "Porción Chocolate")).toBe(false);
     expect(contradiceProductoEncontrado(undefined, "Porción Chocolate")).toBe(false);
     expect(contradiceProductoEncontrado("", "Porción Chocolate")).toBe(false);
-  });
-});
-
-describe("niegaMetodoDePagoPermitido", () => {
-  it("detecta la negación cuando nombra el método que el sistema confirmó", () => {
-    expect(niegaMetodoDePagoPermitido("No aceptamos Nequi, disculpa.", "Nequi")).toBe(true);
-  });
-
-  it("no marca falso positivo cuando la negación es sobre otra cosa", () => {
-    expect(
-      niegaMetodoDePagoPermitido("Sí, con Nequi está bien. No manejamos crédito a plazos.", "Nequi")
-    ).toBe(false);
-  });
-
-  it("no marca falso positivo en una pregunta", () => {
-    expect(niegaMetodoDePagoPermitido("¿Será que no aceptan Nequi?", "Nequi")).toBe(false);
   });
 });
 

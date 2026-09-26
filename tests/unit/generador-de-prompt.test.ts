@@ -188,7 +188,7 @@ describe("se adapta al negocio sin dejar huecos", () => {
     const p = generarPerfil(LIS).instructions;
     expect(p).toContain("El orden en que preguntas");
     // El orden importa: el pago va al final, después de confirmar.
-    expect(p.indexOf("Qué quiere y cuántos")).toBeLessThan(
+    expect(p.indexOf("Qué quiere pedir y cuántos")).toBeLessThan(
       p.indexOf("Su nombre y su celular")
     );
     expect(p.indexOf("Su nombre y su celular")).toBeLessThan(
@@ -347,5 +347,50 @@ describe("el agente sabe que se piden varias cosas a la vez", () => {
 
   it("el resumen lleva una línea por cosa", () => {
     expect(CIERRE).toMatch(/una línea por cosa/i);
+  });
+});
+
+/*
+ * ────────────────────────────────────────────────────────────────────────
+ * EL TRATO DE LA FICHA MANDA (doc 198, 25-sep-2026).
+ *
+ * La ficha de Lis dice "Dulce, alegre y cercano, nunca frío ni cortante". El
+ * bot contestaba "¡Hola! Buenas noches 💗 ¿Qué quieres y cuántos? 🍰" y no
+ * respondía lo que la clienta preguntó ("¿de pronto alcanzo a pedir?"). Causa:
+ * el tono iba como UNA línea después de ESTILO, cuya primera orden en negrita
+ * era "Habla lo menos posible", y la meta repetía "hablando poco" y titulaba el
+ * primer punto "Qué quiere y cuántos" — que gpt-5-mini copiaba literal.
+ * ────────────────────────────────────────────────────────────────────────
+ */
+describe("el trato que escribió el negocio manda sobre el estilo genérico", () => {
+  it("el trato de la ficha va ANTES del estilo genérico y dice que manda", () => {
+    const p = generarPerfil(LIS).instructions;
+    const trato = p.indexOf(LIS.tono);
+    expect(trato).toBeGreaterThan(-1);
+    expect(trato).toBeLessThan(p.indexOf("# Cómo escribes"));
+    expect(p).toMatch(/manda sobre cualquier otra instrucción de estilo/i);
+  });
+
+  it("cada negocio lleva SU trato y no el de otro", () => {
+    const otro = { ...LIS, nombre: "Otro Negocio", tono: "Formal y sobrio, sin emojis." };
+    const pOtro = generarPerfil(otro).instructions;
+    expect(pOtro).toContain("Formal y sobrio, sin emojis.");
+    expect(pOtro).not.toContain(LIS.tono);
+  });
+
+  it("el estilo genérico ya no ordena hablar lo menos posible: breve, nunca seco", () => {
+    expect(ESTILO).not.toMatch(/Habla lo menos posible/i);
+    expect(ESTILO).toMatch(/Breve, nunca seco/);
+  });
+
+  it("primero se responde lo que el cliente dijo o preguntó, luego se avanza", () => {
+    expect(ESTILO).toMatch(/Primero, lo que el cliente dijo o preguntó/);
+  });
+
+  it("la meta no pide 'hablar poco' y aclara que los puntos no son frases para copiar", () => {
+    for (const v of ["pedidos", "citas"] as const) {
+      expect(meta(v)).not.toMatch(/hablando poco/i);
+      expect(meta(v)).toMatch(/no con qué palabras/i);
+    }
   });
 });

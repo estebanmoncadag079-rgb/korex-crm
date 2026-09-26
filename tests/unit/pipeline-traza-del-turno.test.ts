@@ -178,14 +178,22 @@ describe("runAgentTurn: traza diagnóstica por turno (docs/korexia/145)", () => 
   });
 
   it("ESCENARIO 1 — consulta factual exitosa: fact_verified, source=backend", async () => {
+    // Desde el 25-sep-2026 (doc 198) la consulta la PIDE EL MODELO: el backend
+    // ya no adivina la pregunta con palabras clave. La traza la sigue anotando.
     const conv = conversacion("org_1");
     queueTurnoBase(conv, perfil("org_1"), historial("¿Tienen torta de chocolate?"));
     catalogoDePedidosMock.mockResolvedValue([producto("p1", "Porción Chocolate", 1250000)]);
-    chatJson.mockResolvedValueOnce({
-      ok: true,
-      data: { action: "reply", text: "¡Sí! Tenemos Porción Chocolate a $12.500." },
-      raw: "{}",
-    });
+    chatJson
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "consultar_producto", consulta: "torta de chocolate" },
+        raw: "{}",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { action: "reply", text: "¡Sí! Tenemos Porción Chocolate a $12.500." },
+        raw: "{}",
+      });
 
     const captura = capturarTraza();
     const { runAgentTurn } = await import("@/server/ai/pipeline");

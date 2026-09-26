@@ -449,8 +449,9 @@ describe("I — la consulta intermedia no dispara el muro de preguntas", () => {
       perfil: { instructions: CADENCIA },
     });
 
-    // La cadencia sigue entera (el "plan del turno" del backend se retiró, doc 198).
-    expect(prompt).toContain("Nunca juntes preguntas de dos puntos en el mismo mensaje");
+    // La cadencia sigue entera (el "plan del turno" del backend se retiró,
+    // doc 198; el guion numerado, doc 200): la regla anti-muro llega completa.
+    expect(prompt).toContain("elegir lo que quiere con pedir datos personales");
   });
 });
 

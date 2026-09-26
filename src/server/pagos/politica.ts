@@ -14,11 +14,50 @@
  * modelo. El arreglo definitivo es que las formas de pago sean datos
  * estructurados por modalidad en el CRM; hasta entonces, el backend no afirma.
  */
+type Metodo = "transferencia" | "efectivo" | "tarjeta";
+
+const NOMBRE: Record<Metodo, string> = {
+  transferencia: "transferencia (incluye Nequi, Daviplata y llaves)",
+  efectivo: "efectivo",
+  tarjeta: "tarjeta",
+};
+
 export function textoDePoliticaDePago(input: {
   formas: string;
   metodo: string;
   modalidadDeEntrega: string | null | undefined;
+  /**
+   * Qué método es, dicho por el MODELO (él entiende al cliente; el backend no
+   * interpreta el texto — doc 198). Solo con esto y `porModalidad` hay veredicto.
+   */
+  tipo?: Metodo | null;
+  /** Las formas de pago de la ficha, por modalidad (doc 200). */
+  porModalidad?: { domicilio?: Metodo[]; recoger?: Metodo[] };
 }): string {
+  /*
+   * CON DATO ESTRUCTURADO, el backend responde con certeza (doc 200). Es lo que
+   * la frase libre no permitía: MALIA escribió "efectivo pero solo recogiendo en
+   * planta" y se aprobó efectivo contra entrega (caso Sofía).
+   */
+  const pm = input.porModalidad;
+  if (input.tipo && pm && (pm.domicilio?.length || pm.recoger?.length)) {
+    const vale = (lista?: Metodo[]) => Boolean(lista?.includes(input.tipo!));
+    const lista = (l?: Metodo[]) => (l?.length ? l.map((m) => NOMBRE[m]).join(", ") : "ninguna declarada");
+    const m = (input.modalidadDeEntrega ?? "").toLowerCase();
+    const nombre = input.tipo;
+    if (/domicilio|env[íi]o|entrega a/.test(m)) {
+      return vale(pm.domicilio)
+        ? `[SISTEMA] Este pedido es a domicilio y ${nombre} SÍ se acepta para domicilios (dato de la ficha del negocio).`
+        : `[SISTEMA] Este pedido es a domicilio y ${nombre} NO se acepta para domicilios (dato de la ficha del negocio). Para domicilio se acepta: ${lista(pm.domicilio)}.${vale(pm.recoger) ? ` ${nombre} sí se acepta si pasa a recoger.` : ""}`;
+    }
+    if (/recog/.test(m)) {
+      return vale(pm.recoger)
+        ? `[SISTEMA] Este pedido es para recoger y ${nombre} SÍ se acepta al recoger (dato de la ficha del negocio).`
+        : `[SISTEMA] Este pedido es para recoger y ${nombre} NO se acepta al recoger (dato de la ficha del negocio). Al recoger se acepta: ${lista(pm.recoger)}.`;
+    }
+    return `[SISTEMA] Según la ficha del negocio, ${nombre}: a domicilio ${vale(pm.domicilio) ? "sí" : "no"}; al recoger ${vale(pm.recoger) ? "sí" : "no"}. Todavía no sabes cómo lo recibe: díselo así, sin decidir por él.`;
+  }
+
   const formas = input.formas.trim();
   if (!formas) {
     return `[SISTEMA] Este negocio no tiene formas de pago configuradas. No digas que sí ni que no a "${input.metodo}": dile al cliente que el equipo se lo confirma y sigue con el pedido.`;

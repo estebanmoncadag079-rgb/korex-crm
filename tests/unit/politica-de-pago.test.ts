@@ -47,3 +47,59 @@ describe("textoDePoliticaDePago: la política literal, sin veredicto del backend
     expect(t).toMatch(/equipo/i);
   });
 });
+
+/*
+ * Doc 200 (26-sep-2026): con las formas de pago ESTRUCTURADAS por modalidad en
+ * la ficha, el backend sí responde con certeza — es un dato, no una frase. El
+ * modelo dice qué método es (`tipo`: lo interpreta él, no el backend) y el
+ * backend contesta desde la ficha según la modalidad del pedido.
+ */
+describe("textoDePoliticaDePago con formas por modalidad (dato estructurado)", () => {
+  const POR_MODALIDAD = { domicilio: ["transferencia" as const], recoger: ["transferencia" as const, "efectivo" as const] };
+
+  it("caso Sofía: efectivo en un pedido a domicilio → NO, con certeza", () => {
+    const t = textoDePoliticaDePago({
+      formas: MALIA,
+      metodo: "efectivo cuando llegue",
+      tipo: "efectivo",
+      porModalidad: POR_MODALIDAD,
+      modalidadDeEntrega: "domicilio",
+    });
+    expect(t).toMatch(/efectivo NO se acepta/i);
+    expect(t).toMatch(/transferencia/);
+  });
+
+  it("efectivo al recoger → SÍ", () => {
+    const t = textoDePoliticaDePago({
+      formas: MALIA,
+      metodo: "efectivo",
+      tipo: "efectivo",
+      porModalidad: POR_MODALIDAD,
+      modalidadDeEntrega: "recogida",
+    });
+    expect(t).toMatch(/efectivo SÍ se acepta/i);
+  });
+
+  it("sin modalidad conocida: dice cómo es en cada una, sin elegir por el cliente", () => {
+    const t = textoDePoliticaDePago({
+      formas: MALIA,
+      metodo: "efectivo",
+      tipo: "efectivo",
+      porModalidad: POR_MODALIDAD,
+      modalidadDeEntrega: null,
+    });
+    expect(t).toMatch(/a domicilio[^.]*no/i);
+    expect(t).toMatch(/al recoger[^.]*s[ií]/i);
+  });
+
+  it("sin `tipo` (el modelo no lo dijo): vuelve a la política literal, sin veredicto", () => {
+    const t = textoDePoliticaDePago({
+      formas: MALIA,
+      metodo: "bitcoin",
+      porModalidad: POR_MODALIDAD,
+      modalidadDeEntrega: "domicilio",
+    });
+    expect(t).toContain(MALIA);
+    expect(t).not.toMatch(/SÍ se acepta|NO se acepta/);
+  });
+});

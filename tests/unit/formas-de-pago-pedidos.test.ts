@@ -32,7 +32,17 @@ describe("pagoDePedidosParaElPrompt: la lista del negocio es la única fuente", 
       datosDeCuenta: "Bancolombia 123456",
     });
     expect(conDatos).toContain("Bancolombia 123456");
-    expect(conDatos).toContain("DESPUÉS de que confirme");
+    // Doc 200: por defecto se dan también si el cliente pregunta cómo pagar
+    // (decisión del dueño, 9-sep-2026). "Solo después de confirmar" es ahora
+    // una opción de la ficha (`cuentaAntesDeConfirmar: "nunca"`).
+    expect(conDatos).toContain("antes si el cliente te pregunta cómo pagar");
+    expect(
+      pagoDePedidosParaElPrompt({
+        formas: "Transferencia",
+        datosDeCuenta: "Bancolombia 123456",
+        cuentaAntesDeConfirmar: "nunca",
+      })
+    ).toContain("DESPUÉS de que confirme");
 
     const sinDatos = pagoDePedidosParaElPrompt({ formas: "Transferencia" });
     expect(sinDatos).not.toContain("undefined");

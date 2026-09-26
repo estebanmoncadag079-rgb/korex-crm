@@ -1039,6 +1039,8 @@ export async function runAgentTurn(
     conversation.isTest && opts?.instruccionesDePrueba
       ? { ...profileGuardado, instructions: opts.instruccionesDePrueba }
       : profileGuardado;
+  conversation.mensajeAlDerivar = leerFicha(profile.ficha)?.mensajes?.derivar?.trim() || undefined;
+
   // El toggle global aplica a conversaciones reales; el Laboratorio evalúa el
   // comportamiento configurado aunque el agente aún no esté encendido.
   if (!conversation.isTest && !profile.enabled) return null;
@@ -2062,6 +2064,9 @@ export async function runAgentTurn(
       formas: pagoDePedidos?.formas ?? "",
       metodo: action.metodo,
       modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+      // Doc 200: con las formas por modalidad de la ficha, la respuesta es un dato.
+      tipo: action.tipo,
+      porModalidad: pagoDePedidos?.porModalidad,
     });
     messages.push({ role: "assistant", content: JSON.stringify(action) });
     messages.push({ role: "user", content: infoPago });
@@ -2188,6 +2193,7 @@ export async function runAgentTurn(
       entregaPrevia: entregaPersistida,
       subtotalCents: estadoGuardado?.totalCents,
       mensajeId: pendientes.at(-1)?.id ?? null,
+      mensajePedirBarrio: fichaDelNegocio?.mensajes?.pedirBarrio,
     });
     resultadoZona = verificacion.resultado;
     const infoZona = verificacion.infoZona;
@@ -2625,6 +2631,7 @@ export async function runAgentTurn(
     let cifrasDelBackend = bloqueDeCifrasVerificadas({
       subtotalCents: estadoGuardado?.totalCents,
       entrega: entregaPersistida,
+      modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
     });
     /** La corrección terminó pidiendo el barrio en vez de cerrar (ver abajo). */
     let pidioElBarrioAlCerrar = false;
@@ -2699,6 +2706,7 @@ export async function runAgentTurn(
           entregaPrevia: entregaPersistida,
           subtotalCents: estadoGuardado?.totalCents,
           mensajeId: pendientes.at(-1)?.id ?? null,
+          mensajePedirBarrio: fichaDelNegocio?.mensajes?.pedirBarrio,
         });
         resultadoZona = verificacion.resultado;
         const infoZona = verificacion.infoZona;
@@ -2742,6 +2750,7 @@ export async function runAgentTurn(
         cifrasDelBackend = bloqueDeCifrasVerificadas({
           subtotalCents: estadoGuardado?.totalCents,
           entrega: entregaPersistida,
+          modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
         });
         reintento = await chatJson(AgentAction, [
           ...messages,
@@ -2763,7 +2772,12 @@ export async function runAgentTurn(
           action =
             reintento.ok && reintento.data.action === "reply"
               ? reintento.data
-              : { action: "reply", text: "Para darte el total con el domicilio, ¿me dices por favor el barrio? 🙏" };
+              : {
+                  action: "reply",
+                  text:
+                    fichaDelNegocio?.mensajes?.pedirBarrio?.trim() ||
+                    "Para darte el total con el domicilio, ¿me dices por favor el barrio? 🙏",
+                };
           pidioElBarrioAlCerrar = true;
         }
       }
@@ -2845,6 +2859,8 @@ export async function runAgentTurn(
       const pendiente = bloqueDeDomicilioPendiente({
         subtotalCents: estadoGuardado?.totalCents,
         entrega: entregaPersistida,
+        modalidadDeEntrega: estadoGuardado?.modalidadDeEntrega,
+        mensaje: fichaDelNegocio?.mensajes?.domicilioPendiente,
       });
       if (pendiente) {
         action = {
@@ -3738,9 +3754,11 @@ export async function runAgentTurn(
         action = conTextoCorregido(action, reintento.data);
       } else if (contestaYSigue(action)) {
         const texto = textosAlCliente(action).join("\n").trim();
+        // Doc 200: la pregunta propia del negocio, si la escribió.
+        const preguntaDelBarrio = fichaDelNegocio?.mensajes?.pedirBarrio?.trim() || PREGUNTA_DEL_BARRIO;
         action = conTextoCorregido(action, {
           action: "reply",
-          text: texto ? `${texto}\n\n${PREGUNTA_DEL_BARRIO}` : PREGUNTA_DEL_BARRIO,
+          text: texto ? `${texto}\n\n${preguntaDelBarrio}` : preguntaDelBarrio,
         });
       }
     }
@@ -4192,7 +4210,7 @@ export async function runAgentTurn(
        * hace; esto es la red para cuando no. Nunca pisa su texto: solo
        * cubre la ausencia.
        */
-      await deliverReply(conversation, action.farewell || AVISO_DE_DERIVACION);
+      await deliverReply(conversation, action.farewell || conversation.mensajeAlDerivar || AVISO_DE_DERIVACION);
       await applyHandoff(conversationId, organizationId, "modelo");
       // Fase 10T — bug real: este camino (decisión del MODELO, no error ni
       // FR-022) marcaba el handoff sin avisar nunca al equipo por WhatsApp —
@@ -4738,6 +4756,13 @@ type Conversation = typeof schema.conversation.$inferSelect & {
    * comportamiento para esos caminos.
    */
   jobOwnership?: { jobId: string; generation: number };
+  /**
+   * Doc 200: lo que el cliente lee cuando se le pasa a una persona, tal cual
+   * lo escribió el negocio (`ficha.mensajes.derivar`). Viaja en la
+   * conversación por la misma razón que `jobOwnership`: ningún punto que
+   * deriva necesita un parámetro nuevo. Ausente = el texto de siempre.
+   */
+  mensajeAlDerivar?: string;
 };
 
 /**
@@ -4869,7 +4894,7 @@ async function derivarAUnaPersona(
   const teamSummary = opts?.teamSummary ?? AVISO_EQUIPO_ERROR;
 
   try {
-    await deliverReply(conversation, AVISO_DE_DERIVACION, { esAviso: true });
+    await deliverReply(conversation, conversation.mensajeAlDerivar ?? AVISO_DE_DERIVACION, { esAviso: true });
   } catch (err) {
     /**
      * Fase 6B — hallazgo de auditoría: este catch trataba

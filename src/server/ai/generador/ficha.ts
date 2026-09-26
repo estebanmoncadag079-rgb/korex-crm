@@ -213,6 +213,40 @@ export type Pago = {
    * (ver `docs/korexia/13-AUDIO-E-IMAGENES.md`).
    */
   compruebaUnaPersona: boolean;
+  /**
+   * Las formas de pago como DATO, por modalidad (doc 200, 26-sep-2026).
+   *
+   * `formas` es texto libre y el backend no lo puede interpretar: MALIA dice
+   * "efectivo pero solo recogiendo en planta" y se aprobó efectivo contra
+   * entrega (caso Sofía, doc 198). Con esto el backend responde con certeza.
+   * Ausente = se usa `formas` como hasta hoy.
+   */
+  porModalidad?: { domicilio?: MetodoDePago[]; recoger?: MetodoDePago[] };
+  /**
+   * Cuándo se dan los datos de la cuenta. Ausente = `si_la_piden` (lo de hoy:
+   * si el cliente pregunta cómo pagar, se le contesta). `nunca` = solo al cerrar,
+   * después de que confirme (Lis: "no dar la cuenta antes de la confirmación").
+   */
+  cuentaAntesDeConfirmar?: "si_la_piden" | "nunca";
+};
+
+/** Las formas de pago que el backend sabe distinguir. Nequi, Daviplata y llaves son transferencia. */
+export type MetodoDePago = "transferencia" | "efectivo" | "tarjeta";
+export const METODOS_DE_PAGO: readonly MetodoDePago[] = ["transferencia", "efectivo", "tarjeta"];
+
+/**
+ * Lo que el bot envía TAL CUAL al cliente en momentos fijos (doc 200). Cada uno
+ * es opcional: vacío = el texto por defecto de la plataforma.
+ */
+export type MensajesDelBot = {
+  /** Cuando pasa la conversación a una persona del equipo. */
+  derivar?: string;
+  /** Cuando el negocio está cerrado y se toma el pedido para después. */
+  fueraDeHorario?: string;
+  /** Cuando la dirección no identifica un barrio de la tabla de domicilios. */
+  pedirBarrio?: string;
+  /** La línea del cierre cuando el domicilio lo cotiza el equipo aparte. */
+  domicilioPendiente?: string;
 };
 
 /**
@@ -351,6 +385,25 @@ export type FichaDelNegocio = {
 
   // ── 4. Cómo te pagan ───────────────────────────────────────────────────────
   pago: Pago;
+
+  /**
+   * Solo CITAS: la política de cancelación y cambios, tal cual se la dice el
+   * bot al cliente cuando pregunta (doc 200). 💬 literal.
+   */
+  politicaDeCancelacion?: string;
+
+  // ── Conducta que decide el negocio (doc 200) ───────────────────────────────
+  /** ¿Se toman pedidos con el negocio cerrado? Ausente = sí (lo de hoy). */
+  fueraDeHorario?: { tomaPedidos: boolean };
+  /**
+   * Qué hacer cuando el cliente responde a una historia/estado y pregunta por
+   * lo que vio (el bot no puede ver la publicación). Ausente = `responder`:
+   * contesta lo que pueda con su conocimiento y, si no sabe de qué habla,
+   * pregunta. `pasar_al_equipo` = lo de antes del 26-sep-2026.
+   */
+  respuestaAPublicaciones?: "responder" | "pasar_al_equipo";
+  /** Lo que el bot envía tal cual en momentos fijos. */
+  mensajes?: MensajesDelBot;
 
   // ── 5. Cómo debe hablarle a sus clientes ───────────────────────────────────
   /** El tono, con las palabras del dueño. Ej: "cercano, con emojis, hablamos de nosotros". */

@@ -64,6 +64,16 @@ const ANIDADOS_CON_AUTORIDAD: { campo: string; dentroDe: string; porque: string 
     dentroDe: "pago",
     porque: "decide si el agente puede dar un pago por bueno",
   },
+  {
+    campo: "porModalidad",
+    dentroDe: "pago",
+    porque: "el backend responde con certeza qué método vale a domicilio y al recoger (doc 200, caso Sofía)",
+  },
+  {
+    campo: "cuentaAntesDeConfirmar",
+    dentroDe: "pago",
+    porque: "decide si el bot da los datos de la cuenta antes de que el cliente confirme (doc 200)",
+  },
 ];
 
 describe("Zod declara todo campo anidado con autoridad", () => {

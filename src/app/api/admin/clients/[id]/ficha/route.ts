@@ -75,8 +75,28 @@ const fichaSchema = z.object({
     formas: z.string().min(1),
     datosDeCuenta: z.string().optional(),
     compruebaUnaPersona: z.boolean(),
+    // Doc 200: formas de pago por modalidad y cuándo se da la cuenta.
+    porModalidad: z
+      .object({
+        domicilio: z.array(z.enum(["transferencia", "efectivo", "tarjeta"])).optional(),
+        recoger: z.array(z.enum(["transferencia", "efectivo", "tarjeta"])).optional(),
+      })
+      .optional(),
+    cuentaAntesDeConfirmar: z.enum(["si_la_piden", "nunca"]).optional(),
   }),
   tono: z.string().min(1),
+  // Doc 200: conducta que decide el negocio y mensajes que el bot envía tal cual.
+  politicaDeCancelacion: z.string().max(2000).optional(),
+  fueraDeHorario: z.object({ tomaPedidos: z.boolean() }).optional(),
+  respuestaAPublicaciones: z.enum(["responder", "pasar_al_equipo"]).optional(),
+  mensajes: z
+    .object({
+      derivar: z.string().max(500).optional(),
+      fueraDeHorario: z.string().max(500).optional(),
+      pedirBarrio: z.string().max(500).optional(),
+      domicilioPendiente: z.string().max(500).optional(),
+    })
+    .optional(),
   regalos: z.string().optional(),
   saludoInicial: z.string().optional(),
   reglasPropias: z.array(z.string()).optional(),

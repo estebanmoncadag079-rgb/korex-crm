@@ -72,7 +72,28 @@ type Ficha = {
   };
   /** Dónde más te pueden pedir: apps de domicilio, tienda web, marketplace. */
   canales?: { nombre: string; enlace?: string }[];
-  pago?: { formas: string; datosDeCuenta?: string; compruebaUnaPersona: boolean };
+  pago?: {
+    formas: string;
+    datosDeCuenta?: string;
+    compruebaUnaPersona: boolean;
+    /** Doc 200: las formas de pago como dato, por modalidad. */
+    porModalidad?: { domicilio?: MetodoDePago[]; recoger?: MetodoDePago[] };
+    /** Doc 200: cuándo se dan los datos de la cuenta. Vacío = si la piden. */
+    cuentaAntesDeConfirmar?: "si_la_piden" | "nunca";
+  };
+  /** Doc 200, solo citas: la política de cancelación, tal cual. */
+  politicaDeCancelacion?: string;
+  /** Doc 200: ¿se toman pedidos con el negocio cerrado? Vacío = sí. */
+  fueraDeHorario?: { tomaPedidos: boolean };
+  /** Doc 200: qué hacer cuando responden a una historia/estado. Vacío = responder. */
+  respuestaAPublicaciones?: "responder" | "pasar_al_equipo";
+  /** Doc 200: lo que el asistente envía tal cual en momentos fijos. */
+  mensajes?: {
+    derivar?: string;
+    fueraDeHorario?: string;
+    pedirBarrio?: string;
+    domicilioPendiente?: string;
+  };
   tono?: string;
   regalos?: string;
   saludoInicial?: string;
@@ -98,6 +119,14 @@ type Ficha = {
    */
   cierre?: { requisitos?: { id: string }[]; pagoAntesDeLaCita?: boolean };
 };
+
+type MetodoDePago = "transferencia" | "efectivo" | "tarjeta";
+
+const METODOS: { valor: MetodoDePago; texto: string }[] = [
+  { valor: "transferencia", texto: "Transferencia (Nequi, Daviplata, llave)" },
+  { valor: "efectivo", texto: "Efectivo" },
+  { valor: "tarjeta", texto: "Tarjeta" },
+];
 
 const NOMBRE_LARGO = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
@@ -196,28 +225,125 @@ function AvisoContenidoMezclado({
   );
 }
 
+/**
+ * Qué es cada respuesta para el asistente (doc 200, 26-sep-2026):
+ *
+ *  - `literal`: el asistente la ENVÍA tal cual al cliente (el saludo, los datos
+ *    de la cuenta, el mensaje al pasar con el equipo). Lo que se escribe aquí es
+ *    exactamente lo que va a leer el cliente, así que se muestra en una burbuja.
+ *  - `instruccion`: el asistente la USA para decidir, pero el cliente nunca la
+ *    ve tal cual (el tono, las reglas, cuándo llamarte).
+ *
+ * Mezclar las dos cosas en un mismo campo es lo que hacía que el bot le copiara
+ * al cliente una orden pensada para él, o que resumiera con sus palabras un
+ * dato que tenía que ir exacto.
+ */
+type TipoDeCampo = "literal" | "instruccion";
+
+const MARCA: Record<TipoDeCampo, { borde: string; etiqueta: string; texto: string }> = {
+  literal: {
+    borde: "border-l-emerald-500",
+    etiqueta:
+      "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
+    texto: "💬 Tu asistente lo envía tal cual",
+  },
+  instruccion: {
+    borde: "border-l-slate-400 dark:border-l-slate-500",
+    etiqueta: "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
+    texto: "🧠 Instrucción para tu asistente · tus clientes no la ven",
+  },
+};
+
+/** Cómo lo va a ver el cliente en WhatsApp: solo para lo que se envía tal cual. */
+function Burbuja({ texto }: { texto?: string }) {
+  const t = (texto ?? "").trim();
+  if (!t) return null;
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] whitespace-pre-wrap rounded-lg rounded-tl-none bg-[#dcf8c6] px-3 py-2 text-[13px] text-neutral-900 shadow-sm dark:bg-[#005c4b] dark:text-neutral-50">
+        {t}
+      </div>
+    </div>
+  );
+}
+
+/** Explica las dos marcas una vez, arriba de cada paso. */
+function LeyendaDeCampos() {
+  return (
+    <div className="flex flex-wrap gap-2 text-[12px]">
+      <span className={`rounded-full px-2 py-0.5 ${MARCA.literal.etiqueta}`}>
+        {MARCA.literal.texto}
+      </span>
+      <span className={`rounded-full px-2 py-0.5 ${MARCA.instruccion.etiqueta}`}>
+        {MARCA.instruccion.texto}
+      </span>
+    </div>
+  );
+}
+
 /** Una pregunta con su explicación y su ejemplo, como en el cuestionario. */
 function Campo({
   titulo,
   ayuda,
   ejemplo,
+  tipo,
+  vista,
   children,
 }: {
   titulo: string;
   ayuda?: string;
   ejemplo?: string;
+  /** Qué es la respuesta para el asistente. Sin tipo = un dato de configuración (horario, sí/no). */
+  tipo?: TipoDeCampo;
+  /** Solo en `literal`: lo que verá el cliente, para mostrarlo en la burbuja. */
+  vista?: string;
   children: React.ReactNode;
 }) {
+  const marca = tipo ? MARCA[tipo] : null;
   return (
-    <div className="space-y-2">
-      <Label className="text-[15px] font-medium">{titulo}</Label>
+    <div className={`space-y-2 ${marca ? `border-l-4 pl-3 ${marca.borde}` : ""}`}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Label className="text-[15px] font-medium">{titulo}</Label>
+        {marca ? (
+          <span className={`rounded-full px-2 py-0.5 text-[11px] ${marca.etiqueta}`}>
+            {marca.texto}
+          </span>
+        ) : null}
+      </div>
       {ayuda ? <p className="text-[13px] text-muted-foreground">{ayuda}</p> : null}
       {children}
+      {tipo === "literal" ? <Burbuja texto={vista} /> : null}
       {ejemplo ? (
         <p className="text-[13px] text-emerald-700 dark:text-emerald-500">
           Ejemplo: {ejemplo}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Elegir una opción entre pocas, con botones (mismo estilo que "¿Haces domicilios?"). */
+function Opciones<T extends string>({
+  valor,
+  opciones,
+  onChange,
+}: {
+  valor: T | undefined;
+  opciones: { valor: T; texto: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {opciones.map((o) => (
+        <Button
+          key={o.valor}
+          type="button"
+          variant={valor === o.valor ? "default" : "outline"}
+          onClick={() => onChange(o.valor)}
+        >
+          {o.texto}
+        </Button>
+      ))}
     </div>
   );
 }
@@ -557,8 +683,9 @@ export function OnboardingWizard() {
           </Campo>
           <Campo
             titulo="¿Qué vendes o qué servicio ofreces?"
-            ayuda="Una frase. Así se presenta el asistente ante tus clientes."
+            ayuda="Una frase. Con esto el asistente sabe cómo presentarse ante tus clientes."
             ejemplo="Vendemos tortas y postres artesanales por encargo."
+            tipo="instruccion"
           >
             <Textarea
               autoResize
@@ -572,7 +699,7 @@ export function OnboardingWizard() {
               que="cuentas un poco más de lo que vendes"
             />
           </Campo>
-          <Campo titulo="¿En qué ciudad y barrio estás?" ejemplo="Cali, barrio Granada">
+          <Campo titulo="¿En qué ciudad y barrio estás?" ejemplo="Cali, barrio Granada" tipo="instruccion">
             <ExpandableInput
               autoResize
               value={ficha.ubicacion ?? ""}
@@ -681,6 +808,7 @@ export function OnboardingWizard() {
             titulo="Información adicional sobre tus horarios (opcional)"
             ayuda="Para lo que las casillas de arriba no saben decir. Esto lo puede contar el asistente, pero NO cambia cuándo atiende: eso lo deciden los días y horas marcados arriba."
             ejemplo="Recibimos pedidos por WhatsApp desde las 10:00, pero el local abre al público a la 1:00 p. m."
+            tipo="instruccion"
           >
             <Textarea
               rows={3}
@@ -689,6 +817,44 @@ export function OnboardingWizard() {
               onChange={(e) => set({ observacionesHorario: e.target.value })}
             />
           </Campo>
+          {ficha.vertical !== "citas" ? (
+            <>
+              {/*
+                Doc 200: antes era una regla fija para todos ("se toma el
+                pedido y se coordina al abrir"). Ahora lo decide el negocio.
+              */}
+              <Campo
+                titulo="Si te escriben con el negocio cerrado, ¿tomas el pedido?"
+                ayuda="Si eliges tomarlo, el asistente lo anota y avisa que se prepara apenas abras. Si no, le dice a qué hora abres."
+                tipo="instruccion"
+              >
+                <Opciones
+                  valor={ficha.fueraDeHorario?.tomaPedidos === false ? "no" : "si"}
+                  opciones={[
+                    { valor: "si", texto: "Sí, lo tomo para cuando abra" },
+                    { valor: "no", texto: "No, que escriban cuando abra" },
+                  ]}
+                  onChange={(v) => set({ fueraDeHorario: { tomaPedidos: v === "si" } })}
+                />
+              </Campo>
+              <Campo
+                titulo="¿Quieres un mensaje propio para cuando estás cerrado? (opcional)"
+                ayuda="Si lo dejas vacío, el asistente lo dice con sus palabras y con tu tono."
+                ejemplo="¡Hola! 💗 Ahorita estamos cerrados, pero te tomo el pedido y lo preparamos apenas abramos."
+                tipo="literal"
+                vista={ficha.mensajes?.fueraDeHorario}
+              >
+                <Textarea
+                  autoResize
+                  rows={2}
+                  value={ficha.mensajes?.fueraDeHorario ?? ""}
+                  onChange={(e) =>
+                    set({ mensajes: { ...(ficha.mensajes ?? {}), fueraDeHorario: e.target.value } })
+                  }
+                />
+              </Campo>
+            </>
+          ) : null}
         </>
       ),
     },
@@ -726,6 +892,7 @@ export function OnboardingWizard() {
               <Campo
                 titulo="¿Con quién los haces y cuánto tardan?"
                 ejemplo="Por Yango, llega en 1 hora aproximadamente."
+                tipo="instruccion"
               >
                 <ExpandableInput
                   autoResize
@@ -742,8 +909,10 @@ export function OnboardingWizard() {
               </Campo>
               <Campo
                 titulo="¿Quién paga el domicilio y cuándo?"
-                ayuda="Es el dato que más discusiones evita. Si el cliente no lo sabe, cree que el total ya lo incluye."
+                ayuda="Es el dato que más discusiones evita. Si el cliente no lo sabe, cree que el total ya lo incluye. Va tal cual en el resumen del pedido."
                 ejemplo="El domicilio se paga aparte, directo al repartidor cuando llega."
+                tipo="literal"
+                vista={ficha.entrega?.quienPagaElDomicilio}
               >
                 <ExpandableInput
                   autoResize
@@ -765,6 +934,7 @@ export function OnboardingWizard() {
               <Campo
                 titulo="¿Alguna restricción para entregar?"
                 ejemplo="No entramos a conjuntos ni centros comerciales; entregamos en portería."
+                tipo="instruccion"
               >
                 <ExpandableInput
                   autoResize
@@ -814,11 +984,46 @@ export function OnboardingWizard() {
                   }}
                 />
               </Campo>
+              {/*
+                Doc 200: dos frases que antes eran fijas e iguales para todos
+                los negocios. Vacías = el texto de siempre.
+              */}
+              <Campo
+                titulo="Si el domicilio te lo cotizan aparte: ¿qué le dice el asistente al cerrar? (opcional)"
+                ayuda="Va en el resumen final, debajo del valor de los productos. Solo aplica si el valor del domicilio lo confirma tu equipo."
+                ejemplo="Domicilio: te confirmamos el valor apenas lo cotice el repartidor 🛵"
+                tipo="literal"
+                vista={ficha.mensajes?.domicilioPendiente}
+              >
+                <ExpandableInput
+                  autoResize
+                  value={ficha.mensajes?.domicilioPendiente ?? ""}
+                  onChange={(e) =>
+                    set({ mensajes: { ...(ficha.mensajes ?? {}), domicilioPendiente: e.target.value } })
+                  }
+                />
+              </Campo>
+              <Campo
+                titulo="Si tus tarifas son por barrio: ¿cómo pide el asistente el barrio? (opcional)"
+                ayuda="Solo aplica si tienes tu tabla de domicilios por barrio cargada. Se usa cuando la dirección no dice el barrio."
+                ejemplo="¿Me regalas el barrio, porfa? Así te doy el total con el domicilio 💕"
+                tipo="literal"
+                vista={ficha.mensajes?.pedirBarrio}
+              >
+                <ExpandableInput
+                  autoResize
+                  value={ficha.mensajes?.pedirBarrio ?? ""}
+                  onChange={(e) =>
+                    set({ mensajes: { ...(ficha.mensajes ?? {}), pedirBarrio: e.target.value } })
+                  }
+                />
+              </Campo>
             </>
           ) : null}
           <Campo
             titulo="¿Pueden recoger donde ti? ¿Cómo funciona?"
             ejemplo="Sí, pasando por el local en horario de atención."
+            tipo="instruccion"
           >
             <ExpandableInput
               autoResize
@@ -842,7 +1047,10 @@ export function OnboardingWizard() {
           */}
           <Campo
             titulo="¿Te pueden pedir por otro lado? (apps, tienda web…)"
+            ayuda="Si preguntan, el asistente les pasa el enlace tal cual."
             ejemplo="Rappi — https://rappi.app.link/mi-negocio"
+            tipo="literal"
+            vista={canalesATexto(ficha.canales)}
           >
             <Textarea
               autoResize
@@ -851,6 +1059,22 @@ export function OnboardingWizard() {
               onChange={(e) => set({ canales: textoACanales(e.target.value) })}
             />
           </Campo>
+          {ficha.vertical === "citas" ? (
+            <Campo
+              titulo="¿Cuál es tu política de cancelación y cambios? (opcional)"
+              ayuda="Si una clienta pregunta, el asistente se la dice tal cual."
+              ejemplo="Puedes cambiar o cancelar tu cita con 24 horas de anticipación."
+              tipo="literal"
+              vista={ficha.politicaDeCancelacion}
+            >
+              <Textarea
+                autoResize
+                rows={2}
+                value={ficha.politicaDeCancelacion ?? ""}
+                onChange={(e) => set({ politicaDeCancelacion: e.target.value })}
+              />
+            </Campo>
+          ) : null}
         </>
       ),
     },
@@ -859,7 +1083,12 @@ export function OnboardingWizard() {
       subtitulo: "Estos datos se los dará el asistente a tus clientes tal cual los escribas.",
       contenido: (
         <>
-          <Campo titulo="¿Qué formas de pago aceptas?" ejemplo="Transferencia y efectivo.">
+          <Campo
+            titulo="¿Qué formas de pago aceptas? Cuéntalo con tus palabras"
+            ayuda="Sirve para explicarle al cliente cómo pagar. Las casillas de abajo son las que el asistente usa para decir que sí o que no."
+            ejemplo="Transferencia y efectivo; el efectivo solo si recogen en el local."
+            tipo="instruccion"
+          >
             <ExpandableInput
               autoResize
               value={ficha.pago?.formas ?? ""}
@@ -873,10 +1102,69 @@ export function OnboardingWizard() {
               }
             />
           </Campo>
+          {ficha.vertical !== "citas" ? (
+            <>
+              {/*
+                Doc 200, caso Sofía (MALIA): con la frase libre "efectivo pero
+                solo recogiendo" se llegó a aprobar efectivo contra entrega. Con
+                estas casillas, el asistente responde con un dato exacto.
+              */}
+              <Campo
+                titulo="¿Qué aceptas en cada caso?"
+                ayuda="Marca lo que aceptas a domicilio y lo que aceptas cuando recogen. Con esto el asistente nunca aprueba un pago que no manejas."
+                tipo="instruccion"
+              >
+                <div className="space-y-2">
+                  {(
+                    [
+                      ["domicilio", "A domicilio"],
+                      ["recoger", "Si recogen en el local"],
+                    ] as const
+                  ).map(([modalidad, rotulo]) => {
+                    const marcados = ficha.pago?.porModalidad?.[modalidad] ?? [];
+                    return (
+                      <div key={modalidad} className="rounded-md border border-border/60 px-3 py-2">
+                        <p className="mb-1 text-[13px] font-medium">{rotulo}</p>
+                        <div className="flex flex-wrap gap-3">
+                          {METODOS.map((m) => {
+                            const marcado = marcados.includes(m.valor);
+                            return (
+                              <label key={m.valor} className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={marcado}
+                                  onChange={() => {
+                                    const siguiente = marcado
+                                      ? marcados.filter((x) => x !== m.valor)
+                                      : [...marcados, m.valor];
+                                    const base = ficha.pago ?? { formas: "", compruebaUnaPersona: true };
+                                    set({
+                                      pago: {
+                                        ...base,
+                                        porModalidad: { ...(base.porModalidad ?? {}), [modalidad]: siguiente },
+                                      },
+                                    });
+                                  }}
+                                  className="h-4 w-4 accent-primary"
+                                />
+                                {m.texto}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Campo>
+            </>
+          ) : null}
           <Campo
             titulo="Si aceptas transferencia: ¿a qué cuenta y a nombre de quién?"
             ayuda="⚠️ Revísalo con calma: el asistente lo copia tal cual. Un dígito mal es dinero perdido."
             ejemplo="Bancolombia Ahorros 12345678901 — a nombre de María Pérez"
+            tipo="literal"
+            vista={ficha.pago?.datosDeCuenta}
           >
             <Textarea
               autoResize
@@ -893,6 +1181,29 @@ export function OnboardingWizard() {
             />
             <AvisoContenidoMezclado campo="pago.datosDeCuenta" advertencias={advertenciasContenido} />
           </Campo>
+          {ficha.vertical !== "citas" ? (
+            <Campo
+              titulo="¿Cuándo le das los datos de la cuenta al cliente?"
+              ayuda="Siempre van en el mensaje final, cuando confirma el pedido. La pregunta es si también se los das antes, si te los pide."
+              tipo="instruccion"
+            >
+              <Opciones
+                valor={ficha.pago?.cuentaAntesDeConfirmar ?? "si_la_piden"}
+                opciones={[
+                  { valor: "si_la_piden", texto: "Si me los pide, se los doy" },
+                  { valor: "nunca", texto: "Solo cuando confirme el pedido" },
+                ]}
+                onChange={(v) =>
+                  set({
+                    pago: {
+                      ...(ficha.pago ?? { formas: "", compruebaUnaPersona: true }),
+                      cuentaAntesDeConfirmar: v,
+                    },
+                  })
+                }
+              />
+            </Campo>
+          ) : null}
           <p className="rounded-md border bg-muted/40 p-3 text-[13px] text-muted-foreground">
             El asistente le pedirá la foto del comprobante a tu cliente, pero{" "}
             <strong>nunca da un pago por bueno</strong>: eso lo revisa siempre una
@@ -949,8 +1260,9 @@ export function OnboardingWizard() {
         <>
           <Campo
             titulo="¿Cómo quieres que le hable a tus clientes?"
-            ayuda="Piensa en cómo hablas tú por WhatsApp: ¿formal o cercano? ¿Usas emojis?"
+            ayuda="Piensa en cómo hablas tú por WhatsApp: ¿formal o cercano? ¿Usas emojis? ¿Mensajes cortos o más detallados? Esto manda sobre cualquier otra regla de estilo del asistente."
             ejemplo="Cercano y alegre, con emojis, hablando siempre de nosotros."
+            tipo="instruccion"
           >
             <Textarea
               autoResize
@@ -972,7 +1284,9 @@ export function OnboardingWizard() {
           </Campo>
           <Campo
             titulo="¿Se puede pedir como regalo? ¿Manejas tarjetas o dedicatorias?"
+            ayuda="Si lo llenas, el asistente preguntará si es un regalo y pedirá los datos de quien lo recibe."
             ejemplo="Sí, y se puede agregar una tarjeta con mensaje."
+            tipo="instruccion"
           >
             <ExpandableInput
               autoResize
@@ -984,6 +1298,8 @@ export function OnboardingWizard() {
             titulo="¿Quieres un saludo propio para quien escribe por primera vez?"
             ayuda="Si lo dejas vacío, usamos uno con el nombre de tu negocio."
             ejemplo="¡Hola! 💗 Bienvenid@ a La Dulce. ¿Qué se te antoja hoy?"
+            tipo="literal"
+            vista={ficha.saludoInicial}
           >
             <Textarea
               autoResize
@@ -996,11 +1312,40 @@ export function OnboardingWizard() {
             titulo="¿Quieres que el cliente elija de un menú al escribirte por primera vez?"
             ayuda="En vez de escribir libremente, tu cliente toca una opción. Déjalo vacío si prefieres que el asistente conteste libremente, como hasta ahora."
             ejemplo="Ver menú y precios · Hacer un pedido · Preguntas frecuentes · Hablar con un asesor"
+            tipo="literal"
+            vista={(ficha.menu?.opciones ?? []).filter((o) => o.trim()).join("\n")}
           >
             <Lista
               valores={ficha.menu?.opciones ?? []}
               marcador="Ej: Hacer un pedido"
               onChange={(v) => set({ menu: { opciones: v } })}
+            />
+          </Campo>
+          <Campo
+            titulo="¿Qué dice el asistente cuando le pasa la conversación a tu equipo? (opcional)"
+            ayuda="Si lo dejas vacío: «Dame un momentico 🙏 Te comunico con una persona del equipo para ayudarte mejor.»"
+            ejemplo="¡Ya te paso con alguien de nuestro equipo! 💗 En un momento te escriben."
+            tipo="literal"
+            vista={ficha.mensajes?.derivar}
+          >
+            <ExpandableInput
+              autoResize
+              value={ficha.mensajes?.derivar ?? ""}
+              onChange={(e) => set({ mensajes: { ...(ficha.mensajes ?? {}), derivar: e.target.value } })}
+            />
+          </Campo>
+          <Campo
+            titulo="Si responden a una historia o estado tuyo y preguntan por lo que vieron…"
+            ayuda="El asistente no puede ver tus historias. Puede contestar con lo que sabe de tu catálogo (y preguntar de qué producto hablan si no está claro), o pasarte la conversación."
+            tipo="instruccion"
+          >
+            <Opciones
+              valor={ficha.respuestaAPublicaciones ?? "responder"}
+              opciones={[
+                { valor: "responder", texto: "Que conteste con lo que sabe" },
+                { valor: "pasar_al_equipo", texto: "Que me la pase a mí" },
+              ]}
+              onChange={(v) => set({ respuestaAPublicaciones: v })}
             />
           </Campo>
         </>
@@ -1028,6 +1373,7 @@ export function OnboardingWizard() {
             titulo="¿En qué casos prefieres que te pase la conversación a ti?"
             ayuda="El asistente avisa a tu equipo y deja de responder ese chat."
             ejemplo="Reclamos o quejas · Devoluciones de dinero · Pedidos muy grandes"
+            tipo="instruccion"
           >
             <Lista
               valores={ficha.escalarSiempre ?? []}
@@ -1039,6 +1385,7 @@ export function OnboardingWizard() {
             titulo="¿Qué NO debe decir ni prometer nunca?"
             ayuda="Cosas que, si las promete y no se cumplen, te generan un problema."
             ejemplo="Una hora exacta de entrega · Descuentos por su cuenta"
+            tipo="instruccion"
           >
             <Lista
               valores={ficha.nuncaPrometer ?? []}
@@ -1048,8 +1395,9 @@ export function OnboardingWizard() {
           </Campo>
           <Campo
             titulo="¿Algo más que debamos saber de tu negocio?"
-            ayuda="Cualquier regla tuya que no encaje arriba. Estas suelen ser las que más te distinguen."
+            ayuda="Cualquier regla tuya que no encaje arriba. Estas suelen ser las que más te distinguen, y mandan sobre las reglas generales del asistente."
             ejemplo="Las bebidas solo se venden en el local · El domingo cerramos a las 3"
+            tipo="instruccion"
           >
             <Lista
               valores={ficha.reglasPropias ?? []}
@@ -1061,11 +1409,15 @@ export function OnboardingWizard() {
       ),
     },
     {
-      titulo: "Datos que deben solicitarse antes de confirmar",
+      titulo: "Qué necesita tu asistente para cerrar",
       subtitulo:
-        "El asistente los pedirá —si el cliente no los ha dado— antes de cerrar un pedido o una cita.",
+        "No hay un guion fijo: el asistente tiene la meta de cerrar la venta o la cita y va pidiendo lo que falta, con naturalidad.",
       contenido: (
-        <Campo titulo="¿Qué datos son obligatorios?" ayuda="Se guardan en el contacto.">
+        <Campo
+          titulo="¿Qué datos del cliente son obligatorios?"
+          ayuda="Además de lo que pide (y la dirección si es a domicilio, o si es un regalo cuando manejas regalos), el asistente pedirá estos datos antes de cerrar. Los datos de contacto y de entrega los pide juntos, en un solo mensaje. Se guardan en el contacto."
+          tipo="instruccion"
+        >
           <div className="space-y-2">
             {requisitosDisponibles.map((r) => {
               const marcado = (ficha.cierre?.requisitos ?? []).some((x) => x.id === r.id);
@@ -1201,6 +1553,7 @@ export function OnboardingWizard() {
         <CardHeader>
           <CardTitle>{actual.titulo}</CardTitle>
           <CardDescription>{actual.subtitulo}</CardDescription>
+          <LeyendaDeCampos />
         </CardHeader>
         <CardContent className="space-y-6">{actual.contenido}</CardContent>
       </Card>

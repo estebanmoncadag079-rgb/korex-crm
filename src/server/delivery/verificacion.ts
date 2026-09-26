@@ -37,6 +37,8 @@ export function verificarDomicilio(input: {
   subtotalCents: number | null | undefined;
   /** El mensaje del cliente que se está atendiendo. */
   mensajeId: string | null;
+  /** Doc 200: la pregunta propia del negocio para pedir el barrio. */
+  mensajePedirBarrio?: string;
 }): {
   resultado: ResultadoBusquedaZona | null;
   paso: PasoTrasVerificar;
@@ -138,7 +140,7 @@ export function verificarDomicilio(input: {
     return {
       resultado,
       paso,
-      infoZona: textoDePedirBarrio(input.consulta.zona, opciones),
+      infoZona: textoDePedirBarrio(input.consulta.zona, opciones, input.mensajePedirBarrio),
       entrega: {
         ...entregaBase,
         barrioPedido: true,

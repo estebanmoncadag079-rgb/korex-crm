@@ -1,16 +1,70 @@
 import type { Vertical } from "@/server/vertical";
 import {
-  CIERRE,
+  cierre,
   CIERRE_CITAS,
   ESTILO,
-  FUERA_DE_HORARIO,
+  fueraDeHorario,
   meta,
   NO_ENCAJA,
   NUNCA,
   PREGUNTAS_FRECUENTES,
   VALIDACION_DE_ENLACES,
 } from "./conducta";
-import { faltantesDeLaFicha, pagoAntesDeLaCitaDe, type FichaDelNegocio } from "./ficha";
+import {
+  faltantesDeLaFicha,
+  pagoAntesDeLaCitaDe,
+  requisitosDe,
+  type FichaDelNegocio,
+} from "./ficha";
+
+/**
+ * Lo que este negocio necesita para cerrar, armado desde SU ficha (doc 200,
+ * 26-sep-2026). Reemplaza el guion numerado igual para todos: aquí solo entra
+ * lo que el negocio de verdad pide (sus datos obligatorios, si hace regalos,
+ * cómo entrega). El CÓMO pedirlo lo dice `CADENCIA`.
+ */
+function loQueNecesitasParaCerrar(
+  ficha: FichaDelNegocio,
+  vertical: Vertical,
+  opciones?: { domicilioEnTabla?: boolean }
+): string[] {
+  const datos = (requisitosDe(ficha) ?? [])
+    .filter((r) => r.obligatorio && r.tipo !== "direccion")
+    .map((r) => r.etiqueta?.trim())
+    .filter((e): e is string => Boolean(e));
+  const susDatos = datos.length ? `Sus datos: ${datos.join(", ")}.` : "Su nombre y su celular.";
+  if (vertical === "citas") {
+    return [
+      "Qué servicio quiere. Pueden ser varios: apúntalos TODOS.",
+      "Qué día y hora: ofrece solo huecos que existan de verdad.",
+      "Con quién, si el negocio tiene varias personas y él tiene preferencia.",
+      susDatos,
+    ];
+  }
+  const lista = [
+    "Qué quiere pedir y cuántos, del catálogo. Pueden ser varias cosas: apúntalas TODAS.",
+    "Las opciones que tenga que elegir de CADA cosa, con los nombres de los grupos del catálogo y cuántas puede elegir.",
+  ];
+  if (ficha.regalos?.trim()) {
+    lista.push(
+      "Si es para él o es un regalo. Si es regalo, los datos de entrega son los de QUIEN RECIBE."
+    );
+  }
+  const barrio = opciones?.domicilioEnTabla ? " con el barrio" : "";
+  const domicilio = ficha.entrega?.haceDomicilios;
+  const recoge = Boolean(ficha.entrega?.recogerEnLocal?.trim());
+  if (domicilio && recoge) {
+    lista.push(
+      `Cómo lo recibe: domicilio o recoger. Si es domicilio, la dirección completa${barrio}; si recoge, NO le pidas dirección.`
+    );
+  } else if (domicilio) {
+    lista.push(`La dirección de entrega completa${barrio}.`);
+  } else if (recoge) {
+    lista.push("Que pasa a recoger: no hay domicilio, así que NO le pidas dirección.");
+  }
+  lista.push(susDatos);
+  return lista;
+}
 
 /**
  * De la ficha del cliente al prompt completo.
@@ -343,7 +397,7 @@ export function generarPerfil(
       "Este trato manda sobre cualquier otra instrucción de estilo de este prompt: si algo de lo que sigue te hace sonar frío, cortante o de formulario, gana el trato.",
     ].join("\n"),
     ESTILO,
-    meta(vertical),
+    meta(vertical, loQueNecesitasParaCerrar(ficha, vertical, opciones)),
     vertical === "citas"
       ? "# Lo que ofreces y cómo te pagan"
       : "# Lo que ofreces y cómo se recibe",
@@ -366,38 +420,58 @@ export function generarPerfil(
           "Si es un regalo, los datos de entrega son los de QUIEN RECIBE, no los de quien compra."
         )
       : null,
-    // Las reglas propias van ANTES del cierre y de las prohibiciones
-    // universales: son del día a día de este negocio y el modelo las necesita
-    // mientras atiende, no al final entre las advertencias.
-    /*
-     * La cabecera dice que MANDAN, y no es un adorno.
-     *
-     * 15-ago-2026: La Churra tenía escrito que su primer mensaje lleva las
-     * cuatro presentaciones, y el agente seguía saludando y esperando. El orden
-     * general (`## El orden en que preguntas`) cae en la línea 22 del prompt y
-     * estas reglas en la 89: cuando dos instrucciones se contradicen, gana la
-     * que el modelo leyó primero.
-     *
-     * Decir aquí quién manda **no impone ningún flujo** —cada negocio sigue
-     * escribiendo el suyo—, solo resuelve el empate a favor de quien conoce su
-     * negocio. Es la diferencia con subir el flujo de un cliente a la conducta
-     * universal, que encasillaría a toda la flota en el orden de una churrería.
-     */
-    vinetas(ficha.reglasPropias)
-      ? `## Reglas propias de este negocio\n\nEstas reglas **mandan sobre todo lo anterior**. Si alguna contradice el orden de preguntas o la forma de escribir que te dije más arriba, haz lo que dice esta sección: son las de este negocio en concreto.\n\n${vinetas(ficha.reglasPropias)}`
-      : null,
     VALIDACION_DE_ENLACES,
-    vertical === "citas" ? CIERRE_CITAS : CIERRE,
+    vertical === "citas"
+      ? CIERRE_CITAS
+      : cierre({
+          cuentaAntesDeConfirmar: ficha.pago?.cuentaAntesDeConfirmar,
+          // Sin tabla de zonas, el domicilio lo cotiza el equipo aparte.
+          domicilioAparte: Boolean(ficha.entrega?.haceDomicilios) && !opciones?.domicilioEnTabla,
+        }),
+    vertical === "citas" && ficha.politicaDeCancelacion?.trim()
+      ? bloques(
+          "## Cancelaciones y cambios",
+          `Si te preguntan, díselo tal cual: «${ficha.politicaDeCancelacion.trim()}»`
+        )
+      : null,
     // Solo en pedidos: una cita fuera de hora no se "reagenda sola", se pide
     // para un día que el propio catálogo de horarios ya limita.
-    vertical === "citas" ? null : FUERA_DE_HORARIO,
+    vertical === "citas"
+      ? null
+      : fueraDeHorario({
+          tomaPedidos: ficha.fueraDeHorario?.tomaPedidos,
+          mensaje: ficha.mensajes?.fueraDeHorario,
+        }),
     NUNCA,
     NO_ENCAJA,
     PREGUNTAS_FRECUENTES,
     // Lo propio del negocio se añade al final del bloque universal, no lo
     // sustituye: son prohibiciones suyas que se suman a las de siempre.
     vinetas(ficha.nuncaPrometer)
-      ? `## Además, en este negocio nunca:\n${vinetas(ficha.nuncaPrometer)}`
+      ? `## Además, en este negocio nunca:
+${vinetas(ficha.nuncaPrometer)}`
+      : null,
+    ficha.respuestaAPublicaciones === "pasar_al_equipo"
+      ? "Si el mensaje trae [RESPONDE A UNA PUBLICACIÓN DEL NEGOCIO] y el cliente pregunta por lo que vio, pasa la conversación a una persona del equipo con handoff: así lo decidió este negocio."
+      : null,
+    /*
+     * Las reglas propias van AL FINAL y dicen que mandan — y ahora es verdad
+     * (doc 200, 26-sep-2026). Hasta hoy iban ANTES del cierre, del horario y de
+     * las prohibiciones: decían "mandan sobre todo lo anterior", pero lo que
+     * venía después (p. ej. cuándo dar la cuenta) les ganaba el empate.
+     *
+     * 15-ago-2026: La Churra tenía escrito que su primer mensaje lleva las
+     * cuatro presentaciones y el agente seguía saludando y esperando — cuando
+     * dos instrucciones se contradicen, el modelo tiende a la que leyó en el
+     * sitio de más peso. Decir aquí quién manda no impone ningún flujo: solo
+     * resuelve el empate a favor de quien conoce su negocio.
+     */
+    vinetas(ficha.reglasPropias)
+      ? `## Reglas propias de este negocio
+
+Estas reglas **mandan sobre todo lo anterior**. Si alguna contradice algo de lo que te dije arriba —el orden, la forma de escribir, el cierre o el pago—, haz lo que dice esta sección: son las de este negocio en concreto.
+
+${vinetas(ficha.reglasPropias)}`
       : null
   );
 

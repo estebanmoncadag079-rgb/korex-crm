@@ -142,3 +142,15 @@ describe("verificarDomicilio", () => {
     expect(r.entrega.barrioPedido).toBeUndefined();
   });
 });
+
+describe("doc 200: la pregunta del barrio es la del negocio, si la escribió", () => {
+  it("usa el mensaje propio en la instrucción para el modelo", () => {
+    const r = verificarDomicilio({
+      ...BASE,
+      consulta: { zona: "Centro, Cali" },
+      mensajePedirBarrio: "¿Me regalas el barrio, porfa? 💕",
+    });
+    expect(r.paso).toBe("pedir-barrio");
+    expect(r.infoZona).toContain("¿Me regalas el barrio, porfa? 💕");
+  });
+});

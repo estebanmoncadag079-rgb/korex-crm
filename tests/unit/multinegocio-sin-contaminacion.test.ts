@@ -344,13 +344,13 @@ describe("MALIA: su regla de presentación de opciones no se toca", () => {
    * cadencia que la sostiene — que el punto de las opciones se resuelva
    * entero y SOLO ese. Si alguien la reescribe, esto se cae.
    */
-  it("la cadencia sigue diciendo que el punto de opciones no se mezcla con otros", async () => {
+  it("la cadencia sigue diciendo que elegir opciones no se mezcla con pedir datos", async () => {
+    // Doc 200: sin puntos numerados, la misma protección se dice así — las
+    // opciones de TODO lo que pidió van juntas, y nunca mezcladas con datos.
     const { CADENCIA, meta } = await import("@/server/ai/generador/conducta");
 
-    expect(CADENCIA).toContain("Nunca juntes preguntas de dos puntos en el mismo mensaje");
-    expect(meta("pedidos")).toContain(
-      "si el punto activo son las opciones, en ese\nmensaje van las opciones de todo lo que pidió y nada más"
-    );
+    expect(CADENCIA).toContain("elegir lo que quiere con pedir datos personales");
+    expect(meta("pedidos")).toMatch(/pregunta las opciones de TODAS las cosas en el\s+mismo mensaje/);
   });
 
   it("el plan del turno nunca le pide volver a listar las opciones", async () => {

@@ -479,6 +479,8 @@ export function bloqueDeCifrasVerificadas(input: {
   subtotalCents: number | null | undefined;
   /** La entrega ya verificada y persistida, si la hay. */
   entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+  /** La modalidad que eligió el cliente (doc 200): cubre a los negocios sin tabla. */
+  modalidadDeEntrega?: string | null;
 }): string | null {
   const { subtotalCents, entrega } = input;
   if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
@@ -508,12 +510,27 @@ export function bloqueDeCifrasVerificadas(input: {
   } else if (entrega?.tipo === "recogida") {
     lineas.push("Recoges en el local (sin domicilio)");
     lineas.push(`Total: ${enPesos(subtotalCents)}`);
+  } else if (esADomicilio(input.modalidadDeEntrega)) {
+    /*
+     * A domicilio SIN tarifa guardada: los negocios sin tabla de zonas (Lis,
+     * La Churra), donde el domicilio lo cotiza el equipo. Hasta el 26-sep-2026
+     * esto caía en la rama de abajo y cerraba con "Total: $19.000" — un total
+     * que no incluye el domicilio (doc 199 §1.3). Mismo criterio que el
+     * domicilio pendiente de arriba: no hay total que afirmar; la aclaración va
+     * por `bloqueDeDomicilioPendiente`.
+     */
+    return null;
   } else {
     // Sin modalidad resuelta todavía: solo se afirma lo que es seguro.
     lineas.push(`Total: ${enPesos(subtotalCents)}`);
   }
 
   return lineas.join("\n");
+}
+
+/** La modalidad que eligió el cliente es a domicilio. */
+function esADomicilio(modalidad: string | null | undefined): boolean {
+  return /domicilio|env[íi]o|entrega a/i.test(modalidad ?? "");
 }
 
 /**
@@ -542,14 +559,20 @@ export function bloqueDeCifrasVerificadas(input: {
 export function bloqueDeDomicilioPendiente(input: {
   subtotalCents: number | null | undefined;
   entrega?: { tipo: "domicilio" | "recogida"; feeCents: number | null } | null;
+  /** Doc 200: sin entrega guardada (negocios sin tabla), decide la modalidad. */
+  modalidadDeEntrega?: string | null;
+  /** Doc 200: la línea propia del negocio (`ficha.mensajes.domicilioPendiente`), tal cual. */
+  mensaje?: string | null;
 }): string | null {
   const { subtotalCents, entrega } = input;
   if (typeof subtotalCents !== "number" || !Number.isFinite(subtotalCents)) return null;
-  if (entrega?.tipo !== "domicilio") return null;
-  if (typeof entrega.feeCents === "number") return null;
+  const pendiente = entrega
+    ? entrega.tipo === "domicilio" && typeof entrega.feeCents !== "number"
+    : esADomicilio(input.modalidadDeEntrega);
+  if (!pendiente) return null;
   return [
     `Subtotal de productos: ${enPesos(subtotalCents)}`,
-    "Domicilio: pendiente de cotización — te confirmamos el valor aparte",
+    input.mensaje?.trim() || "Domicilio: pendiente de cotización — te confirmamos el valor aparte",
   ].join("\n");
 }
 

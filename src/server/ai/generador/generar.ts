@@ -29,7 +29,7 @@ function loQueNecesitasParaCerrar(
   opciones?: { domicilioEnTabla?: boolean }
 ): string[] {
   const datos = (requisitosDe(ficha) ?? [])
-    .filter((r) => r.obligatorio && r.tipo !== "direccion")
+    .filter((r) => r.obligatorio && r.tipo !== "direccion" && !r.soloSiRegalo)
     .map((r) => r.etiqueta?.trim())
     .filter((e): e is string => Boolean(e));
   const susDatos = datos.length ? `Sus datos: ${datos.join(", ")}.` : "Su nombre y su celular.";
@@ -47,7 +47,7 @@ function loQueNecesitasParaCerrar(
   ];
   if (ficha.regalos?.trim()) {
     lista.push(
-      "Si es para él o es un regalo. Si es regalo, los datos de entrega son los de QUIEN RECIBE."
+      "Si es para él o es un regalo. Si es regalo: el nombre y el celular de QUIEN RECIBE y el mensaje de la tarjeta si quiere una — guárdalos con los datos `destinatario`, `telefonoDestinatario` y `mensajeTarjeta`. La dirección es la de quien recibe; el nombre y el celular del cliente siguen siendo los suyos, no los reemplaces."
     );
   }
   const barrio = opciones?.domicilioEnTabla ? " con el barrio" : "";

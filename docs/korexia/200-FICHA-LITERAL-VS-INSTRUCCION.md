@@ -69,6 +69,38 @@ negocio SIN tabla de zonas dice "Total productos (sin domicilio)"; la frase
 
 Verificación sin tokens: 274+ archivos de prueba, `tsc`, `lint`, `next build`.
 
+## Pruebas de punta a punta y arreglos (26-sep-2026)
+
+9 pedidos completos (3 por negocio: MALIA, Lis, La Churra) con el modelo real,
+la ficha migrada EN MEMORIA (`FICHA_MIGRADA=1`, opción `fichaDePrueba` solo
+para `isTest`) y la hora simulada en horario de atención (`AHORA`). Primera
+corrida: 7/9 cerraron. Tres errores, con causa en código:
+
+1. **Dos unidades del mismo producto con opciones distintas no se guardaban**
+   (MALIA: "uno de milo y otro de maracuyá, sin toppings"). "Sin toppings" dicho
+   una vez no decía a cuál línea iba → ambiguo → el lote (atómico, a propósito,
+   feature 003) se descartaba entero → pedido con 0 productos → no cerraba.
+   Arreglo en `operaciones.ts`: `declinar_grupo` ambiguo vale para todas las
+   líneas que aún no tienen ese grupo; `elegir_opcion` ambiguo se resuelve solo
+   si da igual (una sola línea la necesita, o las candidatas son idénticas).
+   Si las líneas son distintas, se sigue preguntando. El lote sigue atómico.
+2. **Un guardarraíl borraba la respuesta a la pregunta del cliente** (MALIA:
+   "¿efectivo cuando llegue?"). `resumenMalArmado` tomaba "…dejamos tu pedido en
+   firme" como un resumen vacío y lo reemplazaba por el resumen. Arreglo: si el
+   resumen con total ya se mostró en el mensaje anterior y el mensaje no anuncia
+   uno nuevo, no se toca; la corrección exige responder primero la pregunta.
+3. **El regalo no tenía dónde guardarse** (quien recibe pisó el nombre del
+   cliente en MALIA; lote inválido en Lis). Arreglo: `REQUISITOS_DE_REGALO`
+   (`destinatario`, `telefonoDestinatario`, `mensajeTarjeta`), solo en negocios
+   con `ficha.regalos` y solo pendientes si `paraRegalo` (decidido en el único
+   punto central, `requisitoSatisfecho`). Se quitó la compuerta que rechazaba
+   `marcar_regalo` leyendo palabras clave del cliente (doc 198): rechazó "es para
+   mi mamá" y tumbó el lote. La instrucción del barrio pide guardar la dirección
+   COMPLETA (se perdía la calle).
+
+Además: el registro de un lote mal formado dice qué operación falló (tipo y
+campos, sin valores personales).
+
 ## Orden de ejecución
 
 1. Tipos y validación (ficha, secciones, rutas).

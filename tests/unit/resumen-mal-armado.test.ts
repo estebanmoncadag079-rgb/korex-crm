@@ -243,3 +243,32 @@ describe("noDioElTotal", () => {
     ).toBe(true);
   });
 });
+
+/*
+ * E2E del 26-sep-2026 (MALIA): con el resumen YA mostrado (con su total), la
+ * clienta preguntó "¿puedo pagar en efectivo cuando llegue?". La respuesta
+ * correcta —"No, a domicilio solo transferencia. ¿Confirmas el pedido?"— pide
+ * confirmar sin repetir el total, y este guardarraíl la tomaba por un resumen
+ * vacío: la rehacía como resumen completo y la pregunta quedaba sin responder.
+ */
+describe("resumenMalArmado: responder una pregunta tras el resumen no es un resumen vacío", () => {
+  const RESPUESTA = "No 😊 a domicilio solo recibimos transferencia; el efectivo es solo si recoges en planta. Cuando confirmes te paso la cuenta, y con el comprobante dejamos tu pedido en firme.";
+
+  it("con el resumen ya mostrado en el mensaje anterior, no se toca", () => {
+    expect(resumenMalArmado(RESPUESTA, { resumenYaMostrado: true })).toBeNull();
+  });
+
+  it("sin resumen previo, sigue siendo 'sin contenido' (el fallo original)", () => {
+    expect(resumenMalArmado(RESPUESTA)).toBe("sin-contenido");
+  });
+
+  it("ANUNCIAR un resumen sin escribirlo sigue saltando aunque hubiera uno antes", () => {
+    expect(resumenMalArmado("Aquí está el resumen de tu pedido 😊 ¿Confirmas?", { resumenYaMostrado: true })).toBe(
+      "sin-contenido"
+    );
+  });
+
+  it("la corrección pide conservar la respuesta a lo que preguntó el cliente", () => {
+    expect(correccionDeResumen("sin-contenido")).toMatch(/pregunta/i);
+  });
+});

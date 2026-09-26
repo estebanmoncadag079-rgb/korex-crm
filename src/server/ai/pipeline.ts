@@ -183,6 +183,7 @@ import {
   resumenMalArmado,
   resumenAplazado,
   CORRECCION_DE_RESUMEN_APLAZADO,
+  TIENE_TOTAL,
   ofreceResumen,
   turnoSinAvance,
   elClienteVioUnTotal,
@@ -1010,6 +1011,11 @@ export async function runAgentTurn(
      * ignora siempre.
      */
     instruccionesDePrueba?: string;
+    /**
+     * La ficha (JSON) EN MEMORIA, para probar una migración de fichas con el
+     * modelo real antes de escribirla. Mismo candado: solo con `isTest`.
+     */
+    fichaDePrueba?: string;
   }
 ): Promise<AgentActionType | null> {
   if (!isAiConfigured()) return null;
@@ -1035,10 +1041,13 @@ export async function runAgentTurn(
     .limit(1);
   const profileGuardado = profileRows[0];
   if (!profileGuardado) return null;
-  const profile =
-    conversation.isTest && opts?.instruccionesDePrueba
-      ? { ...profileGuardado, instructions: opts.instruccionesDePrueba }
-      : profileGuardado;
+  const profile = conversation.isTest
+    ? {
+        ...profileGuardado,
+        ...(opts?.instruccionesDePrueba ? { instructions: opts.instruccionesDePrueba } : {}),
+        ...(opts?.fichaDePrueba ? { ficha: opts.fichaDePrueba } : {}),
+      }
+    : profileGuardado;
   conversation.mensajeAlDerivar = leerFicha(profile.ficha)?.mensajes?.derivar?.trim() || undefined;
 
   // El toggle global aplica a conversaciones reales; el Laboratorio evalúa el
@@ -3607,7 +3616,10 @@ export async function runAgentTurn(
   const falloDeResumen =
     action.action === "notify_order" || contrataCitas(vertical)
       ? null
-      : resumenMalArmado(textosAlCliente(action).join(" "));
+      : resumenMalArmado(textosAlCliente(action).join(" "), {
+          // E2E 26-sep-2026: una respuesta tras el resumen ya visto no es un resumen vacío.
+          resumenYaMostrado: TIENE_TOTAL.test(ultimaRespuestaPrevia ?? ""),
+        });
   if (falloDeResumen) {
     console.warn(`[agente] resumen mal armado (${falloDeResumen}); rehaciendo el turno`);
     const reintento = await chatJson(AgentAction, [
@@ -3622,7 +3634,9 @@ export async function runAgentTurn(
     );
     if (
       reintento.ok &&
-      resumenMalArmado(textosAlCliente(reintento.data).join(" ")) === null
+      resumenMalArmado(textosAlCliente(reintento.data).join(" "), {
+        resumenYaMostrado: TIENE_TOTAL.test(ultimaRespuestaPrevia ?? ""),
+      }) === null
     ) {
       action = reintento.data;
     } else {
@@ -5560,7 +5574,20 @@ async function guardarEstadoPropuesto(entrada: {
     const parse = OperacionPedidos.array().safeParse(operacionesSaneadas);
     if (!parse.success) {
       const detalle = parse.error.issues.map((i) => `${i.path.join(".") || "(raíz)"} ${i.message}`).join(" · ");
-      metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle}`);
+      /*
+       * Qué operación falló, por su FORMA (tipo y campos presentes), sin sus
+       * valores: los valores pueden ser datos personales. Sin esto el registro
+       * decía "2.ofrecible Required" y no había forma de saber de qué operación
+       * se trataba (E2E del 26-sep-2026, MALIA y Lis).
+       */
+      const forma = operacionesSaneadas
+        .map((op, i) =>
+          op && typeof op === "object"
+            ? `${i}:${String((op as Record<string, unknown>).tipo)}{${Object.keys(op as object).join(",")}}`
+            : `${i}:${typeof op}`
+        )
+        .join(" ");
+      metrica("error", `operaciones no cumplen el esquema de pedidos: ${detalle} · lote: ${forma}`);
       // T030-A (auditoría 16-sep-2026): antes devolvía `null` sin señal —
       // ver el comentario simétrico arriba, en la rama de citas.
       return {

@@ -549,8 +549,16 @@ describe("L — nombre heredado sin procedencia", () => {
   });
 });
 
-describe("M — 'no es para regalo' con el modelo proponiendo regalo", () => {
-  it("la negación no marca regalo: la operación se rechaza", async () => {
+/*
+ * Doc 198/200 (26-sep-2026, decisión del dueño): el backend NO interpreta al
+ * cliente. Antes, aquí el backend leía "no es para regalo" y rechazaba el
+ * `marcar_regalo` del modelo. Esa lectura por palabras clave también rechazaba
+ * regalos reales ("es para mi mamá", E2E MALIA) y tumbaba el lote entero. Ahora
+ * quien entiende al cliente es el modelo y el backend guarda su conclusión:
+ * esta prueba deja escrito ese intercambio, a propósito.
+ */
+describe("M — el regalo lo decide el modelo, el backend lo guarda", () => {
+  it("se guarda lo que el modelo concluye, sin releer al cliente", async () => {
     estadoActual = estadoConPave();
     versionActual = 1;
 
@@ -563,7 +571,7 @@ describe("M — 'no es para regalo' con el modelo proponiendo regalo", () => {
     });
 
     const ultimo = guardados[guardados.length - 1] as { paraRegalo?: boolean } | undefined;
-    expect(ultimo?.paraRegalo ?? false).toBe(false);
+    expect(ultimo?.paraRegalo).toBe(true);
   });
 });
 

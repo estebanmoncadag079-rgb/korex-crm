@@ -30,6 +30,7 @@ import { leerFicha } from "@/server/ai/generador/leer-ficha";
 import { requisitosDe } from "@/server/ai/generador/ficha";
 import { generarPerfil } from "@/server/ai/generador/generar";
 import { opcionesDeGeneracion } from "@/server/ai/generador/fuentes";
+import { acomodar } from "./lib/acomodar-ficha-200";
 import { catalogoDePedidos } from "@/server/catalog/queries";
 import { verticalDe, contrataCitas } from "@/server/vertical";
 
@@ -858,6 +859,140 @@ const ESCENARIOS: Escenario[] = [
       ],
     },
   },
+  /*
+   * E2E (26-sep-2026, pedido del dueño): 3 pedidos completos por negocio —a
+   * domicilio, recogiendo y un tercero distinto— con la ficha nueva del doc 200.
+   * Correr con PROMPT_LOCAL=1 FICHA_MIGRADA=1 y el filtro "e2e <negocio>".
+   * La comprobación dura es que el pedido quede CONFIRMADO en el estado; el
+   * resto se revisa leyendo la transcripción.
+   */
+  {
+    nombre: "E2E MALIA · 1 domicilio con barrio en la tabla",
+    guion: [
+      "Hola buenas tardes",
+      "quiero 2 pavés de 8 oz, uno de milo y otro de maracuyá, sin toppings",
+      "a domicilio, es para mí",
+      "Laura Gómez 3104567890, Calle 72 -1 # 3 n 45 barrio floralia",
+      "sí, confirmo",
+    ],
+    espera: {
+      debeDecir: [{ que: /(domicilio|env[ií]o)[^\n]{0,80}\$\s*\d/i, porque: "el domicilio va con su valor en el resumen" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E MALIA · 2 recoger en planta pagando en efectivo",
+    guion: [
+      "Hola",
+      "me das un pavé de 16 oz de arequipe con topping de M&M",
+      "paso a recogerlo a la planta, ¿puedo pagar en efectivo?",
+      "Andrés Ruiz, 3159876543",
+      "sí, confirmo",
+    ],
+    espera: {
+      noDebeDecir: [{ que: /no\s+(aceptamos|recibimos|manejamos)[^.\n]{0,20}efectivo/i, porque: "al recoger, MALIA sí recibe efectivo" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E MALIA · 3 regalo a domicilio sin barrio y pago contraentrega",
+    guion: [
+      "hola, quiero enviar un regalo",
+      "un pavé de 16 oz de leche klim",
+      "es para mi mamá, a domicilio",
+      "Carrera 5 # 12-30, Centro, Cali. Recibe Marta Díaz 3001112233",
+      "barrio San Antonio",
+      "¿puedo pagar en efectivo cuando llegue?",
+      "ok, entonces por transferencia. Confirmo",
+    ],
+    espera: {
+      noDebeDecir: [{ que: /s[ií],?\s+(puedes|se puede|claro)[^.\n]{0,30}efectivo/i, porque: "a domicilio MALIA solo recibe transferencia" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E LIS · 1 domicilio (el equipo cotiza el domicilio)",
+    guion: [
+      "Holaa",
+      "quiero un cremoso de 12 oz con milo y oreo",
+      "a domicilio, es para mí",
+      "Camila Torres 3187654321, Calle 18 # 28-74 barrio Cristóbal Colón",
+      "sí, confirmo",
+    ],
+    espera: {
+      noDebeDecir: [{ que: /^Total: \$/m, porque: "sin tabla de zonas no hay un Total que incluya el domicilio" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E LIS · 2 recoger en el local y pregunta por efectivo",
+    guion: [
+      "buenas",
+      "2 porciones de red velvet",
+      "las recojo en el local",
+      "Juan Pérez 3012223344",
+      "¿puedo pagar en efectivo?",
+      "listo, por transferencia entonces. Confirmo",
+    ],
+    espera: {
+      noDebeDecir: [{ que: /s[ií],?\s+(puedes|se puede|claro)[^.\n]{0,30}efectivo/i, porque: "Lis no recibe efectivo" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E LIS · 3 regalo con tarjeta a domicilio",
+    guion: [
+      "hola, quiero hacer un regalo",
+      "un cremoso de 16 oz con arequipe, fresa y milo",
+      "es regalo, con tarjeta de cumpleaños que diga: Feliz cumple Ana",
+      "a domicilio a la Carrera 44 # 5-20 barrio Tequendama, recibe Ana López 3205556677. Yo soy Pedro, 3119998877",
+      "sí, confirmo",
+    ],
+    espera: {
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E CHURRA · 1 domicilio",
+    guion: [
+      "hola churr@",
+      "quiero una BESTIES con salsa de arequipe y azúcar canela",
+      "a domicilio",
+      "Sofía Ramírez 3104445566, Calle 10 # 40-12 barrio El Lido",
+      "sí, confirmo",
+    ],
+    espera: {
+      noDebeDecir: [{ que: /^Total: \$/m, porque: "sin tabla de zonas no hay un Total que incluya el domicilio" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E CHURRA · 2 recoger en la tienda",
+    guion: [
+      "buenas",
+      "una FAMILY BOX con chocolate negro y lechera, azúcar sola",
+      "paso a recoger a la tienda",
+      "Mateo Castro 3126667788",
+      "confirmo",
+    ],
+    espera: {
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
+  {
+    nombre: "E2E CHURRA · 3 dos productos, pregunta el total y va a domicilio",
+    guion: [
+      "hola",
+      "quiero 2 CHURRITA, una con arequipe y otra con chocolate blanco, las dos sin azúcar",
+      "¿cuánto sería el total?",
+      "a domicilio, Carrera 66 # 9-50 barrio Limonar, a nombre de Diana Mora 3017778899",
+      "sí",
+    ],
+    espera: {
+      debeDecir: [{ que: /\$\s*20\.000/, porque: "preguntó el total: 2 × $10.000" }],
+      estadoFinal: [{ que: (e) => e?.confirmado === true, porque: "el pedido tiene que quedar confirmado" }],
+    },
+  },
 ];
 
 const organizationId = process.argv[2]!;
@@ -887,6 +1022,9 @@ const { runAgentTurn } = await import("@/server/ai/pipeline");
  * desde su ficha y se le pasa al turno. Solo aplica a conversaciones de prueba.
  */
 let instruccionesDePrueba: string | undefined;
+let fichaDePrueba: string | undefined;
+/** AHORA=<ISO> — la hora que ve el bot (para probar en horario de atención). */
+const AHORA = process.env.AHORA ? new Date(process.env.AHORA) : undefined;
 if (process.env.PROMPT_LOCAL === "1") {
   const [prof] = await db
     .select()
@@ -897,7 +1035,19 @@ if (process.env.PROMPT_LOCAL === "1") {
     console.error("[escenarios] PROMPT_LOCAL=1 pero el negocio no tiene ficha: no se puede generar el prompt");
     process.exit(1);
   }
-  instruccionesDePrueba = generarPerfil(ficha, opcionesDeGeneracion(prof)).instructions;
+  /*
+   * FICHA_MIGRADA=1 — además, la ficha con la migración del doc 200 aplicada EN
+   * MEMORIA (pagos por modalidad, cuándo dar la cuenta, …), para probar la
+   * ficha nueva antes de escribirla. El turno la recibe como `fichaDePrueba`.
+   */
+  let fichaUsada = ficha;
+  if (process.env.FICHA_MIGRADA === "1") {
+    const { ficha: migrada, cambios } = acomodar(organizationId, ficha);
+    fichaUsada = migrada as typeof ficha;
+    fichaDePrueba = JSON.stringify(migrada);
+    console.log(`[escenarios] FICHA_MIGRADA: ${cambios.length} cambio(s) aplicados en memoria`);
+  }
+  instruccionesDePrueba = generarPerfil(fichaUsada, opcionesDeGeneracion(prof)).instructions;
   console.log(`[escenarios] PROMPT_LOCAL: prompt generado en memoria (${instruccionesDePrueba.length} caracteres)`);
 }
 
@@ -1015,7 +1165,7 @@ for (const esc of aProbar) {
     dialogo.push({ quien: "CLIENTE", texto });
 
     try {
-      await runAgentTurn(conversation.id, { instruccionesDePrueba });
+      await runAgentTurn(conversation.id, { instruccionesDePrueba, fichaDePrueba, now: AHORA });
     } catch (err) {
       fallas.push({
         escenario: esc.nombre,

@@ -260,7 +260,7 @@ function normalizarNombre(s: string): string {
 type BusquedaItem =
   | { status: "found"; indice: number }
   | { status: "not_found" }
-  | { status: "multiple_matches" };
+  | { status: "multiple_matches"; indices: number[] };
 
 /**
  * Encuentra, dentro del pedido YA guardado, la línea que nombra
@@ -299,8 +299,57 @@ function buscarItemExistente(
       )
     );
     if (masEspecificos.length === 1) return { status: "found", indice: masEspecificos[0]!.indice };
+    if (masEspecificos.length > 1) return { status: "multiple_matches", indices: masEspecificos.map((c) => c.indice) };
   }
-  return { status: "multiple_matches" };
+  return { status: "multiple_matches", indices: candidatos.map((c) => c.indice) };
+}
+
+/** La "firma" de una línea: lo que la distingue de otra del mismo producto. */
+function firmaDeLinea(item: ItemDelPedido): string {
+  const sel = item.seleccion.map((s) => `${normalizarNombre(s.grupoNombre)}:${normalizarNombre(s.nombre)}`).sort();
+  const dec = (item.gruposDeclinados ?? []).map((g) => normalizarNombre(g.grupoNombre)).sort();
+  return JSON.stringify([item.cantidad, sel, dec]);
+}
+
+/**
+ * Entre varias líneas del mismo producto, ¿a cuál va esta opción? (E2E del
+ * 26-sep-2026, MALIA: "2 pavés de 8 oz, uno de milo y otro de maracuyá").
+ *
+ * Solo se resuelve cuando da IGUAL cuál se elija: de las líneas que todavía
+ * NECESITAN esto (no tienen elegido ese grupo si es de una sola opción, no
+ * tienen esa opción si es de varias, no lo declinaron), si queda una sola, es
+ * esa; si quedan varias y son IDÉNTICAS entre sí, la primera — asignarla a
+ * cualquiera da el mismo pedido. Si las candidatas son distintas, sigue siendo
+ * ambiguo y se pregunta, como siempre.
+ */
+function desempatarLineas(
+  items: ItemDelPedido[],
+  indices: number[],
+  operacion: { tipo: "elegir_opcion" | "declinar_grupo"; grupo: string; opcion?: string },
+  contexto: ContextoOperaciones
+): number | null {
+  const g = normalizarNombre(operacion.grupo);
+  const tieneGrupo = (it: ItemDelPedido) => it.seleccion.some((s) => normalizarNombre(s.grupoNombre) === g);
+  const declinoGrupo = (it: ItemDelPedido) =>
+    (it.gruposDeclinados ?? []).some((d) => normalizarNombre(d.grupoNombre) === g);
+  const producto = contexto.catalogo.find(
+    (p) => normalizarNombre(p.nombre) === normalizarNombre(items[indices[0]!]!.ofrecible.nombre ?? "")
+  );
+  const deUnaSola = (producto?.grupos.find((x) => normalizarNombre(x.nombre) === g)?.maximo ?? 1) <= 1;
+  const necesita = (it: ItemDelPedido) => {
+    if (declinoGrupo(it)) return false;
+    if (operacion.tipo === "declinar_grupo") return !tieneGrupo(it);
+    if (deUnaSola) return !tieneGrupo(it);
+    const op = normalizarNombre(operacion.opcion ?? "");
+    return !it.seleccion.some((s) => normalizarNombre(s.grupoNombre) === g && normalizarNombre(s.nombre) === op);
+  };
+  const candidatas = indices.filter((i) => necesita(items[i]!));
+  if (candidatas.length === 1) return candidatas[0]!;
+  if (candidatas.length > 1) {
+    const firma = firmaDeLinea(items[candidatas[0]!]!);
+    if (candidatas.every((i) => firmaDeLinea(items[i]!) === firma)) return candidatas[0]!;
+  }
+  return null;
 }
 
 /** Copia superficial de un `ItemDelPedido` — nunca se muta el original. */
@@ -486,60 +535,6 @@ function esElPerfilSinQueLoDijera(valor: string, contexto: ContextoOperaciones):
   return !(contexto.dichoPorElCliente ?? []).some((t) =>
     normalizarNombre(t).includes(propuesto)
   );
-}
-
-/**
- * ¿El cliente dijo que el pedido es un regalo? — Bloqueador 2 de la auditoría.
- *
- * `marcar_regalo` es lo único del contrato que el modelo aportaba sin que el
- * backend lo comprobara contra nada. Pero "el backend es la autoridad" también
- * vale para un hecho blando: si el modelo puede inventar el nombre, puede
- * inventar el regalo. Aquí está la evidencia que lo respalda.
- *
- * Deliberadamente corta y conservadora: "regalo"/"detalle"/"amigo secreto" son
- * las formas en que la gente lo dice. "lo necesito para el sábado" no lo es, y
- * "es para mí" tampoco.
- */
-const EVIDENCIA_REGALO = [
-  /\bregal(o|os|ar|ito|itos)\b/,
-  /\bobsequi/,
-  /amig[oa] secret[oa]/,
-  /\bpara (un |el |mi |)detalle\b/,
-  /\bde detalle\b/,
-];
-// "sorpresa" quedó FUERA a propósito (2.ª auditoría): "torta sorpresa" es el
-// nombre de un producto, no "es una sorpresa para alguien". Marcar regalo por
-// esa palabra suelta es justo el falso positivo que hay que evitar.
-//
-// Toma UN mensaje —el del turno—, no el historial: un "es para un regalo" de un
-// pedido anterior no puede marcar el de ahora.
-function hayEvidenciaDeRegalo(mensaje: string | null | undefined): boolean {
-  if (!mensaje) return false;
-  const n = normalizarNombre(mensaje);
-  return EVIDENCIA_REGALO.some((re) => re.test(n));
-}
-
-/**
- * ¿El cliente CORRIGIÓ y dijo que NO es un regalo, EN ESTE turno?
- *
- * Simétrico al de arriba: desmarcar el regalo también es escribir en el estado,
- * y también exige evidencia del turno. Una negación ("no es para regalo") o
- * decir que es para sí mismo ("finalmente es para mí") cuentan; un
- * `marcar_regalo(false)` que el modelo suelte sin que el cliente se retracte,
- * no.
- */
-const EVIDENCIA_NO_REGALO = [
-  /\bno\b[^.]{0,20}\bregal/,
-  // "para mí" (para uno mismo) SOLO cuando no le sigue otro sustantivo: "es
-  // para mí" sí, pero "para mi mamá"/"para mi novia" es un regalo, no self.
-  /\bpara mi\b(?!\s+\w)/,
-  /\bpara mi mism/,
-  /\bpara mi consumo\b/,
-];
-function hayEvidenciaDeNoRegalo(mensaje: string | null | undefined): boolean {
-  if (!mensaje) return false;
-  const n = normalizarNombre(mensaje);
-  return EVIDENCIA_NO_REGALO.some((re) => re.test(n));
 }
 
 function escaparRegex(s: string): string {
@@ -754,7 +749,34 @@ function aplicarOperacionSinTotal(
 
     case "elegir_opcion":
     case "declinar_grupo": {
-      const busqueda = buscarItemExistente(estadoActual.items, operacion.ofrecible, operacion.opciones);
+      let busqueda = buscarItemExistente(estadoActual.items, operacion.ofrecible, operacion.opciones);
+      /*
+       * "Sin toppings" dicho UNA vez con varias líneas del mismo producto
+       * (E2E 26-sep-2026, MALIA: "uno de milo y otro de maracuyá, sin
+       * toppings") vale para todas las que aún no tienen ese grupo resuelto.
+       * Declinar es idempotente: si ya todas lo tienen, no cambia nada.
+       */
+      if (operacion.tipo === "declinar_grupo" && busqueda.status === "multiple_matches") {
+        const g = normalizarNombre(operacion.grupo);
+        const pendientes = busqueda.indices.filter((i) => {
+          const it = estadoActual.items[i]!;
+          const resuelto =
+            it.seleccion.some((x) => normalizarNombre(x.grupoNombre) === g) ||
+            (it.gruposDeclinados ?? []).some((d) => normalizarNombre(d.grupoNombre) === g);
+          return !resuelto;
+        });
+        const items = copiarItems(estadoActual.items);
+        for (const i of pendientes) {
+          const r = resolverModificacionDeOpciones(items[i]!, operacion, contexto);
+          if (!r.ok) return r;
+          items[i] = r.item;
+        }
+        return { ok: true, estado: { ...estadoActual, items } };
+      }
+      if (busqueda.status === "multiple_matches") {
+        const indice = desempatarLineas(estadoActual.items, busqueda.indices, operacion, contexto);
+        if (indice !== null) busqueda = { status: "found", indice };
+      }
       if (busqueda.status === "not_found") {
         return {
           ok: false,
@@ -860,36 +882,11 @@ function aplicarOperacionSinTotal(
     }
 
     case "marcar_regalo": {
-      // Compuerta de evidencia (Bloqueador 2): el hecho lo aporta el cliente,
-      // no el modelo. Marcar regalo exige que el cliente lo haya dicho EN ESTE
-      // turno; desmarcarlo, una corrección de este turno. Sin evidencia no se
-      // toca — preguntar es mejor que inventar. No depende del catálogo ni de
-      // la ficha. Mira `mensajeDelTurno`, no el historial: una frase de un
-      // pedido anterior no puede marcar el de ahora.
-      // La evidencia tiene que ser COMPATIBLE con la operación (última
-      // auditoría): una misma frase no puede valer para true y para false. Para
-      // marcar(true) hace falta evidencia positiva Y que NO sea una negación —
-      // "no es para regalo" contiene "regalo" pero es lo contrario de un regalo.
-      const delTurno = contexto.mensajeDelTurno;
-      const positiva = hayEvidenciaDeRegalo(delTurno);
-      const negativa = hayEvidenciaDeNoRegalo(delTurno);
-      if (operacion.esRegalo && (!positiva || negativa)) {
-        return {
-          ok: false,
-          motivo: "el cliente no ha dicho que sea un regalo",
-          correccion:
-            "[SISTEMA] No marques el pedido como regalo si el cliente no lo ha dicho. " +
-            "Si crees que puede serlo, pregúntaselo en vez de darlo por hecho.",
-        };
-      }
-      if (!operacion.esRegalo && !negativa) {
-        return {
-          ok: false,
-          motivo: "no hay una corrección del cliente que quite el regalo",
-          correccion:
-            "[SISTEMA] No le quites la marca de regalo por tu cuenta: cámbiala solo si el cliente se corrige.",
-        };
-      }
+      // Doc 198/200 (26-sep-2026): el backend NO interpreta al cliente. Aquí
+      // había una compuerta de "evidencia" que buscaba palabras de regalo solo
+      // en el mensaje del turno; rechazó "es para mi mamá" (E2E MALIA) y, por
+      // el lote atómico, tumbó los demás datos de ese turno. Si es regalo lo
+      // entiende el modelo; el backend lo guarda.
       return { ok: true, estado: { ...estadoActual, paraRegalo: operacion.esRegalo } };
     }
 

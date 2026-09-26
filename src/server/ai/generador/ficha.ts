@@ -81,7 +81,25 @@ export type Requisito = {
    * (`modalidadesDeEntrega`), nunca contra una lista escrita en el núcleo.
    */
   soloEnModalidades?: readonly string[];
+  /**
+   * Solo hace falta si el pedido ES un regalo (`estado.paraRegalo`). Lo decide
+   * `requisitoSatisfecho` (`orders/extraer.ts`), el único punto que usan "lo
+   * que falta", el aviso al modelo y el candado del cierre. Doc 200.
+   */
+  soloSiRegalo?: boolean;
 };
+
+/**
+ * Los datos propios de un REGALO (E2E 26-sep-2026). Existen solo en negocios
+ * que hacen regalos (`ficha.regalos`) y solo cuentan cuando el pedido es un
+ * regalo. Antes no había dónde guardarlos: el nombre de quien recibía reemplazó
+ * al del cliente (MALIA) y un dato sin `requisitoId` tumbó un lote (Lis).
+ */
+export const REQUISITOS_DE_REGALO: readonly Requisito[] = [
+  { id: "destinatario", tipo: "texto", etiqueta: "el nombre de quien recibe el regalo", obligatorio: true, soloSiRegalo: true },
+  { id: "telefonoDestinatario", tipo: "telefono", etiqueta: "el celular de quien recibe el regalo", obligatorio: true, soloSiRegalo: true },
+  { id: "mensajeTarjeta", tipo: "texto", etiqueta: "el mensaje de la tarjeta, si quiere una", obligatorio: false, soloSiRegalo: true },
+];
 
 /**
  * Las modalidades de entrega que este negocio OFRECE, derivadas de su ficha.
@@ -564,8 +582,16 @@ export function requisitosDe(
   pedido?: { modalidadDeEntrega?: string | null }
 ): Requisito[] | undefined {
   const declarados = ficha.cierre?.requisitos;
-  if (!declarados) return undefined;
-  return declarados.filter((r) => aplica(r, ficha, pedido?.modalidadDeEntrega ?? null));
+  // Los del regalo se suman SIEMPRE que el negocio haga regalos, para poder
+  // guardarlos en el mismo mensaje en que el cliente dice que es regalo; que
+  // cuenten como pendientes o no lo decide `requisitoSatisfecho`.
+  const deRegalo = ficha.regalos?.trim()
+    ? REQUISITOS_DE_REGALO.filter((r) => !declarados?.some((d) => d.id === r.id))
+    : [];
+  if (!declarados && !deRegalo.length) return undefined;
+  return [...(declarados ?? []), ...deRegalo].filter((r) =>
+    aplica(r, ficha, pedido?.modalidadDeEntrega ?? null)
+  );
 }
 
 /**

@@ -645,7 +645,18 @@ export type FalloDeResumen = "cierre-prematuro" | "sin-contenido" | null;
 
 /** Qué le pasa al resumen que el agente va a mandar. `null` = está bien. */
 export function resumenMalArmado(
-  texto: string | null | undefined
+  texto: string | null | undefined,
+  opciones?: {
+    /**
+     * El mensaje ANTERIOR del agente ya mostró el resumen con su total. E2E del
+     * 26-sep-2026 (MALIA): tras el resumen, la clienta preguntó por el efectivo
+     * y la respuesta ("…con el comprobante dejamos tu pedido en firme") se
+     * tomó por un resumen vacío y se reemplazó por el resumen: la pregunta
+     * quedó sin responder. Con el resumen ya visto, un mensaje que no ANUNCIA
+     * uno nuevo no es un resumen roto.
+     */
+    resumenYaMostrado?: boolean;
+  }
 ): FalloDeResumen {
   if (!texto) return null;
 
@@ -667,6 +678,7 @@ export function resumenMalArmado(
    * confirmando un precio que nadie le dijo.
    */
   if ((anunciaResumen || pideConfirmar) && !TIENE_TOTAL.test(texto)) {
+    if (!anunciaResumen && opciones?.resumenYaMostrado) return null;
     return "sin-contenido";
   }
 
@@ -678,7 +690,7 @@ export function correccionDeResumen(fallo: FalloDeResumen): string {
   if (fallo === "cierre-prematuro") {
     return "ALTO. En el MISMO mensaje le pides al cliente que confirme su pedido y ya te despides (o le das los datos de pago). Son DOS momentos distintos: el cliente todavía NO ha confirmado. Tu mensaje debe TERMINAR justo después de preguntar si está todo correcto — sin despedida, sin 'marca 0', sin datos de pago, sin decir que ya lo estás preparando. Esos textos van en el mensaje SIGUIENTE, cuando el cliente diga que sí. Reescribe SOLO el resumen y la petición de confirmación. Responde ÚNICAMENTE el objeto JSON.";
   }
-  return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Responde ÚNICAMENTE el objeto JSON.";
+  return "ALTO. Anuncias el resumen del pedido pero no escribiste ningún resumen: falta el detalle y falta el total. El cliente no puede confirmar algo que no ve. Escribe el resumen COMPLETO con el formato de tus instrucciones: cada producto con su cantidad y precio, los toppings, los datos de entrega, la línea del domicilio si aplica, y el total con la cifra. Si el cliente te hizo una pregunta en su último mensaje, respóndela también, primero y en el mismo mensaje: no la dejes sin contestar. Responde ÚNICAMENTE el objeto JSON.";
 }
 
 /* ============================================================
